@@ -287,6 +287,58 @@ function jsErrorsQuery(days: number): string {
 | limit 30`;
 }
 
+// NEW: Rage/Dead Clicks query
+function clickIssuesQuery(days: number): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${FRONTEND}"
+| filter in(event.type, "rageClick", "deadClick")
+| fieldsAdd eventType = event.type
+| fieldsAdd pageName = view.name
+| fieldsAdd target = event.name
+| summarize
+    occurrences = count(),
+    affected_sessions = countDistinct(dt.rum.session.id),
+    by: {eventType, pageName, target}
+| sort occurrences desc
+| limit 30`;
+}
+
+// NEW: User Cohort query — new vs returning and by user type
+function cohortQuery(days: number): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${FRONTEND}"
+| filter ${anyStepFilter()}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd satisfaction = coalesce(if(dur_ms <= ${APDEX_T}.0, "satisfied"), if(dur_ms <= ${APDEX_4T}.0, "tolerating"), "frustrated")
+| fieldsAdd visitorType = coalesce(if(user.type == "Real User", "Identified"), "Anonymous")
+| summarize
+    actions = count(),
+    sessions = countDistinct(dt.rum.session.id),
+    avg_dur = avg(dur_ms),
+    p90_dur = percentile(dur_ms, 90),
+    errors = countIf(characteristics.has_error == true),
+    satisfied = countIf(satisfaction == "satisfied"),
+    tolerating = countIf(satisfaction == "tolerating"),
+    frustrated = countIf(satisfaction == "frustrated"),
+    by: {visitorType}`;
+}
+
+// NEW: Resource loading performance (top slow resources)
+function resourceQuery(days: number): string {
+  const period = periodClause(days);
+  return `timeseries {
+  dur = avg(dt.frontend.web.resource.duration),
+  transfer = avg(dt.frontend.web.resource.transfer_size)
+}, by: {dt.rum.resource.url}, ${period}, filter: {frontend.name == "${FRONTEND}"}
+| fieldsAdd avg_dur = arrayAvg(dur), avg_size = arrayAvg(transfer)
+| fields dt.rum.resource.url, avg_dur, avg_size
+| filter isNotNull(avg_dur)
+| sort avg_dur desc
+| limit 25`;
+}
+
 // ---------------------------------------------------------------------------
 // Shared Components
 // ---------------------------------------------------------------------------
@@ -469,6 +521,9 @@ function HelpContent() {
         <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99).</Paragraph>
         <Paragraph><Strong>Worst Sessions</Strong>: Surfaces the worst-performing sessions ranked by frustrated actions, errors, and slowness. Each session links directly to <Strong>Dynatrace Session Replay</Strong> for instant root-cause analysis.</Paragraph>
         <Paragraph><Strong>JS Errors</Strong>: JavaScript errors grouped by error name. Shows occurrences, affected sessions, error velocity (new vs. recurring), and impacted pages. Helps prioritize which errors to fix first.</Paragraph>
+        <Paragraph><Strong>Click Issues</Strong>: Detects rage clicks (rapid repeated clicks indicating frustration) and dead clicks (clicks on non-responsive elements). Shows the worst offending elements, pages, and session impact to guide UX fixes.</Paragraph>
+        <Paragraph><Strong>User Cohorts</Strong>: Compares experience quality between identified (logged-in) and anonymous users. Shows Apdex, duration, errors, and satisfaction breakdown per cohort to reveal auth-flow overhead or personalization issues.</Paragraph>
+        <Paragraph><Strong>Resources</Strong>: Surfaces the slowest-loading resources (scripts, images, fonts, APIs) with a waterfall visualization. Groups by domain to identify problematic third-party dependencies. Helps prioritize optimizations that improve LCP and load times.</Paragraph>
         <Paragraph><Strong>Segmentation</Strong>: Device, browser, and geo breakdowns with Apdex per segment.</Paragraph>
         <Paragraph><Strong>Errors &amp; Drop-offs</Strong>: Drop-off analysis between funnel steps with optimization recommendations.</Paragraph>
         <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation.</Paragraph>
@@ -516,6 +571,11 @@ export function UserJourney() {
   // NEW: Worst Sessions + JS Errors
   const worstSessionsData = useDql({ query: worstSessionsQuery(timeframeDays) });
   const jsErrorsData = useDql({ query: jsErrorsQuery(timeframeDays) });
+
+  // NEW: Rage/Dead Clicks, User Cohorts, Resources
+  const clickIssuesData = useDql({ query: clickIssuesQuery(timeframeDays) });
+  const cohortData = useDql({ query: cohortQuery(timeframeDays) });
+  const resourceData = useDql({ query: resourceQuery(timeframeDays) });
 
   // Parse funnel
   const parseFunnel = (result: any) => {
@@ -603,6 +663,15 @@ export function UserJourney() {
         </Tab>
         <Tab title="JS Errors">
           <JSErrorsTab data={jsErrorsData} isLoading={jsErrorsData.isLoading} />
+        </Tab>
+        <Tab title="Click Issues">
+          <ClickIssuesTab data={clickIssuesData} isLoading={clickIssuesData.isLoading} />
+        </Tab>
+        <Tab title="User Cohorts">
+          <UserCohortsTab data={cohortData} isLoading={cohortData.isLoading} />
+        </Tab>
+        <Tab title="Resources">
+          <ResourcesTab data={resourceData} isLoading={resourceData.isLoading} />
         </Tab>
         <Tab title="Segmentation">
           <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} />
@@ -1145,6 +1214,348 @@ function JSErrorsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
               </div>
             </>
           )}
+        </>
+      )}
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Click Issues (Rage / Dead Clicks) — NEW
+// ===========================================================================
+function ClickIssuesTab({ data, isLoading }: { data: any; isLoading: boolean }) {
+  if (isLoading) return <Loading />;
+
+  const rows = (data.data?.records ?? []) as any[];
+  const rageClicks = rows.filter((r: any) => r.eventType === "rageClick");
+  const deadClicks = rows.filter((r: any) => r.eventType === "deadClick");
+  const totalRage = rageClicks.reduce((a: number, r: any) => a + Number(r.occurrences ?? 0), 0);
+  const totalDead = deadClicks.reduce((a: number, r: any) => a + Number(r.occurrences ?? 0), 0);
+  const totalAffected = rows.reduce((a: number, r: any) => a + Number(r.affected_sessions ?? 0), 0);
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Rage & Dead Click Detection" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Rage clicks signal user frustration (rapid repeated clicks). Dead clicks indicate non-responsive UI elements. Both hurt conversion.</Text>
+
+      {/* KPI cards */}
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Rage Clicks</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: totalRage > 0 ? RED : GREEN }}>{fmtCount(totalRage)}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Dead Clicks</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: totalDead > 0 ? ORANGE : GREEN }}>{fmtCount(totalDead)}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Affected Sessions</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: totalAffected > 0 ? YELLOW : GREEN }}>{fmtCount(totalAffected)}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Unique Elements</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{rows.length}</Heading>
+        </div>
+      </Flex>
+
+      {rows.length === 0 ? (
+        <div className="uj-table-tile" style={{ padding: 24 }}><Text style={{ color: GREEN }}>No rage or dead clicks detected — great UX!</Text></div>
+      ) : (
+        <>
+          {/* Top offenders cards */}
+          <SectionHeader title="Top Offending Elements" />
+          <Flex flexDirection="column" gap={12}>
+            {rows.slice(0, 8).map((r: any, i: number) => {
+              const type = String(r.eventType ?? "unknown");
+              const isRage = type === "rageClick";
+              const color = isRage ? RED : ORANGE;
+              const occ = Number(r.occurrences ?? 0);
+              const affected = Number(r.affected_sessions ?? 0);
+              const page = String(r.pageName ?? "Unknown page");
+              const target = String(r.target ?? "Unknown element");
+              const pctOfTotal = (totalRage + totalDead) > 0 ? (occ / (totalRage + totalDead)) * 100 : 0;
+
+              return (
+                <div key={i} className="uj-error-card">
+                  <Flex alignItems="flex-start" gap={12}>
+                    <div className="uj-error-rank" style={{ background: `${color}22`, color, borderColor: `${color}44` }}>{i + 1}</div>
+                    <div style={{ flex: 1 }}>
+                      <Flex alignItems="center" gap={8} style={{ marginBottom: 6 }}>
+                        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${color}18`, color, fontWeight: 700, textTransform: "uppercase" }}>{isRage ? "Rage" : "Dead"}</span>
+                        <Strong style={{ fontSize: 13, wordBreak: "break-word" }}>{target.length > 100 ? target.substring(0, 100) + "..." : target}</Strong>
+                      </Flex>
+                      <Flex gap={16} flexWrap="wrap">
+                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Occurrences</Text><Strong style={{ display: "block", color }}>{fmtCount(occ)}</Strong></div>
+                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Affected Sessions</Text><Strong style={{ display: "block", color: ORANGE }}>{fmtCount(affected)}</Strong></div>
+                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>% of Total</Text><Strong style={{ display: "block" }}>{fmtPct(pctOfTotal)}</Strong></div>
+                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Page</Text><Text style={{ display: "block", fontSize: 11, color: BLUE }}>{page}</Text></div>
+                      </Flex>
+                      <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${pctOfTotal}%`, background: color, borderRadius: 2 }} />
+                      </div>
+                    </div>
+                  </Flex>
+                </div>
+              );
+            })}
+          </Flex>
+
+          {/* Full table */}
+          <SectionHeader title="All Click Issues" />
+          <div className="uj-table-tile">
+            <DataTable
+              sortable
+              data={rows.map((r: any) => ({
+                Type: String(r.eventType ?? "unknown") === "rageClick" ? "Rage" : "Dead",
+                Element: String(r.target ?? "Unknown").substring(0, 60),
+                Page: String(r.pageName ?? "Unknown"),
+                Occurrences: Number(r.occurrences ?? 0),
+                "Affected Sessions": Number(r.affected_sessions ?? 0),
+              }))}
+              columns={[
+                { id: "Type", header: "Type", accessor: "Type", cell: ({ value }: any) => <Strong style={{ color: value === "Rage" ? RED : ORANGE }}>{value}</Strong> },
+                { id: "Element", header: "Element", accessor: "Element" },
+                { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Text style={{ fontSize: 11, color: BLUE }}>{value}</Text> },
+                { id: "Occurrences", header: "Count", accessor: "Occurrences", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
+                { id: "Affected Sessions", header: "Sessions", accessor: "Affected Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+              ]}
+            />
+          </div>
+        </>
+      )}
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: User Cohorts — NEW
+// ===========================================================================
+function UserCohortsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
+  if (isLoading) return <Loading />;
+
+  const cohorts = (data.data?.records ?? []) as any[];
+  const parsed = cohorts.map((c: any) => {
+    const sat = Number(c.satisfied ?? 0);
+    const tol = Number(c.tolerating ?? 0);
+    const fru = Number(c.frustrated ?? 0);
+    const actions = Number(c.actions ?? 0);
+    const sessions = Number(c.sessions ?? 0);
+    const avg = Number(c.avg_dur ?? 0);
+    const p90 = Number(c.p90_dur ?? 0);
+    const errors = Number(c.errors ?? 0);
+    const apdex = calcApdex(sat, tol, actions);
+    const errRate = actions > 0 ? (errors / actions) * 100 : 0;
+    return { name: String(c.visitorType ?? "Unknown"), sessions, actions, avg, p90, errors, errRate, sat, tol, fru, apdex };
+  });
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="User Cohort Comparison" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Compare experience quality between identified (logged-in) and anonymous users. Differences may indicate issues with auth flows or personalization overhead.</Text>
+
+      {parsed.length === 0 ? (
+        <div className="uj-table-tile" style={{ padding: 24 }}><Text>No cohort data available</Text></div>
+      ) : (
+        <>
+          {/* Cohort cards side by side */}
+          <Flex gap={16} flexWrap="wrap">
+            {parsed.map((c) => {
+              const totalActions = c.sat + c.tol + c.fru;
+              return (
+                <div key={c.name} className="uj-cohort-card">
+                  <Flex alignItems="center" gap={12} style={{ marginBottom: 12 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: "50%", background: c.name === "Identified" ? `${BLUE}22` : `${PURPLE}22`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <span style={{ fontSize: 18 }}>{c.name === "Identified" ? "👤" : "👥"}</span>
+                    </div>
+                    <div>
+                      <Strong style={{ fontSize: 15 }}>{c.name}</Strong>
+                      <Text style={{ display: "block", fontSize: 11, opacity: 0.5 }}>{fmtCount(c.sessions)} sessions</Text>
+                    </div>
+                    <div style={{ marginLeft: "auto" }}><ApdexGauge score={c.apdex} size={64} label="Apdex" /></div>
+                  </Flex>
+
+                  <Flex gap={12} flexWrap="wrap" style={{ marginBottom: 12 }}>
+                    <div className="uj-metric-box"><Text className="uj-metric-label">Actions</Text><Strong className="uj-metric-value" style={{ color: BLUE }}>{fmtCount(c.actions)}</Strong></div>
+                    <div className="uj-metric-box"><Text className="uj-metric-label">Avg Duration</Text><Strong className="uj-metric-value" style={{ color: c.avg > 3000 ? RED : c.avg > 1000 ? YELLOW : GREEN }}>{fmt(c.avg)}</Strong></div>
+                    <div className="uj-metric-box"><Text className="uj-metric-label">P90</Text><Strong className="uj-metric-value" style={{ color: c.p90 > 3000 ? RED : c.p90 > 1500 ? YELLOW : GREEN }}>{fmt(c.p90)}</Strong></div>
+                    <div className="uj-metric-box"><Text className="uj-metric-label">Errors</Text><Strong className="uj-metric-value" style={{ color: c.errors > 0 ? RED : GREEN }}>{c.errors}</Strong></div>
+                    <div className="uj-metric-box"><Text className="uj-metric-label">Error Rate</Text><Strong className="uj-metric-value" style={{ color: c.errRate > 5 ? RED : c.errRate > 1 ? YELLOW : GREEN }}>{fmtPct(c.errRate)}</Strong></div>
+                  </Flex>
+
+                  {/* Satisfaction bar */}
+                  <Flex gap={12} alignItems="center">
+                    <Text style={{ fontSize: 10, color: GREEN }}>Sat: {c.sat}</Text>
+                    <Text style={{ fontSize: 10, color: YELLOW }}>Tol: {c.tol}</Text>
+                    <Text style={{ fontSize: 10, color: RED }}>Fru: {c.fru}</Text>
+                    <div style={{ flex: 1, height: 6, borderRadius: 3, overflow: "hidden", display: "flex" }}>
+                      <div style={{ width: `${totalActions > 0 ? (c.sat / totalActions) * 100 : 0}%`, background: GREEN, height: "100%" }} />
+                      <div style={{ width: `${totalActions > 0 ? (c.tol / totalActions) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
+                      <div style={{ width: `${totalActions > 0 ? (c.fru / totalActions) * 100 : 0}%`, background: RED, height: "100%" }} />
+                    </div>
+                  </Flex>
+                </div>
+              );
+            })}
+          </Flex>
+
+          {/* Comparison table */}
+          <SectionHeader title="Side-by-Side Comparison" />
+          <div className="uj-table-tile">
+            <DataTable
+              sortable
+              data={parsed.map((c) => ({
+                Cohort: c.name,
+                Sessions: c.sessions,
+                Actions: c.actions,
+                "Avg (ms)": Math.round(c.avg),
+                "P90 (ms)": Math.round(c.p90),
+                Errors: c.errors,
+                "Error Rate": c.errRate,
+                Apdex: c.apdex,
+              }))}
+              columns={[
+                { id: "Cohort", header: "Cohort", accessor: "Cohort", cell: ({ value }: any) => <Strong>{value}</Strong> },
+                { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+                { id: "Actions", header: "Actions", accessor: "Actions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+                { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+                { id: "P90 (ms)", header: "P90", accessor: "P90 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1500 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+                { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : GREEN }}>{value}</Strong> },
+                { id: "Error Rate", header: "Error %", accessor: "Error Rate", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 5 ? RED : value > 1 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
+                { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
+              ]}
+            />
+          </div>
+        </>
+      )}
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Resources (Slowest Resources) — NEW
+// ===========================================================================
+function ResourcesTab({ data, isLoading }: { data: any; isLoading: boolean }) {
+  if (isLoading) return <Loading />;
+
+  const rows = (data.data?.records ?? []) as any[];
+  const parsed = rows.map((r: any) => {
+    const url = String(r["dt.rum.resource.url"] ?? "Unknown");
+    const dur = Number(r.avg_dur ?? 0);
+    const size = Number(r.avg_size ?? 0);
+    // Extract domain for grouping
+    let domain = "unknown";
+    try { domain = new URL(url).hostname; } catch { domain = url.split("/")[2] ?? "unknown"; }
+    return { url, shortUrl: url.length > 80 ? url.substring(0, 80) + "..." : url, domain, dur, size };
+  });
+
+  const maxDur = Math.max(...parsed.map((r) => r.dur), 1);
+  const totalResources = parsed.length;
+  const avgDur = parsed.length > 0 ? parsed.reduce((a, r) => a + r.dur, 0) / parsed.length : 0;
+  const slowCount = parsed.filter((r) => r.dur > 1000).length;
+
+  // Group by domain
+  const domainMap = new Map<string, { count: number; avgDur: number; totalSize: number }>();
+  parsed.forEach((r) => {
+    const d = domainMap.get(r.domain) ?? { count: 0, avgDur: 0, totalSize: 0 };
+    d.count++;
+    d.avgDur = (d.avgDur * (d.count - 1) + r.dur) / d.count;
+    d.totalSize += r.size;
+    domainMap.set(r.domain, d);
+  });
+  const domains = Array.from(domainMap.entries()).map(([domain, d]) => ({ domain, ...d })).sort((a, b) => b.avgDur - a.avgDur);
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Resource Loading Performance" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Slowest third-party and first-party resources. Slow resources contribute to poor LCP and load times.</Text>
+
+      {/* KPI */}
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Tracked Resources</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{totalResources}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Avg Load Time</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: avgDur > 1000 ? RED : avgDur > 500 ? YELLOW : GREEN }}>{fmt(avgDur)}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Slow Resources (&gt;1s)</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: slowCount > 5 ? RED : slowCount > 0 ? ORANGE : GREEN }}>{slowCount}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Unique Domains</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{domains.length}</Heading>
+        </div>
+      </Flex>
+
+      {parsed.length === 0 ? (
+        <div className="uj-table-tile" style={{ padding: 24 }}><Text>No resource data available</Text></div>
+      ) : (
+        <>
+          {/* Waterfall-style chart */}
+          <SectionHeader title="Slowest Resources (Waterfall)" />
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Flex flexDirection="column" gap={6}>
+              {parsed.slice(0, 15).map((r, i) => {
+                const pct = maxDur > 0 ? (r.dur / maxDur) * 100 : 0;
+                const color = r.dur > 2000 ? RED : r.dur > 1000 ? ORANGE : r.dur > 500 ? YELLOW : GREEN;
+                return (
+                  <Flex key={i} alignItems="center" gap={8}>
+                    <Text style={{ fontSize: 10, width: 30, textAlign: "right", opacity: 0.4 }}>{i + 1}</Text>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={{ fontSize: 10, opacity: 0.6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{r.shortUrl}</Text>
+                      <div style={{ height: 8, borderRadius: 4, background: "rgba(255,255,255,0.06)", overflow: "hidden", marginTop: 2 }}>
+                        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 4, transition: "width 0.4s ease" }} />
+                      </div>
+                    </div>
+                    <Text style={{ fontSize: 11, fontWeight: 700, color, minWidth: 60, textAlign: "right" }}>{fmt(r.dur)}</Text>
+                    {r.size > 0 && <Text style={{ fontSize: 10, opacity: 0.4, minWidth: 55, textAlign: "right" }}>{r.size > 1024 * 1024 ? (r.size / (1024 * 1024)).toFixed(1) + " MB" : r.size > 1024 ? (r.size / 1024).toFixed(0) + " KB" : r.size.toFixed(0) + " B"}</Text>}
+                  </Flex>
+                );
+              })}
+            </Flex>
+          </div>
+
+          {/* By domain */}
+          <SectionHeader title="Performance by Domain" />
+          <div className="uj-table-tile">
+            <DataTable
+              sortable
+              data={domains.map((d) => ({
+                Domain: d.domain,
+                Resources: d.count,
+                "Avg Duration (ms)": Math.round(d.avgDur),
+                "Total Transfer": d.totalSize,
+              }))}
+              columns={[
+                { id: "Domain", header: "Domain", accessor: "Domain", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
+                { id: "Resources", header: "Resources", accessor: "Resources", sortType: "number" as any },
+                { id: "Avg Duration (ms)", header: "Avg Load", accessor: "Avg Duration (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 1000 ? RED : value > 500 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
+                { id: "Total Transfer", header: "Transfer", accessor: "Total Transfer", sortType: "number" as any, cell: ({ value }: any) => <Text>{value > 1024 * 1024 ? (value / (1024 * 1024)).toFixed(1) + " MB" : value > 1024 ? (value / 1024).toFixed(0) + " KB" : value + " B"}</Text> },
+              ]}
+            />
+          </div>
+
+          {/* Full table */}
+          <SectionHeader title="All Resources" />
+          <div className="uj-table-tile">
+            <DataTable
+              sortable
+              data={parsed.map((r) => ({
+                Resource: r.shortUrl,
+                Domain: r.domain,
+                "Duration (ms)": Math.round(r.dur),
+                "Size": r.size,
+              }))}
+              columns={[
+                { id: "Resource", header: "Resource URL", accessor: "Resource" },
+                { id: "Domain", header: "Domain", accessor: "Domain", cell: ({ value }: any) => <Text style={{ fontSize: 11, color: BLUE }}>{value}</Text> },
+                { id: "Duration (ms)", header: "Load Time", accessor: "Duration (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 1000 ? RED : value > 500 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
+                { id: "Size", header: "Size", accessor: "Size", sortType: "number" as any, cell: ({ value }: any) => <Text>{value > 1024 * 1024 ? (value / (1024 * 1024)).toFixed(1) + " MB" : value > 1024 ? (value / 1024).toFixed(0) + " KB" : value + " B"}</Text> },
+              ]}
+            />
+          </div>
         </>
       )}
     </Flex>
