@@ -404,6 +404,64 @@ function hourlyDistributionQuery(days: number): string {
 | sort hour asc`;
 }
 
+// NEW: Conversion attribution — correlate conversion with perf factors
+function conversionAttributionQuery(days: number): string {
+  const period = periodClause(days);
+  const tagExpr = stepTagExpr(FUNNEL_STEPS.map((_, i) => `step${i + 1}`));
+  const iAnyLines = FUNNEL_STEPS.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  return `fetch user.events, ${period}
+| filter frontend.name == "${FRONTEND}"
+| filter ${anyStepFilter()}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd deviceType = device.type
+| fieldsAdd browserName = browser.name
+| summarize
+    steps = collectDistinct(step_tag),
+    avg_dur = avg(dur_ms),
+    max_dur = max(dur_ms),
+    errors = countIf(characteristics.has_error == true),
+    actions = count(),
+    by: {dt.rum.session.id, deviceType, browserName}
+| fieldsAdd
+${iAnyLines}
+| fieldsAdd converted = if(reached_step1 == true and reached_step2 == true and reached_step3 == true and reached_step4 == true, true, else: false)
+| summarize
+    total_sessions = count(),
+    converted_sessions = countIf(converted == true),
+    avg_duration = avg(avg_dur),
+    avg_max_duration = avg(max_dur),
+    avg_errors = avg(toDouble(errors)),
+    by: {deviceType, browserName}
+| fieldsAdd conv_rate = if(total_sessions > 0, toDouble(converted_sessions) / toDouble(total_sessions) * 100.0, else: 0.0)
+| sort total_sessions desc
+| limit 30`;
+}
+
+// NEW: Session duration distribution for anomaly detection
+function sessionDurationDistributionQuery(days: number): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${FRONTEND}"
+| filter ${anyStepFilter()}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd dur_bucket = coalesce(
+    if(dur_ms <= 500.0, "0-500ms"),
+    if(dur_ms <= 1000.0, "500ms-1s"),
+    if(dur_ms <= 2000.0, "1-2s"),
+    if(dur_ms <= 3000.0, "2-3s"),
+    if(dur_ms <= 5000.0, "3-5s"),
+    if(dur_ms <= 10000.0, "5-10s"),
+    ">10s")
+| summarize
+    actions = count(),
+    sessions = countDistinct(dt.rum.session.id),
+    avg_dur = avg(dur_ms),
+    errors = countIf(characteristics.has_error == true),
+    by: {dur_bucket}
+| sort avg_dur asc`;
+}
+
 // ---------------------------------------------------------------------------
 // Shared Components
 // ---------------------------------------------------------------------------
@@ -592,6 +650,9 @@ function HelpContent() {
         <Paragraph><Strong>Perf Budgets</Strong>: Tracks actual metrics against defined performance budgets (Apdex ≥0.85, Conversion ≥20%, Avg Duration ≤2s, P90 ≤4s, Error Rate ≤2%, Frustrated ≤10%). Shows pass/fail status, margin from target, and hourly Apdex distribution to identify peak-hour degradation.</Paragraph>
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights.</Paragraph>
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation.</Paragraph>
+        <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations.</Paragraph>
+        <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device × browser cross-section.</Paragraph>
+        <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. Designed for quick status checks and executive presentations.</Paragraph>
         <Paragraph><Strong>Segmentation</Strong>: Device, browser, and geo breakdowns with Apdex per segment.</Paragraph>
         <Paragraph><Strong>Errors &amp; Drop-offs</Strong>: Drop-off analysis between funnel steps with optimization recommendations.</Paragraph>
         <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation.</Paragraph>
@@ -611,6 +672,9 @@ function HelpContent() {
         <Paragraph>• Check Perf Budgets daily to catch regressions before they impact users.</Paragraph>
         <Paragraph>• Use Geo Heatmap to justify CDN edge locations in underperforming regions.</Paragraph>
         <Paragraph>• Navigation Paths reveals where users actually go vs. the intended funnel.</Paragraph>
+        <Paragraph>• Anomaly Detection flags metrics that deviate significantly from baseline — check after every release.</Paragraph>
+        <Paragraph>• Conversion Attribution reveals the business impact of slow pages per device/browser.</Paragraph>
+        <Paragraph>• Share Executive Summary with stakeholders for quick performance status updates.</Paragraph>
       </HelpSection>
     </div>
   );
@@ -652,6 +716,10 @@ export function UserJourney() {
   const geoPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays) });
   const navigationPathsData = useDql({ query: navigationPathsQuery(timeframeDays) });
   const hourlyDistributionData = useDql({ query: hourlyDistributionQuery(timeframeDays) });
+
+  // NEW: Conversion Attribution, Duration Distribution
+  const conversionAttributionData = useDql({ query: conversionAttributionQuery(timeframeDays) });
+  const durationDistributionData = useDql({ query: sessionDurationDistributionQuery(timeframeDays) });
 
   // Parse funnel
   const parseFunnel = (result: any) => {
@@ -757,6 +825,15 @@ export function UserJourney() {
         </Tab>
         <Tab title="Navigation Paths">
           <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} />
+        </Tab>
+        <Tab title="Anomaly Detection">
+          <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} />
+        </Tab>
+        <Tab title="Conversion Attribution">
+          <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} />
+        </Tab>
+        <Tab title="Executive Summary">
+          <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} />
         </Tab>
         <Tab title="Segmentation">
           <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} />
@@ -2107,6 +2184,505 @@ function NavigationPathsTab({ data, isLoading }: { data: any; isLoading: boolean
           </div>
         </>
       )}
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Anomaly Detection — NEW
+// ===========================================================================
+function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev, stepMap, durationDist, isLoading }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; durationDist: any; isLoading: boolean }) {
+  if (isLoading) return <Loading />;
+
+  const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
+  const errorRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
+  const overallConv = funnelCounts[0] > 0 ? (funnelCounts[3] / funnelCounts[0]) * 100 : 0;
+  const overallConvPrev = funnelCountsPrev[0] > 0 ? (funnelCountsPrev[3] / funnelCountsPrev[0]) * 100 : 0;
+  const fruPct = quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0;
+  const fruPctPrev = qualityPrev.total > 0 ? (qualityPrev.frustrated / qualityPrev.total) * 100 : 0;
+
+  // Anomaly scoring: deviation from previous period
+  const anomalies = [
+    { metric: "Apdex", current: overallApdex, prev: overallApdexPrev, inverted: false, format: (v: number) => v.toFixed(2), threshold: 0.05 },
+    { metric: "Avg Duration", current: quality.avg, prev: qualityPrev.avg, inverted: true, format: fmt, threshold: 0.15 },
+    { metric: "P90 Duration", current: quality.p90, prev: qualityPrev.p90, inverted: true, format: fmt, threshold: 0.2 },
+    { metric: "Error Rate", current: errorRate, prev: errorRatePrev, inverted: true, format: fmtPct, threshold: 0.3 },
+    { metric: "Conversion", current: overallConv, prev: overallConvPrev, inverted: false, format: fmtPct, threshold: 0.1 },
+    { metric: "Sessions", current: quality.sessions, prev: qualityPrev.sessions, inverted: false, format: fmtCount, threshold: 0.2 },
+    { metric: "Frustrated %", current: fruPct, prev: fruPctPrev, inverted: true, format: fmtPct, threshold: 0.25 },
+  ].map((a) => {
+    const delta = a.prev > 0 ? (a.current - a.prev) / a.prev : 0;
+    const deviation = Math.abs(delta);
+    const isAnomaly = deviation > a.threshold;
+    const severity = deviation > a.threshold * 3 ? "critical" : deviation > a.threshold * 2 ? "high" : deviation > a.threshold ? "medium" : "normal";
+    const improving = a.inverted ? a.current < a.prev : a.current > a.prev;
+    return { ...a, delta, deviation, isAnomaly, severity, improving };
+  });
+
+  const anomalyCount = anomalies.filter((a) => a.isAnomaly).length;
+  const criticalCount = anomalies.filter((a) => a.severity === "critical").length;
+  const healthScore = Math.round(((anomalies.length - anomalyCount) / anomalies.length) * 100);
+
+  // Per-step anomalies
+  const stepAnomalies = FUNNEL_STEPS.map((step, i) => {
+    const m = stepMap.get(step.label);
+    const currAvg = m ? Number(m.avg_duration_ms ?? 0) : 0;
+    const currErrors = m ? Number(m.error_count ?? 0) : 0;
+    const currTotal = m ? Number(m.total_actions ?? 0) : 0;
+    const sat = m ? Number(m.satisfied ?? 0) : 0;
+    const tol = m ? Number(m.tolerating ?? 0) : 0;
+    const apdex = calcApdex(sat, tol, currTotal);
+    const prevCount = i === 0 ? funnelCountsPrev[0] : funnelCountsPrev[i];
+    const currCount = funnelCounts[i];
+    const countDelta = prevCount > 0 ? (currCount - prevCount) / prevCount : 0;
+    return { step: step.label, avg: currAvg, errors: currErrors, total: currTotal, apdex, countDelta, isAnomaly: Math.abs(countDelta) > 0.2 };
+  });
+
+  // Duration distribution
+  const durations = (durationDist.data?.records ?? []) as any[];
+  const maxDurActions = Math.max(...durations.map((d: any) => Number(d.actions ?? 0)), 1);
+
+  const severityColor = (s: string) => s === "critical" ? RED : s === "high" ? ORANGE : s === "medium" ? YELLOW : GREEN;
+  const severityEmoji = (s: string) => s === "critical" ? "🔴" : s === "high" ? "🟠" : s === "medium" ? "🟡" : "🟢";
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Anomaly Detection" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Flags metrics deviating significantly from baseline (previous period). Anomaly threshold varies per metric type.</Text>
+
+      {/* KPIs */}
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card" style={{ minWidth: 160 }}>
+          <Text className="uj-kpi-label">Stability Score</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED }}>{healthScore}/100</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Anomalies Detected</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: anomalyCount > 3 ? RED : anomalyCount > 0 ? ORANGE : GREEN }}>{anomalyCount}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Critical</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: criticalCount > 0 ? RED : GREEN }}>{criticalCount}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Metrics Monitored</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{anomalies.length}</Heading>
+        </div>
+      </Flex>
+
+      {/* Anomaly cards */}
+      <SectionHeader title="Metric Anomaly Status" />
+      <Flex gap={12} flexWrap="wrap">
+        {anomalies.map((a) => (
+          <div key={a.metric} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(a.severity) }}>
+            <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 6 }}>
+              <Strong style={{ fontSize: 13 }}>{a.metric}</Strong>
+              <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${severityColor(a.severity)}18`, color: severityColor(a.severity), fontWeight: 700, textTransform: "uppercase" }}>{a.severity}</span>
+            </Flex>
+            <Flex gap={16} style={{ marginBottom: 6 }}>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 15, color: a.isAnomaly ? severityColor(a.severity) : undefined }}>{a.format(a.current)}</Strong></div>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Baseline</Text><Text style={{ display: "block", fontSize: 13, opacity: 0.6 }}>{a.format(a.prev)}</Text></div>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Deviation</Text><Strong style={{ display: "block", color: a.isAnomaly ? severityColor(a.severity) : GREEN }}>{a.improving ? "▲" : "▼"} {(a.deviation * 100).toFixed(1)}%</Strong></div>
+            </Flex>
+            <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${Math.min(a.deviation * 100, 100)}%`, background: severityColor(a.severity), borderRadius: 2 }} />
+            </div>
+          </div>
+        ))}
+      </Flex>
+
+      {/* Per-step anomalies */}
+      <SectionHeader title="Per-Step Traffic Anomalies" />
+      <div className="uj-table-tile">
+        <DataTable
+          sortable
+          data={stepAnomalies.map((s) => ({
+            Step: s.step,
+            Sessions: funnelCounts[FUNNEL_STEPS.findIndex((f) => f.label === s.step)],
+            "Avg (ms)": Math.round(s.avg),
+            Errors: s.errors,
+            Apdex: s.apdex,
+            "Traffic Δ": s.countDelta * 100,
+            Anomaly: s.isAnomaly ? "YES" : "—",
+          }))}
+          columns={[
+            { id: "Step", header: "Step", accessor: "Step", cell: ({ value }: any) => <Strong>{value}</Strong> },
+            { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+            { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+            { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : GREEN }}>{value}</Strong> },
+            { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
+            { id: "Traffic Δ", header: "Traffic Δ", accessor: "Traffic Δ", sortType: "number" as any, cell: ({ value }: any) => {
+              const color = Math.abs(value) < 5 ? "rgba(255,255,255,0.4)" : value > 0 ? GREEN : RED;
+              return <Strong style={{ color }}>{value >= 0 ? "+" : ""}{value.toFixed(1)}%</Strong>;
+            }},
+            { id: "Anomaly", header: "Anomaly", accessor: "Anomaly", cell: ({ value }: any) => <Strong style={{ color: value === "YES" ? RED : GREEN }}>{value}</Strong> },
+          ]}
+        />
+      </div>
+
+      {/* Duration distribution histogram */}
+      {durations.length > 0 && (
+        <>
+          <SectionHeader title="Duration Distribution" />
+          <Text style={{ fontSize: 12, opacity: 0.5 }}>Action duration buckets. Heavy tails indicate potential performance anomalies.</Text>
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Flex flexDirection="column" gap={6}>
+              {durations.map((d: any, i: number) => {
+                const bucket = String(d.dur_bucket ?? "?");
+                const actions = Number(d.actions ?? 0);
+                const errors = Number(d.errors ?? 0);
+                const pct = maxDurActions > 0 ? (actions / maxDurActions) * 100 : 0;
+                const errRate = actions > 0 ? (errors / actions) * 100 : 0;
+                const color = bucket.includes(">10") || bucket.includes("5-10") ? RED : bucket.includes("3-5") ? ORANGE : bucket.includes("2-3") ? YELLOW : GREEN;
+                return (
+                  <Flex key={i} alignItems="center" gap={8}>
+                    <Text style={{ fontSize: 10, width: 65, textAlign: "right", opacity: 0.6 }}>{bucket}</Text>
+                    <div style={{ flex: 1, height: 16, borderRadius: 4, background: "rgba(255,255,255,0.04)", overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 4, opacity: 0.7 }} />
+                    </div>
+                    <Text style={{ fontSize: 10, minWidth: 50, textAlign: "right", color: BLUE }}>{fmtCount(actions)}</Text>
+                    {errRate > 0 && <Text style={{ fontSize: 9, minWidth: 40, textAlign: "right", color: RED }}>{fmtPct(errRate)} err</Text>}
+                  </Flex>
+                );
+              })}
+            </Flex>
+          </div>
+        </>
+      )}
+
+      {/* Anomaly summary */}
+      <SectionHeader title="Diagnosis" />
+      <div className="uj-table-tile" style={{ padding: 20 }}>
+        {anomalyCount === 0 ? (
+          <Flex gap={8} alignItems="center"><span>🟢</span><Text style={{ color: GREEN }}>All metrics within normal range. No anomalies detected.</Text></Flex>
+        ) : (
+          <Flex flexDirection="column" gap={8}>
+            {anomalies.filter((a) => a.isAnomaly).map((a) => (
+              <Flex key={a.metric} gap={8} alignItems="flex-start">
+                <span>{severityEmoji(a.severity)}</span>
+                <div>
+                  <Strong style={{ fontSize: 13, color: severityColor(a.severity) }}>{a.metric}: {(a.deviation * 100).toFixed(1)}% deviation ({a.severity})</Strong>
+                  <Text style={{ display: "block", fontSize: 11, opacity: 0.6 }}>
+                    {a.improving
+                      ? `Improving: ${a.format(a.prev)} → ${a.format(a.current)}. Positive change but significant.`
+                      : `Regressing: ${a.format(a.prev)} → ${a.format(a.current)}. ${a.severity === "critical" ? "Immediate investigation recommended." : "Monitor closely."}`}
+                  </Text>
+                </div>
+              </Flex>
+            ))}
+          </Flex>
+        )}
+      </div>
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Conversion Attribution — NEW
+// ===========================================================================
+function ConversionAttributionTab({ data, overallConv, isLoading }: { data: any; isLoading: boolean; overallConv: number }) {
+  if (isLoading) return <Loading />;
+
+  const rows = (data.data?.records ?? []) as any[];
+  const parsed = rows.map((r: any) => ({
+    device: String(r.deviceType ?? "Unknown"),
+    browser: String(r.browserName ?? "Unknown"),
+    sessions: Number(r.total_sessions ?? 0),
+    converted: Number(r.converted_sessions ?? 0),
+    convRate: Number(r.conv_rate ?? 0),
+    avgDuration: Number(r.avg_duration ?? 0),
+    avgMaxDuration: Number(r.avg_max_duration ?? 0),
+    avgErrors: Number(r.avg_errors ?? 0),
+  }));
+
+  // Aggregate by device
+  const deviceMap = new Map<string, { sessions: number; converted: number; avgDur: number; avgErr: number }>();
+  parsed.forEach((r) => {
+    const d = deviceMap.get(r.device) ?? { sessions: 0, converted: 0, avgDur: 0, avgErr: 0 };
+    d.avgDur = d.sessions > 0 ? (d.avgDur * d.sessions + r.avgDuration * r.sessions) / (d.sessions + r.sessions) : r.avgDuration;
+    d.avgErr = d.sessions > 0 ? (d.avgErr * d.sessions + r.avgErrors * r.sessions) / (d.sessions + r.sessions) : r.avgErrors;
+    d.sessions += r.sessions;
+    d.converted += r.converted;
+    deviceMap.set(r.device, d);
+  });
+  const devices = Array.from(deviceMap.entries()).map(([name, d]) => ({
+    name, ...d, convRate: d.sessions > 0 ? (d.converted / d.sessions) * 100 : 0,
+  })).sort((a, b) => b.sessions - a.sessions);
+
+  // Aggregate by browser
+  const browserMap = new Map<string, { sessions: number; converted: number; avgDur: number; avgErr: number }>();
+  parsed.forEach((r) => {
+    const d = browserMap.get(r.browser) ?? { sessions: 0, converted: 0, avgDur: 0, avgErr: 0 };
+    d.avgDur = d.sessions > 0 ? (d.avgDur * d.sessions + r.avgDuration * r.sessions) / (d.sessions + r.sessions) : r.avgDuration;
+    d.avgErr = d.sessions > 0 ? (d.avgErr * d.sessions + r.avgErrors * r.sessions) / (d.sessions + r.sessions) : r.avgErrors;
+    d.sessions += r.sessions;
+    d.converted += r.converted;
+    browserMap.set(r.browser, d);
+  });
+  const browsers = Array.from(browserMap.entries()).map(([name, d]) => ({
+    name, ...d, convRate: d.sessions > 0 ? (d.converted / d.sessions) * 100 : 0,
+  })).sort((a, b) => b.sessions - a.sessions);
+
+  // Speed attribution buckets
+  const fastSessions = parsed.filter((r) => r.avgDuration <= 1000);
+  const medSessions = parsed.filter((r) => r.avgDuration > 1000 && r.avgDuration <= 3000);
+  const slowSessions = parsed.filter((r) => r.avgDuration > 3000);
+  const bucketConv = (arr: typeof parsed) => {
+    const total = arr.reduce((a, r) => a + r.sessions, 0);
+    const conv = arr.reduce((a, r) => a + r.converted, 0);
+    return total > 0 ? (conv / total) * 100 : 0;
+  };
+  const speedBuckets = [
+    { label: "Fast (≤1s)", sessions: fastSessions.reduce((a, r) => a + r.sessions, 0), convRate: bucketConv(fastSessions), color: GREEN },
+    { label: "Medium (1-3s)", sessions: medSessions.reduce((a, r) => a + r.sessions, 0), convRate: bucketConv(medSessions), color: YELLOW },
+    { label: "Slow (>3s)", sessions: slowSessions.reduce((a, r) => a + r.sessions, 0), convRate: bucketConv(slowSessions), color: RED },
+  ];
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Conversion Attribution Analysis" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Identifies which factors (speed, device, browser, errors) most influence conversion success. Overall conversion: <Strong style={{ color: statusClr(overallConv) }}>{fmtPct(overallConv)}</Strong></Text>
+
+      {/* Speed impact */}
+      <SectionHeader title="Speed → Conversion Impact" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Faster sessions convert at higher rates. Quantifies the revenue impact of performance.</Text>
+      <Flex gap={16} flexWrap="wrap">
+        {speedBuckets.map((b) => (
+          <div key={b.label} className="uj-attribution-card">
+            <Flex alignItems="center" gap={8} style={{ marginBottom: 8 }}>
+              <div style={{ width: 12, height: 12, borderRadius: "50%", background: b.color }} />
+              <Strong style={{ fontSize: 14 }}>{b.label}</Strong>
+            </Flex>
+            <Flex gap={16}>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Sessions</Text><Strong style={{ display: "block", color: BLUE }}>{fmtCount(b.sessions)}</Strong></div>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Conv Rate</Text><Strong style={{ display: "block", fontSize: 18, color: statusClr(b.convRate) }}>{fmtPct(b.convRate)}</Strong></div>
+            </Flex>
+            <div style={{ marginTop: 8, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${Math.min(b.convRate, 100)}%`, background: b.color, borderRadius: 3, opacity: 0.8 }} />
+            </div>
+          </div>
+        ))}
+      </Flex>
+
+      {/* Device attribution */}
+      <SectionHeader title="Device → Conversion" />
+      <div className="uj-table-tile">
+        {devices.length === 0 ? <Text style={{ padding: 16 }}>No device data</Text> : (
+          <DataTable sortable data={devices.map((d) => ({ Device: d.name, Sessions: d.sessions, Converted: d.converted, "Conv %": d.convRate, "Avg Duration": Math.round(d.avgDur), "Avg Errors": d.avgErr }))}
+            columns={[
+              { id: "Device", header: "Device", accessor: "Device", cell: ({ value }: any) => <Strong>{value}</Strong> },
+              { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+              { id: "Converted", header: "Converted", accessor: "Converted", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCount(value)}</Strong> },
+              { id: "Conv %", header: "Conv %", accessor: "Conv %", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: statusClr(value) }}>{fmtPct(value)}</Strong> },
+              { id: "Avg Duration", header: "Avg Duration", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+              { id: "Avg Errors", header: "Avg Errors/Session", accessor: "Avg Errors", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 1 ? RED : value > 0 ? ORANGE : GREEN }}>{value.toFixed(2)}</Text> },
+            ]}
+          />
+        )}
+      </div>
+
+      {/* Browser attribution */}
+      <SectionHeader title="Browser → Conversion" />
+      <div className="uj-table-tile">
+        {browsers.length === 0 ? <Text style={{ padding: 16 }}>No browser data</Text> : (
+          <DataTable sortable data={browsers.map((b) => ({ Browser: b.name, Sessions: b.sessions, Converted: b.converted, "Conv %": b.convRate, "Avg Duration": Math.round(b.avgDur), "Avg Errors": b.avgErr }))}
+            columns={[
+              { id: "Browser", header: "Browser", accessor: "Browser", cell: ({ value }: any) => <Strong>{value}</Strong> },
+              { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+              { id: "Converted", header: "Converted", accessor: "Converted", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCount(value)}</Strong> },
+              { id: "Conv %", header: "Conv %", accessor: "Conv %", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: statusClr(value) }}>{fmtPct(value)}</Strong> },
+              { id: "Avg Duration", header: "Avg Duration", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+              { id: "Avg Errors", header: "Avg Errors/Session", accessor: "Avg Errors", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 1 ? RED : value > 0 ? ORANGE : GREEN }}>{value.toFixed(2)}</Text> },
+            ]}
+          />
+        )}
+      </div>
+
+      {/* Full cross-section */}
+      <SectionHeader title="Full Device × Browser Breakdown" />
+      <div className="uj-table-tile">
+        <DataTable
+          sortable
+          data={parsed.map((r) => ({
+            Device: r.device,
+            Browser: r.browser,
+            Sessions: r.sessions,
+            "Conv %": r.convRate,
+            "Avg (ms)": Math.round(r.avgDuration),
+            "Avg Errors": r.avgErrors,
+          }))}
+          columns={[
+            { id: "Device", header: "Device", accessor: "Device" },
+            { id: "Browser", header: "Browser", accessor: "Browser" },
+            { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+            { id: "Conv %", header: "Conv %", accessor: "Conv %", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: statusClr(value) }}>{fmtPct(value)}</Strong> },
+            { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+            { id: "Avg Errors", header: "Avg Errors", accessor: "Avg Errors", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 1 ? RED : value > 0 ? ORANGE : GREEN }}>{value.toFixed(2)}</Text> },
+          ]}
+        />
+      </div>
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Executive Summary — NEW
+// ===========================================================================
+function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean }) {
+  if (isLoading) return <Loading />;
+
+  const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
+  const errorRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
+  const fruPct = quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0;
+
+  // Grade calculation
+  const gradeMetrics = [
+    { label: "Apdex", score: overallApdex >= 0.85 ? 100 : overallApdex >= 0.7 ? 75 : overallApdex >= 0.5 ? 50 : 25, weight: 25 },
+    { label: "Conversion", score: overallConv >= 25 ? 100 : overallConv >= 15 ? 75 : overallConv >= 5 ? 50 : 25, weight: 20 },
+    { label: "Error Rate", score: errorRate <= 1 ? 100 : errorRate <= 3 ? 75 : errorRate <= 5 ? 50 : 25, weight: 20 },
+    { label: "Avg Duration", score: quality.avg <= 1000 ? 100 : quality.avg <= 2000 ? 75 : quality.avg <= 3000 ? 50 : 25, weight: 15 },
+    { label: "CWV LCP", score: cwvMetrics.lcp <= 2500 ? 100 : cwvMetrics.lcp <= 4000 ? 75 : 25, weight: 10 },
+    { label: "CWV CLS", score: cwvMetrics.cls <= 0.1 ? 100 : cwvMetrics.cls <= 0.25 ? 75 : 25, weight: 10 },
+  ];
+  const overallGradeNum = gradeMetrics.reduce((a, m) => a + m.score * m.weight, 0) / gradeMetrics.reduce((a, m) => a + m.weight, 0);
+  const letterGrade = overallGradeNum >= 90 ? "A" : overallGradeNum >= 80 ? "B" : overallGradeNum >= 65 ? "C" : overallGradeNum >= 50 ? "D" : "F";
+  const gradeColor = overallGradeNum >= 80 ? GREEN : overallGradeNum >= 65 ? YELLOW : overallGradeNum >= 50 ? ORANGE : RED;
+
+  // Key highlights
+  const highlights: { label: string; value: string; trend: "up" | "down" | "flat"; good: boolean }[] = [
+    { label: "Sessions", value: fmtCount(quality.sessions), trend: quality.sessions > qualityPrev.sessions ? "up" : quality.sessions < qualityPrev.sessions ? "down" : "flat", good: quality.sessions >= qualityPrev.sessions },
+    { label: "Conversion", value: fmtPct(overallConv), trend: overallConv > overallConvPrev ? "up" : overallConv < overallConvPrev ? "down" : "flat", good: overallConv >= overallConvPrev },
+    { label: "Apdex", value: overallApdex.toFixed(2), trend: overallApdex > overallApdexPrev ? "up" : overallApdex < overallApdexPrev ? "down" : "flat", good: overallApdex >= overallApdexPrev },
+    { label: "Error Rate", value: fmtPct(errorRate), trend: errorRate < errorRatePrev ? "up" : errorRate > errorRatePrev ? "down" : "flat", good: errorRate <= errorRatePrev },
+  ];
+
+  // Bottleneck identification
+  const worstStep = FUNNEL_STEPS.slice(1).map((step, i) => {
+    const prev = funnelCounts[i]; const curr = funnelCounts[i + 1];
+    return { from: FUNNEL_STEPS[i].label, to: step.label, dropOff: prev > 0 ? ((prev - curr) / prev) * 100 : 0 };
+  }).sort((a, b) => b.dropOff - a.dropOff)[0];
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      {/* Overall Grade */}
+      <Flex gap={24} alignItems="center" flexWrap="wrap">
+        <div className="uj-grade-card">
+          <Text style={{ fontSize: 11, opacity: 0.5, textTransform: "uppercase", letterSpacing: 1 }}>Overall Grade</Text>
+          <Heading level={1} style={{ fontSize: 64, margin: "8px 0", color: gradeColor, lineHeight: 1 }}>{letterGrade}</Heading>
+          <Text style={{ fontSize: 12, opacity: 0.6 }}>{Math.round(overallGradeNum)}/100 weighted score</Text>
+        </div>
+        <Flex flexDirection="column" gap={6} style={{ flex: 1, minWidth: 300 }}>
+          {gradeMetrics.map((m) => {
+            const color = m.score >= 75 ? GREEN : m.score >= 50 ? YELLOW : RED;
+            return (
+              <Flex key={m.label} alignItems="center" gap={8}>
+                <Text style={{ fontSize: 10, width: 80, textAlign: "right", opacity: 0.6 }}>{m.label}</Text>
+                <div style={{ flex: 1, height: 10, borderRadius: 5, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${m.score}%`, background: color, borderRadius: 5, transition: "width 0.4s ease" }} />
+                </div>
+                <Text style={{ fontSize: 10, minWidth: 30, fontWeight: 700, color }}>{m.score}</Text>
+                <Text style={{ fontSize: 9, opacity: 0.4, minWidth: 20 }}>{m.weight}%</Text>
+              </Flex>
+            );
+          })}
+        </Flex>
+      </Flex>
+
+      {/* Key metrics with trends */}
+      <SectionHeader title="Key Metrics" />
+      <Flex gap={16} flexWrap="wrap">
+        {highlights.map((h) => (
+          <div key={h.label} className="uj-kpi-card" style={{ minWidth: 140 }}>
+            <Text className="uj-kpi-label">{h.label}</Text>
+            <Heading level={3} className="uj-kpi-value" style={{ color: h.good ? GREEN : RED }}>{h.value}</Heading>
+            <Text style={{ fontSize: 11, color: h.good ? GREEN : RED }}>{h.trend === "up" ? "▲" : h.trend === "down" ? "▼" : "●"} vs prev period</Text>
+          </div>
+        ))}
+      </Flex>
+
+      {/* Funnel summary */}
+      <SectionHeader title="Funnel Summary" />
+      <div className="uj-table-tile" style={{ padding: 16 }}>
+        <Flex gap={12} flexWrap="wrap" alignItems="center">
+          {FUNNEL_STEPS.map((step, i) => (
+            <React.Fragment key={i}>
+              <div style={{ textAlign: "center" }}>
+                <Text style={{ fontSize: 10, opacity: 0.5, display: "block" }}>{step.label}</Text>
+                <Strong style={{ fontSize: 16, color: BLUE }}>{fmtCount(funnelCounts[i])}</Strong>
+                {i > 0 && (
+                  <Text style={{ fontSize: 10, display: "block", color: funnelCounts[i - 1] > 0 ? statusClr((funnelCounts[i] / funnelCounts[i - 1]) * 100) : undefined }}>
+                    {funnelCounts[i - 1] > 0 ? fmtPct((funnelCounts[i] / funnelCounts[i - 1]) * 100) : "—"}
+                  </Text>
+                )}
+              </div>
+              {i < FUNNEL_STEPS.length - 1 && <span style={{ fontSize: 16, opacity: 0.3 }}>→</span>}
+            </React.Fragment>
+          ))}
+        </Flex>
+      </div>
+
+      {/* Bottleneck alert */}
+      {worstStep && worstStep.dropOff > 10 && (
+        <div className="uj-table-tile" style={{ padding: 16, borderLeft: `3px solid ${worstStep.dropOff > 40 ? RED : worstStep.dropOff > 20 ? ORANGE : YELLOW}` }}>
+          <Flex gap={8} alignItems="center">
+            <span style={{ fontSize: 18 }}>{worstStep.dropOff > 40 ? "🔴" : worstStep.dropOff > 20 ? "🟠" : "🟡"}</span>
+            <div>
+              <Strong style={{ fontSize: 13 }}>Biggest Bottleneck: {worstStep.from} → {worstStep.to}</Strong>
+              <Text style={{ display: "block", fontSize: 11, opacity: 0.6 }}>{fmtPct(worstStep.dropOff)} drop-off rate. {worstStep.dropOff > 40 ? "Critical friction point — requires immediate attention." : "Significant abandonment — consider UX optimization."}</Text>
+            </div>
+          </Flex>
+        </div>
+      )}
+
+      {/* Core Web Vitals summary */}
+      <SectionHeader title="Core Web Vitals" />
+      <Flex gap={16} flexWrap="wrap">
+        {([
+          { label: "LCP", value: cwvMetrics.lcp, metric: "lcp" as const, unit: "ms" },
+          { label: "CLS", value: cwvMetrics.cls, metric: "cls" as const, unit: "" },
+          { label: "INP", value: cwvMetrics.inp, metric: "inp" as const, unit: "ms" },
+          { label: "TTFB", value: cwvMetrics.ttfb, metric: "ttfb" as const, unit: "ms" },
+        ]).map((v) => (
+          <div key={v.label} className="uj-kpi-card">
+            <Text className="uj-kpi-label">{v.label}</Text>
+            <Heading level={3} className="uj-kpi-value" style={{ color: cwvClr(v.value, v.metric) }}>
+              {v.metric === "cls" ? v.value.toFixed(3) : fmt(v.value)}
+            </Heading>
+            <Text style={{ fontSize: 10, color: cwvClr(v.value, v.metric) }}>{cwvLabel(v.value, v.metric)}</Text>
+          </div>
+        ))}
+      </Flex>
+
+      {/* Performance summary table */}
+      <SectionHeader title="Performance Snapshot" />
+      <div className="uj-table-tile">
+        <DataTable
+          data={[
+            { Metric: "Total Sessions", Value: fmtCount(quality.sessions), Status: "—" },
+            { Metric: "Total Actions", Value: fmtCount(quality.total), Status: "—" },
+            { Metric: "Apdex", Value: overallApdex.toFixed(2), Status: apdexLabel(overallApdex) },
+            { Metric: "Avg Duration", Value: fmt(quality.avg), Status: quality.avg <= 2000 ? "Good" : quality.avg <= 3000 ? "Fair" : "Poor" },
+            { Metric: "P50 Duration", Value: fmt(quality.p50), Status: quality.p50 <= 1500 ? "Good" : quality.p50 <= 2500 ? "Fair" : "Poor" },
+            { Metric: "P90 Duration", Value: fmt(quality.p90), Status: quality.p90 <= 4000 ? "Good" : quality.p90 <= 6000 ? "Fair" : "Poor" },
+            { Metric: "Error Rate", Value: fmtPct(errorRate), Status: errorRate <= 2 ? "Good" : errorRate <= 5 ? "Fair" : "Poor" },
+            { Metric: "Conversion Rate", Value: fmtPct(overallConv), Status: overallConv >= 20 ? "Good" : overallConv >= 10 ? "Fair" : "Poor" },
+            { Metric: "Frustrated %", Value: fmtPct(fruPct), Status: fruPct <= 10 ? "Good" : fruPct <= 20 ? "Fair" : "Poor" },
+          ]}
+          columns={[
+            { id: "Metric", header: "Metric", accessor: "Metric", cell: ({ value }: any) => <Strong>{value}</Strong> },
+            { id: "Value", header: "Value", accessor: "Value" },
+            { id: "Status", header: "Status", accessor: "Status", cell: ({ value }: any) => {
+              const color = value === "Excellent" || value === "Good" ? GREEN : value === "Fair" ? YELLOW : value === "Poor" ? RED : "rgba(255,255,255,0.4)";
+              return <Strong style={{ color }}>{value}</Strong>;
+            }},
+          ]}
+        />
+      </div>
+
+      {/* Timestamp */}
+      <div style={{ textAlign: "center", padding: "8px 0" }}>
+        <Text style={{ fontSize: 10, opacity: 0.3 }}>Report generated: {new Date().toLocaleString()} | Frontend: {FRONTEND}</Text>
+      </div>
     </Flex>
   );
 }

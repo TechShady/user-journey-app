@@ -491,3 +491,40 @@
 .uj-flow-card:hover {
   border-color: rgba(69, 137, 255, 0.2);
 }
+
+/* Anomaly cards */
+.uj-anomaly-card {
+  flex: 1 1 260px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid;
+  border-radius: 8px;
+  padding: 14px;
+  transition: border-color 0.2s ease;
+}
+.uj-anomaly-card:hover {
+  border-color: rgba(69, 137, 255, 0.3);
+}
+
+/* Attribution cards */
+.uj-attribution-card {
+  flex: 1 1 220px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+  transition: border-color 0.2s ease;
+}
+.uj-attribution-card:hover {
+  border-color: rgba(69, 137, 255, 0.3);
+}
+
+/* Grade card */
+.uj-grade-card {
+  text-align: center;
+  padding: 24px 32px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  min-width: 160;
+}
