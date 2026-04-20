@@ -1,0 +1,19 @@
+{
+  "$schema": "./.dt-app/app.config.schema.json",
+  "environmentUrl": "https://guu84124.apps.dynatrace.com/",
+  "app": {
+    "name": "User Journey",
+    "version": "2.0.0",
+    "description": "User Journey — Funnel, Trends, Session Replay, JS Errors, What-If",
+    "id": "my.user.journey.app",
+    "scopes": [
+      { "name": "storage:events:read", "comment": "read user events" },
+      { "name": "storage:user.events:read", "comment": "read RUM user events" },
+      { "name": "storage:user.sessions:read", "comment": "read RUM sessions" },
+      { "name": "storage:metrics:read", "comment": "read metrics" },
+      { "name": "storage:entities:read", "comment": "read entity data" },
+      { "name": "storage:system:read", "comment": "read system data" },
+      { "name": "storage:buckets:read", "comment": "read storage buckets" }
+    ]
+  }
+}
