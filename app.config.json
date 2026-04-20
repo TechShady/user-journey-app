@@ -3,8 +3,8 @@
   "environmentUrl": "https://guu84124.apps.dynatrace.com/",
   "app": {
     "name": "User Journey",
-    "version": "2.1.0",
-    "description": "User Journey — Funnel, CWV, Clicks, Cohorts, Resources, What-If",
+    "version": "2.2.0",
+    "description": "User Journey — 15-tab frontend observability suite",
     "id": "my.user.journey.app",
     "scopes": [
       { "name": "storage:events:read", "comment": "read user events" },

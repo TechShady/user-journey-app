@@ -451,3 +451,43 @@
 .uj-cohort-card:hover {
   border-color: rgba(69, 137, 255, 0.3);
 }
+
+/* Budget cards */
+.uj-budget-card {
+  flex: 1 1 280px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+  transition: border-color 0.2s ease;
+}
+.uj-budget-card:hover {
+  border-color: rgba(69, 137, 255, 0.3);
+}
+
+/* Geo heatmap cards */
+.uj-geo-card {
+  flex: 1 1 220px;
+  max-width: 280px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid;
+  border-radius: 8px;
+  padding: 12px;
+  transition: border-color 0.2s ease;
+}
+.uj-geo-card:hover {
+  border-color: rgba(69, 137, 255, 0.3);
+}
+
+/* Flow cards */
+.uj-flow-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+  transition: border-color 0.2s ease;
+}
+.uj-flow-card:hover {
+  border-color: rgba(69, 137, 255, 0.2);
+}

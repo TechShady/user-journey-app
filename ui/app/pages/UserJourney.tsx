@@ -339,6 +339,71 @@ function resourceQuery(days: number): string {
 | limit 25`;
 }
 
+// NEW: Geographic performance deep-dive (country + city level)
+function geoPerformanceQuery(days: number): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${FRONTEND}"
+| filter ${anyStepFilter()}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd satisfaction = coalesce(if(dur_ms <= ${APDEX_T}.0, "satisfied"), if(dur_ms <= ${APDEX_4T}.0, "tolerating"), "frustrated")
+| fieldsAdd country = geo.country.iso_code
+| fieldsAdd city = geo.city.name
+| summarize
+    actions = count(),
+    sessions = countDistinct(dt.rum.session.id),
+    avg_dur = avg(dur_ms),
+    p90_dur = percentile(dur_ms, 90),
+    errors = countIf(characteristics.has_error == true),
+    satisfied = countIf(satisfaction == "satisfied"),
+    tolerating = countIf(satisfaction == "tolerating"),
+    frustrated = countIf(satisfaction == "frustrated"),
+    by: {country, city}
+| sort actions desc
+| limit 50`;
+}
+
+// NEW: Navigation paths — actual user page flows
+function navigationPathsQuery(days: number): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${FRONTEND}"
+| filter event.type == "useraction"
+| fieldsAdd pageName = coalesce(view.name, url.path, event.name, "unknown")
+| sort timestamp asc
+| summarize path = collectArray(pageName), by: {dt.rum.session.id}
+| fieldsAdd pathLen = arraySize(path)
+| filter pathLen >= 2
+| fieldsAdd step1 = path[0], step2 = path[1], step3 = if(pathLen >= 3, path[2], else: "(exit)")
+| fieldsAdd transition = concat(step1, " → ", step2)
+| summarize
+    occurrences = count(),
+    avg_depth = avg(toDouble(pathLen)),
+    by: {transition, step1, step2}
+| sort occurrences desc
+| limit 30`;
+}
+
+// NEW: Hourly distribution for performance budgets
+function hourlyDistributionQuery(days: number): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${FRONTEND}"
+| filter ${anyStepFilter()}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd hour = getHour(timestamp)
+| summarize
+    actions = count(),
+    avg_dur = avg(dur_ms),
+    p90_dur = percentile(dur_ms, 90),
+    errors = countIf(characteristics.has_error == true),
+    satisfied = countIf(dur_ms <= ${APDEX_T}.0),
+    tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
+    frustrated = countIf(dur_ms > ${APDEX_4T}.0),
+    by: {hour}
+| sort hour asc`;
+}
+
 // ---------------------------------------------------------------------------
 // Shared Components
 // ---------------------------------------------------------------------------
@@ -524,6 +589,9 @@ function HelpContent() {
         <Paragraph><Strong>Click Issues</Strong>: Detects rage clicks (rapid repeated clicks indicating frustration) and dead clicks (clicks on non-responsive elements). Shows the worst offending elements, pages, and session impact to guide UX fixes.</Paragraph>
         <Paragraph><Strong>User Cohorts</Strong>: Compares experience quality between identified (logged-in) and anonymous users. Shows Apdex, duration, errors, and satisfaction breakdown per cohort to reveal auth-flow overhead or personalization issues.</Paragraph>
         <Paragraph><Strong>Resources</Strong>: Surfaces the slowest-loading resources (scripts, images, fonts, APIs) with a waterfall visualization. Groups by domain to identify problematic third-party dependencies. Helps prioritize optimizations that improve LCP and load times.</Paragraph>
+        <Paragraph><Strong>Perf Budgets</Strong>: Tracks actual metrics against defined performance budgets (Apdex ≥0.85, Conversion ≥20%, Avg Duration ≤2s, P90 ≤4s, Error Rate ≤2%, Frustrated ≤10%). Shows pass/fail status, margin from target, and hourly Apdex distribution to identify peak-hour degradation.</Paragraph>
+        <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights.</Paragraph>
+        <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation.</Paragraph>
         <Paragraph><Strong>Segmentation</Strong>: Device, browser, and geo breakdowns with Apdex per segment.</Paragraph>
         <Paragraph><Strong>Errors &amp; Drop-offs</Strong>: Drop-off analysis between funnel steps with optimization recommendations.</Paragraph>
         <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation.</Paragraph>
@@ -540,6 +608,9 @@ function HelpContent() {
         <Paragraph>• Click Replay links in Worst Sessions for visual session playback.</Paragraph>
         <Paragraph>• JS Errors with high "Affected Sessions" are top priority fixes.</Paragraph>
         <Paragraph>• Toggle Compare on the funnel to spot conversion changes instantly.</Paragraph>
+        <Paragraph>• Check Perf Budgets daily to catch regressions before they impact users.</Paragraph>
+        <Paragraph>• Use Geo Heatmap to justify CDN edge locations in underperforming regions.</Paragraph>
+        <Paragraph>• Navigation Paths reveals where users actually go vs. the intended funnel.</Paragraph>
       </HelpSection>
     </div>
   );
@@ -576,6 +647,11 @@ export function UserJourney() {
   const clickIssuesData = useDql({ query: clickIssuesQuery(timeframeDays) });
   const cohortData = useDql({ query: cohortQuery(timeframeDays) });
   const resourceData = useDql({ query: resourceQuery(timeframeDays) });
+
+  // NEW: Geo Performance, Navigation Paths, Hourly Distribution
+  const geoPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays) });
+  const navigationPathsData = useDql({ query: navigationPathsQuery(timeframeDays) });
+  const hourlyDistributionData = useDql({ query: hourlyDistributionQuery(timeframeDays) });
 
   // Parse funnel
   const parseFunnel = (result: any) => {
@@ -672,6 +748,15 @@ export function UserJourney() {
         </Tab>
         <Tab title="Resources">
           <ResourcesTab data={resourceData} isLoading={resourceData.isLoading} />
+        </Tab>
+        <Tab title="Perf Budgets">
+          <PerfBudgetsTab quality={quality} overallApdex={overallApdex} overallConv={overallConv} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading} />
+        </Tab>
+        <Tab title="Geo Heatmap">
+          <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} />
+        </Tab>
+        <Tab title="Navigation Paths">
+          <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} />
         </Tab>
         <Tab title="Segmentation">
           <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} />
@@ -1553,6 +1638,470 @@ function ResourcesTab({ data, isLoading }: { data: any; isLoading: boolean }) {
                 { id: "Domain", header: "Domain", accessor: "Domain", cell: ({ value }: any) => <Text style={{ fontSize: 11, color: BLUE }}>{value}</Text> },
                 { id: "Duration (ms)", header: "Load Time", accessor: "Duration (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 1000 ? RED : value > 500 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
                 { id: "Size", header: "Size", accessor: "Size", sortType: "number" as any, cell: ({ value }: any) => <Text>{value > 1024 * 1024 ? (value / (1024 * 1024)).toFixed(1) + " MB" : value > 1024 ? (value / 1024).toFixed(0) + " KB" : value + " B"}</Text> },
+              ]}
+            />
+          </div>
+        </>
+      )}
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Performance Budgets / SLO Tracking — NEW
+// ===========================================================================
+const PERF_BUDGETS = [
+  { metric: "Apdex", target: 0.85, unit: "", inverted: false, format: (v: number) => v.toFixed(2) },
+  { metric: "Conversion Rate", target: 20, unit: "%", inverted: false, format: fmtPct },
+  { metric: "Avg Duration", target: 2000, unit: "ms", inverted: true, format: fmt },
+  { metric: "P90 Duration", target: 4000, unit: "ms", inverted: true, format: fmt },
+  { metric: "Error Rate", target: 2, unit: "%", inverted: true, format: fmtPct },
+  { metric: "Frustrated %", target: 10, unit: "%", inverted: true, format: fmtPct },
+];
+
+function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoading }: { quality: any; overallApdex: number; overallConv: number; hourlyData: any; isLoading: boolean }) {
+  if (isLoading) return <Loading />;
+
+  const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
+  const frustratedPct = quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0;
+
+  const actuals: Record<string, number> = {
+    "Apdex": overallApdex,
+    "Conversion Rate": overallConv,
+    "Avg Duration": quality.avg,
+    "P90 Duration": quality.p90,
+    "Error Rate": errorRate,
+    "Frustrated %": frustratedPct,
+  };
+
+  const budgetStatus = PERF_BUDGETS.map((b) => {
+    const actual = actuals[b.metric] ?? 0;
+    const passing = b.inverted ? actual <= b.target : actual >= b.target;
+    const margin = b.target > 0 ? ((actual - b.target) / b.target) * 100 : 0;
+    return { ...b, actual, passing, margin };
+  });
+
+  const passingCount = budgetStatus.filter((b) => b.passing).length;
+  const overallHealth = Math.round((passingCount / budgetStatus.length) * 100);
+
+  // Parse hourly data
+  const hours = (hourlyData.data?.records ?? []) as any[];
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Performance Budget Tracking" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Track actual metrics against defined performance budgets. Green = within budget, Red = over budget.</Text>
+
+      {/* Overall compliance */}
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card" style={{ minWidth: 180 }}>
+          <Text className="uj-kpi-label">Budget Compliance</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: overallHealth >= 80 ? GREEN : overallHealth >= 50 ? YELLOW : RED }}>{overallHealth}%</Heading>
+          <Text style={{ fontSize: 10, opacity: 0.5 }}>{passingCount} of {budgetStatus.length} passing</Text>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Passing</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{passingCount}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Failing</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: budgetStatus.length - passingCount > 0 ? RED : GREEN }}>{budgetStatus.length - passingCount}</Heading>
+        </div>
+      </Flex>
+
+      {/* Budget cards */}
+      <SectionHeader title="Budget Status" />
+      <Flex gap={16} flexWrap="wrap">
+        {budgetStatus.map((b) => {
+          const pctOfTarget = b.inverted
+            ? (b.target > 0 ? Math.min((b.actual / b.target) * 100, 150) : 0)
+            : (b.target > 0 ? Math.min((b.actual / b.target) * 100, 150) : 0);
+          const barColor = b.passing ? GREEN : RED;
+          const targetLine = b.inverted ? 100 : 100;
+
+          return (
+            <div key={b.metric} className="uj-budget-card">
+              <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
+                <Strong style={{ fontSize: 13 }}>{b.metric}</Strong>
+                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: b.passing ? `${GREEN}18` : `${RED}18`, color: b.passing ? GREEN : RED, fontWeight: 700 }}>
+                  {b.passing ? "PASS" : "FAIL"}
+                </span>
+              </Flex>
+              <Flex gap={16} style={{ marginBottom: 8 }}>
+                <div>
+                  <Text style={{ fontSize: 10, opacity: 0.5 }}>Actual</Text>
+                  <Strong style={{ display: "block", color: b.passing ? GREEN : RED, fontSize: 16 }}>{b.format(b.actual)}</Strong>
+                </div>
+                <div>
+                  <Text style={{ fontSize: 10, opacity: 0.5 }}>Target</Text>
+                  <Text style={{ display: "block", fontSize: 14 }}>{b.inverted ? "≤ " : "≥ "}{b.format(b.target)}</Text>
+                </div>
+                <div>
+                  <Text style={{ fontSize: 10, opacity: 0.5 }}>Margin</Text>
+                  <Text style={{ display: "block", fontSize: 14, color: b.passing ? GREEN : RED }}>
+                    {b.inverted ? (b.margin <= 0 ? `${Math.abs(b.margin).toFixed(1)}% under` : `${b.margin.toFixed(1)}% over`) : (b.margin >= 0 ? `${b.margin.toFixed(1)}% above` : `${Math.abs(b.margin).toFixed(1)}% below`)}
+                  </Text>
+                </div>
+              </Flex>
+              {/* Progress bar toward target */}
+              <div style={{ position: "relative", height: 8, borderRadius: 4, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min(pctOfTarget, 100)}%`, background: barColor, borderRadius: 4, transition: "width 0.4s ease" }} />
+                {/* Target marker */}
+                <div style={{ position: "absolute", top: 0, left: `${targetLine}%`, width: 2, height: "100%", background: "rgba(255,255,255,0.4)" }} />
+              </div>
+            </div>
+          );
+        })}
+      </Flex>
+
+      {/* Full budget table */}
+      <SectionHeader title="Budget Summary Table" />
+      <div className="uj-table-tile">
+        <DataTable
+          sortable
+          data={budgetStatus.map((b) => ({
+            Metric: b.metric,
+            Actual: b.actual,
+            Target: b.target,
+            Status: b.passing ? "PASS" : "FAIL",
+            "Margin %": b.margin,
+          }))}
+          columns={[
+            { id: "Metric", header: "Metric", accessor: "Metric", cell: ({ value }: any) => <Strong>{value}</Strong> },
+            { id: "Status", header: "Status", accessor: "Status", cell: ({ value }: any) => <Strong style={{ color: value === "PASS" ? GREEN : RED }}>{value}</Strong> },
+            { id: "Actual", header: "Actual", accessor: "Actual", sortType: "number" as any, cell: ({ value, rowData }: any) => {
+              const b = budgetStatus.find((x) => x.metric === rowData.Metric);
+              return <Text>{b ? b.format(value) : value}</Text>;
+            }},
+            { id: "Target", header: "Target", accessor: "Target", sortType: "number" as any, cell: ({ value, rowData }: any) => {
+              const b = budgetStatus.find((x) => x.metric === rowData.Metric);
+              return <Text style={{ opacity: 0.6 }}>{b ? (b.inverted ? "≤ " : "≥ ") + b.format(value) : value}</Text>;
+            }},
+            { id: "Margin %", header: "Margin", accessor: "Margin %", sortType: "number" as any, cell: ({ value, rowData }: any) => {
+              const b = budgetStatus.find((x) => x.metric === rowData.Metric);
+              const color = b?.passing ? GREEN : RED;
+              return <Strong style={{ color }}>{value >= 0 ? "+" : ""}{value.toFixed(1)}%</Strong>;
+            }},
+          ]}
+        />
+      </div>
+
+      {/* Hourly distribution */}
+      {hours.length > 0 && (
+        <>
+          <SectionHeader title="Hourly Performance Distribution" />
+          <Text style={{ fontSize: 12, opacity: 0.5 }}>Apdex and traffic by hour of day. Identifies peak hours with degraded performance.</Text>
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Flex flexDirection="column" gap={4}>
+              {hours.map((h: any) => {
+                const hour = Number(h.hour ?? 0);
+                const actions = Number(h.actions ?? 0);
+                const sat = Number(h.satisfied ?? 0);
+                const tol = Number(h.tolerating ?? 0);
+                const total = actions;
+                const apdex = calcApdex(sat, tol, total);
+                const maxActions = Math.max(...hours.map((x: any) => Number(x.actions ?? 0)), 1);
+                const barWidth = (actions / maxActions) * 100;
+
+                return (
+                  <Flex key={hour} alignItems="center" gap={8}>
+                    <Text style={{ fontSize: 10, width: 35, textAlign: "right", opacity: 0.5 }}>{String(hour).padStart(2, "0")}:00</Text>
+                    <div style={{ flex: 1, height: 12, borderRadius: 3, background: "rgba(255,255,255,0.04)", overflow: "hidden", position: "relative" }}>
+                      <div style={{ height: "100%", width: `${barWidth}%`, background: apdexClr(apdex), borderRadius: 3, opacity: 0.7, transition: "width 0.3s ease" }} />
+                    </div>
+                    <Text style={{ fontSize: 10, minWidth: 45, textAlign: "right", color: BLUE }}>{fmtCount(actions)}</Text>
+                    <Text style={{ fontSize: 10, minWidth: 35, textAlign: "right", fontWeight: 700, color: apdexClr(apdex) }}>{apdex.toFixed(2)}</Text>
+                  </Flex>
+                );
+              })}
+            </Flex>
+            <Flex gap={16} justifyContent="flex-end" style={{ marginTop: 8 }}>
+              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: GREEN }} /><Text style={{ fontSize: 9, opacity: 0.5 }}>≥0.85</Text></Flex>
+              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: YELLOW }} /><Text style={{ fontSize: 9, opacity: 0.5 }}>≥0.7</Text></Flex>
+              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: ORANGE }} /><Text style={{ fontSize: 9, opacity: 0.5 }}>≥0.5</Text></Flex>
+              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: RED }} /><Text style={{ fontSize: 9, opacity: 0.5 }}>&lt;0.5</Text></Flex>
+            </Flex>
+          </div>
+        </>
+      )}
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Geo Heatmap — NEW
+// ===========================================================================
+function GeoHeatmapTab({ data, isLoading }: { data: any; isLoading: boolean }) {
+  if (isLoading) return <Loading />;
+
+  const rows = (data.data?.records ?? []) as any[];
+
+  // Aggregate by country
+  const countryMap = new Map<string, { sessions: number; actions: number; avgDur: number; p90: number; errors: number; sat: number; tol: number; fru: number; cities: string[] }>();
+  rows.forEach((r: any) => {
+    const country = String(r.country ?? "Unknown");
+    const city = String(r.city ?? "");
+    const d = countryMap.get(country) ?? { sessions: 0, actions: 0, avgDur: 0, p90: 0, errors: 0, sat: 0, tol: 0, fru: 0, cities: [] };
+    const actions = Number(r.actions ?? 0);
+    d.sessions += Number(r.sessions ?? 0);
+    d.avgDur = d.actions > 0 ? (d.avgDur * d.actions + Number(r.avg_dur ?? 0) * actions) / (d.actions + actions) : Number(r.avg_dur ?? 0);
+    d.p90 = Math.max(d.p90, Number(r.p90_dur ?? 0));
+    d.actions += actions;
+    d.errors += Number(r.errors ?? 0);
+    d.sat += Number(r.satisfied ?? 0);
+    d.tol += Number(r.tolerating ?? 0);
+    d.fru += Number(r.frustrated ?? 0);
+    if (city && !d.cities.includes(city)) d.cities.push(city);
+    countryMap.set(country, d);
+  });
+
+  const countries = Array.from(countryMap.entries())
+    .map(([name, d]) => ({
+      name,
+      ...d,
+      apdex: calcApdex(d.sat, d.tol, d.actions),
+      errRate: d.actions > 0 ? (d.errors / d.actions) * 100 : 0,
+    }))
+    .sort((a, b) => b.sessions - a.sessions);
+
+  const totalCountries = countries.length;
+  const bestApdex = countries.length > 0 ? Math.max(...countries.map((c) => c.apdex)) : 0;
+  const worstApdex = countries.length > 0 ? Math.min(...countries.map((c) => c.apdex)) : 0;
+  const avgApdex = countries.length > 0 ? countries.reduce((a, c) => a + c.apdex, 0) / countries.length : 0;
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Geographic Performance Heatmap" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Performance by country with Apdex color-coding. Identifies regions with poor user experience for targeted CDN or infrastructure optimization.</Text>
+
+      {/* KPIs */}
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Countries</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{totalCountries}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Best Apdex</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: apdexClr(bestApdex) }}>{bestApdex.toFixed(2)}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Worst Apdex</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: apdexClr(worstApdex) }}>{worstApdex.toFixed(2)}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Avg Apdex</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: apdexClr(avgApdex) }}>{avgApdex.toFixed(2)}</Heading>
+        </div>
+      </Flex>
+
+      {countries.length === 0 ? (
+        <div className="uj-table-tile" style={{ padding: 24 }}><Text>No geographic data available</Text></div>
+      ) : (
+        <>
+          {/* Country heatmap cards */}
+          <SectionHeader title="Country Performance Cards" />
+          <Flex gap={12} flexWrap="wrap">
+            {countries.slice(0, 20).map((c) => {
+              const totalActions = c.sat + c.tol + c.fru;
+              return (
+                <div key={c.name} className="uj-geo-card" style={{ borderLeftColor: apdexClr(c.apdex) }}>
+                  <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 6 }}>
+                    <Strong style={{ fontSize: 14 }}>{c.name}</Strong>
+                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: `${apdexClr(c.apdex)}18`, color: apdexClr(c.apdex), fontWeight: 700 }}>{c.apdex.toFixed(2)}</span>
+                  </Flex>
+                  <Flex gap={12} flexWrap="wrap" style={{ marginBottom: 6 }}>
+                    <div><Text style={{ fontSize: 9, opacity: 0.5 }}>Sessions</Text><Text style={{ display: "block", fontSize: 11, fontWeight: 700, color: BLUE }}>{fmtCount(c.sessions)}</Text></div>
+                    <div><Text style={{ fontSize: 9, opacity: 0.5 }}>Avg</Text><Text style={{ display: "block", fontSize: 11, fontWeight: 700, color: c.avgDur > 3000 ? RED : c.avgDur > 1000 ? YELLOW : GREEN }}>{fmt(c.avgDur)}</Text></div>
+                    <div><Text style={{ fontSize: 9, opacity: 0.5 }}>Err%</Text><Text style={{ display: "block", fontSize: 11, fontWeight: 700, color: c.errRate > 5 ? RED : c.errRate > 1 ? YELLOW : GREEN }}>{fmtPct(c.errRate)}</Text></div>
+                  </Flex>
+                  {/* Mini satisfaction bar */}
+                  <div style={{ height: 4, borderRadius: 2, overflow: "hidden", display: "flex" }}>
+                    <div style={{ width: `${totalActions > 0 ? (c.sat / totalActions) * 100 : 0}%`, background: GREEN, height: "100%" }} />
+                    <div style={{ width: `${totalActions > 0 ? (c.tol / totalActions) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
+                    <div style={{ width: `${totalActions > 0 ? (c.fru / totalActions) * 100 : 0}%`, background: RED, height: "100%" }} />
+                  </div>
+                  {c.cities.length > 0 && (
+                    <Text style={{ fontSize: 9, opacity: 0.4, marginTop: 4 }}>{c.cities.slice(0, 3).join(", ")}{c.cities.length > 3 ? ` +${c.cities.length - 3}` : ""}</Text>
+                  )}
+                </div>
+              );
+            })}
+          </Flex>
+
+          {/* Country table */}
+          <SectionHeader title="Full Country Breakdown" />
+          <div className="uj-table-tile">
+            <DataTable
+              sortable
+              data={countries.map((c) => ({
+                Country: c.name,
+                Sessions: c.sessions,
+                Actions: c.actions,
+                "Avg (ms)": Math.round(c.avgDur),
+                "P90 (ms)": Math.round(c.p90),
+                Errors: c.errors,
+                "Error %": c.errRate,
+                Apdex: c.apdex,
+                Cities: c.cities.length,
+              }))}
+              columns={[
+                { id: "Country", header: "Country", accessor: "Country", cell: ({ value }: any) => <Strong>{value}</Strong> },
+                { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+                { id: "Actions", header: "Actions", accessor: "Actions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+                { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+                { id: "P90 (ms)", header: "P90", accessor: "P90 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 4000 ? RED : value > 2000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+                { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : GREEN }}>{value}</Strong> },
+                { id: "Error %", header: "Error %", accessor: "Error %", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 5 ? RED : value > 1 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
+                { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
+                { id: "Cities", header: "Cities", accessor: "Cities", sortType: "number" as any },
+              ]}
+            />
+          </div>
+
+          {/* City-level drill-down */}
+          <SectionHeader title="City-Level Detail" />
+          <div className="uj-table-tile">
+            <DataTable
+              sortable
+              data={rows.map((r: any) => {
+                const sat = Number(r.satisfied ?? 0);
+                const tol = Number(r.tolerating ?? 0);
+                const actions = Number(r.actions ?? 0);
+                return {
+                  Country: String(r.country ?? "Unknown"),
+                  City: String(r.city ?? "Unknown"),
+                  Sessions: Number(r.sessions ?? 0),
+                  Actions: actions,
+                  "Avg (ms)": Math.round(Number(r.avg_dur ?? 0)),
+                  Errors: Number(r.errors ?? 0),
+                  Apdex: calcApdex(sat, tol, actions),
+                };
+              })}
+              columns={[
+                { id: "Country", header: "Country", accessor: "Country" },
+                { id: "City", header: "City", accessor: "City", cell: ({ value }: any) => <Strong>{value}</Strong> },
+                { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+                { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+                { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : GREEN }}>{value}</Strong> },
+                { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
+              ]}
+            />
+          </div>
+        </>
+      )}
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Navigation Paths — NEW
+// ===========================================================================
+function NavigationPathsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
+  if (isLoading) return <Loading />;
+
+  const paths = (data.data?.records ?? []) as any[];
+  const totalTransitions = paths.reduce((a: number, p: any) => a + Number(p.occurrences ?? 0), 0);
+  const uniquePaths = paths.length;
+  const avgDepth = paths.length > 0 ? paths.reduce((a: number, p: any) => a + Number(p.avg_depth ?? 0), 0) / paths.length : 0;
+
+  // Group by source page (step1) for a flow view
+  const sourceMap = new Map<string, { targets: { name: string; count: number }[]; total: number }>();
+  paths.forEach((p: any) => {
+    const src = String(p.step1 ?? "unknown");
+    const tgt = String(p.step2 ?? "unknown");
+    const count = Number(p.occurrences ?? 0);
+    const d = sourceMap.get(src) ?? { targets: [], total: 0 };
+    d.targets.push({ name: tgt, count });
+    d.total += count;
+    sourceMap.set(src, d);
+  });
+  const sources = Array.from(sourceMap.entries())
+    .map(([name, d]) => ({ name, ...d, targets: d.targets.sort((a, b) => b.count - a.count) }))
+    .sort((a, b) => b.total - a.total);
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Navigation Paths Analysis" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Actual user navigation flows. Reveals unexpected paths, loops, and exit points outside the intended funnel.</Text>
+
+      {/* KPIs */}
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Total Transitions</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(totalTransitions)}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Unique Paths</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{uniquePaths}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Avg Session Depth</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: CYAN }}>{avgDepth.toFixed(1)} pages</Heading>
+        </div>
+      </Flex>
+
+      {paths.length === 0 ? (
+        <div className="uj-table-tile" style={{ padding: 24 }}><Text>No navigation path data available</Text></div>
+      ) : (
+        <>
+          {/* Flow visualization */}
+          <SectionHeader title="Top Navigation Flows" />
+          <Flex flexDirection="column" gap={12}>
+            {sources.slice(0, 8).map((src) => (
+              <div key={src.name} className="uj-flow-card">
+                <Flex alignItems="center" gap={8} style={{ marginBottom: 10 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: BLUE }} />
+                  <Strong style={{ fontSize: 13 }}>{src.name.length > 60 ? src.name.substring(0, 60) + "..." : src.name}</Strong>
+                  <Text style={{ fontSize: 10, opacity: 0.4, marginLeft: "auto" }}>{fmtCount(src.total)} transitions</Text>
+                </Flex>
+                <Flex flexDirection="column" gap={4} style={{ paddingLeft: 20 }}>
+                  {src.targets.slice(0, 5).map((t, ti) => {
+                    const pct = src.total > 0 ? (t.count / src.total) * 100 : 0;
+                    const isFunnel = FUNNEL_STEPS.some((s) => t.name.includes(s.identifier));
+                    const color = isFunnel ? GREEN : CYAN;
+                    return (
+                      <Flex key={ti} alignItems="center" gap={8}>
+                        <span style={{ fontSize: 14, color: "rgba(255,255,255,0.3)" }}>→</span>
+                        <div style={{ flex: 1 }}>
+                          <Flex alignItems="center" gap={6}>
+                            <Text style={{ fontSize: 11 }}>{t.name.length > 50 ? t.name.substring(0, 50) + "..." : t.name}</Text>
+                            {isFunnel && <span style={{ fontSize: 8, padding: "1px 4px", borderRadius: 3, background: `${GREEN}18`, color: GREEN }}>funnel</span>}
+                          </Flex>
+                          <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden", marginTop: 2 }}>
+                            <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2, opacity: 0.7 }} />
+                          </div>
+                        </div>
+                        <Text style={{ fontSize: 10, fontWeight: 700, color, minWidth: 40, textAlign: "right" }}>{fmtCount(t.count)}</Text>
+                        <Text style={{ fontSize: 10, opacity: 0.4, minWidth: 35, textAlign: "right" }}>{fmtPct(pct)}</Text>
+                      </Flex>
+                    );
+                  })}
+                  {src.targets.length > 5 && (
+                    <Text style={{ fontSize: 10, opacity: 0.4, paddingLeft: 22 }}>+{src.targets.length - 5} more destinations</Text>
+                  )}
+                </Flex>
+              </div>
+            ))}
+          </Flex>
+
+          {/* Full transition table */}
+          <SectionHeader title="All Transitions" />
+          <div className="uj-table-tile">
+            <DataTable
+              sortable
+              data={paths.map((p: any) => ({
+                From: String(p.step1 ?? "unknown").substring(0, 50),
+                To: String(p.step2 ?? "unknown").substring(0, 50),
+                Transitions: Number(p.occurrences ?? 0),
+                "% of Total": totalTransitions > 0 ? (Number(p.occurrences ?? 0) / totalTransitions) * 100 : 0,
+                "Avg Depth": Number(p.avg_depth ?? 0),
+              }))}
+              columns={[
+                { id: "From", header: "From", accessor: "From", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
+                { id: "To", header: "To", accessor: "To", cell: ({ value }: any) => <Text>{value}</Text> },
+                { id: "Transitions", header: "Count", accessor: "Transitions", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
+                { id: "% of Total", header: "% of Total", accessor: "% of Total", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtPct(value)}</Text> },
+                { id: "Avg Depth", header: "Avg Depth", accessor: "Avg Depth", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: CYAN }}>{value.toFixed(1)}</Text> },
               ]}
             />
           </div>
