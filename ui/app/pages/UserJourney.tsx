@@ -1,13 +1,14 @@
-import React, { useState, useMemo } from "react";
-import { useDql } from "@dynatrace-sdk/react-hooks";
+import React, { useState, useMemo, useEffect } from "react";
+import { useDql, useUserAppState, useSetUserAppState } from "@dynatrace-sdk/react-hooks";
 import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment";
 import { Flex } from "@dynatrace/strato-components/layouts";
-import { Heading, Text, Strong, Paragraph } from "@dynatrace/strato-components/typography";
+import { Heading, Text, Strong, Paragraph, Link } from "@dynatrace/strato-components/typography";
 import { Tabs, Tab } from "@dynatrace/strato-components-preview/navigation";
 import { Select } from "@dynatrace/strato-components-preview/forms";
 import { ProgressBar } from "@dynatrace/strato-components/content";
 import { Button } from "@dynatrace/strato-components/buttons";
 import { Sheet } from "@dynatrace/strato-components/overlays";
+import { Switch } from "@dynatrace/strato-components/forms";
 import { DataTable } from "@dynatrace/strato-components-preview/tables";
 import "./UserJourney.css";
 
@@ -51,6 +52,17 @@ const TRAFFIC_MULTIPLIERS = [1, 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const APDEX_T = 3000;
 const APDEX_4T = 12000;
 
+const TAB_KEYS = [
+  "Funnel Overview", "Trends", "Web Vitals", "Step Details", "Worst Sessions",
+  "JS Errors", "Click Issues", "User Cohorts", "Resources", "Perf Budgets",
+  "Geo Heatmap", "Navigation Paths", "Sankey", "Anomaly Detection",
+  "Conversion Attribution", "Executive Summary", "Segmentation",
+  "Errors & Drop-offs", "What-If Analysis",
+] as const;
+type TabKey = typeof TAB_KEYS[number];
+const DEFAULT_TAB_VISIBILITY: Record<TabKey, boolean> = Object.fromEntries(TAB_KEYS.map(k => [k, true])) as Record<TabKey, boolean>;
+const TAB_STATE_KEY = "uj-tab-visibility";
+
 const CWV = {
   lcp: { good: 2500, poor: 4000 },
   cls: { good: 0.1, poor: 0.25 },
@@ -86,6 +98,18 @@ function stepTagExpr(labels: string[]): string {
 
 function sessionReplayUrl(sessionId: string): string {
   return `${ENV_URL}/ui/apps/dynatrace.classic.session.segmentation/#usersessiondetail;sessionId=${encodeURIComponent(sessionId)}`;
+}
+
+function appEntityQuery(): string {
+  return `fetch dt.entity.application
+| filter entity.name == "${FRONTEND}"
+| fieldsKeep id
+| limit 1`;
+}
+
+function vitalsUrl(appEntityId: string, pageName: string): string {
+  const encoded = btoa(pageName);
+  return `${ENV_URL}/ui/apps/dynatrace.experience.vitals/performance/web/${encodeURIComponent(appEntityId)}/pages/${encodeURIComponent(encoded)}`;
 }
 
 function SectionHeader({ title }: { title: string }) {
@@ -167,14 +191,21 @@ function cwvQuery(days: number): string {
 
 function cwvByPageQuery(days: number): string {
   const period = periodClause(days);
-  return `timeseries {
-  lcp = avg(dt.frontend.web.page.largest_contentful_paint),
-  cls = avg(dt.frontend.web.page.cumulative_layout_shift),
-  ttfb = avg(dt.frontend.web.navigation.time_to_first_byte),
-  load_end = avg(dt.frontend.web.navigation.load_event_end)
-}, by: {dt.rum.view.name}, ${period}, filter: {frontend.name == "${FRONTEND}"}
-| fieldsAdd lcp_avg = arrayAvg(lcp), cls_avg = arrayAvg(cls), ttfb_avg = arrayAvg(ttfb), load_avg = arrayAvg(load_end)
-| fields dt.rum.view.name, lcp_avg, cls_avg, ttfb_avg, load_avg
+  return `fetch user.events, ${period}
+| filter frontend.name == "${FRONTEND}"
+| filter characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| fieldsAdd
+    lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
+    cls_val = toDouble(web_vitals.cumulative_layout_shift),
+    ttfb_ms = toDouble(web_vitals.time_to_first_byte) / 1000000.0,
+    fcp_ms = toDouble(web_vitals.first_contentful_paint) / 1000000.0
+| summarize
+    lcp_avg = avg(lcp_ms),
+    cls_avg = avg(cls_val),
+    ttfb_avg = avg(ttfb_ms),
+    load_avg = avg(fcp_ms),
+    by: {pageName}
 | sort lcp_avg desc
 | limit 20`;
 }
@@ -368,8 +399,8 @@ function navigationPathsQuery(days: number): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
 | filter frontend.name == "${FRONTEND}"
-| filter event.type == "useraction"
-| fieldsAdd pageName = coalesce(view.name, url.path, event.name, "unknown")
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | sort timestamp asc
 | summarize path = collectArray(pageName), by: {dt.rum.session.id}
 | fieldsAdd pathLen = arraySize(path)
@@ -382,6 +413,28 @@ function navigationPathsQuery(days: number): string {
     by: {transition, step1, step2}
 | sort occurrences desc
 | limit 30`;
+}
+
+// NEW: Sankey — multi-step page flow for Sankey diagram
+function sankeyQuery(days: number): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${FRONTEND}"
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| sort timestamp asc
+| summarize path = collectArray(pageName), by: {dt.rum.session.id}
+| fieldsAdd pathLen = arraySize(path)
+| filter pathLen >= 2
+| fieldsAdd
+    s0 = path[0], s1 = path[1],
+    s2 = if(pathLen >= 3, path[2], else: "(exit)"),
+    s3 = if(pathLen >= 4, path[3], else: "(exit)"),
+    s4 = if(pathLen >= 5, path[4], else: "(exit)")
+| summarize
+    sessions = count(), by: {s0, s1, s2, s3, s4}
+| sort sessions desc
+| limit 200`;
 }
 
 // NEW: Hourly distribution for performance budgets
@@ -505,7 +558,7 @@ function CwvCard({ label, value, unit, metric }: { label: string; value: number;
 // ---------------------------------------------------------------------------
 interface FunnelStep { label: string; count: number; convFromPrev: number; overallConv: number; apdex?: number }
 
-function FunnelChart({ steps, prevSteps }: { steps: FunnelStep[]; prevSteps?: FunnelStep[] }) {
+function FunnelChart({ steps, prevSteps, appEntityId }: { steps: FunnelStep[]; prevSteps?: FunnelStep[]; appEntityId?: string }) {
   const maxCount = Math.max(1, ...steps.map((s) => s.count), ...(prevSteps ?? []).map((s) => s.count));
   const W = 720;
   const stepH = 80;
@@ -562,13 +615,27 @@ function FunnelChart({ steps, prevSteps }: { steps: FunnelStep[]; prevSteps?: Fu
         const countDelta = prevStep ? step.count - prevStep.count : 0;
         const countDeltaPct = prevStep && prevStep.count > 0 ? (countDelta / prevStep.count) * 100 : 0;
 
+        const stepUrl = appEntityId ? vitalsUrl(appEntityId, FUNNEL_STEPS[i]?.identifier ?? step.label) : undefined;
+
         return (
           <g key={i}>
             {i > 0 && <line x1={cx - widths[i] / 2} y1={y} x2={cx + widths[i] / 2} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />}
-            <circle cx={24} cy={midY} r={13} fill={`${sClr}1A`} stroke={sClr} strokeWidth="1.5" />
-            <text x={24} y={midY + 4} textAnchor="middle" fill={sClr} fontSize="12" fontWeight="700">{i + 1}</text>
-            <text x={cx} y={midY - 10} textAnchor="middle" fill="rgba(255,255,255,0.95)" fontSize="14" fontWeight="600">{step.label}</text>
-            <text x={cx} y={midY + 8} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="12">{fmtCount(step.count)} sessions</text>
+            {stepUrl ? (
+              <a href={stepUrl} target="_blank" rel="noopener noreferrer" style={{ cursor: "pointer" }}>
+                <circle cx={24} cy={midY} r={13} fill={`${sClr}1A`} stroke={sClr} strokeWidth="1.5" />
+                <text x={24} y={midY + 4} textAnchor="middle" fill={sClr} fontSize="12" fontWeight="700">{i + 1}</text>
+                <text x={cx} y={midY - 10} textAnchor="middle" fill="rgba(255,255,255,0.95)" fontSize="14" fontWeight="600" textDecoration="underline">{step.label}</text>
+                <text x={cx} y={midY + 8} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="12">{fmtCount(step.count)} sessions</text>
+                <title>Open in Vitals: {FUNNEL_STEPS[i]?.identifier ?? step.label}</title>
+              </a>
+            ) : (
+              <>
+                <circle cx={24} cy={midY} r={13} fill={`${sClr}1A`} stroke={sClr} strokeWidth="1.5" />
+                <text x={24} y={midY + 4} textAnchor="middle" fill={sClr} fontSize="12" fontWeight="700">{i + 1}</text>
+                <text x={cx} y={midY - 10} textAnchor="middle" fill="rgba(255,255,255,0.95)" fontSize="14" fontWeight="600">{step.label}</text>
+                <text x={cx} y={midY + 8} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="12">{fmtCount(step.count)} sessions</text>
+              </>
+            )}
             {step.apdex != null && (
               <text x={cx} y={midY + 24} textAnchor="middle" fill={apdexClr(step.apdex)} fontSize="10" fontWeight="600">Apdex: {step.apdex.toFixed(2)}</text>
             )}
@@ -650,12 +717,16 @@ function HelpContent() {
         <Paragraph><Strong>Perf Budgets</Strong>: Tracks actual metrics against defined performance budgets (Apdex ≥0.85, Conversion ≥20%, Avg Duration ≤2s, P90 ≤4s, Error Rate ≤2%, Frustrated ≤10%). Shows pass/fail status, margin from target, and hourly Apdex distribution to identify peak-hour degradation.</Paragraph>
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights.</Paragraph>
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation.</Paragraph>
+        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram showing user navigation paths. Click any node to see inbound/outbound connections. Inbound and outbound user actions in the popup are clickable — they open the <Strong>Vitals</Strong> app filtered to that specific page for detailed performance analysis.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations.</Paragraph>
         <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device × browser cross-section.</Paragraph>
         <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. Designed for quick status checks and executive presentations.</Paragraph>
         <Paragraph><Strong>Segmentation</Strong>: Device, browser, and geo breakdowns with Apdex per segment.</Paragraph>
         <Paragraph><Strong>Errors &amp; Drop-offs</Strong>: Drop-off analysis between funnel steps with optimization recommendations.</Paragraph>
         <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation.</Paragraph>
+      </HelpSection>
+      <HelpSection title="Tab Settings">
+        <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Tab Settings. Each of the 19 tabs can be toggled on or off individually. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
       </HelpSection>
       <HelpSection title="Apdex Score">
         <Paragraph>Apdex = (satisfied + tolerating/2) / total. Thresholds: <Strong>Satisfied ≤ {APDEX_T / 1000}s</Strong>, <Strong>Tolerating ≤ {APDEX_4T / 1000}s</Strong>, <Strong>Frustrated &gt; {APDEX_4T / 1000}s</Strong>. Ranges: ≥0.85 Excellent, ≥0.7 Good, ≥0.5 Fair, &lt;0.5 Poor.</Paragraph>
@@ -676,6 +747,9 @@ function HelpContent() {
         <Paragraph>• Conversion Attribution reveals the business impact of slow pages per device/browser.</Paragraph>
         <Paragraph>• Share Executive Summary with stakeholders for quick performance status updates.</Paragraph>
       </HelpSection>
+      <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16, marginTop: 8 }}>
+        <Paragraph><Link href="https://github.com/TechShady/user-journey-app" target="_blank" rel="noopener noreferrer">GitHub Repository</Link></Paragraph>
+      </div>
     </div>
   );
 }
@@ -686,7 +760,32 @@ function HelpContent() {
 export function UserJourney() {
   const [timeframeDays, setTimeframeDays] = useState<number>(DEFAULT_TIMEFRAME);
   const [showHelp, setShowHelp] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
+  const [tabVisibility, setTabVisibility] = useState<Record<TabKey, boolean>>(DEFAULT_TAB_VISIBILITY);
+
+  // Persist tab visibility per user
+  const savedState = useUserAppState({ key: TAB_STATE_KEY });
+  const { execute: saveState } = useSetUserAppState();
+
+  useEffect(() => {
+    if (savedState.data?.value) {
+      try {
+        const parsed = JSON.parse(savedState.data.value as string);
+        setTabVisibility(prev => ({ ...prev, ...parsed }));
+      } catch { /* ignore parse errors */ }
+    }
+  }, [savedState.data]);
+
+  const toggleTab = (tab: TabKey) => {
+    setTabVisibility(prev => {
+      const next = { ...prev, [tab]: !prev[tab] };
+      saveState({ key: TAB_STATE_KEY, body: { value: JSON.stringify(next) } });
+      return next;
+    });
+  };
+
+  const isTabVisible = (tab: TabKey) => tabVisibility[tab] !== false;
 
   // Current period queries
   const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays) });
@@ -715,6 +814,9 @@ export function UserJourney() {
   // NEW: Geo Performance, Navigation Paths, Hourly Distribution
   const geoPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays) });
   const navigationPathsData = useDql({ query: navigationPathsQuery(timeframeDays) });
+  const sankeyData = useDql({ query: sankeyQuery(timeframeDays) });
+  const appEntityData = useDql({ query: appEntityQuery() });
+  const appEntityId = (appEntityData.data?.records?.[0] as any)?.['id'] ?? '';
   const hourlyDistributionData = useDql({ query: hourlyDistributionQuery(timeframeDays) });
 
   // NEW: Conversion Attribution, Duration Distribution
@@ -784,66 +886,81 @@ export function UserJourney() {
             </Select.Content>
           </Select>
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
+          <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" /></svg></button>
         </Flex>
       </div>
       <Sheet title="User Journey — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent /></Sheet>
+      <Sheet title="Tab Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
+        <div style={{ padding: "4px 0" }}>
+          <Paragraph style={{ marginBottom: 12, opacity: 0.6 }}>Toggle tabs on or off. Settings are saved per user and persist across sessions.</Paragraph>
+          {TAB_KEYS.map(tab => (
+            <div key={tab} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+              <Text style={{ fontSize: 13 }}>{tab}</Text>
+              <Switch value={tabVisibility[tab] !== false} onChange={() => toggleTab(tab)} />
+            </div>
+          ))}
+        </div>
+      </Sheet>
 
       {/* Tabs */}
       <Tabs defaultIndex={0}>
-        <Tab title="Funnel Overview">
-          <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} />
-        </Tab>
-        <Tab title="Trends">
+        {isTabVisible("Funnel Overview") && <Tab title="Funnel Overview">
+          <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} />
+        </Tab>}
+        {isTabVisible("Trends") && <Tab title="Trends">
           <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} />
-        </Tab>
-        <Tab title="Web Vitals">
-          <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} />
-        </Tab>
-        <Tab title="Step Details">
+        </Tab>}
+        {isTabVisible("Web Vitals") && <Tab title="Web Vitals">
+          <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />
+        </Tab>}
+        {isTabVisible("Step Details") && <Tab title="Step Details">
           <StepDetailsTab stepMap={stepMap} isLoading={stepMetrics.isLoading} />
-        </Tab>
-        <Tab title="Worst Sessions">
+        </Tab>}
+        {isTabVisible("Worst Sessions") && <Tab title="Worst Sessions">
           <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />
-        </Tab>
-        <Tab title="JS Errors">
+        </Tab>}
+        {isTabVisible("JS Errors") && <Tab title="JS Errors">
           <JSErrorsTab data={jsErrorsData} isLoading={jsErrorsData.isLoading} />
-        </Tab>
-        <Tab title="Click Issues">
+        </Tab>}
+        {isTabVisible("Click Issues") && <Tab title="Click Issues">
           <ClickIssuesTab data={clickIssuesData} isLoading={clickIssuesData.isLoading} />
-        </Tab>
-        <Tab title="User Cohorts">
+        </Tab>}
+        {isTabVisible("User Cohorts") && <Tab title="User Cohorts">
           <UserCohortsTab data={cohortData} isLoading={cohortData.isLoading} />
-        </Tab>
-        <Tab title="Resources">
+        </Tab>}
+        {isTabVisible("Resources") && <Tab title="Resources">
           <ResourcesTab data={resourceData} isLoading={resourceData.isLoading} />
-        </Tab>
-        <Tab title="Perf Budgets">
+        </Tab>}
+        {isTabVisible("Perf Budgets") && <Tab title="Perf Budgets">
           <PerfBudgetsTab quality={quality} overallApdex={overallApdex} overallConv={overallConv} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading} />
-        </Tab>
-        <Tab title="Geo Heatmap">
+        </Tab>}
+        {isTabVisible("Geo Heatmap") && <Tab title="Geo Heatmap">
           <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} />
-        </Tab>
-        <Tab title="Navigation Paths">
+        </Tab>}
+        {isTabVisible("Navigation Paths") && <Tab title="Navigation Paths">
           <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} />
-        </Tab>
-        <Tab title="Anomaly Detection">
+        </Tab>}
+        {isTabVisible("Sankey") && <Tab title="Sankey">
+          <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} />
+        </Tab>}
+        {isTabVisible("Anomaly Detection") && <Tab title="Anomaly Detection">
           <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} />
-        </Tab>
-        <Tab title="Conversion Attribution">
+        </Tab>}
+        {isTabVisible("Conversion Attribution") && <Tab title="Conversion Attribution">
           <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} />
-        </Tab>
-        <Tab title="Executive Summary">
+        </Tab>}
+        {isTabVisible("Executive Summary") && <Tab title="Executive Summary">
           <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} />
-        </Tab>
-        <Tab title="Segmentation">
+        </Tab>}
+        {isTabVisible("Segmentation") && <Tab title="Segmentation">
           <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} />
-        </Tab>
-        <Tab title="Errors & Drop-offs">
+        </Tab>}
+        {isTabVisible("Errors & Drop-offs") && <Tab title="Errors & Drop-offs">
           <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} />
-        </Tab>
-        <Tab title="What-If Analysis">
+        </Tab>}
+        {isTabVisible("What-If Analysis") && <Tab title="What-If Analysis">
           <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} />
-        </Tab>
+        </Tab>}
       </Tabs>
     </div>
   );
@@ -852,7 +969,7 @@ export function UserJourney() {
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
-function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, quality, compareMode, setCompareMode, isLoading }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean }) {
+function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, quality, compareMode, setCompareMode, isLoading, appEntityId }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string }) {
   if (isLoading) return <Loading />;
 
   const makeFunnelSteps = (counts: number[]): FunnelStep[] => FUNNEL_STEPS.map((step, i) => {
@@ -936,7 +1053,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         </button>
       </Flex>
       <div className="uj-funnel-container">
-        <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} />
+        <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} />
         {compareMode && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 10, opacity: 0.5 }}>Current period</Text></Flex>
@@ -1061,7 +1178,7 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
 // ===========================================================================
 // TAB: Web Vitals
 // ===========================================================================
-function WebVitalsTab({ cwv: v, cwvByPage, isLoading }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; cwvByPage: any; isLoading: boolean }) {
+function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; cwvByPage: any; isLoading: boolean; appEntityId?: string }) {
   if (isLoading) return <Loading />;
 
   const pages = (cwvByPage.data?.records ?? []) as any[];
@@ -1096,9 +1213,9 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading }: { cwv: { lcp: number; cl
       <SectionHeader title="Web Vitals by Page" />
       <div className="uj-table-tile">
         {pages.length === 0 ? <div style={{ padding: 20 }}><Text>No per-page data available</Text></div> : (
-          <DataTable sortable data={pages.map((p: any) => ({ Page: p["dt.rum.view.name"] ?? "Unknown", "LCP (ms)": Number(p.lcp_avg ?? 0), CLS: Number(p.cls_avg ?? 0), "TTFB (ms)": Number(p.ttfb_avg ?? 0), "Load (ms)": Number(p.load_avg ?? 0) }))}
+          <DataTable sortable data={pages.map((p: any) => ({ Page: p["pageName"] ?? "Unknown", "LCP (ms)": Number(p.lcp_avg ?? 0), CLS: Number(p.cls_avg ?? 0), "TTFB (ms)": Number(p.ttfb_avg ?? 0), "Load (ms)": Number(p.load_avg ?? 0) }))}
             columns={[
-              { id: "Page", header: "Page", accessor: "Page" },
+              { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrl(appEntityId, value)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> },
               { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "lcp") }}>{fmt(value)}</Strong> },
               { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "cls") }}>{value.toFixed(3)}</Strong> },
               { id: "TTFB (ms)", header: "TTFB", accessor: "TTFB (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "ttfb") }}>{fmt(value)}</Strong> },
@@ -2846,6 +2963,316 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading }: { funnelC
         <Text style={{ fontSize: 11, opacity: 0.5 }}>
           Projections: logarithmic contention model. At 2x: ~35% latency increase, ~8% conversion degradation per doubling. Apdex degrades ~0.08 per doubling.
         </Text>
+      </div>
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Sankey — SVG flow visualization
+// ===========================================================================
+const SANKEY_COLORS = [BLUE, PURPLE, CYAN, GREEN, ORANGE, YELLOW, "#FF6B8A", "#36D399", "#6E9FFF", "#C084FC"];
+
+interface SankeyNode { id: string; label: string; depth: number; value: number; y: number; height: number; }
+interface SankeyLink { source: string; target: string; value: number; sy: number; ty: number; thickness: number; }
+
+function buildSankey(records: any[]): { nodes: SankeyNode[]; links: SankeyLink[]; maxDepth: number } {
+  // Aggregate transitions at each depth from the raw path rows
+  const linkMap = new Map<string, number>();
+  for (const r of records) {
+    const steps = [String(r.s0 ?? ""), String(r.s1 ?? ""), String(r.s2 ?? ""), String(r.s3 ?? ""), String(r.s4 ?? "")];
+    const count = Number(r.sessions ?? r.d0 ?? 1);
+    for (let i = 0; i < 4; i++) {
+      const src = steps[i];
+      const tgt = steps[i + 1];
+      if (!src || !tgt || tgt === "(exit)") break;
+      const key = `${i}|${src}|||${i + 1}|${tgt}`;
+      linkMap.set(key, (linkMap.get(key) ?? 0) + count);
+    }
+  }
+
+  // Build node totals per depth
+  const nodeValueMap = new Map<string, number>(); // "depth|name" -> value
+  const rawLinks: { srcDepth: number; src: string; tgtDepth: number; tgt: string; value: number }[] = [];
+  for (const [key, value] of linkMap) {
+    const [srcPart, tgtPart] = key.split("|||");
+    const srcDepth = Number(srcPart.substring(0, srcPart.indexOf("|")));
+    const src = srcPart.substring(srcPart.indexOf("|") + 1);
+    const tgtDepth = Number(tgtPart.substring(0, tgtPart.indexOf("|")));
+    const tgt = tgtPart.substring(tgtPart.indexOf("|") + 1);
+    rawLinks.push({ srcDepth, src, tgtDepth, tgt, value });
+    const srcKey = `${srcDepth}|${src}`;
+    const tgtKey = `${tgtDepth}|${tgt}`;
+    nodeValueMap.set(srcKey, (nodeValueMap.get(srcKey) ?? 0) + value);
+    nodeValueMap.set(tgtKey, (nodeValueMap.get(tgtKey) ?? 0) + value);
+  }
+
+  if (rawLinks.length === 0) return { nodes: [], links: [], maxDepth: 0 };
+
+  // Determine max depth
+  let maxDepth = 0;
+  for (const l of rawLinks) maxDepth = Math.max(maxDepth, l.tgtDepth);
+
+  // Group nodes by depth, sort by value descending, take top N per column
+  const MAX_PER_COL = 8;
+  const depthNodes = new Map<number, { name: string; value: number }[]>();
+  for (const [key, value] of nodeValueMap) {
+    const [ds, ...nameParts] = key.split("|");
+    const depth = Number(ds);
+    const name = nameParts.join("|");
+    const arr = depthNodes.get(depth) ?? [];
+    arr.push({ name, value });
+    depthNodes.set(depth, arr);
+  }
+
+  const keptNodes = new Set<string>(); // "depth|name"
+  for (const [depth, arr] of depthNodes) {
+    arr.sort((a, b) => b.value - a.value);
+    const kept = arr.slice(0, MAX_PER_COL);
+    for (const n of kept) keptNodes.add(`${depth}|${n.name}`);
+  }
+
+  // Filter links to only kept nodes
+  const filteredLinks = rawLinks.filter(l => keptNodes.has(`${l.srcDepth}|${l.src}`) && keptNodes.has(`${l.tgtDepth}|${l.tgt}`));
+
+  // Layout — compute Y positions
+  const CHART_H = 500;
+  const NODE_PAD = 6;
+  const nodes: SankeyNode[] = [];
+  const nodeMap = new Map<string, SankeyNode>();
+
+  for (let d = 0; d <= maxDepth; d++) {
+    const col = (depthNodes.get(d) ?? []).filter(n => keptNodes.has(`${d}|${n.name}`)).sort((a, b) => b.value - a.value);
+    const totalVal = col.reduce((a, n) => a + n.value, 0);
+    const usableH = CHART_H - (col.length - 1) * NODE_PAD;
+    let yOff = 0;
+    for (const n of col) {
+      const h = Math.max(4, (n.value / totalVal) * usableH);
+      const id = `${d}|${n.name}`;
+      const node: SankeyNode = { id, label: n.name, depth: d, value: n.value, y: yOff, height: h };
+      nodes.push(node);
+      nodeMap.set(id, node);
+      yOff += h + NODE_PAD;
+    }
+  }
+
+  // Build positioned links
+  const srcOffsets = new Map<string, number>();
+  const tgtOffsets = new Map<string, number>();
+  const links: SankeyLink[] = [];
+  // Sort links by value desc for nicer stacking
+  filteredLinks.sort((a, b) => b.value - a.value);
+  for (const l of filteredLinks) {
+    const srcNode = nodeMap.get(`${l.srcDepth}|${l.src}`);
+    const tgtNode = nodeMap.get(`${l.tgtDepth}|${l.tgt}`);
+    if (!srcNode || !tgtNode) continue;
+    const thickness = Math.max(1, (l.value / srcNode.value) * srcNode.height);
+    const sy = srcNode.y + (srcOffsets.get(srcNode.id) ?? 0);
+    const ty = tgtNode.y + (tgtOffsets.get(tgtNode.id) ?? 0);
+    srcOffsets.set(srcNode.id, (srcOffsets.get(srcNode.id) ?? 0) + thickness);
+    tgtOffsets.set(tgtNode.id, (tgtOffsets.get(tgtNode.id) ?? 0) + thickness);
+    links.push({ source: srcNode.id, target: tgtNode.id, value: l.value, sy, ty, thickness });
+  }
+
+  return { nodes, links, maxDepth };
+}
+
+function SankeyTab({ data, isLoading, appEntityId }: { data: any; isLoading: boolean; appEntityId: string }) {
+  if (isLoading) return <Loading />;
+
+  const records = (data.data?.records ?? []) as any[];
+  const { nodes, links, maxDepth } = useMemo(() => buildSankey(records), [records]);
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+
+  const totalSessions = records.reduce((a: number, r: any) => a + Number(r.sessions ?? r.d0 ?? 0), 0);
+  const uniquePages = new Set(nodes.map(n => n.label)).size;
+
+  // Build a set of connected node IDs and link indices for the focused node
+  const { connectedNodes, connectedLinks } = useMemo(() => {
+    if (!focusNodeId) return { connectedNodes: new Set<string>(), connectedLinks: new Set<number>() };
+    const cn = new Set<string>([focusNodeId]);
+    const cl = new Set<number>();
+    links.forEach((l, i) => {
+      if (l.source === focusNodeId || l.target === focusNodeId) {
+        cl.add(i);
+        cn.add(l.source);
+        cn.add(l.target);
+      }
+    });
+    return { connectedNodes: cn, connectedLinks: cl };
+  }, [focusNodeId, links]);
+
+  const hasFocus = focusNodeId !== null;
+
+  // Focus info panel
+  const focusNode = hasFocus ? nodes.find(n => n.id === focusNodeId) : null;
+  const focusInbound = hasFocus ? links.filter(l => l.target === focusNodeId) : [];
+  const focusOutbound = hasFocus ? links.filter(l => l.source === focusNodeId) : [];
+  const focusSessions = focusNode?.value ?? 0;
+
+  if (nodes.length === 0) {
+    return (
+      <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+        <SectionHeader title="Sankey Flow Diagram" />
+        <div className="uj-table-tile" style={{ padding: 24 }}><Text>No flow data available for this timeframe.</Text></div>
+      </Flex>
+    );
+  }
+
+  const W = 960;
+  const H = 540;
+  const PAD = { top: 20, right: 140, bottom: 20, left: 140 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+  const colW = maxDepth > 0 ? innerW / maxDepth : innerW;
+  const NODE_W = 18;
+  const DEPTH_LABELS = ["Page 1", "Page 2", "Page 3", "Page 4", "Page 5"];
+  const scaleY = innerH / 500; // scale from layout space to SVG space
+
+  const truncLabel = (s: string, max = 22) => s.length > max ? s.substring(0, max) + "…" : s;
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Sankey Flow Diagram" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>User navigation flows visualized as a Sankey diagram. Width of each band represents the number of sessions taking that path. Top {nodes.length} page nodes shown.</Text>
+
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Total Sessions</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(totalSessions)}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Unique Pages</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{uniquePages}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Flow Transitions</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: CYAN }}>{links.length}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Max Depth</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{maxDepth + 1} pages</Heading>
+        </div>
+      </Flex>
+
+      <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
+        <svg width={W} height={H} style={{ display: "block", margin: "0 auto", cursor: hasFocus ? "pointer" : "default" }} onClick={() => setFocusNodeId(null)}>
+          {/* Depth column labels */}
+          {Array.from({ length: maxDepth + 1 }, (_, d) => (
+            <text key={`dl-${d}`} x={PAD.left + d * colW + NODE_W / 2} y={12} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={10} fontWeight={600}>{DEPTH_LABELS[d] ?? `Page ${d + 1}`}</text>
+          ))}
+
+          {/* Links */}
+          {links.map((l, i) => {
+            const srcNode = nodes.find(n => n.id === l.source)!;
+            const tgtNode = nodes.find(n => n.id === l.target)!;
+            const x0 = PAD.left + srcNode.depth * colW + NODE_W;
+            const x1 = PAD.left + tgtNode.depth * colW;
+            const y0 = PAD.top + l.sy * scaleY + (l.thickness * scaleY) / 2;
+            const y1 = PAD.top + l.ty * scaleY + (l.thickness * scaleY) / 2;
+            const curvature = (x1 - x0) * 0.4;
+            const color = SANKEY_COLORS[srcNode.depth % SANKEY_COLORS.length];
+            const isConnected = !hasFocus || connectedLinks.has(i);
+            const opacity = hasFocus ? (isConnected ? 0.7 : 0.06) : 0.35;
+            return (
+              <path
+                key={`link-${i}`}
+                d={`M${x0},${y0} C${x0 + curvature},${y0} ${x1 - curvature},${y1} ${x1},${y1}`}
+                fill="none"
+                stroke={color}
+                strokeWidth={Math.max(1, l.thickness * scaleY)}
+                strokeOpacity={opacity}
+                style={{ cursor: "pointer", transition: "stroke-opacity 0.2s" }}
+                onClick={(e) => { e.stopPropagation(); setFocusNodeId(srcNode.id); }}
+              >
+                <title>{`${srcNode.label} → ${tgtNode.label}: ${fmtCount(l.value)} sessions`}</title>
+              </path>
+            );
+          })}
+
+          {/* Nodes */}
+          {nodes.map((n) => {
+            const x = PAD.left + n.depth * colW;
+            const y = PAD.top + n.y * scaleY;
+            const h = Math.max(2, n.height * scaleY);
+            const color = SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
+            const isLeft = n.depth === 0;
+            const isRight = n.depth === maxDepth;
+            const labelX = isLeft ? x - 4 : isRight ? x + NODE_W + 4 : x + NODE_W + 4;
+            const anchor = isLeft ? "end" : "start";
+            const isFocused = n.id === focusNodeId;
+            const isConnected = !hasFocus || connectedNodes.has(n.id);
+            const nodeOpacity = hasFocus ? (isFocused ? 1 : isConnected ? 0.85 : 0.15) : 0.85;
+            const labelOpacity = hasFocus ? (isConnected ? 0.9 : 0.15) : 0.7;
+            return (
+              <g key={n.id} style={{ cursor: "pointer", transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); setFocusNodeId(isFocused ? null : n.id); }}>
+                <rect x={x} y={y} width={NODE_W} height={h} rx={3} fill={color} opacity={nodeOpacity} stroke={isFocused ? "#fff" : "none"} strokeWidth={isFocused ? 2 : 0}>
+                  <title>{`${n.label}: ${fmtCount(n.value)} sessions`}</title>
+                </rect>
+                {h > 8 && (
+                  <text x={labelX} y={y + h / 2 + 3.5} textAnchor={anchor} fill={`rgba(255,255,255,${labelOpacity})`} fontSize={10} fontWeight={isFocused ? 700 : 400}>
+                    {truncLabel(n.label)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+        {hasFocus && focusNode && (
+          <div style={{ marginTop: 12, padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: `3px solid ${SANKEY_COLORS[focusNode.depth % SANKEY_COLORS.length]}` }}>
+            <Flex alignItems="center" gap={8} style={{ marginBottom: 8 }}>
+              <Strong style={{ fontSize: 13 }}>{focusNode.label}</Strong>
+              <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtCount(focusSessions)} sessions</Text>
+              <button onClick={() => setFocusNodeId(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 10 }}>Clear</button>
+            </Flex>
+            {focusInbound.length > 0 && (
+              <div style={{ marginBottom: 6 }}>
+                <Text style={{ fontSize: 10, opacity: 0.5 }}>Inbound ({focusInbound.length}):</Text>
+                <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
+                  {focusInbound.sort((a, b) => b.value - a.value).slice(0, 6).map((l, i) => {
+                    const src = nodes.find(n => n.id === l.source)!;
+                    return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, src.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${src.label}` : src.label}>{truncLabel(src.label, 30)} <Strong style={{ color: CYAN }}>{fmtCount(l.value)}</Strong></a>;
+                  })}
+                </Flex>
+              </div>
+            )}
+            {focusOutbound.length > 0 && (
+              <div>
+                <Text style={{ fontSize: 10, opacity: 0.5 }}>Outbound ({focusOutbound.length}):</Text>
+                <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
+                  {focusOutbound.sort((a, b) => b.value - a.value).slice(0, 6).map((l, i) => {
+                    const tgt = nodes.find(n => n.id === l.target)!;
+                    return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, tgt.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${tgt.label}` : tgt.label}>{truncLabel(tgt.label, 30)} <Strong style={{ color: GREEN }}>{fmtCount(l.value)}</Strong></a>;
+                  })}
+                </Flex>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Transition table */}
+      <SectionHeader title="Top Transitions" />
+      <div className="uj-table-tile">
+        <DataTable
+          sortable
+          data={links.slice(0, 30).map((l) => {
+            const srcNode = nodes.find(n => n.id === l.source)!;
+            const tgtNode = nodes.find(n => n.id === l.target)!;
+            return {
+              From: srcNode.label.substring(0, 40),
+              To: tgtNode.label.substring(0, 40),
+              Sessions: l.value,
+              "% of Total": totalSessions > 0 ? (l.value / totalSessions) * 100 : 0,
+            };
+          })}
+          columns={[
+            { id: "From", header: "From", accessor: "From", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
+            { id: "To", header: "To", accessor: "To", cell: ({ value }: any) => <Text>{value}</Text> },
+            { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
+            { id: "% of Total", header: "% of Total", accessor: "% of Total", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtPct(value)}</Text> },
+          ]}
+        />
       </div>
     </Flex>
   );
