@@ -4,7 +4,7 @@ import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment";
 import { Flex } from "@dynatrace/strato-components/layouts";
 import { Heading, Text, Strong, Paragraph, Link } from "@dynatrace/strato-components/typography";
 import { Tabs, Tab } from "@dynatrace/strato-components-preview/navigation";
-import { Select } from "@dynatrace/strato-components-preview/forms";
+import { Select, TextInput } from "@dynatrace/strato-components-preview/forms";
 import { ProgressBar } from "@dynatrace/strato-components/content";
 import { Button } from "@dynatrace/strato-components/buttons";
 import { Sheet } from "@dynatrace/strato-components/overlays";
@@ -15,7 +15,11 @@ import "./UserJourney.css";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const FRONTEND = "www.angular.easytravel.com";
+const DEFAULT_FRONTEND = "www.angular.easytravel.com";
+const FRONTEND_STATE_KEY = "uj-frontend-app";
+const STEPS_STATE_KEY = "uj-funnel-steps";
+const MIN_STEPS = 2;
+const MAX_STEPS = 10;
 const GREEN = "#0D9C29";
 const YELLOW = "#FCD53F";
 const RED = "#C21930";
@@ -27,11 +31,13 @@ const ORANGE = "#FF832B";
 let ENV_URL = "";
 try { ENV_URL = getEnvironmentUrl(); } catch { /* dev fallback */ }
 
-const FUNNEL_STEPS = [
-  { label: "Home Page", identifier: "/easytravel/home", type: "view" as const },
-  { label: "Login", identifier: "/easytravel/rest/login", type: "request" as const },
-  { label: "Search", identifier: "/easytravel/search", type: "view" as const },
-  { label: "Payment", identifier: "/easytravel/rest/validate-creditcard", type: "request" as const },
+type StepDef = { label: string; identifier: string; type: "view" | "request" };
+
+const DEFAULT_FUNNEL_STEPS: StepDef[] = [
+  { label: "Home Page", identifier: "/easytravel/home", type: "view" },
+  { label: "Login", identifier: "/easytravel/rest/login", type: "request" },
+  { label: "Search", identifier: "/easytravel/search", type: "view" },
+  { label: "Payment", identifier: "/easytravel/rest/validate-creditcard", type: "request" },
 ];
 
 const TIMEFRAME_OPTIONS = [
@@ -54,8 +60,8 @@ const APDEX_4T = 12000;
 
 const TAB_KEYS = [
   "Funnel Overview", "Trends", "Web Vitals", "Step Details", "Worst Sessions",
-  "JS Errors", "Click Issues", "User Cohorts", "Resources", "Perf Budgets",
-  "Geo Heatmap", "Navigation Paths", "Sankey", "Anomaly Detection",
+  "Exceptions", "Click Issues", "Perf Budgets",
+  "Geo Heatmap", "World Map", "Navigation Paths", "Sankey", "Anomaly Detection",
   "Conversion Attribution", "Executive Summary", "Segmentation",
   "Errors & Drop-offs", "What-If Analysis",
 ] as const;
@@ -90,19 +96,19 @@ function cwvClr(val: number, metric: keyof typeof CWV): string { return val <= C
 function cwvLabel(val: number, metric: keyof typeof CWV): string { return val <= CWV[metric].good ? "Good" : val <= CWV[metric].poor ? "Needs Improvement" : "Poor"; }
 function calcApdex(sat: number, tol: number, total: number): number { return total > 0 ? (sat + tol / 2) / total : 0; }
 
-function stepFilter(s: typeof FUNNEL_STEPS[number]): string { return s.type === "view" ? `view.name == "${s.identifier}"` : `url.path == "${s.identifier}"`; }
-function anyStepFilter(): string { return FUNNEL_STEPS.map(stepFilter).join(" or "); }
-function stepTagExpr(labels: string[]): string {
-  return `coalesce(\n    ${FUNNEL_STEPS.map((s, i) => `if(${stepFilter(s)}, "${labels[i]}")`).join(",\n    ")},\n    "other")`;
+function stepFilter(s: StepDef): string { return s.type === "view" ? `view.name == "${s.identifier}"` : `url.path == "${s.identifier}"`; }
+function anyStepFilter(steps: StepDef[]): string { return steps.map(stepFilter).join(" or "); }
+function stepTagExpr(steps: StepDef[], labels: string[]): string {
+  return `coalesce(\n    ${steps.map((s, i) => `if(${stepFilter(s)}, "${labels[i]}")`).join(",\n    ")},\n    "other")`;
 }
 
-function sessionReplayUrl(sessionId: string): string {
-  return `${ENV_URL}/ui/apps/dynatrace.classic.session.segmentation/#usersessiondetail;sessionId=${encodeURIComponent(sessionId)}`;
+function sessionReplayUrl(sessionId: string, startTs?: string): string {
+  return `${ENV_URL}/ui/apps/dynatrace.users.sessions/session-viewer/${sessionId}/${startTs ?? ''}?tf=now-2h%3Bnow&perspective=general`;
 }
 
-function appEntityQuery(): string {
+function appEntityQuery(frontend: string): string {
   return `fetch dt.entity.application
-| filter entity.name == "${FRONTEND}"
+| filter entity.name == "${frontend}"
 | fieldsKeep id
 | limit 1`;
 }
@@ -110,6 +116,17 @@ function appEntityQuery(): string {
 function vitalsUrl(appEntityId: string, pageName: string): string {
   const encoded = btoa(pageName);
   return `${ENV_URL}/ui/apps/dynatrace.experience.vitals/performance/web/${encodeURIComponent(appEntityId)}/pages/${encodeURIComponent(encoded)}`;
+}
+
+function errorInspectorUrl(errorId: string, frontend: string): string {
+  const filter = encodeURIComponent(`"Frontend" = "${frontend}" "Error Type" = "Exception"`);
+  return `${ENV_URL}/ui/apps/dynatrace.error.inspector/explorer?tf=now-2h%3Bnow&sort=affected_users%3Adescending&perspective=impact&detailsId=${encodeURIComponent(errorId)}&sidebarOpen=true#filtering=${filter}`;
+}
+
+function sessionsFilterUrl(frontend: string, locationName?: string): string {
+  let filter = `Frontends = ${frontend}`;
+  if (locationName) filter += ` Location = "${locationName}"`;
+  return `${ENV_URL}/ui/apps/dynatrace.users.sessions/sessions/sessions?tf=now-2h%3Bnow&perspective=general#filtering=${encodeURIComponent(filter)}`;
 }
 
 function SectionHeader({ title }: { title: string }) {
@@ -130,17 +147,17 @@ function Delta({ current, previous, inverted = false, suffix = "" }: { current: 
 // ---------------------------------------------------------------------------
 // DQL Queries
 // ---------------------------------------------------------------------------
-function sessionFlowQuery(days: number, prev = false): string {
+function sessionFlowQuery(days: number, frontend: string, steps: StepDef[], prev = false): string {
   const period = periodClause(days, prev);
-  const tagExpr = stepTagExpr(FUNNEL_STEPS.map((_, i) => `step${i + 1}`));
-  const iAnyLines = FUNNEL_STEPS.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
-  const countLines = FUNNEL_STEPS.map((_, i) => {
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const countLines = steps.map((_, i) => {
     const conds = Array.from({ length: i + 1 }, (__, j) => `reached_step${j + 1} == true`).join(" and ");
     return `    at_step${i + 1} = countIf(${conds})`;
   }).join(",\n");
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | fieldsAdd step_tag = ${tagExpr}
 | summarize steps = collectDistinct(step_tag), by: {dt.rum.session.id}
 | fieldsAdd
@@ -150,12 +167,12 @@ ${iAnyLines}
 ${countLines}`;
 }
 
-function stepMetricsQuery(days: number): string {
+function stepMetricsQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
-  const tagExpr = stepTagExpr(FUNNEL_STEPS.map((s) => s.label));
+  const tagExpr = stepTagExpr(steps, steps.map((s) => s.label));
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | fieldsAdd step_tag = ${tagExpr}
 | fieldsAdd satisfaction = coalesce(
@@ -176,7 +193,7 @@ function stepMetricsQuery(days: number): string {
     by: {step_tag}`;
 }
 
-function cwvQuery(days: number): string {
+function cwvQuery(days: number, frontend: string): string {
   const period = periodClause(days);
   return `timeseries {
   lcp = avg(dt.frontend.web.page.largest_contentful_paint),
@@ -184,15 +201,15 @@ function cwvQuery(days: number): string {
   inp = avg(dt.frontend.web.page.interaction_to_next_paint),
   ttfb = avg(dt.frontend.web.navigation.time_to_first_byte),
   load_end = avg(dt.frontend.web.navigation.load_event_end)
-}, ${period}, filter: {frontend.name == "${FRONTEND}"}
+}, ${period}, filter: {frontend.name == "${frontend}"}
 | fieldsAdd lcp_avg = arrayAvg(lcp), cls_avg = arrayAvg(cls), inp_avg = arrayAvg(inp), ttfb_avg = arrayAvg(ttfb), load_avg = arrayAvg(load_end)
 | fields lcp_avg, cls_avg, inp_avg, ttfb_avg, load_avg`;
 }
 
-function cwvByPageQuery(days: number): string {
+function cwvByPageQuery(days: number, frontend: string): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
+| filter frontend.name == "${frontend}"
 | filter characteristics.has_page_summary == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | fieldsAdd
@@ -210,11 +227,11 @@ function cwvByPageQuery(days: number): string {
 | limit 20`;
 }
 
-function deviceQuery(days: number): string {
+function deviceQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | fieldsAdd satisfaction = coalesce(if(dur_ms <= ${APDEX_T}.0, "satisfied"), if(dur_ms <= ${APDEX_4T}.0, "tolerating"), "frustrated")
 | fieldsAdd deviceType = device.type
@@ -222,11 +239,11 @@ function deviceQuery(days: number): string {
 | sort actions desc`;
 }
 
-function browserQuery(days: number): string {
+function browserQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | fieldsAdd satisfaction = coalesce(if(dur_ms <= ${APDEX_T}.0, "satisfied"), if(dur_ms <= ${APDEX_4T}.0, "tolerating"), "frustrated")
 | fieldsAdd browserName = browser.name
@@ -235,11 +252,11 @@ function browserQuery(days: number): string {
 | limit 15`;
 }
 
-function geoQuery(days: number): string {
+function geoQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | fieldsAdd satisfaction = coalesce(if(dur_ms <= ${APDEX_T}.0, "satisfied"), if(dur_ms <= ${APDEX_4T}.0, "tolerating"), "frustrated")
 | fieldsAdd country = geo.country.iso_code
@@ -248,23 +265,23 @@ function geoQuery(days: number): string {
 | limit 20`;
 }
 
-function errorQuery(days: number): string {
+function errorQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
-  const tagExpr = stepTagExpr(FUNNEL_STEPS.map((s) => s.label));
+  const tagExpr = stepTagExpr(steps, steps.map((s) => s.label));
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | filter characteristics.has_error == true
 | fieldsAdd step_tag = ${tagExpr}
 | summarize error_count = count(), affected_sessions = countDistinct(dt.rum.session.id), by: {step_tag}
 | sort error_count desc`;
 }
 
-function sessionQualityQuery(days: number, prev = false): string {
+function sessionQualityQuery(days: number, frontend: string, steps: StepDef[], prev = false): string {
   const period = periodClause(days, prev);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | summarize
     total = count(),
@@ -279,11 +296,11 @@ function sessionQualityQuery(days: number, prev = false): string {
 }
 
 // NEW: Worst Sessions query
-function worstSessionsQuery(days: number): string {
+function worstSessionsQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | fieldsAdd satisfaction = coalesce(if(dur_ms <= ${APDEX_T}.0, "satisfied"), if(dur_ms <= ${APDEX_4T}.0, "tolerating"), "frustrated")
 | summarize
@@ -294,35 +311,44 @@ function worstSessionsQuery(days: number): string {
     frustrated = countIf(satisfaction == "frustrated"),
     satisfied = countIf(satisfaction == "satisfied"),
     tolerating = countIf(satisfaction == "tolerating"),
+    start_ts = min(start_time),
     by: {dt.rum.session.id}
 | sort frustrated desc, errors desc, max_dur desc
 | limit 25`;
 }
 
-// NEW: JS Errors query
-function jsErrorsQuery(days: number): string {
+// Exceptions query
+function jsErrorsQuery(days: number, frontend: string): string {
   const period = periodClause(days);
-  return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter characteristics.has_error == true
-| fieldsAdd errorName = event.name
+  return `fetch user.events, samplingRatio: 1, ${period}
+| filter characteristics.has_error
+| filter isNotNull(error.type)
+| filter isNotNull(error.id)
+| fieldsAdd frontend_name = coalesce(
+    entityName(dt.rum.application.entity, type: "dt.entity.application"),
+    entityName(dt.rum.application.entity, type: "dt.entity.mobile_application")
+  )
+| filter frontend_name == "${frontend}"
+| filter error.type == "exception"
+| fieldsAdd errorName = error.display_name
 | fieldsAdd pageName = view.name
 | summarize
     occurrences = count(),
+    affected_users = countDistinct(dt.rum.instance.id),
     affected_sessions = countDistinct(dt.rum.session.id),
-    first_seen = min(timestamp),
-    last_seen = max(timestamp),
+    first_seen = min(start_time),
+    last_seen = max(start_time),
     pages = collectDistinct(pageName),
-    by: {errorName}
+    by: {error.id, errorName}
 | sort occurrences desc
 | limit 30`;
 }
 
 // NEW: Rage/Dead Clicks query
-function clickIssuesQuery(days: number): string {
+function clickIssuesQuery(days: number, frontend: string): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
+| filter frontend.name == "${frontend}"
 | filter in(event.type, "rageClick", "deadClick")
 | fieldsAdd eventType = event.type
 | fieldsAdd pageName = view.name
@@ -335,51 +361,20 @@ function clickIssuesQuery(days: number): string {
 | limit 30`;
 }
 
-// NEW: User Cohort query — new vs returning and by user type
-function cohortQuery(days: number): string {
-  const period = periodClause(days);
-  return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
-| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
-| fieldsAdd satisfaction = coalesce(if(dur_ms <= ${APDEX_T}.0, "satisfied"), if(dur_ms <= ${APDEX_4T}.0, "tolerating"), "frustrated")
-| fieldsAdd visitorType = coalesce(if(user.type == "Real User", "Identified"), "Anonymous")
-| summarize
-    actions = count(),
-    sessions = countDistinct(dt.rum.session.id),
-    avg_dur = avg(dur_ms),
-    p90_dur = percentile(dur_ms, 90),
-    errors = countIf(characteristics.has_error == true),
-    satisfied = countIf(satisfaction == "satisfied"),
-    tolerating = countIf(satisfaction == "tolerating"),
-    frustrated = countIf(satisfaction == "frustrated"),
-    by: {visitorType}`;
-}
-
-// NEW: Resource loading performance (top slow resources)
-function resourceQuery(days: number): string {
-  const period = periodClause(days);
-  return `timeseries {
-  dur = avg(dt.frontend.web.resource.duration),
-  transfer = avg(dt.frontend.web.resource.transfer_size)
-}, by: {dt.rum.resource.url}, ${period}, filter: {frontend.name == "${FRONTEND}"}
-| fieldsAdd avg_dur = arrayAvg(dur), avg_size = arrayAvg(transfer)
-| fields dt.rum.resource.url, avg_dur, avg_size
-| filter isNotNull(avg_dur)
-| sort avg_dur desc
-| limit 25`;
-}
-
 // NEW: Geographic performance deep-dive (country + city level)
-function geoPerformanceQuery(days: number): string {
+function geoPerformanceQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | fieldsAdd satisfaction = coalesce(if(dur_ms <= ${APDEX_T}.0, "satisfied"), if(dur_ms <= ${APDEX_4T}.0, "tolerating"), "frustrated")
 | fieldsAdd country = geo.country.iso_code
+| fieldsAdd country_name = geo.country.name
 | fieldsAdd city = geo.city.name
+| fieldsAdd lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0
+| fieldsAdd cls_val = toDouble(web_vitals.cumulative_layout_shift)
+| fieldsAdd inp_ms = toDouble(web_vitals.interaction_to_next_paint) / 1000000.0
 | summarize
     actions = count(),
     sessions = countDistinct(dt.rum.session.id),
@@ -389,16 +384,20 @@ function geoPerformanceQuery(days: number): string {
     satisfied = countIf(satisfaction == "satisfied"),
     tolerating = countIf(satisfaction == "tolerating"),
     frustrated = countIf(satisfaction == "frustrated"),
+    lcp_avg = avg(lcp_ms),
+    cls_avg = avg(cls_val),
+    inp_avg = avg(inp_ms),
+    country_name = takeFirst(country_name),
     by: {country, city}
 | sort actions desc
 | limit 50`;
 }
 
 // NEW: Navigation paths — actual user page flows
-function navigationPathsQuery(days: number): string {
+function navigationPathsQuery(days: number, frontend: string): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
+| filter frontend.name == "${frontend}"
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | sort timestamp asc
@@ -416,10 +415,10 @@ function navigationPathsQuery(days: number): string {
 }
 
 // NEW: Sankey — multi-step page flow for Sankey diagram
-function sankeyQuery(days: number): string {
+function sankeyQuery(days: number, frontend: string): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
+| filter frontend.name == "${frontend}"
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | sort timestamp asc
@@ -438,11 +437,11 @@ function sankeyQuery(days: number): string {
 }
 
 // NEW: Hourly distribution for performance budgets
-function hourlyDistributionQuery(days: number): string {
+function hourlyDistributionQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | fieldsAdd hour = getHour(timestamp)
 | summarize
@@ -458,13 +457,14 @@ function hourlyDistributionQuery(days: number): string {
 }
 
 // NEW: Conversion attribution — correlate conversion with perf factors
-function conversionAttributionQuery(days: number): string {
+function conversionAttributionQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
-  const tagExpr = stepTagExpr(FUNNEL_STEPS.map((_, i) => `step${i + 1}`));
-  const iAnyLines = FUNNEL_STEPS.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const convertedConds = steps.map((_, i) => `reached_step${i + 1} == true`).join(" and ");
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | fieldsAdd step_tag = ${tagExpr}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | fieldsAdd deviceType = device.type
@@ -478,7 +478,7 @@ function conversionAttributionQuery(days: number): string {
     by: {dt.rum.session.id, deviceType, browserName}
 | fieldsAdd
 ${iAnyLines}
-| fieldsAdd converted = if(reached_step1 == true and reached_step2 == true and reached_step3 == true and reached_step4 == true, true, else: false)
+| fieldsAdd converted = if(${convertedConds}, true, else: false)
 | summarize
     total_sessions = count(),
     converted_sessions = countIf(converted == true),
@@ -492,11 +492,11 @@ ${iAnyLines}
 }
 
 // NEW: Session duration distribution for anomaly detection
-function sessionDurationDistributionQuery(days: number): string {
+function sessionDurationDistributionQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${FRONTEND}"
-| filter ${anyStepFilter()}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | fieldsAdd dur_bucket = coalesce(
     if(dur_ms <= 500.0, "0-500ms"),
@@ -558,7 +558,7 @@ function CwvCard({ label, value, unit, metric }: { label: string; value: number;
 // ---------------------------------------------------------------------------
 interface FunnelStep { label: string; count: number; convFromPrev: number; overallConv: number; apdex?: number }
 
-function FunnelChart({ steps, prevSteps, appEntityId }: { steps: FunnelStep[]; prevSteps?: FunnelStep[]; appEntityId?: string }) {
+function FunnelChart({ steps, prevSteps, appEntityId, stepDefs }: { steps: FunnelStep[]; prevSteps?: FunnelStep[]; appEntityId?: string; stepDefs: StepDef[] }) {
   const maxCount = Math.max(1, ...steps.map((s) => s.count), ...(prevSteps ?? []).map((s) => s.count));
   const W = 720;
   const stepH = 80;
@@ -615,7 +615,7 @@ function FunnelChart({ steps, prevSteps, appEntityId }: { steps: FunnelStep[]; p
         const countDelta = prevStep ? step.count - prevStep.count : 0;
         const countDeltaPct = prevStep && prevStep.count > 0 ? (countDelta / prevStep.count) * 100 : 0;
 
-        const stepUrl = appEntityId ? vitalsUrl(appEntityId, FUNNEL_STEPS[i]?.identifier ?? step.label) : undefined;
+        const stepUrl = appEntityId ? vitalsUrl(appEntityId, stepDefs[i]?.identifier ?? step.label) : undefined;
 
         return (
           <g key={i}>
@@ -626,7 +626,7 @@ function FunnelChart({ steps, prevSteps, appEntityId }: { steps: FunnelStep[]; p
                 <text x={24} y={midY + 4} textAnchor="middle" fill={sClr} fontSize="12" fontWeight="700">{i + 1}</text>
                 <text x={cx} y={midY - 10} textAnchor="middle" fill="rgba(255,255,255,0.95)" fontSize="14" fontWeight="600" textDecoration="underline">{step.label}</text>
                 <text x={cx} y={midY + 8} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="12">{fmtCount(step.count)} sessions</text>
-                <title>Open in Vitals: {FUNNEL_STEPS[i]?.identifier ?? step.label}</title>
+                <title>Open in Vitals: {stepDefs[i]?.identifier ?? step.label}</title>
               </a>
             ) : (
               <>
@@ -690,19 +690,19 @@ function HelpSection({ title, children }: { title: string; children: React.React
   return <div style={{ marginBottom: 20 }}><Heading level={5} style={{ marginBottom: 8 }}>{title}</Heading>{children}</div>;
 }
 
-function HelpContent() {
+function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }) {
   return (
     <div style={{ padding: "4px 0" }}>
       <HelpSection title="Overview">
-        <Paragraph>The <Strong>User Journey</Strong> app provides comprehensive frontend observability for <Strong>{FRONTEND}</Strong>. It tracks users through a 4-step conversion funnel using real-time DQL queries against Dynatrace Grail. The funnel is <Strong>strict sequential</Strong>: each step requires all previous steps.</Paragraph>
+        <Paragraph>The <Strong>User Journey</Strong> app provides comprehensive frontend observability for <Strong>{frontend}</Strong>. It tracks users through a {steps.length}-step conversion funnel using real-time DQL queries against Dynatrace Grail. The funnel is <Strong>strict sequential</Strong>: each step requires all previous steps.</Paragraph>
       </HelpSection>
       <HelpSection title="Funnel Steps">
         <div style={{ margin: "12px 0", padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8 }}>
-          <Paragraph><Strong>Step 1 — Home Page</Strong> (view: /easytravel/home): Entry point.</Paragraph>
-          <Paragraph><Strong>Step 2 — Login</Strong> (XHR: /easytravel/rest/login): Requires Step 1.</Paragraph>
-          <Paragraph><Strong>Step 3 — Search</Strong> (view: /easytravel/search): Requires Steps 1-2.</Paragraph>
-          <Paragraph><Strong>Step 4 — Payment</Strong> (XHR: /easytravel/rest/validate-creditcard): Requires Steps 1-3.</Paragraph>
+          {steps.map((step, i) => (
+            <Paragraph key={i}><Strong>Step {i + 1} — {step.label}</Strong> ({step.type === "view" ? "view" : "XHR"}: {step.identifier}): {i === 0 ? "Entry point." : `Requires Step${i > 1 ? "s" : ""} 1${i > 1 ? `-${i}` : ""}.`}</Paragraph>
+          ))}
         </div>
+        <Paragraph style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>Steps are configurable via Settings (⚙). Min {MIN_STEPS}, max {MAX_STEPS} steps.</Paragraph>
       </HelpSection>
       <HelpSection title="Tabs">
         <Paragraph><Strong>Funnel Overview</Strong>: KPIs, colorized funnel (color by drop-off severity), per-step Apdex, and step analysis table. Toggle <Strong>Compare</Strong> to overlay the previous period as dashed outlines and see ▲▼ deltas on each step.</Paragraph>
@@ -710,13 +710,12 @@ function HelpContent() {
         <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), page-level CWV breakdown, and performance health score.</Paragraph>
         <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99).</Paragraph>
         <Paragraph><Strong>Worst Sessions</Strong>: Surfaces the worst-performing sessions ranked by frustrated actions, errors, and slowness. Each session links directly to <Strong>Dynatrace Session Replay</Strong> for instant root-cause analysis.</Paragraph>
-        <Paragraph><Strong>JS Errors</Strong>: JavaScript errors grouped by error name. Shows occurrences, affected sessions, error velocity (new vs. recurring), and impacted pages. Helps prioritize which errors to fix first.</Paragraph>
+        <Paragraph><Strong>Exceptions</Strong>: JavaScript exceptions grouped by error name. Shows occurrences, affected sessions, error velocity (new vs. recurring), and impacted pages. Helps prioritize which errors to fix first.</Paragraph>
         <Paragraph><Strong>Click Issues</Strong>: Detects rage clicks (rapid repeated clicks indicating frustration) and dead clicks (clicks on non-responsive elements). Shows the worst offending elements, pages, and session impact to guide UX fixes.</Paragraph>
-        <Paragraph><Strong>User Cohorts</Strong>: Compares experience quality between identified (logged-in) and anonymous users. Shows Apdex, duration, errors, and satisfaction breakdown per cohort to reveal auth-flow overhead or personalization issues.</Paragraph>
-        <Paragraph><Strong>Resources</Strong>: Surfaces the slowest-loading resources (scripts, images, fonts, APIs) with a waterfall visualization. Groups by domain to identify problematic third-party dependencies. Helps prioritize optimizations that improve LCP and load times.</Paragraph>
         <Paragraph><Strong>Perf Budgets</Strong>: Tracks actual metrics against defined performance budgets (Apdex ≥0.85, Conversion ≥20%, Avg Duration ≤2s, P90 ≤4s, Error Rate ≤2%, Frustrated ≤10%). Shows pass/fail status, margin from target, and hourly Apdex distribution to identify peak-hour degradation.</Paragraph>
-        <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights.</Paragraph>
-        <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation.</Paragraph>
+        <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights. Country cards are clickable and open <Strong>User Sessions</Strong> filtered to that location.</Paragraph>
+        <Paragraph><Strong>World Map</Strong>: Interactive choropleth map colorized by session count, average duration, Apdex, or error rate. Provides a visual overview of geographic performance distribution. Countries with data are clickable and link to <Strong>User Sessions</Strong>.</Paragraph>
+        <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
         <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram showing user navigation paths. Click any node to see inbound/outbound connections. Inbound and outbound user actions in the popup are clickable — they open the <Strong>Vitals</Strong> app filtered to that specific page for detailed performance analysis.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations.</Paragraph>
         <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device × browser cross-section.</Paragraph>
@@ -738,7 +737,7 @@ function HelpContent() {
         <Paragraph>• Use 2-hour timeframe for live monitoring, 7+ days for trends.</Paragraph>
         <Paragraph>• In Trends tab, period-over-period shows regression alerts early.</Paragraph>
         <Paragraph>• Click Replay links in Worst Sessions for visual session playback.</Paragraph>
-        <Paragraph>• JS Errors with high "Affected Sessions" are top priority fixes.</Paragraph>
+        <Paragraph>• Exceptions with high "Affected Sessions" are top priority fixes.</Paragraph>
         <Paragraph>• Toggle Compare on the funnel to spot conversion changes instantly.</Paragraph>
         <Paragraph>• Check Perf Budgets daily to catch regressions before they impact users.</Paragraph>
         <Paragraph>• Use Geo Heatmap to justify CDN edge locations in underperforming regions.</Paragraph>
@@ -763,9 +762,13 @@ export function UserJourney() {
   const [showSettings, setShowSettings] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [tabVisibility, setTabVisibility] = useState<Record<TabKey, boolean>>(DEFAULT_TAB_VISIBILITY);
+  const [frontend, setFrontend] = useState<string>(DEFAULT_FRONTEND);
+  const [steps, setSteps] = useState<StepDef[]>(DEFAULT_FUNNEL_STEPS);
 
   // Persist tab visibility per user
   const savedState = useUserAppState({ key: TAB_STATE_KEY });
+  const savedFrontend = useUserAppState({ key: FRONTEND_STATE_KEY });
+  const savedSteps = useUserAppState({ key: STEPS_STATE_KEY });
   const { execute: saveState } = useSetUserAppState();
 
   useEffect(() => {
@@ -776,6 +779,24 @@ export function UserJourney() {
       } catch { /* ignore parse errors */ }
     }
   }, [savedState.data]);
+
+  useEffect(() => {
+    if (savedFrontend.data?.value) {
+      const val = savedFrontend.data.value as string;
+      if (val.trim()) setFrontend(val.trim());
+    }
+  }, [savedFrontend.data]);
+
+  useEffect(() => {
+    if (savedSteps.data?.value) {
+      try {
+        const parsed = JSON.parse(savedSteps.data.value as string) as StepDef[];
+        if (Array.isArray(parsed) && parsed.length >= MIN_STEPS && parsed.length <= MAX_STEPS) {
+          setSteps(parsed);
+        }
+      } catch { /* ignore parse errors */ }
+    }
+  }, [savedSteps.data]);
 
   const toggleTab = (tab: TabKey) => {
     setTabVisibility(prev => {
@@ -788,49 +809,47 @@ export function UserJourney() {
   const isTabVisible = (tab: TabKey) => tabVisibility[tab] !== false;
 
   // Current period queries
-  const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays) });
-  const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays) });
-  const cwvResult = useDql({ query: cwvQuery(timeframeDays) });
-  const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays) });
-  const deviceData = useDql({ query: deviceQuery(timeframeDays) });
-  const browserData = useDql({ query: browserQuery(timeframeDays) });
-  const geoData = useDql({ query: geoQuery(timeframeDays) });
-  const errorData = useDql({ query: errorQuery(timeframeDays) });
-  const qualityData = useDql({ query: sessionQualityQuery(timeframeDays) });
+  const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps) });
+  const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps) });
+  const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend) });
+  const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays, frontend) });
+  const deviceData = useDql({ query: deviceQuery(timeframeDays, frontend, steps) });
+  const browserData = useDql({ query: browserQuery(timeframeDays, frontend, steps) });
+  const geoData = useDql({ query: geoQuery(timeframeDays, frontend, steps) });
+  const errorData = useDql({ query: errorQuery(timeframeDays, frontend, steps) });
+  const qualityData = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps) });
 
   // Previous period queries (for Trends + Funnel Compare)
-  const funnelResultPrev = useDql({ query: sessionFlowQuery(timeframeDays, true) });
-  const qualityDataPrev = useDql({ query: sessionQualityQuery(timeframeDays, true) });
+  const funnelResultPrev = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, true) });
+  const qualityDataPrev = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, true) });
 
-  // NEW: Worst Sessions + JS Errors
-  const worstSessionsData = useDql({ query: worstSessionsQuery(timeframeDays) });
-  const jsErrorsData = useDql({ query: jsErrorsQuery(timeframeDays) });
+  // NEW: Worst Sessions + Exceptions
+  const worstSessionsData = useDql({ query: worstSessionsQuery(timeframeDays, frontend, steps) });
+  const jsErrorsData = useDql({ query: jsErrorsQuery(timeframeDays, frontend) });
 
-  // NEW: Rage/Dead Clicks, User Cohorts, Resources
-  const clickIssuesData = useDql({ query: clickIssuesQuery(timeframeDays) });
-  const cohortData = useDql({ query: cohortQuery(timeframeDays) });
-  const resourceData = useDql({ query: resourceQuery(timeframeDays) });
+  // NEW: Rage/Dead Clicks
+  const clickIssuesData = useDql({ query: clickIssuesQuery(timeframeDays, frontend) });
 
   // NEW: Geo Performance, Navigation Paths, Hourly Distribution
-  const geoPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays) });
-  const navigationPathsData = useDql({ query: navigationPathsQuery(timeframeDays) });
-  const sankeyData = useDql({ query: sankeyQuery(timeframeDays) });
-  const appEntityData = useDql({ query: appEntityQuery() });
+  const geoPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays, frontend, steps) });
+  const navigationPathsData = useDql({ query: navigationPathsQuery(timeframeDays, frontend) });
+  const sankeyData = useDql({ query: sankeyQuery(timeframeDays, frontend) });
+  const appEntityData = useDql({ query: appEntityQuery(frontend) });
   const appEntityId = (appEntityData.data?.records?.[0] as any)?.['id'] ?? '';
-  const hourlyDistributionData = useDql({ query: hourlyDistributionQuery(timeframeDays) });
+  const hourlyDistributionData = useDql({ query: hourlyDistributionQuery(timeframeDays, frontend, steps) });
 
   // NEW: Conversion Attribution, Duration Distribution
-  const conversionAttributionData = useDql({ query: conversionAttributionQuery(timeframeDays) });
-  const durationDistributionData = useDql({ query: sessionDurationDistributionQuery(timeframeDays) });
+  const conversionAttributionData = useDql({ query: conversionAttributionQuery(timeframeDays, frontend, steps) });
+  const durationDistributionData = useDql({ query: sessionDurationDistributionQuery(timeframeDays, frontend, steps) });
 
   // Parse funnel
   const parseFunnel = (result: any) => {
     const r = result?.data?.records?.[0] as any;
-    if (!r) return [0, 0, 0, 0];
-    return [Number(r.at_step1 ?? 0), Number(r.at_step2 ?? 0), Number(r.at_step3 ?? 0), Number(r.at_step4 ?? 0)];
+    if (!r) return steps.map(() => 0);
+    return steps.map((_, i) => Number(r[`at_step${i + 1}`] ?? 0));
   };
-  const funnelCounts = useMemo(() => parseFunnel(funnelResult), [funnelResult.data]);
-  const funnelCountsPrev = useMemo(() => parseFunnel(funnelResultPrev), [funnelResultPrev.data]);
+  const funnelCounts = useMemo(() => parseFunnel(funnelResult), [funnelResult.data, steps]);
+  const funnelCountsPrev = useMemo(() => parseFunnel(funnelResultPrev), [funnelResultPrev.data, steps]);
 
   // Parse step metrics
   const stepMap = useMemo(() => {
@@ -857,8 +876,9 @@ export function UserJourney() {
 
   const overallApdex = calcApdex(quality.satisfied, quality.tolerating, quality.total);
   const overallApdexPrev = calcApdex(qualityPrev.satisfied, qualityPrev.tolerating, qualityPrev.total);
-  const overallConv = funnelCounts[0] > 0 ? (funnelCounts[3] / funnelCounts[0]) * 100 : 0;
-  const overallConvPrev = funnelCountsPrev[0] > 0 ? (funnelCountsPrev[3] / funnelCountsPrev[0]) * 100 : 0;
+  const lastIdx = steps.length - 1;
+  const overallConv = funnelCounts[0] > 0 ? (funnelCounts[lastIdx] / funnelCounts[0]) * 100 : 0;
+  const overallConvPrev = funnelCountsPrev[0] > 0 ? (funnelCountsPrev[lastIdx] / funnelCountsPrev[0]) * 100 : 0;
   const isLoading = funnelResult.isLoading || stepMetrics.isLoading;
 
   return (
@@ -875,7 +895,7 @@ export function UserJourney() {
           </div>
           <div>
             <Heading level={3} style={{ margin: 0 }}>User Journey</Heading>
-            <Text style={{ fontSize: 12, opacity: 0.6 }}>{FRONTEND}</Text>
+            <Text style={{ fontSize: 12, opacity: 0.6 }}>{frontend}</Text>
           </div>
         </Flex>
         <Flex alignItems="center" gap={12}>
@@ -889,10 +909,66 @@ export function UserJourney() {
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" /></svg></button>
         </Flex>
       </div>
-      <Sheet title="User Journey — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent /></Sheet>
-      <Sheet title="Tab Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
+      <Sheet title="User Journey — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
+      <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
         <div style={{ padding: "4px 0" }}>
-          <Paragraph style={{ marginBottom: 12, opacity: 0.6 }}>Toggle tabs on or off. Settings are saved per user and persist across sessions.</Paragraph>
+          {/* Frontend Application Name */}
+          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Frontend Application</Paragraph>
+          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>The Dynatrace frontend application name to monitor. Changes take effect immediately.</Paragraph>
+          <div style={{ marginBottom: 20 }}>
+            <TextInput
+              value={frontend}
+              onChange={(val) => {
+                const v = (val ?? "").trim();
+                if (v) {
+                  setFrontend(v);
+                  saveState({ key: FRONTEND_STATE_KEY, body: { value: v } });
+                }
+              }}
+              placeholder="e.g. www.angular.easytravel.com"
+            />
+          </div>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
+          {/* Funnel Steps */}
+          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Funnel Steps</Paragraph>
+          <Paragraph style={{ marginBottom: 12, opacity: 0.6, fontSize: 12 }}>Define the user journey steps (min {MIN_STEPS}, max {MAX_STEPS}). Each step needs a label, URL path/identifier, and type (view or request). Changes are saved per user.</Paragraph>
+          {steps.map((step, i) => (
+            <div key={i} style={{ marginBottom: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
+              <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
+                <Text style={{ fontSize: 12, fontWeight: 700, color: BLUE }}>Step {i + 1}</Text>
+                {steps.length > MIN_STEPS && (
+                  <button onClick={() => { const next = steps.filter((_, j) => j !== i); setSteps(next); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(next) } }); }} style={{ background: "none", border: "none", color: RED, cursor: "pointer", fontSize: 12, padding: "2px 6px" }}>✕ Remove</button>
+                )}
+              </Flex>
+              <Flex gap={8} style={{ marginBottom: 6 }}>
+                <div style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 10, opacity: 0.5, display: "block", marginBottom: 2 }}>Label</Text>
+                  <TextInput value={step.label} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], label: val ?? "" }; setSteps(next); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(next) } }); }} placeholder="e.g. Home Page" />
+                </div>
+                <div style={{ flex: 2 }}>
+                  <Text style={{ fontSize: 10, opacity: 0.5, display: "block", marginBottom: 2 }}>Path / Identifier</Text>
+                  <TextInput value={step.identifier} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], identifier: val ?? "" }; setSteps(next); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(next) } }); }} placeholder="e.g. /easytravel/home" />
+                </div>
+                <div style={{ minWidth: 100 }}>
+                  <Text style={{ fontSize: 10, opacity: 0.5, display: "block", marginBottom: 2 }}>Type</Text>
+                  <Select value={step.type} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], type: (val ?? "view") as "view" | "request" }; setSteps(next); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(next) } }); }}>
+                    <Select.Trigger style={{ minWidth: 90 }} />
+                    <Select.Content>
+                      <Select.Option value="view">View</Select.Option>
+                      <Select.Option value="request">Request</Select.Option>
+                    </Select.Content>
+                  </Select>
+                </div>
+              </Flex>
+            </div>
+          ))}
+          {steps.length < MAX_STEPS && (
+            <button onClick={() => { const next = [...steps, { label: "", identifier: "", type: "view" as const }]; setSteps(next); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(next) } }); }} style={{ width: "100%", padding: "8px", background: "rgba(69,137,255,0.1)", border: "1px dashed rgba(69,137,255,0.3)", borderRadius: 6, color: BLUE, cursor: "pointer", fontSize: 12, marginBottom: 16 }}>+ Add Step</button>
+          )}
+          <button onClick={() => { setSteps(DEFAULT_FUNNEL_STEPS); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(DEFAULT_FUNNEL_STEPS) } }); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 11, marginBottom: 16 }}>Reset to Defaults</button>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
+          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Tab Visibility</Paragraph>
+          <Paragraph style={{ marginBottom: 12, opacity: 0.6, fontSize: 12 }}>Toggle tabs on or off. Settings are saved per user and persist across sessions.</Paragraph>
           {TAB_KEYS.map(tab => (
             <div key={tab} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
               <Text style={{ fontSize: 13 }}>{tab}</Text>
@@ -905,61 +981,58 @@ export function UserJourney() {
       {/* Tabs */}
       <Tabs defaultIndex={0}>
         {isTabVisible("Funnel Overview") && <Tab title="Funnel Overview">
-          <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} />
+          <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} />
         </Tab>}
         {isTabVisible("Trends") && <Tab title="Trends">
-          <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} />
+          <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} />
         </Tab>}
         {isTabVisible("Web Vitals") && <Tab title="Web Vitals">
           <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />
         </Tab>}
         {isTabVisible("Step Details") && <Tab title="Step Details">
-          <StepDetailsTab stepMap={stepMap} isLoading={stepMetrics.isLoading} />
+          <StepDetailsTab stepMap={stepMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} />
         </Tab>}
         {isTabVisible("Worst Sessions") && <Tab title="Worst Sessions">
           <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />
         </Tab>}
-        {isTabVisible("JS Errors") && <Tab title="JS Errors">
-          <JSErrorsTab data={jsErrorsData} isLoading={jsErrorsData.isLoading} />
+        {isTabVisible("Exceptions") && <Tab title="Exceptions">
+          <JSErrorsTab data={jsErrorsData} isLoading={jsErrorsData.isLoading} frontend={frontend} />
         </Tab>}
         {isTabVisible("Click Issues") && <Tab title="Click Issues">
           <ClickIssuesTab data={clickIssuesData} isLoading={clickIssuesData.isLoading} />
-        </Tab>}
-        {isTabVisible("User Cohorts") && <Tab title="User Cohorts">
-          <UserCohortsTab data={cohortData} isLoading={cohortData.isLoading} />
-        </Tab>}
-        {isTabVisible("Resources") && <Tab title="Resources">
-          <ResourcesTab data={resourceData} isLoading={resourceData.isLoading} />
         </Tab>}
         {isTabVisible("Perf Budgets") && <Tab title="Perf Budgets">
           <PerfBudgetsTab quality={quality} overallApdex={overallApdex} overallConv={overallConv} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading} />
         </Tab>}
         {isTabVisible("Geo Heatmap") && <Tab title="Geo Heatmap">
-          <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} />
+          <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />
+        </Tab>}
+        {isTabVisible("World Map") && <Tab title="World Map">
+          <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />
         </Tab>}
         {isTabVisible("Navigation Paths") && <Tab title="Navigation Paths">
-          <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} />
+          <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} />
         </Tab>}
         {isTabVisible("Sankey") && <Tab title="Sankey">
           <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} />
         </Tab>}
         {isTabVisible("Anomaly Detection") && <Tab title="Anomaly Detection">
-          <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} />
+          <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} />
         </Tab>}
         {isTabVisible("Conversion Attribution") && <Tab title="Conversion Attribution">
           <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} />
         </Tab>}
         {isTabVisible("Executive Summary") && <Tab title="Executive Summary">
-          <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} />
+          <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} />
         </Tab>}
         {isTabVisible("Segmentation") && <Tab title="Segmentation">
           <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} />
         </Tab>}
         {isTabVisible("Errors & Drop-offs") && <Tab title="Errors & Drop-offs">
-          <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} />
+          <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} steps={steps} />
         </Tab>}
         {isTabVisible("What-If Analysis") && <Tab title="What-If Analysis">
-          <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} />
+          <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} />
         </Tab>}
       </Tabs>
     </div>
@@ -969,10 +1042,10 @@ export function UserJourney() {
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
-function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, quality, compareMode, setCompareMode, isLoading, appEntityId }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string }) {
+function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, quality, compareMode, setCompareMode, isLoading, appEntityId, steps }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string; steps: StepDef[] }) {
   if (isLoading) return <Loading />;
 
-  const makeFunnelSteps = (counts: number[]): FunnelStep[] => FUNNEL_STEPS.map((step, i) => {
+  const makeFunnelSteps = (counts: number[]): FunnelStep[] => steps.map((step, i) => {
     const prev = i === 0 ? counts[0] : counts[i - 1];
     const m = stepMap.get(step.label);
     const apdex = m ? calcApdex(Number(m.satisfied ?? 0), Number(m.tolerating ?? 0), Number(m.total_actions ?? 0)) : undefined;
@@ -999,7 +1072,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         </div>
         <div className="uj-kpi-card">
           <Text className="uj-kpi-label">Conversions</Text>
-          <Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCount(funnelCounts[3])}</Heading>
+          <Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCount(funnelCounts[funnelCounts.length - 1])}</Heading>
         </div>
         <div className="uj-kpi-card">
           <Text className="uj-kpi-label">Conversion Rate</Text>
@@ -1053,7 +1126,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         </button>
       </Flex>
       <div className="uj-funnel-container">
-        <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} />
+        <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} />
         {compareMode && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 10, opacity: 0.5 }}>Current period</Text></Flex>
@@ -1067,7 +1140,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
       <div className="uj-table-tile">
         <DataTable
           sortable
-          data={FUNNEL_STEPS.map((step, i) => {
+          data={steps.map((step, i) => {
             const prev = i === 0 ? funnelCounts[0] : funnelCounts[i - 1];
             const conv = i === 0 ? 100 : prev > 0 ? (funnelCounts[i] / prev) * 100 : 0;
             const m = stepMap.get(step.label);
@@ -1101,7 +1174,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
 // ===========================================================================
 // TAB: Trends (Period-over-Period Comparison) — NEW
 // ===========================================================================
-function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, isLoading }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; isLoading: boolean }) {
+function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, isLoading, steps }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; isLoading: boolean; steps: StepDef[] }) {
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -1154,7 +1227,7 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
       <div className="uj-table-tile">
         <DataTable
           sortable
-          data={FUNNEL_STEPS.map((step, i) => {
+          data={steps.map((step, i) => {
             const curr = funnelCounts[i];
             const prev = funnelCountsPrev[i];
             const delta = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
@@ -1253,11 +1326,11 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
 // ===========================================================================
 // TAB: Step Details
 // ===========================================================================
-function StepDetailsTab({ stepMap, isLoading }: { stepMap: Map<string, any>; isLoading: boolean }) {
+function StepDetailsTab({ stepMap, isLoading, appEntityId, steps }: { stepMap: Map<string, any>; isLoading: boolean; appEntityId?: string; steps: StepDef[] }) {
   if (isLoading) return <Loading />;
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      {FUNNEL_STEPS.map((step, i) => {
+      {steps.map((step, i) => {
         const m = stepMap.get(step.label);
         const avg = m ? Number(m.avg_duration_ms ?? 0) : 0;
         const p50 = m ? Number(m.p50_duration_ms ?? 0) : 0;
@@ -1275,7 +1348,13 @@ function StepDetailsTab({ stepMap, isLoading }: { stepMap: Map<string, any>; isL
           <div key={i} className="uj-step-detail-card">
             <Flex alignItems="center" gap={12} style={{ marginBottom: 12 }}>
               <span className="uj-step-badge">{i + 1}</span>
-              <Heading level={5} style={{ margin: 0 }}>{step.label}</Heading>
+              {appEntityId ? (
+                <a href={vitalsUrl(appEntityId, step.identifier)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", color: "inherit" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>
+                  <Heading level={5} style={{ margin: 0, color: BLUE }}>{step.label}</Heading>
+                </a>
+              ) : (
+                <Heading level={5} style={{ margin: 0 }}>{step.label}</Heading>
+              )}
               <Text style={{ fontSize: 11, opacity: 0.5 }}>{step.identifier}</Text>
               <div style={{ marginLeft: "auto" }}><ApdexGauge score={apdex} size={64} label="Apdex" /></div>
             </Flex>
@@ -1326,6 +1405,7 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
             sortable
             data={sessions.map((s: any) => {
               const sid = String(s["dt.rum.session.id"] ?? "");
+              const startTs = String(s.start_ts ?? "");
               const actions = Number(s.actions ?? 0);
               const sat = Number(s.satisfied ?? 0);
               const tol = Number(s.tolerating ?? 0);
@@ -1334,6 +1414,7 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
               return {
                 Session: sid.length > 16 ? sid.substring(0, 16) + "..." : sid,
                 SessionFull: sid,
+                StartTs: startTs,
                 Actions: actions,
                 "Avg (ms)": Number(s.avg_dur ?? 0),
                 "Max (ms)": Number(s.max_dur ?? 0),
@@ -1344,7 +1425,7 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
             })}
             columns={[
               { id: "Session", header: "Session", accessor: "Session", cell: ({ value, rowData }: any) => {
-                const url = sessionReplayUrl(rowData.SessionFull);
+                const url = sessionReplayUrl(rowData.SessionFull, rowData.StartTs);
                 return ENV_URL ? (
                   <a href={url} target="_blank" rel="noopener noreferrer" className="uj-session-link">{value} ↗</a>
                 ) : <Text>{value}</Text>;
@@ -1390,9 +1471,9 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
 }
 
 // ===========================================================================
-// TAB: JS Errors (Error Drilldown) — NEW
+// TAB: Exceptions (Error Drilldown)
 // ===========================================================================
-function JSErrorsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
+function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: boolean; frontend: string }) {
   if (isLoading) return <Loading />;
 
   const errors = (data.data?.records ?? []) as any[];
@@ -1401,13 +1482,13 @@ function JSErrorsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <SectionHeader title="JavaScript Error Drilldown" />
-      <Text style={{ fontSize: 12, opacity: 0.5 }}>Errors grouped by event name. Ranked by occurrence count to help prioritize fixes.</Text>
+      <SectionHeader title="Exception Drilldown" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Exceptions grouped by error name. Ranked by occurrence count to help prioritize fixes.</Text>
 
       {/* Summary */}
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-kpi-card">
-          <Text className="uj-kpi-label">Unique Errors</Text>
+          <Text className="uj-kpi-label">Unique Exceptions</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: errors.length > 10 ? RED : errors.length > 3 ? YELLOW : GREEN }}>{errors.length}</Heading>
         </div>
         <div className="uj-kpi-card">
@@ -1421,13 +1502,14 @@ function JSErrorsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
       </Flex>
 
       {errors.length === 0 ? (
-        <div className="uj-table-tile" style={{ padding: 24 }}><Text style={{ color: GREEN }}>No errors detected in this timeframe</Text></div>
+        <div className="uj-table-tile" style={{ padding: 24 }}><Text style={{ color: GREEN }}>No exceptions detected in this timeframe</Text></div>
       ) : (
         <>
           {/* Error cards */}
           <Flex flexDirection="column" gap={12}>
             {errors.slice(0, 10).map((e: any, i: number) => {
               const name = String(e.errorName ?? "Unknown Error");
+              const errId = String(e["error.id"] ?? "");
               const occurrences = Number(e.occurrences ?? 0);
               const affected = Number(e.affected_sessions ?? 0);
               const pages = (e.pages ?? []) as string[];
@@ -1442,7 +1524,13 @@ function JSErrorsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
                     <div className="uj-error-rank" style={{ background: `${severity}22`, color: severity, borderColor: `${severity}44` }}>{i + 1}</div>
                     <div style={{ flex: 1 }}>
                       <Flex alignItems="center" gap={8} style={{ marginBottom: 6 }}>
-                        <Strong style={{ fontSize: 13, wordBreak: "break-word" }}>{name.length > 120 ? name.substring(0, 120) + "..." : name}</Strong>
+                        {errId ? (
+                          <a href={errorInspectorUrl(errId, frontend)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontSize: 13, fontWeight: 600, wordBreak: "break-word" }}>
+                            {name.length > 120 ? name.substring(0, 120) + "..." : name} ↗
+                          </a>
+                        ) : (
+                          <Strong style={{ fontSize: 13, wordBreak: "break-word" }}>{name.length > 120 ? name.substring(0, 120) + "..." : name}</Strong>
+                        )}
                       </Flex>
                       <Flex gap={16} flexWrap="wrap" style={{ marginBottom: 8 }}>
                         <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Occurrences</Text><Strong style={{ display: "block", color: severity }}>{fmtCount(occurrences)}</Strong></div>
@@ -1479,12 +1567,16 @@ function JSErrorsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
                   sortable
                   data={errors.map((e: any) => ({
                     Error: String(e.errorName ?? "Unknown").substring(0, 80),
+                    errorId: String(e["error.id"] ?? ""),
                     Occurrences: Number(e.occurrences ?? 0),
                     "Affected Sessions": Number(e.affected_sessions ?? 0),
                     Pages: ((e.pages ?? []) as string[]).join(", "),
                   }))}
                   columns={[
-                    { id: "Error", header: "Error", accessor: "Error" },
+                    { id: "Error", header: "Error", accessor: "Error", cell: ({ value, row }: any) => {
+                      const eid = row?.original?.errorId;
+                      return eid ? <a href={errorInspectorUrl(eid, frontend)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }}>{value} ↗</a> : <Text>{value}</Text>;
+                    }},
                     { id: "Occurrences", header: "Count", accessor: "Occurrences", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 50 ? RED : ORANGE }}>{fmtCount(value)}</Strong> },
                     { id: "Affected Sessions", header: "Sessions", accessor: "Affected Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
                     { id: "Pages", header: "Pages", accessor: "Pages", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
@@ -1597,241 +1689,6 @@ function ClickIssuesTab({ data, isLoading }: { data: any; isLoading: boolean }) 
                 { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Text style={{ fontSize: 11, color: BLUE }}>{value}</Text> },
                 { id: "Occurrences", header: "Count", accessor: "Occurrences", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
                 { id: "Affected Sessions", header: "Sessions", accessor: "Affected Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-              ]}
-            />
-          </div>
-        </>
-      )}
-    </Flex>
-  );
-}
-
-// ===========================================================================
-// TAB: User Cohorts — NEW
-// ===========================================================================
-function UserCohortsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
-  if (isLoading) return <Loading />;
-
-  const cohorts = (data.data?.records ?? []) as any[];
-  const parsed = cohorts.map((c: any) => {
-    const sat = Number(c.satisfied ?? 0);
-    const tol = Number(c.tolerating ?? 0);
-    const fru = Number(c.frustrated ?? 0);
-    const actions = Number(c.actions ?? 0);
-    const sessions = Number(c.sessions ?? 0);
-    const avg = Number(c.avg_dur ?? 0);
-    const p90 = Number(c.p90_dur ?? 0);
-    const errors = Number(c.errors ?? 0);
-    const apdex = calcApdex(sat, tol, actions);
-    const errRate = actions > 0 ? (errors / actions) * 100 : 0;
-    return { name: String(c.visitorType ?? "Unknown"), sessions, actions, avg, p90, errors, errRate, sat, tol, fru, apdex };
-  });
-
-  return (
-    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <SectionHeader title="User Cohort Comparison" />
-      <Text style={{ fontSize: 12, opacity: 0.5 }}>Compare experience quality between identified (logged-in) and anonymous users. Differences may indicate issues with auth flows or personalization overhead.</Text>
-
-      {parsed.length === 0 ? (
-        <div className="uj-table-tile" style={{ padding: 24 }}><Text>No cohort data available</Text></div>
-      ) : (
-        <>
-          {/* Cohort cards side by side */}
-          <Flex gap={16} flexWrap="wrap">
-            {parsed.map((c) => {
-              const totalActions = c.sat + c.tol + c.fru;
-              return (
-                <div key={c.name} className="uj-cohort-card">
-                  <Flex alignItems="center" gap={12} style={{ marginBottom: 12 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: "50%", background: c.name === "Identified" ? `${BLUE}22` : `${PURPLE}22`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <span style={{ fontSize: 18 }}>{c.name === "Identified" ? "👤" : "👥"}</span>
-                    </div>
-                    <div>
-                      <Strong style={{ fontSize: 15 }}>{c.name}</Strong>
-                      <Text style={{ display: "block", fontSize: 11, opacity: 0.5 }}>{fmtCount(c.sessions)} sessions</Text>
-                    </div>
-                    <div style={{ marginLeft: "auto" }}><ApdexGauge score={c.apdex} size={64} label="Apdex" /></div>
-                  </Flex>
-
-                  <Flex gap={12} flexWrap="wrap" style={{ marginBottom: 12 }}>
-                    <div className="uj-metric-box"><Text className="uj-metric-label">Actions</Text><Strong className="uj-metric-value" style={{ color: BLUE }}>{fmtCount(c.actions)}</Strong></div>
-                    <div className="uj-metric-box"><Text className="uj-metric-label">Avg Duration</Text><Strong className="uj-metric-value" style={{ color: c.avg > 3000 ? RED : c.avg > 1000 ? YELLOW : GREEN }}>{fmt(c.avg)}</Strong></div>
-                    <div className="uj-metric-box"><Text className="uj-metric-label">P90</Text><Strong className="uj-metric-value" style={{ color: c.p90 > 3000 ? RED : c.p90 > 1500 ? YELLOW : GREEN }}>{fmt(c.p90)}</Strong></div>
-                    <div className="uj-metric-box"><Text className="uj-metric-label">Errors</Text><Strong className="uj-metric-value" style={{ color: c.errors > 0 ? RED : GREEN }}>{c.errors}</Strong></div>
-                    <div className="uj-metric-box"><Text className="uj-metric-label">Error Rate</Text><Strong className="uj-metric-value" style={{ color: c.errRate > 5 ? RED : c.errRate > 1 ? YELLOW : GREEN }}>{fmtPct(c.errRate)}</Strong></div>
-                  </Flex>
-
-                  {/* Satisfaction bar */}
-                  <Flex gap={12} alignItems="center">
-                    <Text style={{ fontSize: 10, color: GREEN }}>Sat: {c.sat}</Text>
-                    <Text style={{ fontSize: 10, color: YELLOW }}>Tol: {c.tol}</Text>
-                    <Text style={{ fontSize: 10, color: RED }}>Fru: {c.fru}</Text>
-                    <div style={{ flex: 1, height: 6, borderRadius: 3, overflow: "hidden", display: "flex" }}>
-                      <div style={{ width: `${totalActions > 0 ? (c.sat / totalActions) * 100 : 0}%`, background: GREEN, height: "100%" }} />
-                      <div style={{ width: `${totalActions > 0 ? (c.tol / totalActions) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
-                      <div style={{ width: `${totalActions > 0 ? (c.fru / totalActions) * 100 : 0}%`, background: RED, height: "100%" }} />
-                    </div>
-                  </Flex>
-                </div>
-              );
-            })}
-          </Flex>
-
-          {/* Comparison table */}
-          <SectionHeader title="Side-by-Side Comparison" />
-          <div className="uj-table-tile">
-            <DataTable
-              sortable
-              data={parsed.map((c) => ({
-                Cohort: c.name,
-                Sessions: c.sessions,
-                Actions: c.actions,
-                "Avg (ms)": Math.round(c.avg),
-                "P90 (ms)": Math.round(c.p90),
-                Errors: c.errors,
-                "Error Rate": c.errRate,
-                Apdex: c.apdex,
-              }))}
-              columns={[
-                { id: "Cohort", header: "Cohort", accessor: "Cohort", cell: ({ value }: any) => <Strong>{value}</Strong> },
-                { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-                { id: "Actions", header: "Actions", accessor: "Actions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-                { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
-                { id: "P90 (ms)", header: "P90", accessor: "P90 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1500 ? YELLOW : undefined }}>{fmt(value)}</Text> },
-                { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : GREEN }}>{value}</Strong> },
-                { id: "Error Rate", header: "Error %", accessor: "Error Rate", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 5 ? RED : value > 1 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
-                { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
-              ]}
-            />
-          </div>
-        </>
-      )}
-    </Flex>
-  );
-}
-
-// ===========================================================================
-// TAB: Resources (Slowest Resources) — NEW
-// ===========================================================================
-function ResourcesTab({ data, isLoading }: { data: any; isLoading: boolean }) {
-  if (isLoading) return <Loading />;
-
-  const rows = (data.data?.records ?? []) as any[];
-  const parsed = rows.map((r: any) => {
-    const url = String(r["dt.rum.resource.url"] ?? "Unknown");
-    const dur = Number(r.avg_dur ?? 0);
-    const size = Number(r.avg_size ?? 0);
-    // Extract domain for grouping
-    let domain = "unknown";
-    try { domain = new URL(url).hostname; } catch { domain = url.split("/")[2] ?? "unknown"; }
-    return { url, shortUrl: url.length > 80 ? url.substring(0, 80) + "..." : url, domain, dur, size };
-  });
-
-  const maxDur = Math.max(...parsed.map((r) => r.dur), 1);
-  const totalResources = parsed.length;
-  const avgDur = parsed.length > 0 ? parsed.reduce((a, r) => a + r.dur, 0) / parsed.length : 0;
-  const slowCount = parsed.filter((r) => r.dur > 1000).length;
-
-  // Group by domain
-  const domainMap = new Map<string, { count: number; avgDur: number; totalSize: number }>();
-  parsed.forEach((r) => {
-    const d = domainMap.get(r.domain) ?? { count: 0, avgDur: 0, totalSize: 0 };
-    d.count++;
-    d.avgDur = (d.avgDur * (d.count - 1) + r.dur) / d.count;
-    d.totalSize += r.size;
-    domainMap.set(r.domain, d);
-  });
-  const domains = Array.from(domainMap.entries()).map(([domain, d]) => ({ domain, ...d })).sort((a, b) => b.avgDur - a.avgDur);
-
-  return (
-    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <SectionHeader title="Resource Loading Performance" />
-      <Text style={{ fontSize: 12, opacity: 0.5 }}>Slowest third-party and first-party resources. Slow resources contribute to poor LCP and load times.</Text>
-
-      {/* KPI */}
-      <Flex gap={16} flexWrap="wrap">
-        <div className="uj-kpi-card">
-          <Text className="uj-kpi-label">Tracked Resources</Text>
-          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{totalResources}</Heading>
-        </div>
-        <div className="uj-kpi-card">
-          <Text className="uj-kpi-label">Avg Load Time</Text>
-          <Heading level={2} className="uj-kpi-value" style={{ color: avgDur > 1000 ? RED : avgDur > 500 ? YELLOW : GREEN }}>{fmt(avgDur)}</Heading>
-        </div>
-        <div className="uj-kpi-card">
-          <Text className="uj-kpi-label">Slow Resources (&gt;1s)</Text>
-          <Heading level={2} className="uj-kpi-value" style={{ color: slowCount > 5 ? RED : slowCount > 0 ? ORANGE : GREEN }}>{slowCount}</Heading>
-        </div>
-        <div className="uj-kpi-card">
-          <Text className="uj-kpi-label">Unique Domains</Text>
-          <Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{domains.length}</Heading>
-        </div>
-      </Flex>
-
-      {parsed.length === 0 ? (
-        <div className="uj-table-tile" style={{ padding: 24 }}><Text>No resource data available</Text></div>
-      ) : (
-        <>
-          {/* Waterfall-style chart */}
-          <SectionHeader title="Slowest Resources (Waterfall)" />
-          <div className="uj-table-tile" style={{ padding: 16 }}>
-            <Flex flexDirection="column" gap={6}>
-              {parsed.slice(0, 15).map((r, i) => {
-                const pct = maxDur > 0 ? (r.dur / maxDur) * 100 : 0;
-                const color = r.dur > 2000 ? RED : r.dur > 1000 ? ORANGE : r.dur > 500 ? YELLOW : GREEN;
-                return (
-                  <Flex key={i} alignItems="center" gap={8}>
-                    <Text style={{ fontSize: 10, width: 30, textAlign: "right", opacity: 0.4 }}>{i + 1}</Text>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={{ fontSize: 10, opacity: 0.6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{r.shortUrl}</Text>
-                      <div style={{ height: 8, borderRadius: 4, background: "rgba(255,255,255,0.06)", overflow: "hidden", marginTop: 2 }}>
-                        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 4, transition: "width 0.4s ease" }} />
-                      </div>
-                    </div>
-                    <Text style={{ fontSize: 11, fontWeight: 700, color, minWidth: 60, textAlign: "right" }}>{fmt(r.dur)}</Text>
-                    {r.size > 0 && <Text style={{ fontSize: 10, opacity: 0.4, minWidth: 55, textAlign: "right" }}>{r.size > 1024 * 1024 ? (r.size / (1024 * 1024)).toFixed(1) + " MB" : r.size > 1024 ? (r.size / 1024).toFixed(0) + " KB" : r.size.toFixed(0) + " B"}</Text>}
-                  </Flex>
-                );
-              })}
-            </Flex>
-          </div>
-
-          {/* By domain */}
-          <SectionHeader title="Performance by Domain" />
-          <div className="uj-table-tile">
-            <DataTable
-              sortable
-              data={domains.map((d) => ({
-                Domain: d.domain,
-                Resources: d.count,
-                "Avg Duration (ms)": Math.round(d.avgDur),
-                "Total Transfer": d.totalSize,
-              }))}
-              columns={[
-                { id: "Domain", header: "Domain", accessor: "Domain", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
-                { id: "Resources", header: "Resources", accessor: "Resources", sortType: "number" as any },
-                { id: "Avg Duration (ms)", header: "Avg Load", accessor: "Avg Duration (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 1000 ? RED : value > 500 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
-                { id: "Total Transfer", header: "Transfer", accessor: "Total Transfer", sortType: "number" as any, cell: ({ value }: any) => <Text>{value > 1024 * 1024 ? (value / (1024 * 1024)).toFixed(1) + " MB" : value > 1024 ? (value / 1024).toFixed(0) + " KB" : value + " B"}</Text> },
-              ]}
-            />
-          </div>
-
-          {/* Full table */}
-          <SectionHeader title="All Resources" />
-          <div className="uj-table-tile">
-            <DataTable
-              sortable
-              data={parsed.map((r) => ({
-                Resource: r.shortUrl,
-                Domain: r.domain,
-                "Duration (ms)": Math.round(r.dur),
-                "Size": r.size,
-              }))}
-              columns={[
-                { id: "Resource", header: "Resource URL", accessor: "Resource" },
-                { id: "Domain", header: "Domain", accessor: "Domain", cell: ({ value }: any) => <Text style={{ fontSize: 11, color: BLUE }}>{value}</Text> },
-                { id: "Duration (ms)", header: "Load Time", accessor: "Duration (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 1000 ? RED : value > 500 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
-                { id: "Size", header: "Size", accessor: "Size", sortType: "number" as any, cell: ({ value }: any) => <Text>{value > 1024 * 1024 ? (value / (1024 * 1024)).toFixed(1) + " MB" : value > 1024 ? (value / 1024).toFixed(0) + " KB" : value + " B"}</Text> },
               ]}
             />
           </div>
@@ -2025,17 +1882,18 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
 // ===========================================================================
 // TAB: Geo Heatmap — NEW
 // ===========================================================================
-function GeoHeatmapTab({ data, isLoading }: { data: any; isLoading: boolean }) {
+function GeoHeatmapTab({ data, isLoading, frontend }: { data: any; isLoading: boolean; frontend: string }) {
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
 
   // Aggregate by country
-  const countryMap = new Map<string, { sessions: number; actions: number; avgDur: number; p90: number; errors: number; sat: number; tol: number; fru: number; cities: string[] }>();
+  const countryMap = new Map<string, { sessions: number; actions: number; avgDur: number; p90: number; errors: number; sat: number; tol: number; fru: number; cities: string[]; countryName: string }>();
   rows.forEach((r: any) => {
     const country = String(r.country ?? "Unknown");
     const city = String(r.city ?? "");
-    const d = countryMap.get(country) ?? { sessions: 0, actions: 0, avgDur: 0, p90: 0, errors: 0, sat: 0, tol: 0, fru: 0, cities: [] };
+    const cName = String(r.country_name ?? country);
+    const d = countryMap.get(country) ?? { sessions: 0, actions: 0, avgDur: 0, p90: 0, errors: 0, sat: 0, tol: 0, fru: 0, cities: [], countryName: cName };
     const actions = Number(r.actions ?? 0);
     d.sessions += Number(r.sessions ?? 0);
     d.avgDur = d.actions > 0 ? (d.avgDur * d.actions + Number(r.avg_dur ?? 0) * actions) / (d.actions + actions) : Number(r.avg_dur ?? 0);
@@ -2046,6 +1904,7 @@ function GeoHeatmapTab({ data, isLoading }: { data: any; isLoading: boolean }) {
     d.tol += Number(r.tolerating ?? 0);
     d.fru += Number(r.frustrated ?? 0);
     if (city && !d.cities.includes(city)) d.cities.push(city);
+    if (!d.countryName || d.countryName === country) d.countryName = cName;
     countryMap.set(country, d);
   });
 
@@ -2098,9 +1957,10 @@ function GeoHeatmapTab({ data, isLoading }: { data: any; isLoading: boolean }) {
             {countries.slice(0, 20).map((c) => {
               const totalActions = c.sat + c.tol + c.fru;
               return (
-                <div key={c.name} className="uj-geo-card" style={{ borderLeftColor: apdexClr(c.apdex) }}>
+                <a key={c.name} href={sessionsFilterUrl(frontend, c.countryName)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", color: "inherit" }}>
+                <div className="uj-geo-card" style={{ borderLeftColor: apdexClr(c.apdex), cursor: "pointer" }}>
                   <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 6 }}>
-                    <Strong style={{ fontSize: 14 }}>{c.name}</Strong>
+                    <Strong style={{ fontSize: 14 }}>{c.countryName !== c.name ? `${c.countryName} (${c.name})` : c.name} ↗</Strong>
                     <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: `${apdexClr(c.apdex)}18`, color: apdexClr(c.apdex), fontWeight: 700 }}>{c.apdex.toFixed(2)}</span>
                   </Flex>
                   <Flex gap={12} flexWrap="wrap" style={{ marginBottom: 6 }}>
@@ -2118,6 +1978,7 @@ function GeoHeatmapTab({ data, isLoading }: { data: any; isLoading: boolean }) {
                     <Text style={{ fontSize: 9, opacity: 0.4, marginTop: 4 }}>{c.cities.slice(0, 3).join(", ")}{c.cities.length > 3 ? ` +${c.cities.length - 3}` : ""}</Text>
                   )}
                 </div>
+                </a>
               );
             })}
           </Flex>
@@ -2128,7 +1989,8 @@ function GeoHeatmapTab({ data, isLoading }: { data: any; isLoading: boolean }) {
             <DataTable
               sortable
               data={countries.map((c) => ({
-                Country: c.name,
+                Country: c.countryName !== c.name ? `${c.countryName} (${c.name})` : c.name,
+                countryName: c.countryName,
                 Sessions: c.sessions,
                 Actions: c.actions,
                 "Avg (ms)": Math.round(c.avgDur),
@@ -2139,7 +2001,10 @@ function GeoHeatmapTab({ data, isLoading }: { data: any; isLoading: boolean }) {
                 Cities: c.cities.length,
               }))}
               columns={[
-                { id: "Country", header: "Country", accessor: "Country", cell: ({ value }: any) => <Strong>{value}</Strong> },
+                { id: "Country", header: "Country", accessor: "Country", cell: ({ value, row }: any) => {
+                  const cName = row?.original?.countryName;
+                  return <a href={sessionsFilterUrl(frontend, cName)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontWeight: 600 }}>{value} ↗</a>;
+                }},
                 { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
                 { id: "Actions", header: "Actions", accessor: "Actions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
                 { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
@@ -2188,9 +2053,301 @@ function GeoHeatmapTab({ data, isLoading }: { data: any; isLoading: boolean }) {
 }
 
 // ===========================================================================
+// TAB: World Map — Real choropleth with d3-geo + world-atlas
+// ===========================================================================
+import { ISO_ALPHA2_TO_NUMERIC, ISO_NUMERIC_TO_ALPHA2 } from "../worldMapPaths";
+import { geoNaturalEarth1, geoPath } from "d3-geo";
+import { feature } from "topojson-client";
+import worldAtlas from "world-atlas/countries-110m.json";
+
+const worldGeo = feature(worldAtlas as any, (worldAtlas as any).objects.countries);
+const projection = geoNaturalEarth1().fitSize([960, 500], worldGeo as any);
+const pathGen = geoPath().projection(projection);
+
+type MapMetric = "sessions" | "avgDur" | "apdex" | "errRate" | "lcp" | "cls" | "inp";
+
+function WorldMapTab({ data, isLoading, frontend }: { data: any; isLoading: boolean; frontend: string }) {
+  const [metric, setMetric] = useState<MapMetric>("sessions");
+  const [animKey, setAnimKey] = useState(0);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  if (isLoading) return <Loading />;
+
+  const rows = (data.data?.records ?? []) as any[];
+
+  // Aggregate by ISO alpha-2 country code
+  const countryMap = new Map<string, { sessions: number; actions: number; avgDur: number; errors: number; sat: number; tol: number; fru: number; lcpSum: number; lcpCount: number; clsSum: number; clsCount: number; inpSum: number; inpCount: number; countryName: string }>();
+  rows.forEach((r: any) => {
+    const country = String(r.country ?? "").toUpperCase();
+    if (!country) return;
+    const cName = String(r.country_name ?? country);
+    const d = countryMap.get(country) ?? { sessions: 0, actions: 0, avgDur: 0, errors: 0, sat: 0, tol: 0, fru: 0, lcpSum: 0, lcpCount: 0, clsSum: 0, clsCount: 0, inpSum: 0, inpCount: 0, countryName: cName };
+    const actions = Number(r.actions ?? 0);
+    d.sessions += Number(r.sessions ?? 0);
+    d.avgDur = d.actions > 0 ? (d.avgDur * d.actions + Number(r.avg_dur ?? 0) * actions) / (d.actions + actions) : Number(r.avg_dur ?? 0);
+    d.actions += actions;
+    d.errors += Number(r.errors ?? 0);
+    d.sat += Number(r.satisfied ?? 0);
+    d.tol += Number(r.tolerating ?? 0);
+    d.fru += Number(r.frustrated ?? 0);
+    const lcpVal = r.lcp_avg != null ? Number(r.lcp_avg) : NaN;
+    if (!isNaN(lcpVal)) { d.lcpSum += lcpVal * actions; d.lcpCount += actions; }
+    const clsVal = r.cls_avg != null ? Number(r.cls_avg) : NaN;
+    if (!isNaN(clsVal)) { d.clsSum += clsVal * actions; d.clsCount += actions; }
+    const inpVal = r.inp_avg != null ? Number(r.inp_avg) : NaN;
+    if (!isNaN(inpVal)) { d.inpSum += inpVal * actions; d.inpCount += actions; }
+    if (!d.countryName || d.countryName === country) d.countryName = cName;
+    countryMap.set(country, d);
+  });
+
+  const countries = Array.from(countryMap.entries()).map(([iso, d]) => ({
+    iso,
+    numericId: ISO_ALPHA2_TO_NUMERIC[iso] ?? "",
+    ...d,
+    apdex: calcApdex(d.sat, d.tol, d.actions),
+    errRate: d.actions > 0 ? (d.errors / d.actions) * 100 : 0,
+    lcp: d.lcpCount > 0 ? d.lcpSum / d.lcpCount : NaN,
+    cls: d.clsCount > 0 ? d.clsSum / d.clsCount : NaN,
+    inp: d.inpCount > 0 ? d.inpSum / d.inpCount : NaN,
+  }));
+
+  // Build lookup by numeric ID for the map features
+  const dataByNumericId = new Map(countries.map((c) => [c.numericId, c]));
+
+  const getValue = (c: typeof countries[0]): number => {
+    switch (metric) {
+      case "sessions": return c.sessions;
+      case "avgDur": return c.avgDur;
+      case "apdex": return c.apdex;
+      case "errRate": return c.errRate;
+      case "lcp": return isNaN(c.lcp) ? 0 : c.lcp;
+      case "cls": return isNaN(c.cls) ? 0 : c.cls;
+      case "inp": return isNaN(c.inp) ? 0 : c.inp;
+    }
+  };
+
+  const values = countries.map(getValue);
+  const maxVal = Math.max(...values, 1);
+
+  const getColor = (c: typeof countries[0]): string => {
+    const v = getValue(c);
+    switch (metric) {
+      case "sessions": {
+        const intensity = maxVal > 0 ? v / maxVal : 0;
+        const r = Math.round(20 + intensity * 35);
+        const g = Math.round(80 + intensity * 57);
+        const b = Math.round(120 + intensity * 135);
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+      case "avgDur": return v > 3000 ? RED : v > 1500 ? ORANGE : v > 800 ? YELLOW : GREEN;
+      case "apdex": return apdexClr(v);
+      case "errRate": return v > 5 ? RED : v > 2 ? ORANGE : v > 0.5 ? YELLOW : GREEN;
+      case "lcp": return v > CWV.lcp.poor ? RED : v > CWV.lcp.good ? ORANGE : GREEN;
+      case "cls": return v > CWV.cls.poor ? RED : v > CWV.cls.good ? ORANGE : GREEN;
+      case "inp": return v > CWV.inp.poor ? RED : v > CWV.inp.good ? ORANGE : GREEN;
+    }
+  };
+
+  const formatValue = (c: typeof countries[0]): string => {
+    const v = getValue(c);
+    switch (metric) {
+      case "sessions": return fmtCount(v);
+      case "avgDur": return fmt(v);
+      case "apdex": return v.toFixed(2);
+      case "errRate": return fmtPct(v);
+      case "lcp": return fmt(v);
+      case "cls": return v.toFixed(3);
+      case "inp": return fmt(v);
+    }
+  };
+
+  const metricLabel: Record<MapMetric, string> = {
+    sessions: "Session Count",
+    avgDur: "Avg Duration",
+    apdex: "Apdex Score",
+    errRate: "Error Rate %",
+    lcp: "LCP (ms)",
+    cls: "CLS",
+    inp: "INP (ms)",
+  };
+
+  const handleMetricChange = (m: MapMetric) => {
+    setMetric(m);
+    setAnimKey((k) => k + 1);
+  };
+
+  const animCSS = `
+    @keyframes uj-map-fadein { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes uj-country-reveal { 0% { opacity: 0; } 100% { opacity: 1; } }
+    .uj-worldmap { animation: uj-map-fadein 0.5s ease-out both; }
+    .uj-country-path { animation: uj-country-reveal 0.6s ease-out both; transition: fill 0.4s ease, stroke 0.15s ease, opacity 0.15s ease; }
+    .uj-country-path:hover { stroke: rgba(255,255,255,0.8) !important; stroke-width: 1.5px !important; filter: brightness(1.3); }
+    .uj-country-empty { fill: rgba(255,255,255,0.04); stroke: rgba(255,255,255,0.08); stroke-width: 0.3px; }
+    .uj-country-empty:hover { fill: rgba(255,255,255,0.08); stroke: rgba(255,255,255,0.2); }
+  `;
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <style>{animCSS}</style>
+      <SectionHeader title="World Map" />
+      <Flex alignItems="center" gap={16}>
+        <Text style={{ fontSize: 12, opacity: 0.7 }}>Colorize by:</Text>
+        <Flex gap={8}>
+          {(["sessions", "avgDur", "apdex", "errRate", "lcp", "cls", "inp"] as MapMetric[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => handleMetricChange(m)}
+              style={{
+                padding: "6px 14px", borderRadius: 6, border: "1px solid",
+                borderColor: metric === m ? BLUE : "rgba(255,255,255,0.15)",
+                background: metric === m ? `${BLUE}22` : "transparent",
+                color: metric === m ? BLUE : "rgba(255,255,255,0.6)",
+                fontSize: 12, fontWeight: metric === m ? 700 : 400, cursor: "pointer",
+                transition: "all 0.2s ease",
+              }}
+            >
+              {metricLabel[m]}
+            </button>
+          ))}
+        </Flex>
+      </Flex>
+
+      {countries.length === 0 ? (
+        <div className="uj-table-tile" style={{ padding: 24 }}><Text>No geographic data available</Text></div>
+      ) : (
+        <>
+          <div style={{ background: "rgba(6,10,20,0.95)", borderRadius: 12, padding: 16, border: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="uj-worldmap" key={animKey}>
+              <svg viewBox="0 0 960 500" style={{ width: "100%", display: "block" }}>
+                <defs>
+                  <radialGradient id="uj-ocean" cx="50%" cy="40%" r="70%">
+                    <stop offset="0%" stopColor="rgba(12,18,35,1)" />
+                    <stop offset="100%" stopColor="rgba(4,8,16,1)" />
+                  </radialGradient>
+                </defs>
+                <rect width="960" height="500" fill="url(#uj-ocean)" rx="8" />
+
+                {/* Render all country features from real geographic data */}
+                {(worldGeo as any).features.map((feat: any, idx: number) => {
+                  const numId = String(feat.id);
+                  const alpha2 = ISO_NUMERIC_TO_ALPHA2[numId] ?? "";
+                  const c = dataByNumericId.get(numId);
+                  const d = pathGen(feat) ?? "";
+                  const isHovered = hoveredId === numId;
+                  const delay = Math.min(idx * 0.008, 0.8);
+
+                  if (c) {
+                    return (
+                      <a key={numId} href={sessionsFilterUrl(frontend, c.countryName)} target="_blank" rel="noopener noreferrer">
+                        <path
+                          d={d}
+                          fill={getColor(c)}
+                          stroke={isHovered ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.2)"}
+                          strokeWidth={isHovered ? 1.5 : 0.5}
+                          className="uj-country-path"
+                          style={{ animationDelay: `${delay}s`, cursor: "pointer" }}
+                          onMouseEnter={() => setHoveredId(numId)}
+                          onMouseLeave={() => setHoveredId(null)}
+                        >
+                          <title>{`${c.countryName} (${c.iso})\n${metricLabel[metric]}: ${formatValue(c)}\nSessions: ${fmtCount(c.sessions)}\nApdex: ${c.apdex.toFixed(2)}\nAvg Duration: ${fmt(c.avgDur)}\nError Rate: ${fmtPct(c.errRate)}`}</title>
+                        </path>
+                      </a>
+                    );
+                  }
+                  return (
+                    <path key={numId} d={d} className="uj-country-empty uj-country-path" style={{ animationDelay: `${delay}s` }}>
+                      <title>{feat.properties?.name ?? alpha2 ?? numId} — No data</title>
+                    </path>
+                  );
+                })}
+              </svg>
+            </div>
+          </div>
+
+          {/* Legend */}
+          <Flex gap={12} flexWrap="wrap" alignItems="center" style={{ paddingLeft: 8 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5 }}>Legend ({metricLabel[metric]}):</Text>
+            {metric === "sessions" && <>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: "rgb(30, 90, 140)" }} /><Text style={{ fontSize: 10 }}>Low</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: "rgb(38, 108, 188)" }} /><Text style={{ fontSize: 10 }}>Medium</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: "rgb(55, 137, 255)" }} /><Text style={{ fontSize: 10 }}>High</Text></Flex>
+            </>}
+            {metric === "avgDur" && <>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>&lt;800ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: YELLOW }} /><Text style={{ fontSize: 10 }}>800-1500ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>1500-3000ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>&gt;3000ms</Text></Flex>
+            </>}
+            {metric === "apdex" && <>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>&lt;0.5</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>0.5-0.7</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: YELLOW }} /><Text style={{ fontSize: 10 }}>0.7-0.85</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>&gt;0.85</Text></Flex>
+            </>}
+            {metric === "errRate" && <>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>&lt;0.5%</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: YELLOW }} /><Text style={{ fontSize: 10 }}>0.5-2%</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>2-5%</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>&gt;5%</Text></Flex>
+            </>}
+            {metric === "lcp" && <>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>Good ≤{CWV.lcp.good}ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>Needs Improvement</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>Poor &gt;{CWV.lcp.poor}ms</Text></Flex>
+            </>}
+            {metric === "cls" && <>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>Good ≤{CWV.cls.good}</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>Needs Improvement</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>Poor &gt;{CWV.cls.poor}</Text></Flex>
+            </>}
+            {metric === "inp" && <>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>Good ≤{CWV.inp.good}ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>Needs Improvement</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>Poor &gt;{CWV.inp.poor}ms</Text></Flex>
+            </>}
+            <Text style={{ fontSize: 10, opacity: 0.3, marginLeft: 8 }}>({countries.length} countries with data)</Text>
+          </Flex>
+
+          {/* Ranked table */}
+          <SectionHeader title={`Countries Ranked by ${metricLabel[metric]}`} />
+          <div className="uj-table-tile">
+            <DataTable
+              sortable
+              data={[...countries].sort((a, b) => getValue(b) - getValue(a)).map((c) => ({
+                Country: `${c.countryName} (${c.iso})`,
+                countryName: c.countryName,
+                Sessions: c.sessions,
+                "Avg Duration": Math.round(c.avgDur),
+                Apdex: c.apdex,
+                "Error %": c.errRate,
+                LCP: isNaN(c.lcp) ? null : Math.round(c.lcp),
+                CLS: isNaN(c.cls) ? null : c.cls,
+                INP: isNaN(c.inp) ? null : Math.round(c.inp),
+              }))}
+              columns={[
+                { id: "Country", header: "Country", accessor: "Country", cell: ({ value, row }: any) => {
+                  const cName = row?.original?.countryName;
+                  return <a href={sessionsFilterUrl(frontend, cName)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontWeight: 600 }}>{value} ↗</a>;
+                }},
+                { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ fontWeight: metric === "sessions" ? 700 : 400, color: metric === "sessions" ? BLUE : undefined }}>{fmtCount(value)}</Text> },
+                { id: "Avg Duration", header: "Avg Duration", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ fontWeight: metric === "avgDur" ? 700 : 400, color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
+                { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value), fontWeight: metric === "apdex" ? 700 : 400 }}>{value.toFixed(2)}</Strong> },
+                { id: "Error %", header: "Error %", accessor: "Error %", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ fontWeight: metric === "errRate" ? 700 : 400, color: value > 5 ? RED : value > 1 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
+                { id: "LCP", header: "LCP (ms)", accessor: "LCP", sortType: "number" as any, cell: ({ value }: any) => value == null ? <Text style={{ opacity: 0.3 }}>—</Text> : <Text style={{ fontWeight: metric === "lcp" ? 700 : 400, color: value > CWV.lcp.poor ? RED : value > CWV.lcp.good ? ORANGE : GREEN }}>{fmt(value)}</Text> },
+                { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => value == null ? <Text style={{ opacity: 0.3 }}>—</Text> : <Text style={{ fontWeight: metric === "cls" ? 700 : 400, color: value > CWV.cls.poor ? RED : value > CWV.cls.good ? ORANGE : GREEN }}>{value.toFixed(3)}</Text> },
+                { id: "INP", header: "INP (ms)", accessor: "INP", sortType: "number" as any, cell: ({ value }: any) => value == null ? <Text style={{ opacity: 0.3 }}>—</Text> : <Text style={{ fontWeight: metric === "inp" ? 700 : 400, color: value > CWV.inp.poor ? RED : value > CWV.inp.good ? ORANGE : GREEN }}>{fmt(value)}</Text> },
+              ]}
+            />
+          </div>
+        </>
+      )}
+    </Flex>
+  );
+}
+
+// ===========================================================================
 // TAB: Navigation Paths — NEW
 // ===========================================================================
-function NavigationPathsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
+function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any; isLoading: boolean; appEntityId: string; steps: StepDef[] }) {
   if (isLoading) return <Loading />;
 
   const paths = (data.data?.records ?? []) as any[];
@@ -2245,20 +2402,32 @@ function NavigationPathsTab({ data, isLoading }: { data: any; isLoading: boolean
               <div key={src.name} className="uj-flow-card">
                 <Flex alignItems="center" gap={8} style={{ marginBottom: 10 }}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: BLUE }} />
-                  <Strong style={{ fontSize: 13 }}>{src.name.length > 60 ? src.name.substring(0, 60) + "..." : src.name}</Strong>
+                  {appEntityId ? (
+                    <a href={vitalsUrl(appEntityId, src.name)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontSize: 13, fontWeight: 600 }}>
+                      {src.name.length > 60 ? src.name.substring(0, 60) + "..." : src.name} ↗
+                    </a>
+                  ) : (
+                    <Strong style={{ fontSize: 13 }}>{src.name.length > 60 ? src.name.substring(0, 60) + "..." : src.name}</Strong>
+                  )}
                   <Text style={{ fontSize: 10, opacity: 0.4, marginLeft: "auto" }}>{fmtCount(src.total)} transitions</Text>
                 </Flex>
                 <Flex flexDirection="column" gap={4} style={{ paddingLeft: 20 }}>
                   {src.targets.slice(0, 5).map((t, ti) => {
                     const pct = src.total > 0 ? (t.count / src.total) * 100 : 0;
-                    const isFunnel = FUNNEL_STEPS.some((s) => t.name.includes(s.identifier));
+                    const isFunnel = steps.some((s) => t.name.includes(s.identifier));
                     const color = isFunnel ? GREEN : CYAN;
                     return (
                       <Flex key={ti} alignItems="center" gap={8}>
                         <span style={{ fontSize: 14, color: "rgba(255,255,255,0.3)" }}>→</span>
                         <div style={{ flex: 1 }}>
                           <Flex alignItems="center" gap={6}>
-                            <Text style={{ fontSize: 11 }}>{t.name.length > 50 ? t.name.substring(0, 50) + "..." : t.name}</Text>
+                            {appEntityId ? (
+                              <a href={vitalsUrl(appEntityId, t.name)} target="_blank" rel="noopener noreferrer" style={{ color: isFunnel ? GREEN : CYAN, textDecoration: "none", fontSize: 11 }}>
+                                {t.name.length > 50 ? t.name.substring(0, 50) + "..." : t.name} ↗
+                              </a>
+                            ) : (
+                              <Text style={{ fontSize: 11 }}>{t.name.length > 50 ? t.name.substring(0, 50) + "..." : t.name}</Text>
+                            )}
                             {isFunnel && <span style={{ fontSize: 8, padding: "1px 4px", borderRadius: 3, background: `${GREEN}18`, color: GREEN }}>funnel</span>}
                           </Flex>
                           <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden", marginTop: 2 }}>
@@ -2285,14 +2454,22 @@ function NavigationPathsTab({ data, isLoading }: { data: any; isLoading: boolean
               sortable
               data={paths.map((p: any) => ({
                 From: String(p.step1 ?? "unknown").substring(0, 50),
+                fromFull: String(p.step1 ?? "unknown"),
                 To: String(p.step2 ?? "unknown").substring(0, 50),
+                toFull: String(p.step2 ?? "unknown"),
                 Transitions: Number(p.occurrences ?? 0),
                 "% of Total": totalTransitions > 0 ? (Number(p.occurrences ?? 0) / totalTransitions) * 100 : 0,
                 "Avg Depth": Number(p.avg_depth ?? 0),
               }))}
               columns={[
-                { id: "From", header: "From", accessor: "From", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
-                { id: "To", header: "To", accessor: "To", cell: ({ value }: any) => <Text>{value}</Text> },
+                { id: "From", header: "From", accessor: "From", cell: ({ value, row }: any) => {
+                  const full = row?.original?.fromFull;
+                  return appEntityId ? <a href={vitalsUrl(appEntityId, full)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontWeight: 600 }}>{value} ↗</a> : <Strong style={{ color: BLUE }}>{value}</Strong>;
+                }},
+                { id: "To", header: "To", accessor: "To", cell: ({ value, row }: any) => {
+                  const full = row?.original?.toFull;
+                  return appEntityId ? <a href={vitalsUrl(appEntityId, full)} target="_blank" rel="noopener noreferrer" style={{ color: CYAN, textDecoration: "none" }}>{value} ↗</a> : <Text>{value}</Text>;
+                }},
                 { id: "Transitions", header: "Count", accessor: "Transitions", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
                 { id: "% of Total", header: "% of Total", accessor: "% of Total", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtPct(value)}</Text> },
                 { id: "Avg Depth", header: "Avg Depth", accessor: "Avg Depth", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: CYAN }}>{value.toFixed(1)}</Text> },
@@ -2308,13 +2485,14 @@ function NavigationPathsTab({ data, isLoading }: { data: any; isLoading: boolean
 // ===========================================================================
 // TAB: Anomaly Detection — NEW
 // ===========================================================================
-function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev, stepMap, durationDist, isLoading }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; durationDist: any; isLoading: boolean }) {
+function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev, stepMap, durationDist, isLoading, steps }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; durationDist: any; isLoading: boolean; steps: StepDef[] }) {
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
   const errorRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
-  const overallConv = funnelCounts[0] > 0 ? (funnelCounts[3] / funnelCounts[0]) * 100 : 0;
-  const overallConvPrev = funnelCountsPrev[0] > 0 ? (funnelCountsPrev[3] / funnelCountsPrev[0]) * 100 : 0;
+  const lastIdx = steps.length - 1;
+  const overallConv = funnelCounts[0] > 0 ? (funnelCounts[lastIdx] / funnelCounts[0]) * 100 : 0;
+  const overallConvPrev = funnelCountsPrev[0] > 0 ? (funnelCountsPrev[lastIdx] / funnelCountsPrev[0]) * 100 : 0;
   const fruPct = quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0;
   const fruPctPrev = qualityPrev.total > 0 ? (qualityPrev.frustrated / qualityPrev.total) * 100 : 0;
 
@@ -2341,7 +2519,7 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
   const healthScore = Math.round(((anomalies.length - anomalyCount) / anomalies.length) * 100);
 
   // Per-step anomalies
-  const stepAnomalies = FUNNEL_STEPS.map((step, i) => {
+  const stepAnomalies = steps.map((step, i) => {
     const m = stepMap.get(step.label);
     const currAvg = m ? Number(m.avg_duration_ms ?? 0) : 0;
     const currErrors = m ? Number(m.error_count ?? 0) : 0;
@@ -2415,7 +2593,7 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
           sortable
           data={stepAnomalies.map((s) => ({
             Step: s.step,
-            Sessions: funnelCounts[FUNNEL_STEPS.findIndex((f) => f.label === s.step)],
+            Sessions: funnelCounts[steps.findIndex((f) => f.label === s.step)],
             "Avg (ms)": Math.round(s.avg),
             Errors: s.errors,
             Apdex: s.apdex,
@@ -2645,7 +2823,7 @@ function ConversionAttributionTab({ data, overallConv, isLoading }: { data: any;
 // ===========================================================================
 // TAB: Executive Summary — NEW
 // ===========================================================================
-function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean }) {
+function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[] }) {
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -2674,9 +2852,9 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
   ];
 
   // Bottleneck identification
-  const worstStep = FUNNEL_STEPS.slice(1).map((step, i) => {
+  const worstStep = steps.slice(1).map((step, i) => {
     const prev = funnelCounts[i]; const curr = funnelCounts[i + 1];
-    return { from: FUNNEL_STEPS[i].label, to: step.label, dropOff: prev > 0 ? ((prev - curr) / prev) * 100 : 0 };
+    return { from: steps[i].label, to: step.label, dropOff: prev > 0 ? ((prev - curr) / prev) * 100 : 0 };
   }).sort((a, b) => b.dropOff - a.dropOff)[0];
 
   return (
@@ -2721,7 +2899,7 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
       <SectionHeader title="Funnel Summary" />
       <div className="uj-table-tile" style={{ padding: 16 }}>
         <Flex gap={12} flexWrap="wrap" alignItems="center">
-          {FUNNEL_STEPS.map((step, i) => (
+          {steps.map((step, i) => (
             <React.Fragment key={i}>
               <div style={{ textAlign: "center" }}>
                 <Text style={{ fontSize: 10, opacity: 0.5, display: "block" }}>{step.label}</Text>
@@ -2732,7 +2910,7 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
                   </Text>
                 )}
               </div>
-              {i < FUNNEL_STEPS.length - 1 && <span style={{ fontSize: 16, opacity: 0.3 }}>→</span>}
+              {i < steps.length - 1 && <span style={{ fontSize: 16, opacity: 0.3 }}>→</span>}
             </React.Fragment>
           ))}
         </Flex>
@@ -2798,7 +2976,7 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
 
       {/* Timestamp */}
       <div style={{ textAlign: "center", padding: "8px 0" }}>
-        <Text style={{ fontSize: 10, opacity: 0.3 }}>Report generated: {new Date().toLocaleString()} | Frontend: {FRONTEND}</Text>
+        <Text style={{ fontSize: 10, opacity: 0.3 }}>Report generated: {new Date().toLocaleString()} | Frontend: {frontend}</Text>
       </div>
     </Flex>
   );
@@ -2838,12 +3016,12 @@ function SegmentationTab({ devices, browsers, geos, isLoading }: { devices: any[
 // ===========================================================================
 // TAB: Errors & Drop-offs
 // ===========================================================================
-function ErrorsTab({ errors, funnelCounts, isLoading }: { errors: any[]; funnelCounts: number[]; isLoading: boolean }) {
+function ErrorsTab({ errors, funnelCounts, isLoading, steps }: { errors: any[]; funnelCounts: number[]; isLoading: boolean; steps: StepDef[] }) {
   if (isLoading) return <Loading />;
 
-  const dropOffs = FUNNEL_STEPS.slice(1).map((step, i) => {
+  const dropOffs = steps.slice(1).map((step, i) => {
     const prev = funnelCounts[i]; const curr = funnelCounts[i + 1];
-    return { from: FUNNEL_STEPS[i].label, to: step.label, lost: prev - curr, pctLost: prev > 0 ? ((prev - curr) / prev) * 100 : 0 };
+    return { from: steps[i].label, to: step.label, lost: prev - curr, pctLost: prev > 0 ? ((prev - curr) / prev) * 100 : 0 };
   }).sort((a, b) => b.lost - a.lost);
 
   return (
@@ -2892,18 +3070,19 @@ function ErrorsTab({ errors, funnelCounts, isLoading }: { errors: any[]; funnelC
 // ===========================================================================
 // TAB: What-If Analysis
 // ===========================================================================
-function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading }: { funnelCounts: number[]; stepMap: Map<string, any>; overallApdex: number; isLoading: boolean }) {
+function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps }: { funnelCounts: number[]; stepMap: Map<string, any>; overallApdex: number; isLoading: boolean; steps: StepDef[] }) {
   const [mult, setMult] = useState(2);
   if (isLoading) return <Loading />;
 
+  const lastIdx = steps.length - 1;
   const latFactor = 1 + Math.log2(mult) * 0.5;
   const errFactor = 1 + Math.log2(mult) * 0.15;
   const convDegradation = Math.log2(mult) * 0.08;
   const projApdex = Math.max(0, overallApdex - Math.log2(mult) * 0.08);
-  const projConv = funnelCounts[0] > 0 ? Math.max(0, (funnelCounts[3] / funnelCounts[0]) * 100 * (1 - convDegradation)) : 0;
+  const projConv = funnelCounts[0] > 0 ? Math.max(0, (funnelCounts[lastIdx] / funnelCounts[0]) * 100 * (1 - convDegradation)) : 0;
   const projFunnel = funnelCounts.map((c, i) => i === 0 ? Math.round(c * mult) : Math.round(c * mult * Math.pow(1 - convDegradation, i)));
 
-  const projSteps: FunnelStep[] = FUNNEL_STEPS.map((step, i) => ({
+  const projSteps: FunnelStep[] = steps.map((step, i) => ({
     label: step.label,
     count: projFunnel[i],
     convFromPrev: i === 0 ? 100 : projFunnel[i - 1] > 0 ? (projFunnel[i] / projFunnel[i - 1]) * 100 : 0,
@@ -2926,19 +3105,19 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading }: { funnelC
           <Text className="uj-metric-label">Apdex Impact</Text>
           <Strong style={{ color: projApdex < overallApdex ? RED : GREEN, fontSize: 16 }}>{overallApdex.toFixed(2)} → {projApdex.toFixed(2)}</Strong>
         </div>
-        <div className={`uj-impact-card ${projConv < (funnelCounts[3] / Math.max(1, funnelCounts[0])) * 100 ? "uj-impact-negative" : "uj-impact-positive"}`}>
+        <div className={`uj-impact-card ${projConv < (funnelCounts[funnelCounts.length - 1] / Math.max(1, funnelCounts[0])) * 100 ? "uj-impact-negative" : "uj-impact-positive"}`}>
           <Text className="uj-metric-label">Conversion Impact</Text>
-          <Strong style={{ color: RED, fontSize: 16 }}>{fmtPct((funnelCounts[3] / Math.max(1, funnelCounts[0])) * 100)} → {fmtPct(projConv)}</Strong>
+          <Strong style={{ color: RED, fontSize: 16 }}>{fmtPct((funnelCounts[funnelCounts.length - 1] / Math.max(1, funnelCounts[0])) * 100)} → {fmtPct(projConv)}</Strong>
         </div>
       </Flex>
 
       <SectionHeader title="Projected Funnel" />
-      <div className="uj-funnel-container"><FunnelChart steps={projSteps} /></div>
+      <div className="uj-funnel-container"><FunnelChart steps={projSteps} stepDefs={steps} /></div>
 
       <SectionHeader title="Projected Metrics by Step" />
       <div className="uj-table-tile">
         <DataTable
-          data={FUNNEL_STEPS.map((step, i) => {
+          data={steps.map((step, i) => {
             const m = stepMap.get(step.label);
             const cAvg = m ? Number(m.avg_duration_ms ?? 0) : 0;
             const cP90 = m ? Number(m.p90_duration_ms ?? 0) : 0;
