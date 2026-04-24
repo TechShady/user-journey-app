@@ -704,10 +704,14 @@ function deploymentEventsQuery(days: number): string {
 | filter event.type == "CUSTOM_DEPLOYMENT" or event.type == "task.deployment.finished"
 | fieldsAdd deploy_name = coalesce(event.name, "Deployment")
 | fieldsAdd deploy_source = coalesce(event.source, "unknown")
-| fieldsAdd deploy_version = coalesce(dt.event.deployment.version, "")
-| fields timestamp, deploy_name, deploy_source, deploy_version, event.type
-| sort timestamp desc
-| limit 200`;
+| fieldsAdd hour_key = formatTimestamp(timestamp, format: "yyyy-MM-dd HH:00")
+| summarize
+    deploy_count = count(),
+    first_time = min(timestamp),
+    deploy_name = takeAny(deploy_name),
+    deploy_source = takeAny(deploy_source),
+    by: {hour_key}
+| sort hour_key desc`;
 }
 
 function changeImpactQuery(days: number, frontend: string, steps: StepDef[]): string {
@@ -4756,24 +4760,17 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
   const deployRecords = (deployData.data?.records ?? []) as any[];
   const impactRecords = (impactData.data?.records ?? []) as any[];
 
-  // Parse deployments
-  const rawDeploys = deployRecords.map((r: any) => ({
-    timestamp: new Date(r.timestamp).getTime(),
-    tsStr: new Date(r.timestamp).toLocaleString(),
-    hourKey: formatHourKey(new Date(r.timestamp)),
+  // Parse deployments (already aggregated by hour in DQL)
+  const deployments = deployRecords.map((r: any) => ({
+    timestamp: new Date(r.first_time).getTime(),
+    tsStr: new Date(r.first_time).toLocaleString(),
+    hourKey: String(r.hour_key ?? ""),
     name: String(r.deploy_name ?? "Deployment"),
     source: String(r.deploy_source ?? "unknown"),
-    version: String(r.deploy_version ?? ""),
-    type: String(r["event.type"] ?? ""),
-  }));
-
-  // Deduplicate by hour+name — keep earliest per group
-  const deduped = new Map<string, typeof rawDeploys[0]>();
-  for (const d of rawDeploys) {
-    const key = `${d.hourKey}||${d.name}`;
-    if (!deduped.has(key)) deduped.set(key, d);
-  }
-  const deployments = Array.from(deduped.values()).sort((a, b) => b.timestamp - a.timestamp);
+    version: "",
+    type: "",
+    count: Number(r.deploy_count ?? 1),
+  })).filter(d => d.hourKey).sort((a, b) => b.timestamp - a.timestamp);
 
   // Parse hourly impact data
   const hourlyImpact = impactRecords.map((r: any) => {
@@ -4827,7 +4824,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
     const errorDelta = after.errorRate - before.errorRate;
     const fruDelta = after.fruPct - before.fruPct;
 
-    const hasData = beforeSlice.length > 0 && afterSlice.length > 0;
+    const hasData = beforeSlice.length > 0;
     const severity = !hasData ? "neutral" : (apdexDelta < -0.1 || durDelta > 25 || errorDelta > 3) ? "regression" : (apdexDelta > 0.05 && durDelta < -5) ? "improvement" : "neutral";
 
     return { ...dep, before, after, apdexDelta, durDelta, errorDelta, fruDelta, severity, hasData };
@@ -4967,11 +4964,11 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
               <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
                 <div>
                   <Strong style={{ fontSize: 14 }}>{d.name}</Strong>
-                  {d.version && <Text style={{ fontSize: 11, opacity: 0.5, marginLeft: 8 }}>v{d.version}</Text>}
+                  {(d as any).count > 1 && <Text style={{ fontSize: 10, opacity: 0.4, marginLeft: 8 }}>+{(d as any).count - 1} more in this hour</Text>}
                 </div>
-                <Flex alignItems="center" gap={8}>
+                <Flex alignItems="center" gap={8} style={{ flexShrink: 0 }}>
                   <Text style={{ fontSize: 10, opacity: 0.5 }}>{d.tsStr}</Text>
-                  <span style={{ fontSize: 10, padding: "2px 10px", borderRadius: 4, background: `${severityColor(d.severity)}18`, color: severityColor(d.severity), fontWeight: 700, textTransform: "uppercase" as const }}>{severityLabel(d.severity)}</span>
+                  <span style={{ fontSize: 10, padding: "2px 10px", borderRadius: 4, background: `${severityColor(d.severity)}18`, color: severityColor(d.severity), fontWeight: 700, textTransform: "uppercase" as const, whiteSpace: "nowrap" as const, flexShrink: 0 }}>{severityLabel(d.severity)}</span>
                 </Flex>
               </Flex>
               {d.hasData ? (
@@ -5031,17 +5028,17 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
           sortable
           data={deployments.map((d) => ({
             Timestamp: d.tsStr,
+            Hour: d.hourKey,
             Name: d.name,
-            Version: d.version || "—",
+            Count: (d as any).count ?? 1,
             Source: d.source,
-            Type: d.type,
           }))}
           columns={[
             { id: "Timestamp", header: "Time", accessor: "Timestamp", cell: ({ value }: any) => <Text style={{ fontSize: 11 }}>{value}</Text> },
+            { id: "Hour", header: "Hour", accessor: "Hour", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
             { id: "Name", header: "Deployment", accessor: "Name", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
-            { id: "Version", header: "Version", accessor: "Version" },
+            { id: "Count", header: "Events", accessor: "Count", sortType: "number" as any, cell: ({ value }: any) => <Text>{value}</Text> },
             { id: "Source", header: "Source", accessor: "Source", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
-            { id: "Type", header: "Type", accessor: "Type", cell: ({ value }: any) => <Text style={{ fontSize: 10, opacity: 0.5 }}>{value}</Text> },
           ]}
         />
       </div>
