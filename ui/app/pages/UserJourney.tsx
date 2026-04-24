@@ -4973,83 +4973,91 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
           <Text style={{ display: "block", fontSize: 11, opacity: 0.5, marginTop: 8 }}>Deployment events are detected from Dynatrace DAVIS events and custom deployment events. Ensure deployment instrumentation is configured.</Text>
         </div>
       ) : (
-        <Flex gap={12} flexWrap="wrap" flexDirection="column">
+        <Flex gap={8} flexWrap="wrap" flexDirection="column">
           {deployAnalysis.slice(0, 10).map((d, i) => {
             // Mini sparkline: 5 hours around this deploy
             const depIdx = hourlyImpact.findIndex(h => h.hourTs === d.hourKey);
             const sparkSlice = depIdx >= 0 ? hourlyImpact.slice(Math.max(0, depIdx - 2), depIdx + 3) : [];
             const sparkDepPos = depIdx >= 0 ? Math.min(depIdx, 2) : -1;
             const sparkMaxApdex = Math.max(...sparkSlice.map(s => s.apdex), 0.01);
+            const sparkMaxDur = Math.max(...sparkSlice.map(s => s.avgDur), 1);
             return (
-            <div key={i} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(d.severity), width: "100%", padding: "16px 20px" }}>
-              <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 12 }}>
-                <div>
-                  <Strong style={{ fontSize: 16 }}>{d.name}</Strong>
-                  {(d as any).count > 1 && <Text style={{ fontSize: 12, opacity: 0.4, marginLeft: 8 }}>+{(d as any).count - 1} more in this hour</Text>}
-                </div>
-                <Flex alignItems="center" gap={8} style={{ flexShrink: 0 }}>
-                  <Text style={{ fontSize: 12, opacity: 0.5 }}>{d.tsStr}</Text>
-                  <span style={{ fontSize: 11, padding: "3px 12px", borderRadius: 4, background: `${severityColor(d.severity)}18`, color: severityColor(d.severity), fontWeight: 700, textTransform: "uppercase" as const, whiteSpace: "nowrap" as const, flexShrink: 0 }}>{severityLabel(d.severity)}</span>
+            <div key={i} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(d.severity), width: "100%", padding: "12px 16px" }}>
+              {/* Header: name + count on left, badge on right */}
+              <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 4 }}>
+                <Flex alignItems="center" gap={8}>
+                  <Strong style={{ fontSize: 15 }}>{d.name}</Strong>
+                  {(d as any).count > 1 && <Text style={{ fontSize: 11, opacity: 0.4 }}>+{(d as any).count - 1} more</Text>}
                 </Flex>
+                <span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 4, background: `${severityColor(d.severity)}18`, color: severityColor(d.severity), fontWeight: 700, whiteSpace: "nowrap" as const }}>{severityLabel(d.severity)}</span>
               </Flex>
+              <Text style={{ fontSize: 11, opacity: 0.4, marginBottom: 8, display: "block" }}>{d.tsStr}{d.source !== "unknown" ? ` · ${d.source}` : ""}</Text>
               {d.hasData ? (
-                <Flex gap={24} flexWrap="wrap" alignItems="flex-start">
-                  {/* Metrics */}
-                  <Flex gap={24} flexWrap="wrap" style={{ flex: 1 }}>
-                    <div style={{ minWidth: 110 }}>
-                      <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 4, display: "block" }}>Apdex</Text>
-                      <Flex gap={6} alignItems="baseline">
-                        <Text style={{ fontSize: 15, opacity: 0.6 }}>{d.before.apdex.toFixed(2)}</Text>
-                        <Text style={{ fontSize: 13, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 18, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.after.apdex.toFixed(2)}</Strong>
-                        <Text style={{ fontSize: 12, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.apdexDelta >= 0 ? "▲" : "▼"}{Math.abs(d.apdexDelta).toFixed(2)}</Text>
+                <Flex flexDirection="column" gap={8}>
+                  {/* Metrics row */}
+                  <Flex gap={24} flexWrap="wrap">
+                    <div>
+                      <Text style={{ fontSize: 11, opacity: 0.5 }}>Apdex</Text>
+                      <Flex gap={4} alignItems="baseline">
+                        <Text style={{ fontSize: 14, opacity: 0.6 }}>{d.before.apdex.toFixed(2)}</Text>
+                        <Text style={{ fontSize: 12, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 17, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.after.apdex.toFixed(2)}</Strong>
+                        <Text style={{ fontSize: 11, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.apdexDelta >= 0 ? "▲" : "▼"}{Math.abs(d.apdexDelta).toFixed(2)}</Text>
                       </Flex>
                     </div>
-                    <div style={{ minWidth: 130 }}>
-                      <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 4, display: "block" }}>Avg Duration</Text>
-                      <Flex gap={6} alignItems="baseline">
-                        <Text style={{ fontSize: 15, opacity: 0.6 }}>{fmt(d.before.avgDur)}</Text>
-                        <Text style={{ fontSize: 13, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 18, color: d.durDelta <= 0 ? GREEN : RED }}>{fmt(d.after.avgDur)}</Strong>
-                        <Text style={{ fontSize: 12, color: d.durDelta <= 0 ? GREEN : RED }}>{d.durDelta > 0 ? "▲" : "▼"}{Math.abs(d.durDelta).toFixed(1)}%</Text>
+                    <div>
+                      <Text style={{ fontSize: 11, opacity: 0.5 }}>Avg Duration</Text>
+                      <Flex gap={4} alignItems="baseline">
+                        <Text style={{ fontSize: 14, opacity: 0.6 }}>{fmt(d.before.avgDur)}</Text>
+                        <Text style={{ fontSize: 12, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 17, color: d.durDelta <= 0 ? GREEN : RED }}>{fmt(d.after.avgDur)}</Strong>
+                        <Text style={{ fontSize: 11, color: d.durDelta <= 0 ? GREEN : RED }}>{d.durDelta > 0 ? "▲" : "▼"}{Math.abs(d.durDelta).toFixed(1)}%</Text>
                       </Flex>
                     </div>
-                    <div style={{ minWidth: 110 }}>
-                      <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 4, display: "block" }}>Error Rate</Text>
-                      <Flex gap={6} alignItems="baseline">
-                        <Text style={{ fontSize: 15, opacity: 0.6 }}>{fmtPct(d.before.errorRate)}</Text>
-                        <Text style={{ fontSize: 13, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 18, color: d.errorDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.errorRate)}</Strong>
-                        <Text style={{ fontSize: 12, color: d.errorDelta <= 0 ? GREEN : RED }}>{d.errorDelta > 0 ? "▲" : "▼"}{Math.abs(d.errorDelta).toFixed(1)}pp</Text>
+                    <div>
+                      <Text style={{ fontSize: 11, opacity: 0.5 }}>Error Rate</Text>
+                      <Flex gap={4} alignItems="baseline">
+                        <Text style={{ fontSize: 14, opacity: 0.6 }}>{fmtPct(d.before.errorRate)}</Text>
+                        <Text style={{ fontSize: 12, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 17, color: d.errorDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.errorRate)}</Strong>
+                        <Text style={{ fontSize: 11, color: d.errorDelta <= 0 ? GREEN : RED }}>{d.errorDelta > 0 ? "▲" : "▼"}{Math.abs(d.errorDelta).toFixed(1)}pp</Text>
                       </Flex>
                     </div>
-                    <div style={{ minWidth: 100 }}>
-                      <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 4, display: "block" }}>Frustrated %</Text>
-                      <Flex gap={6} alignItems="baseline">
-                        <Text style={{ fontSize: 15, opacity: 0.6 }}>{fmtPct(d.before.fruPct)}</Text>
-                        <Text style={{ fontSize: 13, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 18, color: d.fruDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.fruPct)}</Strong>
+                    <div>
+                      <Text style={{ fontSize: 11, opacity: 0.5 }}>Frustrated %</Text>
+                      <Flex gap={4} alignItems="baseline">
+                        <Text style={{ fontSize: 14, opacity: 0.6 }}>{fmtPct(d.before.fruPct)}</Text>
+                        <Text style={{ fontSize: 12, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 17, color: d.fruDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.fruPct)}</Strong>
                       </Flex>
                     </div>
                   </Flex>
-                  {/* Mini sparkline */}
+                  {/* Sparkline row — full width */}
                   {sparkSlice.length > 1 && (
-                    <div style={{ minWidth: 120, height: 50 }}>
-                      <Text style={{ fontSize: 10, opacity: 0.4, marginBottom: 2, display: "block" }}>Apdex ±2h</Text>
-                      <svg width={120} height={40} viewBox="0 0 120 40">
-                        <polyline fill="none" stroke={GREEN} strokeWidth={1.5} points={sparkSlice.map((s, si) => `${(si / (sparkSlice.length - 1)) * 116 + 2},${38 - (s.apdex / sparkMaxApdex) * 34}`).join(" ")} />
-                        {sparkSlice.map((s, si) => (
-                          <circle key={si} cx={(si / (sparkSlice.length - 1)) * 116 + 2} cy={38 - (s.apdex / sparkMaxApdex) * 34} r={si === sparkDepPos ? 4 : 2} fill={si === sparkDepPos ? RED : GREEN} />
-                        ))}
+                    <div style={{ marginTop: 4 }}>
+                      <Text style={{ fontSize: 10, opacity: 0.4, marginBottom: 2, display: "block" }}>Apdex (green) &amp; Duration (blue) ±2h around deploy</Text>
+                      <svg width="100%" viewBox="0 0 400 50" style={{ maxHeight: 50 }}>
+                        {/* Apdex line */}
+                        <polyline fill="none" stroke={GREEN} strokeWidth={2} points={sparkSlice.map((s, si) => `${(si / (sparkSlice.length - 1)) * 390 + 5},${44 - (s.apdex / sparkMaxApdex) * 38}`).join(" ")} />
+                        {/* Duration line */}
+                        <polyline fill="none" stroke={BLUE} strokeWidth={1.5} strokeDasharray="4 3" points={sparkSlice.map((s, si) => `${(si / (sparkSlice.length - 1)) * 390 + 5},${44 - (s.avgDur / sparkMaxDur) * 38}`).join(" ")} />
+                        {/* Deploy marker */}
                         {sparkDepPos >= 0 && (
-                          <line x1={(sparkDepPos / (sparkSlice.length - 1)) * 116 + 2} y1={0} x2={(sparkDepPos / (sparkSlice.length - 1)) * 116 + 2} y2={40} stroke={RED} strokeWidth={1} opacity={0.4} strokeDasharray="2 2" />
+                          <line x1={(sparkDepPos / (sparkSlice.length - 1)) * 390 + 5} y1={0} x2={(sparkDepPos / (sparkSlice.length - 1)) * 390 + 5} y2={50} stroke={RED} strokeWidth={2} opacity={0.5} strokeDasharray="3 2" />
                         )}
+                        {/* Apdex dots */}
+                        {sparkSlice.map((s, si) => (
+                          <circle key={si} cx={(si / (sparkSlice.length - 1)) * 390 + 5} cy={44 - (s.apdex / sparkMaxApdex) * 38} r={si === sparkDepPos ? 5 : 3} fill={si === sparkDepPos ? RED : GREEN} />
+                        ))}
+                        {/* Hour labels */}
+                        <text x={5} y={10} fill="rgba(255,255,255,0.3)" fontSize={8}>{sparkSlice[0]?.hourTs?.substring(11) ?? ""}</text>
+                        <text x={395} y={10} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize={8}>{sparkSlice[sparkSlice.length - 1]?.hourTs?.substring(11) ?? ""}</text>
                       </svg>
                     </div>
                   )}
                 </Flex>
               ) : (
-                <Text style={{ fontSize: 13, opacity: 0.4 }}>Insufficient before/after data for comparison. Extend timeframe for better analysis.</Text>
+                <Text style={{ fontSize: 13, opacity: 0.4 }}>Insufficient before/after data. Extend timeframe for better analysis.</Text>
               )}
             </div>
             );
