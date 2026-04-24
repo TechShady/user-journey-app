@@ -4855,7 +4855,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
   const improvements = deployAnalysis.filter(d => d.severity === "improvement");
 
   const severityColor = (s: string) => s === "regression" ? RED : s === "improvement" ? GREEN : BLUE;
-  const severityLabel = (s: string) => s === "regression" ? "REGRESSION" : s === "improvement" ? "IMPROVEMENT" : "NEUTRAL";
+  const severityLabel = (s: string) => s === "regression" ? "REGR" : s === "improvement" ? "IMPR" : "NEUT";
 
   // SVG timeline
   const chartW = 720;
@@ -4885,7 +4885,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
   const deployHourIdxSet = new Set(deployHourMap.keys());
 
   return (
-    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16, paddingRight: 8 }}>
       <SectionHeader title="Change Intelligence" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Overlays deployment events on performance timeline. Compares before/after metrics in a 2-hour window around each deploy to detect regressions or improvements.</Text>
 
@@ -5008,7 +5008,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
             if (d.project) metaItems.push(d.project);
             if (d.repo) metaItems.push(d.repo);
             return (
-            <div key={i} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(d.severity), width: "100%", padding: "16px 20px", overflow: "visible" }}>
+            <div key={i} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(d.severity), width: "100%", padding: "16px 20px", overflow: "hidden", boxSizing: "border-box" as const }}>
               {/* Header: name + badge */}
               <Flex alignItems="center" justifyContent="space-between" gap={12} style={{ marginBottom: 6, flexWrap: "nowrap" }}>
                 <Flex alignItems="center" gap={8} style={{ minWidth: 0, flex: 1 }}>
