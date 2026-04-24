@@ -703,13 +703,27 @@ function deploymentEventsQuery(days: number): string {
   return `fetch events, ${period}
 | filter event.type == "CUSTOM_DEPLOYMENT" or event.type == "task.deployment.finished"
 | fieldsAdd deploy_name = coalesce(event.name, "Deployment")
-| fieldsAdd deploy_source = coalesce(event.source, "unknown")
+| fieldsAdd deploy_source = coalesce(source, event.source, "unknown")
+| fieldsAdd deploy_version = coalesce(deployment.version, component.version, "")
+| fieldsAdd deploy_stage = coalesce(deployment.stage, "")
+| fieldsAdd deploy_component = coalesce(component.name, "")
+| fieldsAdd deploy_service = coalesce(dt.entity.service.name, "")
+| fieldsAdd deploy_desc = coalesce(event.description, "")
+| fieldsAdd deploy_project = coalesce(deployment.project, "")
+| fieldsAdd deploy_repo = coalesce(github.repository, "")
 | fieldsAdd hour_key = formatTimestamp(timestamp, format: "yyyy-MM-dd HH:00")
 | summarize
     deploy_count = count(),
     first_time = min(timestamp),
     deploy_name = takeAny(deploy_name),
     deploy_source = takeAny(deploy_source),
+    deploy_version = takeAny(deploy_version),
+    deploy_stage = takeAny(deploy_stage),
+    deploy_component = takeAny(deploy_component),
+    deploy_service = takeAny(deploy_service),
+    deploy_desc = takeAny(deploy_desc),
+    deploy_project = takeAny(deploy_project),
+    deploy_repo = takeAny(deploy_repo),
     by: {hour_key}
 | sort hour_key desc`;
 }
@@ -4767,8 +4781,13 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
     hourKey: String(r.hour_key ?? ""),
     name: String(r.deploy_name ?? "Deployment"),
     source: String(r.deploy_source ?? "unknown"),
-    version: "",
-    type: "",
+    version: String(r.deploy_version ?? ""),
+    stage: String(r.deploy_stage ?? ""),
+    component: String(r.deploy_component ?? ""),
+    service: String(r.deploy_service ?? ""),
+    description: String(r.deploy_desc ?? ""),
+    project: String(r.deploy_project ?? ""),
+    repo: String(r.deploy_repo ?? ""),
     count: Number(r.deploy_count ?? 1),
   })).filter(d => d.hourKey).sort((a, b) => b.timestamp - a.timestamp);
 
@@ -4981,83 +5000,106 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
             const sparkDepPos = depIdx >= 0 ? Math.min(depIdx, 2) : -1;
             const sparkMaxApdex = Math.max(...sparkSlice.map(s => s.apdex), 0.01);
             const sparkMaxDur = Math.max(...sparkSlice.map(s => s.avgDur), 1);
+            const metaItems: string[] = [];
+            if (d.component) metaItems.push(d.component + (d.version ? ` v${d.version}` : ""));
+            else if (d.version) metaItems.push(`v${d.version}`);
+            if (d.stage) metaItems.push(d.stage);
+            if (d.service) metaItems.push(d.service);
+            if (d.project) metaItems.push(d.project);
+            if (d.repo) metaItems.push(d.repo);
             return (
-            <div key={i} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(d.severity), width: "100%", padding: "12px 16px" }}>
-              {/* Header: name + count on left, badge on right */}
-              <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 4 }}>
-                <Flex alignItems="center" gap={8}>
-                  <Strong style={{ fontSize: 15 }}>{d.name}</Strong>
-                  {(d as any).count > 1 && <Text style={{ fontSize: 11, opacity: 0.4 }}>+{(d as any).count - 1} more</Text>}
+            <div key={i} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(d.severity), width: "100%", padding: "16px 20px", overflow: "visible" }}>
+              {/* Header: name + badge */}
+              <Flex alignItems="center" justifyContent="space-between" gap={12} style={{ marginBottom: 6, flexWrap: "nowrap" }}>
+                <Flex alignItems="center" gap={8} style={{ minWidth: 0, flex: 1 }}>
+                  <Strong style={{ fontSize: 18 }}>{d.name}</Strong>
+                  {d.count > 1 && <Text style={{ fontSize: 12, opacity: 0.4 }}>+{d.count - 1} more</Text>}
                 </Flex>
-                <span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 4, background: `${severityColor(d.severity)}18`, color: severityColor(d.severity), fontWeight: 700, whiteSpace: "nowrap" as const }}>{severityLabel(d.severity)}</span>
+                <span style={{ fontSize: 12, padding: "3px 12px", borderRadius: 4, background: `${severityColor(d.severity)}18`, color: severityColor(d.severity), fontWeight: 700, flexShrink: 0 }}>{severityLabel(d.severity)}</span>
               </Flex>
-              <Text style={{ fontSize: 11, opacity: 0.4, marginBottom: 8, display: "block" }}>{d.tsStr}{d.source !== "unknown" ? ` · ${d.source}` : ""}</Text>
+              {/* Timestamp + source */}
+              <Text style={{ fontSize: 13, opacity: 0.5, display: "block", marginBottom: 4 }}>{d.tsStr}{d.source !== "unknown" ? ` · ${d.source}` : ""}</Text>
+              {/* Metadata tags */}
+              {metaItems.length > 0 && (
+                <Flex gap={6} flexWrap="wrap" style={{ marginBottom: 8 }}>
+                  {metaItems.map((m, mi) => (
+                    <span key={mi} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)" }}>{m}</span>
+                  ))}
+                </Flex>
+              )}
+              {/* Description */}
+              {d.description && <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 8, lineHeight: "1.4" }}>{d.description.length > 200 ? d.description.substring(0, 200) + "…" : d.description}</Text>}
               {d.hasData ? (
-                <Flex flexDirection="column" gap={8}>
+                <Flex flexDirection="column" gap={12}>
                   {/* Metrics row */}
-                  <Flex gap={24} flexWrap="wrap">
+                  <Flex gap={32} flexWrap="wrap">
                     <div>
-                      <Text style={{ fontSize: 11, opacity: 0.5 }}>Apdex</Text>
-                      <Flex gap={4} alignItems="baseline">
-                        <Text style={{ fontSize: 14, opacity: 0.6 }}>{d.before.apdex.toFixed(2)}</Text>
-                        <Text style={{ fontSize: 12, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 17, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.after.apdex.toFixed(2)}</Strong>
-                        <Text style={{ fontSize: 11, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.apdexDelta >= 0 ? "▲" : "▼"}{Math.abs(d.apdexDelta).toFixed(2)}</Text>
+                      <Text style={{ fontSize: 13, opacity: 0.5 }}>Apdex</Text>
+                      <Flex gap={6} alignItems="baseline">
+                        <Text style={{ fontSize: 16, opacity: 0.6 }}>{d.before.apdex.toFixed(2)}</Text>
+                        <Text style={{ fontSize: 14, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 22, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.after.apdex.toFixed(2)}</Strong>
+                        <Text style={{ fontSize: 13, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.apdexDelta >= 0 ? "▲" : "▼"}{Math.abs(d.apdexDelta).toFixed(2)}</Text>
                       </Flex>
                     </div>
                     <div>
-                      <Text style={{ fontSize: 11, opacity: 0.5 }}>Avg Duration</Text>
-                      <Flex gap={4} alignItems="baseline">
-                        <Text style={{ fontSize: 14, opacity: 0.6 }}>{fmt(d.before.avgDur)}</Text>
-                        <Text style={{ fontSize: 12, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 17, color: d.durDelta <= 0 ? GREEN : RED }}>{fmt(d.after.avgDur)}</Strong>
-                        <Text style={{ fontSize: 11, color: d.durDelta <= 0 ? GREEN : RED }}>{d.durDelta > 0 ? "▲" : "▼"}{Math.abs(d.durDelta).toFixed(1)}%</Text>
+                      <Text style={{ fontSize: 13, opacity: 0.5 }}>Avg Duration</Text>
+                      <Flex gap={6} alignItems="baseline">
+                        <Text style={{ fontSize: 16, opacity: 0.6 }}>{fmt(d.before.avgDur)}</Text>
+                        <Text style={{ fontSize: 14, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 22, color: d.durDelta <= 0 ? GREEN : RED }}>{fmt(d.after.avgDur)}</Strong>
+                        <Text style={{ fontSize: 13, color: d.durDelta <= 0 ? GREEN : RED }}>{d.durDelta > 0 ? "▲" : "▼"}{Math.abs(d.durDelta).toFixed(1)}%</Text>
                       </Flex>
                     </div>
                     <div>
-                      <Text style={{ fontSize: 11, opacity: 0.5 }}>Error Rate</Text>
-                      <Flex gap={4} alignItems="baseline">
-                        <Text style={{ fontSize: 14, opacity: 0.6 }}>{fmtPct(d.before.errorRate)}</Text>
-                        <Text style={{ fontSize: 12, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 17, color: d.errorDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.errorRate)}</Strong>
-                        <Text style={{ fontSize: 11, color: d.errorDelta <= 0 ? GREEN : RED }}>{d.errorDelta > 0 ? "▲" : "▼"}{Math.abs(d.errorDelta).toFixed(1)}pp</Text>
+                      <Text style={{ fontSize: 13, opacity: 0.5 }}>Error Rate</Text>
+                      <Flex gap={6} alignItems="baseline">
+                        <Text style={{ fontSize: 16, opacity: 0.6 }}>{fmtPct(d.before.errorRate)}</Text>
+                        <Text style={{ fontSize: 14, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 22, color: d.errorDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.errorRate)}</Strong>
+                        <Text style={{ fontSize: 13, color: d.errorDelta <= 0 ? GREEN : RED }}>{d.errorDelta > 0 ? "▲" : "▼"}{Math.abs(d.errorDelta).toFixed(1)}pp</Text>
                       </Flex>
                     </div>
                     <div>
-                      <Text style={{ fontSize: 11, opacity: 0.5 }}>Frustrated %</Text>
-                      <Flex gap={4} alignItems="baseline">
-                        <Text style={{ fontSize: 14, opacity: 0.6 }}>{fmtPct(d.before.fruPct)}</Text>
-                        <Text style={{ fontSize: 12, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 17, color: d.fruDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.fruPct)}</Strong>
+                      <Text style={{ fontSize: 13, opacity: 0.5 }}>Frustrated %</Text>
+                      <Flex gap={6} alignItems="baseline">
+                        <Text style={{ fontSize: 16, opacity: 0.6 }}>{fmtPct(d.before.fruPct)}</Text>
+                        <Text style={{ fontSize: 14, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 22, color: d.fruDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.fruPct)}</Strong>
                       </Flex>
                     </div>
                   </Flex>
-                  {/* Sparkline row — full width */}
+                  {/* Sparkline — taller, full width */}
                   {sparkSlice.length > 1 && (
-                    <div style={{ marginTop: 4 }}>
-                      <Text style={{ fontSize: 10, opacity: 0.4, marginBottom: 2, display: "block" }}>Apdex (green) &amp; Duration (blue) ±2h around deploy</Text>
-                      <svg width="100%" viewBox="0 0 400 50" style={{ maxHeight: 50 }}>
+                    <div>
+                      <Text style={{ fontSize: 11, opacity: 0.4, marginBottom: 2, display: "block" }}>Apdex (green) &amp; Duration (blue) ±2h around deploy</Text>
+                      <svg width="100%" viewBox="0 0 400 80" style={{ maxHeight: 80 }}>
+                        {/* Apdex area fill */}
+                        <polygon
+                          fill={`${GREEN}15`}
+                          points={`5,74 ${sparkSlice.map((s, si) => `${(si / (sparkSlice.length - 1)) * 390 + 5},${68 - (s.apdex / sparkMaxApdex) * 58}`).join(" ")} 395,74`}
+                        />
                         {/* Apdex line */}
-                        <polyline fill="none" stroke={GREEN} strokeWidth={2} points={sparkSlice.map((s, si) => `${(si / (sparkSlice.length - 1)) * 390 + 5},${44 - (s.apdex / sparkMaxApdex) * 38}`).join(" ")} />
+                        <polyline fill="none" stroke={GREEN} strokeWidth={2.5} points={sparkSlice.map((s, si) => `${(si / (sparkSlice.length - 1)) * 390 + 5},${68 - (s.apdex / sparkMaxApdex) * 58}`).join(" ")} />
                         {/* Duration line */}
-                        <polyline fill="none" stroke={BLUE} strokeWidth={1.5} strokeDasharray="4 3" points={sparkSlice.map((s, si) => `${(si / (sparkSlice.length - 1)) * 390 + 5},${44 - (s.avgDur / sparkMaxDur) * 38}`).join(" ")} />
+                        <polyline fill="none" stroke={BLUE} strokeWidth={2} strokeDasharray="4 3" points={sparkSlice.map((s, si) => `${(si / (sparkSlice.length - 1)) * 390 + 5},${68 - (s.avgDur / sparkMaxDur) * 58}`).join(" ")} />
                         {/* Deploy marker */}
                         {sparkDepPos >= 0 && (
-                          <line x1={(sparkDepPos / (sparkSlice.length - 1)) * 390 + 5} y1={0} x2={(sparkDepPos / (sparkSlice.length - 1)) * 390 + 5} y2={50} stroke={RED} strokeWidth={2} opacity={0.5} strokeDasharray="3 2" />
+                          <line x1={(sparkDepPos / (sparkSlice.length - 1)) * 390 + 5} y1={0} x2={(sparkDepPos / (sparkSlice.length - 1)) * 390 + 5} y2={80} stroke={RED} strokeWidth={2} opacity={0.5} strokeDasharray="3 2" />
                         )}
                         {/* Apdex dots */}
                         {sparkSlice.map((s, si) => (
-                          <circle key={si} cx={(si / (sparkSlice.length - 1)) * 390 + 5} cy={44 - (s.apdex / sparkMaxApdex) * 38} r={si === sparkDepPos ? 5 : 3} fill={si === sparkDepPos ? RED : GREEN} />
+                          <circle key={si} cx={(si / (sparkSlice.length - 1)) * 390 + 5} cy={68 - (s.apdex / sparkMaxApdex) * 58} r={si === sparkDepPos ? 6 : 3.5} fill={si === sparkDepPos ? RED : GREEN} />
                         ))}
                         {/* Hour labels */}
-                        <text x={5} y={10} fill="rgba(255,255,255,0.3)" fontSize={8}>{sparkSlice[0]?.hourTs?.substring(11) ?? ""}</text>
-                        <text x={395} y={10} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize={8}>{sparkSlice[sparkSlice.length - 1]?.hourTs?.substring(11) ?? ""}</text>
+                        <text x={5} y={12} fill="rgba(255,255,255,0.3)" fontSize={9}>{sparkSlice[0]?.hourTs?.substring(11) ?? ""}</text>
+                        <text x={395} y={12} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize={9}>{sparkSlice[sparkSlice.length - 1]?.hourTs?.substring(11) ?? ""}</text>
                       </svg>
                     </div>
                   )}
                 </Flex>
               ) : (
-                <Text style={{ fontSize: 13, opacity: 0.4 }}>Insufficient before/after data. Extend timeframe for better analysis.</Text>
+                <Text style={{ fontSize: 14, opacity: 0.4 }}>Insufficient before/after data. Extend timeframe for better analysis.</Text>
               )}
             </div>
             );
@@ -5074,8 +5116,12 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
             Timestamp: d.tsStr,
             Hour: d.hourKey,
             Name: d.name,
-            Count: (d as any).count ?? 1,
+            Count: d.count ?? 1,
             Source: d.source,
+            Version: d.version || "—",
+            Stage: d.stage || "—",
+            Component: d.component || "—",
+            Service: d.service || "—",
           }))}
           columns={[
             { id: "Timestamp", header: "Time", accessor: "Timestamp", cell: ({ value }: any) => <Text style={{ fontSize: 11 }}>{value}</Text> },
@@ -5083,6 +5129,10 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
             { id: "Name", header: "Deployment", accessor: "Name", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
             { id: "Count", header: "Events", accessor: "Count", sortType: "number" as any, cell: ({ value }: any) => <Text>{value}</Text> },
             { id: "Source", header: "Source", accessor: "Source", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
+            { id: "Version", header: "Version", accessor: "Version", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
+            { id: "Stage", header: "Stage", accessor: "Stage", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
+            { id: "Component", header: "Component", accessor: "Component", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
+            { id: "Service", header: "Service", accessor: "Service", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
           ]}
         />
       </div>
