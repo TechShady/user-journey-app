@@ -637,10 +637,15 @@ function forecastApdexTrendQuery(days: number, frontend: string, steps: StepDef[
 // Resource Waterfall — aggregated resource timing per funnel step
 // ---------------------------------------------------------------------------
 function resourceStepTagExpr(steps: StepDef[]): string {
+  // Match resources to funnel steps using both page URL and resource URL.
+  // In SPAs, page.url.path may always be "/" so we also check url.path (the resource's own URL).
   const parts = steps.map((s) => {
-    if (s.type === "view") return `if(page.url.path == "${s.identifier}", "${s.label}")`;
     const seg = s.identifier.split("/").filter(Boolean).pop() || "";
-    return `if(contains(lower(coalesce(page.url.path, "")), "${seg.toLowerCase()}"), "${s.label}")`;
+    const segLower = seg.toLowerCase();
+    if (s.type === "view") {
+      return `if(page.url.path == "${s.identifier}" or contains(lower(coalesce(page.url.path, "")), "${segLower}") or contains(lower(coalesce(url.path, "")), "${segLower}"), "${s.label}")`;
+    }
+    return `if(contains(lower(coalesce(page.url.path, "")), "${segLower}") or contains(lower(coalesce(url.path, "")), "${segLower}"), "${s.label}")`;
   });
   return `coalesce(\n    ${parts.join(",\n    ")},\n    "other")`;
 }

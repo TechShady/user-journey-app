@@ -4,9 +4,15 @@
 import { queryExecutionClient, QueryStartResponse } from '@dynatrace-sdk/client-query';
 
 export function getQueryString(){
-  return `fetch events, from: now() - 14d
-| filter event.type == "CUSTOM_DEPLOYMENT"
-| limit 3
+  return `fetch user.events, from: now() - 1d
+| filter frontend.name == "www.angular.easytravel.com"
+| filter characteristics.has_request == true
+| filter page.url.path == "/"
+| fieldsAdd rpath = lower(coalesce(url.path, "")), ref = page.referrer.url.path, pggroup = page.group, aname = useraction.name
+| filter contains(rpath, "journey") or contains(rpath, "validate") or contains(rpath, "booking")
+| summarize cnt = count(), by: {rpath, ref, pggroup}
+| sort cnt desc
+| limit 20
 `;
 }
 
