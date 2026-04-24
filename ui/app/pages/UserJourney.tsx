@@ -92,6 +92,7 @@ function periodClause(days: number, prev = false): string {
 function fmt(v: number | undefined): string { if (v == null || isNaN(v)) return "N/A"; return v >= 1000 ? (v / 1000).toFixed(2) + " s" : v.toFixed(0) + " ms"; }
 function fmtCount(v: number | undefined): string { if (v == null) return "0"; if (v >= 1e6) return (v / 1e6).toFixed(1) + "M"; if (v >= 1e3) return (v / 1e3).toFixed(1) + "k"; return Math.round(v).toLocaleString(); }
 function fmtPct(v: number | undefined): string { return (v == null || isNaN(v)) ? "0.0%" : v.toFixed(1) + "%"; }
+function formatHourKey(d: Date): string { return d.toISOString().substring(0, 13).replace("T", " ") + ":00"; }
 function statusClr(pct: number): string { return pct >= 80 ? GREEN : pct >= 50 ? YELLOW : RED; }
 function apdexClr(a: number): string { return a >= 0.85 ? GREEN : a >= 0.7 ? YELLOW : a >= 0.5 ? ORANGE : RED; }
 function apdexLabel(a: number): string { return a >= 0.85 ? "Excellent" : a >= 0.7 ? "Good" : a >= 0.5 ? "Fair" : "Poor"; }
@@ -700,13 +701,13 @@ function resourceByStepQuery(days: number, frontend: string, steps: StepDef[]): 
 function deploymentEventsQuery(days: number): string {
   const period = periodClause(days);
   return `fetch events, ${period}
-| filter event.kind == "DAVIS_EVENT" or event.kind == "CUSTOM_DEPLOYMENT" or event.kind == "CUSTOM_INFO" or matchesValue(event.type, "*DEPLOYMENT*") or matchesValue(event.type, "*CUSTOM_DEPLOYMENT*")
-| fieldsAdd deploy_name = coalesce(event.name, event.title, "Deployment")
+| filter event.type == "CUSTOM_DEPLOYMENT" or event.type == "task.deployment.finished"
+| fieldsAdd deploy_name = coalesce(event.name, "Deployment")
 | fieldsAdd deploy_source = coalesce(event.source, "unknown")
 | fieldsAdd deploy_version = coalesce(dt.event.deployment.version, "")
 | fields timestamp, deploy_name, deploy_source, deploy_version, event.type
 | sort timestamp desc
-| limit 50`;
+| limit 200`;
 }
 
 function changeImpactQuery(days: number, frontend: string, steps: StepDef[]): string {
@@ -4756,15 +4757,23 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
   const impactRecords = (impactData.data?.records ?? []) as any[];
 
   // Parse deployments
-  const deployments = deployRecords.map((r: any) => ({
+  const rawDeploys = deployRecords.map((r: any) => ({
     timestamp: new Date(r.timestamp).getTime(),
     tsStr: new Date(r.timestamp).toLocaleString(),
-    hourKey: new Date(r.timestamp).toISOString().substring(0, 13).replace("T", " ") + ":00",
+    hourKey: formatHourKey(new Date(r.timestamp)),
     name: String(r.deploy_name ?? "Deployment"),
     source: String(r.deploy_source ?? "unknown"),
     version: String(r.deploy_version ?? ""),
     type: String(r["event.type"] ?? ""),
   }));
+
+  // Deduplicate by hour+name — keep earliest per group
+  const deduped = new Map<string, typeof rawDeploys[0]>();
+  for (const d of rawDeploys) {
+    const key = `${d.hourKey}||${d.name}`;
+    if (!deduped.has(key)) deduped.set(key, d);
+  }
+  const deployments = Array.from(deduped.values()).sort((a, b) => b.timestamp - a.timestamp);
 
   // Parse hourly impact data
   const hourlyImpact = impactRecords.map((r: any) => {

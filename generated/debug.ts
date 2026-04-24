@@ -4,16 +4,11 @@
 import { queryExecutionClient, QueryStartResponse } from '@dynatrace-sdk/client-query';
 
 export function getQueryString(){
-  return `fetch user.events, from: now() - 7d
-| filter frontend.name == "www.angular.easytravel.com"
-| filter characteristics.has_request == true
-| fieldsAdd step_tag = coalesce(
-    if(page.url.path == "/easytravel/home", "Home Page"),
-    if(contains(lower(coalesce(page.url.path, "")), "login"), "Login"),
-    if(page.url.path == "/easytravel/search", "Search"),
-    "other")
-| summarize cnt = count(), by: {step_tag}
-| sort cnt desc
+  return `fetch events, from: now() - 14d
+| filter event.type == "CUSTOM_DEPLOYMENT"
+| fieldsAdd deploy_name = coalesce(event.name, event.title, "Deployment")
+| summarize cnt = count(), deploys = collectDistinct(deploy_name)
+
 `;
 }
 
