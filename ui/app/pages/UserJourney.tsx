@@ -447,7 +447,7 @@ function hourlyDistributionQuery(days: number, frontend: string, steps: StepDef[
 | filter frontend.name == "${frontend}"
 | filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
-| fieldsAdd hour = getHour(timestamp)
+| fieldsAdd hour = getHour(start_time)
 | summarize
     actions = count(),
     avg_dur = avg(dur_ms),
@@ -532,7 +532,7 @@ function rootCauseCorrelationQuery(days: number, frontend: string, steps: StepDe
 | filter ${anyStepFilter(steps)}
 | fieldsAdd step_tag = ${tagExpr}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
-| fieldsAdd hour_bucket = getHour(timestamp)
+| fieldsAdd hour_bucket = getHour(start_time)
 | summarize
     steps = collectDistinct(step_tag),
     avg_dur = avg(dur_ms),
@@ -569,7 +569,7 @@ function rootCauseStepDropQuery(days: number, frontend: string, steps: StepDef[]
     if(dur_ms <= ${APDEX_T}.0, "satisfied"),
     if(dur_ms <= ${APDEX_4T}.0, "tolerating"),
     "frustrated")
-| fieldsAdd hour_bucket = getHour(timestamp)
+| fieldsAdd hour_bucket = getHour(start_time)
 | summarize
     actions = count(),
     avg_dur = avg(dur_ms),
