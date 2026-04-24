@@ -635,17 +635,32 @@ function forecastApdexTrendQuery(days: number, frontend: string, steps: StepDef[
 // ---------------------------------------------------------------------------
 // Resource Waterfall — aggregated resource timing per funnel step
 // ---------------------------------------------------------------------------
+function resourceStepTagExpr(steps: StepDef[]): string {
+  const parts = steps.map((s) => {
+    if (s.type === "view") return `if(page.url.path == "${s.identifier}", "${s.label}")`;
+    const seg = s.identifier.split("/").filter(Boolean).pop() || "";
+    return `if(contains(lower(coalesce(page.url.path, "")), "${seg.toLowerCase()}"), "${s.label}")`;
+  });
+  return `coalesce(\n    ${parts.join(",\n    ")},\n    "other")`;
+}
+
+const RES_TYPE_EXPR = `if(endsWith(lp, ".js"), "script",
+    else: if(endsWith(lp, ".css"), "css",
+    else: if(endsWith(lp, ".png") or endsWith(lp, ".jpg") or endsWith(lp, ".jpeg") or endsWith(lp, ".gif") or endsWith(lp, ".svg") or endsWith(lp, ".webp") or endsWith(lp, ".ico"), "image",
+    else: if(endsWith(lp, ".woff") or endsWith(lp, ".woff2") or endsWith(lp, ".ttf") or endsWith(lp, ".eot"), "font",
+    else: "xhr"))))`;
+
 function resourceWaterfallQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
-  const tagExpr = stepTagExpr(steps, steps.map((s) => s.label));
+  const stepTag = resourceStepTagExpr(steps);
   return `fetch user.events, ${period}
 | filter frontend.name == "${frontend}"
-| filter ${anyStepFilter(steps)}
-| filter isNotNull(resource.name)
-| fieldsAdd step_tag = ${tagExpr}
+| filter characteristics.has_request == true
 | fieldsAdd res_dur_ms = toDouble(duration) / 1000000.0
-| fieldsAdd res_type = coalesce(resource.type, "other")
-| fieldsAdd res_name = resource.name
+| fieldsAdd step_tag = ${stepTag}
+| fieldsAdd lp = lower(coalesce(url.path, ""))
+| fieldsAdd res_type = ${RES_TYPE_EXPR}
+| fieldsAdd res_name = coalesce(url.full, url.path, "unknown")
 | summarize
     count = count(),
     avg_dur = avg(res_dur_ms),
@@ -661,14 +676,14 @@ function resourceWaterfallQuery(days: number, frontend: string, steps: StepDef[]
 
 function resourceByStepQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
-  const tagExpr = stepTagExpr(steps, steps.map((s) => s.label));
+  const stepTag = resourceStepTagExpr(steps);
   return `fetch user.events, ${period}
 | filter frontend.name == "${frontend}"
-| filter ${anyStepFilter(steps)}
-| filter isNotNull(resource.name)
-| fieldsAdd step_tag = ${tagExpr}
+| filter characteristics.has_request == true
 | fieldsAdd res_dur_ms = toDouble(duration) / 1000000.0
-| fieldsAdd res_type = coalesce(resource.type, "other")
+| fieldsAdd step_tag = ${stepTag}
+| fieldsAdd lp = lower(coalesce(url.path, ""))
+| fieldsAdd res_type = ${RES_TYPE_EXPR}
 | summarize
     resources = count(),
     avg_dur = avg(res_dur_ms),
