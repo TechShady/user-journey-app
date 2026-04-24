@@ -4384,44 +4384,57 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
               </div>
             )}
             {/* Mini trend chart */}
-            <svg width="100%" viewBox={`0 0 300 50`} style={{ marginTop: 4 }}>
-              {/* Threshold line */}
-              {(() => {
-                const vMin = Math.min(...b.values, b.threshold, b.projected7d);
-                const vMax = Math.max(...b.values, b.threshold, b.projected7d);
-                const range = vMax - vMin || 1;
-                const thY = 45 - ((b.threshold - vMin) / range) * 40;
-                return <line x1={0} y1={thY} x2={300} y2={thY} stroke="rgba(255,255,255,0.2)" strokeDasharray="4 3" />;
-              })()}
-              {/* Actual data */}
-              {b.values.length > 1 && (() => {
-                const vMin = Math.min(...b.values, b.threshold, b.projected7d);
-                const vMax = Math.max(...b.values, b.threshold, b.projected7d);
-                const range = vMax - vMin || 1;
-                const actW = (n / totalPoints) * 290;
-                return <polyline fill="none" stroke={BLUE} strokeWidth={1.5} points={b.values.map((v, i) => {
-                  const x = 5 + (i / (n - 1)) * actW;
-                  const y = 45 - ((v - vMin) / range) * 40;
-                  return `${x},${y}`;
-                }).join(" ")} />;
-              })()}
-              {/* Forecast extension */}
-              {b.values.length > 0 && (() => {
-                const vMin = Math.min(...b.values, b.threshold, b.projected7d);
-                const vMax = Math.max(...b.values, b.threshold, b.projected7d);
-                const range = vMax - vMin || 1;
-                const actW = (n / totalPoints) * 290;
-                const lastActual = b.values[b.values.length - 1];
-                const points: string[] = [];
-                for (let d = 0; d <= FORECAST_DAYS; d++) {
-                  const val = d === 0 ? lastActual : b.reg.predict(n - 1 + d);
-                  const x = 5 + actW + (d / FORECAST_DAYS) * (290 - actW);
-                  const y = 45 - ((val - vMin) / range) * 40;
-                  points.push(`${x},${y}`);
-                }
-                return <polyline fill="none" stroke={PURPLE} strokeWidth={1.5} strokeDasharray="4 3" points={points.join(" ")} />;
-              })()}
-            </svg>
+            {(() => {
+              const svgW = 300;
+              const svgH = 100;
+              const vMin = Math.min(...b.values, b.threshold, b.projected7d);
+              const vMax = Math.max(...b.values, b.threshold, b.projected7d);
+              const range = vMax - vMin || 1;
+              const thY = (svgH - 6) - ((b.threshold - vMin) / range) * (svgH - 12);
+              const actW = (n / totalPoints) * (svgW - 10);
+              const valToY = (v: number) => (svgH - 6) - ((v - vMin) / range) * (svgH - 12);
+              return (
+              <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ marginTop: 4 }}>
+                {/* Threshold line */}
+                <line x1={0} y1={thY} x2={svgW} y2={thY} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 3" />
+                <text x={svgW - 2} y={thY - 3} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>budget</text>
+                {/* Actual data */}
+                {b.values.length === 1 ? (
+                  <>
+                    <line x1={5} y1={valToY(b.values[0])} x2={5 + actW} y2={valToY(b.values[0])} stroke={BLUE} strokeWidth={2} />
+                    <circle cx={5 + actW / 2} cy={valToY(b.values[0])} r={3} fill={BLUE} />
+                  </>
+                ) : b.values.length > 1 ? (
+                  <>
+                    <polygon fill={`${BLUE}12`} points={`5,${svgH - 6} ${b.values.map((v, i) => `${5 + (i / (n - 1)) * actW},${valToY(v)}`).join(" ")} ${5 + actW},${svgH - 6}`} />
+                    <polyline fill="none" stroke={BLUE} strokeWidth={2} points={b.values.map((v, i) => `${5 + (i / (n - 1)) * actW},${valToY(v)}`).join(" ")} />
+                    {b.values.map((v, i) => (
+                      <circle key={i} cx={5 + (i / (n - 1)) * actW} cy={valToY(v)} r={2} fill={BLUE} />
+                    ))}
+                  </>
+                ) : null}
+                {/* Forecast extension */}
+                {b.values.length > 0 && (() => {
+                  const lastActual = b.values[b.values.length - 1];
+                  const forecastPts: string[] = [];
+                  for (let d = 0; d <= FORECAST_DAYS; d++) {
+                    const val = d === 0 ? lastActual : b.reg.predict(n - 1 + d);
+                    const x = 5 + actW + (d / FORECAST_DAYS) * (svgW - 10 - actW);
+                    forecastPts.push(`${x},${valToY(val)}`);
+                  }
+                  return (
+                    <>
+                      <polygon fill={`${PURPLE}08`} points={`${5 + actW},${svgH - 6} ${forecastPts.join(" ")} ${svgW - 5},${svgH - 6}`} />
+                      <polyline fill="none" stroke={PURPLE} strokeWidth={2} strokeDasharray="6 3" points={forecastPts.join(" ")} />
+                    </>
+                  );
+                })()}
+                {/* Vertical divider between actual & forecast */}
+                <line x1={5 + actW} y1={0} x2={5 + actW} y2={svgH} stroke="rgba(255,255,255,0.1)" strokeDasharray="2 2" />
+                <text x={5 + actW + 3} y={10} fill="rgba(255,255,255,0.2)" fontSize={7}>forecast</text>
+              </svg>
+              );
+            })()}
           </div>
         ))}
       </Flex>
