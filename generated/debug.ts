@@ -4,11 +4,16 @@
 import { queryExecutionClient, QueryStartResponse } from '@dynatrace-sdk/client-query';
 
 export function getQueryString(){
-  return `fetch events, from: now() - 14d
-| filter event.type == "CUSTOM_DEPLOYMENT"
-| fieldsAdd deploy_name = coalesce(event.name, event.title, "Deployment")
-| summarize cnt = count(), deploys = collectDistinct(deploy_name)
-
+  return `fetch user.events, from: now() - 14d
+| filter frontend.name == "www.angular.easytravel.com"
+| filter view.name == "/easytravel/home" or url.path == "/easytravel/rest/login" or view.name == "/easytravel/search" or url.path == "/easytravel/rest/validate-creditcard"
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd hour_ts = formatTimestamp(start_time, format: "yyyy-MM-dd HH:00")
+| summarize
+    actions = count(),
+    by: {hour_ts}
+| sort hour_ts asc
+| limit 20
 `;
 }
 

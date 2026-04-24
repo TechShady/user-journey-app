@@ -716,7 +716,7 @@ function changeImpactQuery(days: number, frontend: string, steps: StepDef[]): st
 | filter frontend.name == "${frontend}"
 | filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
-| fieldsAdd hour_ts = formatTimestamp(timestamp, format: "yyyy-MM-dd HH:00")
+| fieldsAdd hour_ts = formatTimestamp(start_time, format: "yyyy-MM-dd HH:00")
 | summarize
     sessions = countDistinct(dt.rum.session.id),
     actions = count(),
@@ -4827,8 +4827,8 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
     const errorDelta = after.errorRate - before.errorRate;
     const fruDelta = after.fruPct - before.fruPct;
 
-    const severity = (apdexDelta < -0.1 || durDelta > 25 || errorDelta > 3) ? "regression" : (apdexDelta > 0.05 && durDelta < -5) ? "improvement" : "neutral";
     const hasData = beforeSlice.length > 0 && afterSlice.length > 0;
+    const severity = !hasData ? "neutral" : (apdexDelta < -0.1 || durDelta > 25 || errorDelta > 3) ? "regression" : (apdexDelta > 0.05 && durDelta < -5) ? "improvement" : "neutral";
 
     return { ...dep, before, after, apdexDelta, durDelta, errorDelta, fruDelta, severity, hasData };
   });
