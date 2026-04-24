@@ -835,7 +835,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram showing user navigation paths. Click any node to see inbound/outbound connections. Inbound and outbound user actions in the popup are clickable — they open the <Strong>Vitals</Strong> app filtered to that specific page for detailed performance analysis.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations.</Paragraph>
         <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device × browser cross-section.</Paragraph>
-        <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. Designed for quick status checks and executive presentations.</Paragraph>
+        <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. Use <Strong>Export PDF</Strong> to open a print-ready report in a new tab (use browser Print → Save as PDF), or <Strong>Copy Text</Strong> to get a plain-text summary for Slack/Teams/email. Designed for quick status checks and executive presentations.</Paragraph>
         <Paragraph><Strong>Segmentation</Strong>: Device, browser, and geo breakdowns with Apdex per segment.</Paragraph>
         <Paragraph><Strong>Errors &amp; Drop-offs</Strong>: Drop-off analysis between funnel steps with optimization recommendations.</Paragraph>
         <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation.</Paragraph>
@@ -2972,6 +2972,7 @@ function ConversionAttributionTab({ data, overallConv, isLoading }: { data: any;
 // TAB: Executive Summary — NEW
 // ===========================================================================
 function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[] }) {
+  const [copied, setCopied] = useState(false);
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -3005,8 +3006,151 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
     return { from: steps[i].label, to: step.label, dropOff: prev > 0 ? ((prev - curr) / prev) * 100 : 0 };
   }).sort((a, b) => b.dropOff - a.dropOff)[0];
 
+  // --- Export Report ---
+  const generateReportHtml = (): string => {
+    const ts = new Date().toLocaleString();
+    const gradeClr = overallGradeNum >= 80 ? "#0D9C29" : overallGradeNum >= 65 ? "#FCD53F" : overallGradeNum >= 50 ? "#FF832B" : "#C21930";
+    const statusOf = (v: string) => v === "Excellent" || v === "Good" ? "#0D9C29" : v === "Fair" ? "#FCD53F" : v === "Poor" ? "#C21930" : "#888";
+
+    const funnelHtml = steps.map((step, i) => {
+      const conv = i > 0 && funnelCounts[i - 1] > 0 ? fmtPct((funnelCounts[i] / funnelCounts[i - 1]) * 100) : "";
+      return `<td style="text-align:center;padding:12px 16px"><div style="font-size:11px;color:#888">${step.label}</div><div style="font-size:20px;font-weight:700;color:#4589FF">${fmtCount(funnelCounts[i])}</div>${conv ? `<div style="font-size:11px;color:#888">${conv} conv</div>` : ""}</td>${i < steps.length - 1 ? '<td style="text-align:center;font-size:18px;color:#ccc">→</td>' : ""}`;
+    }).join("");
+
+    const perfRows = [
+      { m: "Total Sessions", v: fmtCount(quality.sessions), s: "—" },
+      { m: "Total Actions", v: fmtCount(quality.total), s: "—" },
+      { m: "Apdex", v: overallApdex.toFixed(2), s: apdexLabel(overallApdex) },
+      { m: "Avg Duration", v: fmt(quality.avg), s: quality.avg <= 2000 ? "Good" : quality.avg <= 3000 ? "Fair" : "Poor" },
+      { m: "P50 Duration", v: fmt(quality.p50), s: quality.p50 <= 1500 ? "Good" : quality.p50 <= 2500 ? "Fair" : "Poor" },
+      { m: "P90 Duration", v: fmt(quality.p90), s: quality.p90 <= 4000 ? "Good" : quality.p90 <= 6000 ? "Fair" : "Poor" },
+      { m: "Error Rate", v: fmtPct(errorRate), s: errorRate <= 2 ? "Good" : errorRate <= 5 ? "Fair" : "Poor" },
+      { m: "Conversion Rate", v: fmtPct(overallConv), s: overallConv >= 20 ? "Good" : overallConv >= 10 ? "Fair" : "Poor" },
+      { m: "Frustrated %", v: fmtPct(fruPct), s: fruPct <= 10 ? "Good" : fruPct <= 20 ? "Fair" : "Poor" },
+    ].map(r => `<tr><td style="padding:6px 12px;font-weight:600">${r.m}</td><td style="padding:6px 12px">${r.v}</td><td style="padding:6px 12px;font-weight:600;color:${statusOf(r.s)}">${r.s}</td></tr>`).join("");
+
+    const cwvRows = [
+      { l: "LCP", v: fmt(cwvMetrics.lcp), s: cwvLabel(cwvMetrics.lcp, "lcp") },
+      { l: "CLS", v: cwvMetrics.cls.toFixed(3), s: cwvLabel(cwvMetrics.cls, "cls") },
+      { l: "INP", v: fmt(cwvMetrics.inp), s: cwvLabel(cwvMetrics.inp, "inp") },
+      { l: "TTFB", v: fmt(cwvMetrics.ttfb), s: cwvLabel(cwvMetrics.ttfb, "ttfb") },
+    ].map(r => `<td style="text-align:center;padding:12px 20px"><div style="font-size:11px;color:#888">${r.l}</div><div style="font-size:18px;font-weight:700">${r.v}</div><div style="font-size:11px;color:${statusOf(r.s)}">${r.s}</div></td>`).join("");
+
+    const highlightCards = highlights.map(h => {
+      const clr = h.good ? "#0D9C29" : "#C21930";
+      const arrow = h.trend === "up" ? "▲" : h.trend === "down" ? "▼" : "●";
+      return `<td style="padding:12px 20px;text-align:center"><div style="font-size:11px;color:#888">${h.label}</div><div style="font-size:22px;font-weight:700;color:${clr}">${h.value}</div><div style="font-size:11px;color:${clr}">${arrow} vs prev</div></td>`;
+    }).join("");
+
+    const bottleneckHtml = worstStep && worstStep.dropOff > 10 ? `
+      <div style="margin:20px 0;padding:14px 18px;border-left:4px solid ${worstStep.dropOff > 40 ? "#C21930" : worstStep.dropOff > 20 ? "#FF832B" : "#FCD53F"};background:#f8f8fa;border-radius:6px">
+        <strong>Biggest Bottleneck: ${worstStep.from} → ${worstStep.to}</strong>
+        <div style="font-size:12px;color:#666;margin-top:4px">${fmtPct(worstStep.dropOff)} drop-off rate. ${worstStep.dropOff > 40 ? "Critical friction point — requires immediate attention." : "Significant abandonment — consider UX optimization."}</div>
+      </div>` : "";
+
+    const gradeRows = gradeMetrics.map(m => {
+      const bc = m.score >= 75 ? "#0D9C29" : m.score >= 50 ? "#FCD53F" : "#C21930";
+      return `<tr><td style="padding:4px 12px;font-size:12px;text-align:right;width:90px;color:#666">${m.label}</td><td style="padding:4px 8px"><div style="background:#eee;border-radius:5px;height:10px;width:200px;overflow:hidden"><div style="height:100%;width:${m.score}%;background:${bc};border-radius:5px"></div></div></td><td style="padding:4px 8px;font-size:12px;font-weight:700;color:${bc}">${m.score}</td><td style="padding:4px 8px;font-size:10px;color:#aaa">${m.weight}%</td></tr>`;
+    }).join("");
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>User Journey Report — ${frontend}</title>
+<style>
+  @media print { body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } @page { margin: 0.6in; size: A4; } .no-print { display: none !important; } }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a2e; margin: 0; padding: 32px; max-width: 900px; margin: 0 auto; line-height: 1.5; }
+  h1 { margin: 0 0 4px; font-size: 26px; } h2 { font-size: 16px; margin: 24px 0 10px; border-bottom: 2px solid #eee; padding-bottom: 6px; color: #333; }
+  table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #e0e0e0; } th { background: #f5f5f7; padding: 8px 12px; font-size: 12px; text-align: left; }
+  .grade { display: inline-block; font-size: 56px; font-weight: 800; color: ${gradeClr}; margin-right: 24px; vertical-align: middle; }
+  .grade-sub { display: inline-block; vertical-align: middle; }
+  .toolbar { text-align: right; margin-bottom: 16px; }
+  .toolbar button { background: #4589FF; color: #fff; border: none; padding: 8px 20px; border-radius: 6px; font-size: 13px; cursor: pointer; margin-left: 8px; }
+  .toolbar button:hover { background: #3070e0; }
+</style></head><body>
+<div class="toolbar no-print">
+  <button onclick="window.print()">Print / Save PDF</button>
+</div>
+<h1>User Journey — Executive Report</h1>
+<div style="font-size:12px;color:#888;margin-bottom:20px">${frontend} | Generated: ${ts}</div>
+
+<h2>Overall Grade</h2>
+<div><span class="grade">${letterGrade}</span><span class="grade-sub"><div style="font-size:14px;font-weight:600">${Math.round(overallGradeNum)}/100 weighted score</div><table style="border:none;width:auto;margin-top:8px">${gradeRows}</table></span></div>
+
+<h2>Key Metrics</h2>
+<table style="border:none"><tr>${highlightCards}</tr></table>
+
+<h2>Funnel Summary</h2>
+<table style="border:none"><tr>${funnelHtml}</tr></table>
+${bottleneckHtml}
+
+<h2>Core Web Vitals</h2>
+<table style="border:none"><tr>${cwvRows}</tr></table>
+
+<h2>Performance Snapshot</h2>
+<table><tr><th>Metric</th><th>Value</th><th>Status</th></tr>${perfRows}</table>
+
+<div style="text-align:center;margin-top:30px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#aaa">
+  User Journey App v4.0 | ${frontend} | ${ts}
+</div>
+</body></html>`;
+  };
+
+  const exportReport = () => {
+    const html = generateReportHtml();
+    const win = window.open("", "_blank");
+    if (win) { win.document.write(html); win.document.close(); }
+  };
+
+  const copyReportText = () => {
+    const lines: string[] = [
+      `USER JOURNEY — EXECUTIVE REPORT`,
+      `${frontend} | ${new Date().toLocaleString()}`,
+      ``,
+      `GRADE: ${letterGrade} (${Math.round(overallGradeNum)}/100)`,
+      ``,
+      `KEY METRICS`,
+      ...highlights.map(h => `  ${h.label}: ${h.value} ${h.trend === "up" ? "▲" : h.trend === "down" ? "▼" : "●"} vs prev`),
+      ``,
+      `FUNNEL`,
+      ...steps.map((step, i) => {
+        const conv = i > 0 && funnelCounts[i - 1] > 0 ? ` (${fmtPct((funnelCounts[i] / funnelCounts[i - 1]) * 100)} conv)` : "";
+        return `  Step ${i + 1}: ${step.label} — ${fmtCount(funnelCounts[i])} sessions${conv}`;
+      }),
+    ];
+    if (worstStep && worstStep.dropOff > 10) {
+      lines.push(``, `BOTTLENECK: ${worstStep.from} → ${worstStep.to} (${fmtPct(worstStep.dropOff)} drop-off)`);
+    }
+    lines.push(
+      ``, `CORE WEB VITALS`,
+      `  LCP: ${fmt(cwvMetrics.lcp)} (${cwvLabel(cwvMetrics.lcp, "lcp")})`,
+      `  CLS: ${cwvMetrics.cls.toFixed(3)} (${cwvLabel(cwvMetrics.cls, "cls")})`,
+      `  INP: ${fmt(cwvMetrics.inp)} (${cwvLabel(cwvMetrics.inp, "inp")})`,
+      `  TTFB: ${fmt(cwvMetrics.ttfb)} (${cwvLabel(cwvMetrics.ttfb, "ttfb")})`,
+      ``, `PERFORMANCE`,
+      `  Apdex: ${overallApdex.toFixed(2)} (${apdexLabel(overallApdex)})`,
+      `  Avg Duration: ${fmt(quality.avg)}`,
+      `  P90 Duration: ${fmt(quality.p90)}`,
+      `  Error Rate: ${fmtPct(errorRate)}`,
+      `  Conversion: ${fmtPct(overallConv)}`,
+      `  Frustrated: ${fmtPct(fruPct)}`,
+    );
+    navigator.clipboard.writeText(lines.join("\n")).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      {/* Export buttons */}
+      <Flex justifyContent="flex-end" gap={8}>
+        <button onClick={copyReportText} className="uj-export-btn" title="Copy plain-text report to clipboard">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ marginRight: 6, verticalAlign: "middle" }}><rect x="5" y="1" width="9" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.5" /><rect x="2" y="4" width="9" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="rgba(0,0,0,0.1)" /></svg>
+          {copied ? "Copied!" : "Copy Text"}
+        </button>
+        <button onClick={exportReport} className="uj-export-btn" title="Open printable report for PDF export">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ marginRight: 6, verticalAlign: "middle" }}><path d="M4 1h5l4 4v9a1.5 1.5 0 01-1.5 1.5h-7A1.5 1.5 0 013 14V2.5A1.5 1.5 0 014 1z" stroke="currentColor" strokeWidth="1.5" /><path d="M9 1v4h4" stroke="currentColor" strokeWidth="1.5" /></svg>
+          Export PDF
+        </button>
+      </Flex>
+
       {/* Overall Grade */}
       <Flex gap={24} alignItems="center" flexWrap="wrap">
         <div className="uj-grade-card">
