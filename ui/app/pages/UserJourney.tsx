@@ -4007,7 +4007,9 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
   ].map((b) => {
     const projected7d = b.reg.predict(n - 1 + FORECAST_DAYS);
     const dailyRate = b.reg.slope;
-    const improving = b.direction === "above" ? dailyRate > 0 : dailyRate < 0;
+    const isStable = Math.abs(dailyRate) < 0.001 || n < 2;
+    const improving = isStable ? false : b.direction === "above" ? dailyRate > 0 : dailyRate < 0;
+    const trend: "improving" | "stable" | "degrading" = isStable ? "stable" : improving ? "improving" : "degrading";
     const currentGood = b.direction === "above" ? b.current >= b.threshold : b.current <= b.threshold;
     const projectedGood = b.direction === "above" ? projected7d >= b.threshold : projected7d <= b.threshold;
 
@@ -4024,7 +4026,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
 
     const severity = daysToBreach != null && daysToBreach <= 3 ? "critical" : daysToBreach != null && daysToBreach <= 7 ? "warning" : !currentGood ? "breached" : "healthy";
 
-    return { ...b, projected7d, dailyRate, improving, currentGood, projectedGood, daysToBreach, severity };
+    return { ...b, projected7d, dailyRate, improving, trend, isStable, currentGood, projectedGood, daysToBreach, severity };
   });
 
   const healthyCount = budgets.filter(b => b.severity === "healthy").length;
@@ -4087,7 +4089,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 16, color: b.color }}>{b.format(b.current)}</Strong></div>
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Projected +7d</Text><Strong style={{ display: "block", fontSize: 16, color: b.projectedGood ? GREEN : RED }}>{b.format(b.projected7d)}</Strong></div>
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Budget</Text><Strong style={{ display: "block", fontSize: 16, opacity: 0.6 }}>{b.direction === "above" ? "≥" : "≤"} {b.format(b.threshold)}</Strong></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 14, color: b.improving ? GREEN : RED }}>{b.improving ? "▲" : "▼"} {b.metric === "Avg Duration" ? fmt(Math.abs(b.dailyRate)) : Math.abs(b.dailyRate).toFixed(2)}/day</Strong></div>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 14, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.metric === "Avg Duration" ? fmt(Math.abs(b.dailyRate)) : Math.abs(b.dailyRate).toFixed(2)}/day`}</Strong></div>
             </Flex>
             {b.daysToBreach != null && (
               <div style={{ padding: "6px 12px", background: `${severityColor(b.severity)}10`, borderRadius: 6, marginBottom: 6 }}>
@@ -4184,8 +4186,8 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
             Current: b.format(b.current),
             "Budget Threshold": `${b.direction === "above" ? "≥" : "≤"} ${b.format(b.threshold)}`,
             "Projected +7d": b.format(b.projected7d),
-            "Daily Rate": `${b.improving ? "+" : ""}${b.metric === "Avg Duration" ? fmt(b.dailyRate) : b.dailyRate.toFixed(3)}/day`,
-            Trend: b.improving ? "Improving" : "Degrading",
+            "Daily Rate": b.isStable ? "Stable" : `${b.improving ? "+" : ""}${b.metric === "Avg Duration" ? fmt(b.dailyRate) : b.dailyRate.toFixed(3)}/day`,
+            Trend: b.trend === "stable" ? "Stable" : b.trend === "improving" ? "Improving" : "Degrading",
             "Days to Breach": b.daysToBreach != null ? `~${b.daysToBreach}d` : b.severity === "breached" ? "NOW" : "Safe",
             Status: severityLabel(b.severity),
           }))}
@@ -4195,7 +4197,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
             { id: "Budget Threshold", header: "Budget", accessor: "Budget Threshold" },
             { id: "Projected +7d", header: "Proj +7d", accessor: "Projected +7d" },
             { id: "Daily Rate", header: "Daily Δ", accessor: "Daily Rate" },
-            { id: "Trend", header: "Trend", accessor: "Trend", cell: ({ value }: any) => <Strong style={{ color: value === "Improving" ? GREEN : RED }}>{value === "Improving" ? "▲" : "▼"} {value}</Strong> },
+            { id: "Trend", header: "Trend", accessor: "Trend", cell: ({ value }: any) => <Strong style={{ color: value === "Improving" ? GREEN : value === "Stable" ? BLUE : RED }}>{value === "Improving" ? "▲" : value === "Stable" ? "●" : "▼"} {value}</Strong> },
             { id: "Days to Breach", header: "Breach In", accessor: "Days to Breach", cell: ({ value }: any) => <Strong style={{ color: value === "Safe" ? GREEN : value === "NOW" ? RED : ORANGE }}>{value}</Strong> },
             { id: "Status", header: "Status", accessor: "Status", cell: ({ value }: any) => {
               const c = value === "HEALTHY" ? GREEN : value === "AT RISK" ? ORANGE : RED;
