@@ -63,7 +63,7 @@ const TAB_KEYS = [
   "Exceptions", "Click Issues", "Perf Budgets",
   "Geo Heatmap", "World Map", "Navigation Paths", "Sankey", "Anomaly Detection",
   "Conversion Attribution", "Executive Summary", "Segmentation",
-  "Errors & Drop-offs", "What-If Analysis",
+  "Errors & Drop-offs", "What-If Analysis", "Root Cause Correlation", "Predictive Forecasting",
 ] as const;
 type TabKey = typeof TAB_KEYS[number];
 const DEFAULT_TAB_VISIBILITY: Record<TabKey, boolean> = Object.fromEntries(TAB_KEYS.map(k => [k, true])) as Record<TabKey, boolean>;
@@ -518,6 +518,120 @@ function sessionDurationDistributionQuery(days: number, frontend: string, steps:
 }
 
 // ---------------------------------------------------------------------------
+// Root Cause Correlation — correlate conversion drops with technical signals
+// ---------------------------------------------------------------------------
+function rootCauseCorrelationQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const convertedConds = steps.map((_, i) => `reached_step${i + 1} == true`).join(" and ");
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd hour_bucket = getHour(timestamp)
+| summarize
+    steps = collectDistinct(step_tag),
+    avg_dur = avg(dur_ms),
+    max_dur = max(dur_ms),
+    p90_dur = percentile(dur_ms, 90),
+    errors = countIf(characteristics.has_error == true),
+    actions = count(),
+    by: {dt.rum.session.id, hour_bucket}
+| fieldsAdd
+${iAnyLines}
+| fieldsAdd converted = if(${convertedConds}, true, else: false)
+| summarize
+    total_sessions = count(),
+    converted_sessions = countIf(converted == true),
+    avg_duration = avg(avg_dur),
+    p90_duration = avg(p90_dur),
+    error_sessions = countIf(errors > 0),
+    avg_errors = avg(toDouble(errors)),
+    by: {hour_bucket}
+| fieldsAdd conv_rate = if(total_sessions > 0, toDouble(converted_sessions) / toDouble(total_sessions) * 100.0, else: 0.0)
+| fieldsAdd error_rate = if(total_sessions > 0, toDouble(error_sessions) / toDouble(total_sessions) * 100.0, else: 0.0)
+| sort hour_bucket asc`;
+}
+
+function rootCauseStepDropQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const tagExpr = stepTagExpr(steps, steps.map((s) => s.label));
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd satisfaction = coalesce(
+    if(dur_ms <= ${APDEX_T}.0, "satisfied"),
+    if(dur_ms <= ${APDEX_4T}.0, "tolerating"),
+    "frustrated")
+| fieldsAdd hour_bucket = getHour(timestamp)
+| summarize
+    actions = count(),
+    avg_dur = avg(dur_ms),
+    p90_dur = percentile(dur_ms, 90),
+    errors = countIf(characteristics.has_error == true),
+    frustrated = countIf(satisfaction == "frustrated"),
+    by: {step_tag, hour_bucket}
+| sort hour_bucket asc, step_tag asc`;
+}
+
+// ---------------------------------------------------------------------------
+// Predictive Forecasting — hourly trend data to project forward
+// ---------------------------------------------------------------------------
+function forecastTrendQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const convertedConds = steps.map((_, i) => `reached_step${i + 1} == true`).join(" and ");
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd day_bucket = formatTimestamp(timestamp, format: "yyyy-MM-dd")
+| summarize
+    steps = collectDistinct(step_tag),
+    avg_dur = avg(dur_ms),
+    errors = countIf(characteristics.has_error == true),
+    actions = count(),
+    by: {dt.rum.session.id, day_bucket}
+| fieldsAdd
+${iAnyLines}
+| fieldsAdd converted = if(${convertedConds}, true, else: false)
+| summarize
+    total_sessions = count(),
+    converted_sessions = countIf(converted == true),
+    avg_duration = avg(avg_dur),
+    total_errors = sum(errors),
+    total_actions = sum(actions),
+    by: {day_bucket}
+| fieldsAdd conv_rate = if(total_sessions > 0, toDouble(converted_sessions) / toDouble(total_sessions) * 100.0, else: 0.0)
+| fieldsAdd error_rate = if(total_actions > 0, toDouble(total_errors) / toDouble(total_actions) * 100.0, else: 0.0)
+| sort day_bucket asc`;
+}
+
+function forecastApdexTrendQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd day_bucket = formatTimestamp(timestamp, format: "yyyy-MM-dd")
+| summarize
+    total = count(),
+    satisfied = countIf(dur_ms <= ${APDEX_T}.0),
+    tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
+    frustrated = countIf(dur_ms > ${APDEX_4T}.0),
+    avg_dur = avg(dur_ms),
+    p90_dur = percentile(dur_ms, 90),
+    by: {day_bucket}
+| sort day_bucket asc`;
+}
+
+// ---------------------------------------------------------------------------
 // Shared Components
 // ---------------------------------------------------------------------------
 function ApdexGauge({ score, size = 80, label }: { score: number; size?: number; label?: string }) {
@@ -725,6 +839,8 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Segmentation</Strong>: Device, browser, and geo breakdowns with Apdex per segment.</Paragraph>
         <Paragraph><Strong>Errors &amp; Drop-offs</Strong>: Drop-off analysis between funnel steps with optimization recommendations.</Paragraph>
         <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation.</Paragraph>
+        <Paragraph><Strong>Root Cause Correlation</Strong>: Automatically correlates conversion drops with technical signals — latency spikes, error surges, and frustrated sessions — on an hourly timeline. Identifies which funnel steps degrade at the exact hours conversion dips. Surfaces ranked root cause signals with severity and confidence scores so you can pinpoint the technical driver behind every conversion drop without manual cross-referencing.</Paragraph>
+        <Paragraph><Strong>Predictive Forecasting</Strong>: Uses daily trend data to project Apdex, conversion rate, error rate, and average duration forward 7 days via linear regression. Flags when a metric is on trajectory to breach a performance budget threshold before it actually happens. Includes trend direction, daily rate of change, and days-to-breach estimates for proactive incident prevention.</Paragraph>
       </HelpSection>
       <HelpSection title="Tab Settings">
         <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Tab Settings. Each of the 19 tabs can be toggled on or off individually. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
@@ -747,6 +863,8 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• Anomaly Detection flags metrics that deviate significantly from baseline — check after every release.</Paragraph>
         <Paragraph>• Conversion Attribution reveals the business impact of slow pages per device/browser.</Paragraph>
         <Paragraph>• Share Executive Summary with stakeholders for quick performance status updates.</Paragraph>
+        <Paragraph>• Root Cause Correlation pinpoints the exact hour and technical signal behind conversion drops — check after every deployment.</Paragraph>
+        <Paragraph>• Predictive Forecasting projects trends forward — use 7+ day timeframe for reliable forecasts. Check daily to catch budget breaches before they happen.</Paragraph>
       </HelpSection>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16, marginTop: 8 }}>
         <Paragraph><Link href="https://github.com/TechShady/user-journey-app" target="_blank" rel="noopener noreferrer">GitHub Repository</Link></Paragraph>
@@ -875,6 +993,14 @@ export function UserJourney() {
   // NEW: Conversion Attribution, Duration Distribution
   const conversionAttributionData = useDql({ query: conversionAttributionQuery(timeframeDays, frontend, steps) });
   const durationDistributionData = useDql({ query: sessionDurationDistributionQuery(timeframeDays, frontend, steps) });
+
+  // NEW: Root Cause Correlation
+  const rootCauseCorrelationData = useDql({ query: rootCauseCorrelationQuery(timeframeDays, frontend, steps) });
+  const rootCauseStepDropData = useDql({ query: rootCauseStepDropQuery(timeframeDays, frontend, steps) });
+
+  // NEW: Predictive Forecasting
+  const forecastTrendData = useDql({ query: forecastTrendQuery(Math.max(timeframeDays, 7), frontend, steps) });
+  const forecastApdexTrendData = useDql({ query: forecastApdexTrendQuery(Math.max(timeframeDays, 7), frontend, steps) });
 
   // Parse funnel
   const parseFunnel = (result: any) => {
@@ -1051,6 +1177,8 @@ export function UserJourney() {
             case "Segmentation": content = <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} />; break;
             case "Errors & Drop-offs": content = <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} steps={steps} />; break;
             case "What-If Analysis": content = <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} />; break;
+            case "Root Cause Correlation": content = <RootCauseCorrelationTab hourlyData={rootCauseCorrelationData} stepDropData={rootCauseStepDropData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} isLoading={rootCauseCorrelationData.isLoading || rootCauseStepDropData.isLoading} steps={steps} />; break;
+            case "Predictive Forecasting": content = <PredictiveForecastingTab trendData={forecastTrendData} apdexTrendData={forecastApdexTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} isLoading={forecastTrendData.isLoading || forecastApdexTrendData.isLoading} steps={steps} />; break;
           }
           return <Tab key={tabId} title={tabId}>{content}</Tab>;
         })}
@@ -3472,6 +3600,655 @@ function SankeyTab({ data, isLoading, appEntityId }: { data: any; isLoading: boo
             { id: "% of Total", header: "% of Total", accessor: "% of Total", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtPct(value)}</Text> },
           ]}
         />
+      </div>
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Root Cause Correlation
+// ===========================================================================
+function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, isLoading, steps }: { hourlyData: any; stepDropData: any; quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; isLoading: boolean; steps: StepDef[] }) {
+  if (isLoading) return <Loading />;
+
+  const hourlyRecords = (hourlyData.data?.records ?? []) as any[];
+  const stepDropRecords = (stepDropData.data?.records ?? []) as any[];
+
+  // Build hourly timeline data
+  const hourly = hourlyRecords.map((r: any) => ({
+    hour: Number(r.hour_bucket ?? 0),
+    sessions: Number(r.total_sessions ?? 0),
+    converted: Number(r.converted_sessions ?? 0),
+    convRate: Number(r.conv_rate ?? 0),
+    avgDuration: Number(r.avg_duration ?? 0),
+    p90Duration: Number(r.p90_duration ?? 0),
+    errorSessions: Number(r.error_sessions ?? 0),
+    errorRate: Number(r.error_rate ?? 0),
+    avgErrors: Number(r.avg_errors ?? 0),
+  }));
+
+  // Calculate per-hour correlations — find hours where conversion dips intersect with technical signals
+  const avgConvRate = hourly.length > 0 ? hourly.reduce((s, h) => s + h.convRate, 0) / hourly.length : 0;
+  const avgDuration = hourly.length > 0 ? hourly.reduce((s, h) => s + h.avgDuration, 0) / hourly.length : 0;
+  const avgErrorRate = hourly.length > 0 ? hourly.reduce((s, h) => s + h.errorRate, 0) / hourly.length : 0;
+
+  const signals = hourly.map((h) => {
+    const convDeviation = avgConvRate > 0 ? (h.convRate - avgConvRate) / avgConvRate : 0;
+    const durationDeviation = avgDuration > 0 ? (h.avgDuration - avgDuration) / avgDuration : 0;
+    const errorDeviation = avgErrorRate > 0 ? (h.errorRate - avgErrorRate) / Math.max(avgErrorRate, 1) : 0;
+    const isConvDrop = convDeviation < -0.1;
+    const isLatencySpike = durationDeviation > 0.15;
+    const isErrorSurge = errorDeviation > 0.2;
+    const causes: string[] = [];
+    if (isLatencySpike) causes.push("Latency spike");
+    if (isErrorSurge) causes.push("Error surge");
+    if (h.p90Duration > avgDuration * 2) causes.push("P90 outlier");
+    const severity = causes.length >= 2 ? "critical" : causes.length === 1 ? "high" : isConvDrop ? "medium" : "normal";
+    const confidence = Math.min(100, Math.round((Math.abs(durationDeviation) + Math.abs(errorDeviation)) * 100));
+    return { ...h, convDeviation, durationDeviation, errorDeviation, isConvDrop, isLatencySpike, isErrorSurge, causes, severity, confidence };
+  });
+
+  const impactHours = signals.filter((s) => s.isConvDrop && s.causes.length > 0);
+  const criticalHours = signals.filter((s) => s.severity === "critical");
+
+  // Top root cause signals ranked by confidence
+  const rankedSignals = [...impactHours].sort((a, b) => b.confidence - a.confidence);
+
+  // Per-step hourly degradation
+  const stepHourly = new Map<string, Map<number, any>>();
+  for (const r of stepDropRecords) {
+    const step = String(r.step_tag ?? "");
+    const hour = Number(r.hour_bucket ?? 0);
+    if (!stepHourly.has(step)) stepHourly.set(step, new Map());
+    stepHourly.get(step)!.set(hour, {
+      actions: Number(r.actions ?? 0),
+      avg_dur: Number(r.avg_dur ?? 0),
+      p90_dur: Number(r.p90_dur ?? 0),
+      errors: Number(r.errors ?? 0),
+      frustrated: Number(r.frustrated ?? 0),
+    });
+  }
+
+  // Calculate which step is the worst contributor
+  const stepScores = steps.map((step) => {
+    const hours = stepHourly.get(step.label);
+    if (!hours) return { step: step.label, avgDur: 0, avgErrors: 0, avgFrustrated: 0, degradationScore: 0 };
+    const entries = Array.from(hours.values());
+    const avgDur = entries.reduce((s, e) => s + e.avg_dur, 0) / Math.max(entries.length, 1);
+    const avgErrors = entries.reduce((s, e) => s + e.errors, 0) / Math.max(entries.length, 1);
+    const avgFrustrated = entries.reduce((s, e) => s + e.frustrated, 0) / Math.max(entries.length, 1);
+    const maxDur = Math.max(...entries.map(e => e.avg_dur));
+    const degradationScore = (maxDur > 0 ? (maxDur - avgDur) / maxDur : 0) * 100;
+    return { step: step.label, avgDur, avgErrors, avgFrustrated, degradationScore, maxDur };
+  }).sort((a, b) => b.degradationScore - a.degradationScore);
+
+  // Overall correlation summary
+  const convChange = overallConvPrev > 0 ? ((overallConv - overallConvPrev) / overallConvPrev) * 100 : 0;
+  const apdexChange = overallApdexPrev > 0 ? ((overallApdex - overallApdexPrev) / overallApdexPrev) * 100 : 0;
+  const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
+  const errorRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
+  const errorChange = errorRatePrev > 0 ? ((errorRate - errorRatePrev) / errorRatePrev) * 100 : 0;
+  const durationChange = qualityPrev.avg > 0 ? ((quality.avg - qualityPrev.avg) / qualityPrev.avg) * 100 : 0;
+
+  const severityColor = (s: string) => s === "critical" ? RED : s === "high" ? ORANGE : s === "medium" ? YELLOW : GREEN;
+
+  // SVG timeline chart dimensions
+  const chartW = 720;
+  const chartH = 200;
+  const padL = 40;
+  const padR = 20;
+  const padT = 20;
+  const padB = 30;
+  const plotW = chartW - padL - padR;
+  const plotH = chartH - padT - padB;
+
+  const maxConv = Math.max(...signals.map(s => s.convRate), 1);
+  const maxDur = Math.max(...signals.map(s => s.avgDuration), 1);
+  const maxErr = Math.max(...signals.map(s => s.errorRate), 1);
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Root Cause Correlation" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Correlates conversion drops with latency spikes, error surges, and P90 outliers on an hourly timeline. Identifies the technical driver behind every drop.</Text>
+
+      {/* Period-over-period change summary */}
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card" style={{ minWidth: 150 }}>
+          <Text className="uj-kpi-label">Conversion Δ</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: convChange >= 0 ? GREEN : RED }}>{convChange >= 0 ? "▲" : "▼"} {Math.abs(convChange).toFixed(1)}%</Heading>
+          <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtPct(overallConvPrev)} → {fmtPct(overallConv)}</Text>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 150 }}>
+          <Text className="uj-kpi-label">Apdex Δ</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: apdexChange >= 0 ? GREEN : RED }}>{apdexChange >= 0 ? "▲" : "▼"} {Math.abs(apdexChange).toFixed(1)}%</Heading>
+          <Text style={{ fontSize: 10, opacity: 0.5 }}>{overallApdexPrev.toFixed(2)} → {overallApdex.toFixed(2)}</Text>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 150 }}>
+          <Text className="uj-kpi-label">Error Rate Δ</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: errorChange <= 0 ? GREEN : RED }}>{errorChange > 0 ? "▲" : "▼"} {Math.abs(errorChange).toFixed(1)}%</Heading>
+          <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtPct(errorRatePrev)} → {fmtPct(errorRate)}</Text>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 150 }}>
+          <Text className="uj-kpi-label">Duration Δ</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: durationChange <= 0 ? GREEN : RED }}>{durationChange > 0 ? "▲" : "▼"} {Math.abs(durationChange).toFixed(1)}%</Heading>
+          <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmt(qualityPrev.avg)} → {fmt(quality.avg)}</Text>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 130 }}>
+          <Text className="uj-kpi-label">Impact Hours</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: impactHours.length > 3 ? RED : impactHours.length > 0 ? ORANGE : GREEN }}>{impactHours.length}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 130 }}>
+          <Text className="uj-kpi-label">Critical Hours</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: criticalHours.length > 0 ? RED : GREEN }}>{criticalHours.length}</Heading>
+        </div>
+      </Flex>
+
+      {/* Hourly correlation timeline SVG */}
+      <SectionHeader title="Hourly Correlation Timeline" />
+      <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4 }}>Conversion rate (green), avg duration (blue), error rate (red). Red-shaded hours = conversion dip + technical signal detected.</Text>
+      <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
+        <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`}>
+          {/* Background for impact hours */}
+          {signals.map((s, i) => {
+            if (!s.isConvDrop || s.causes.length === 0) return null;
+            const barW = plotW / 24;
+            const x = padL + s.hour * barW;
+            return <rect key={`bg-${i}`} x={x} y={padT} width={barW} height={plotH} fill={RED} opacity={0.08} />;
+          })}
+          {/* Y axis labels */}
+          <text x={padL - 4} y={padT + 4} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>100%</text>
+          <text x={padL - 4} y={padT + plotH / 2} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>50%</text>
+          <text x={padL - 4} y={padT + plotH} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>0%</text>
+          {/* Grid lines */}
+          <line x1={padL} y1={padT} x2={padL + plotW} y2={padT} stroke="rgba(255,255,255,0.05)" />
+          <line x1={padL} y1={padT + plotH / 2} x2={padL + plotW} y2={padT + plotH / 2} stroke="rgba(255,255,255,0.05)" />
+          <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="rgba(255,255,255,0.08)" />
+          {/* Conversion line */}
+          {signals.length > 1 && (
+            <polyline fill="none" stroke={GREEN} strokeWidth={2} points={signals.map((s) => {
+              const x = padL + (s.hour / 23) * plotW;
+              const y = padT + plotH - (s.convRate / Math.max(maxConv, 1)) * plotH;
+              return `${x},${y}`;
+            }).join(" ")} />
+          )}
+          {/* Duration line (normalized) */}
+          {signals.length > 1 && (
+            <polyline fill="none" stroke={BLUE} strokeWidth={1.5} strokeDasharray="4 3" points={signals.map((s) => {
+              const x = padL + (s.hour / 23) * plotW;
+              const y = padT + plotH - (s.avgDuration / Math.max(maxDur, 1)) * plotH;
+              return `${x},${y}`;
+            }).join(" ")} />
+          )}
+          {/* Error rate line (normalized) */}
+          {signals.length > 1 && (
+            <polyline fill="none" stroke={RED} strokeWidth={1.5} strokeDasharray="2 2" points={signals.map((s) => {
+              const x = padL + (s.hour / 23) * plotW;
+              const y = padT + plotH - (s.errorRate / Math.max(maxErr, 1)) * plotH;
+              return `${x},${y}`;
+            }).join(" ")} />
+          )}
+          {/* Data points */}
+          {signals.map((s, i) => {
+            const x = padL + (s.hour / 23) * plotW;
+            const yConv = padT + plotH - (s.convRate / Math.max(maxConv, 1)) * plotH;
+            return <circle key={`pt-${i}`} cx={x} cy={yConv} r={s.isConvDrop ? 4 : 2.5} fill={s.causes.length > 0 ? RED : GREEN} opacity={0.8}><title>{`${s.hour}:00 — Conv: ${s.convRate.toFixed(1)}% | Dur: ${fmt(s.avgDuration)} | Err: ${s.errorRate.toFixed(1)}%${s.causes.length > 0 ? ` | ${s.causes.join(", ")}` : ""}`}</title></circle>;
+          })}
+          {/* X axis */}
+          {[0, 3, 6, 9, 12, 15, 18, 21].map((h) => (
+            <text key={`h-${h}`} x={padL + (h / 23) * plotW} y={chartH - 4} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={9}>{h}:00</text>
+          ))}
+        </svg>
+      </div>
+
+      {/* Ranked root cause signals */}
+      <SectionHeader title="Root Cause Signals" />
+      {rankedSignals.length === 0 ? (
+        <div className="uj-table-tile" style={{ padding: 24, textAlign: "center" }}>
+          <Text style={{ color: GREEN, fontSize: 14 }}>No conversion-impacting anomalies detected in the current period.</Text>
+        </div>
+      ) : (
+        <Flex gap={12} flexWrap="wrap">
+          {rankedSignals.slice(0, 8).map((s, i) => (
+            <div key={i} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(s.severity), minWidth: 280 }}>
+              <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 6 }}>
+                <Strong style={{ fontSize: 13 }}>{s.hour}:00 — {s.hour + 1}:00</Strong>
+                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${severityColor(s.severity)}18`, color: severityColor(s.severity), fontWeight: 700, textTransform: "uppercase" as const }}>{s.severity}</span>
+              </Flex>
+              <Flex gap={16} style={{ marginBottom: 6 }}>
+                <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Conversion</Text><Strong style={{ display: "block", fontSize: 14, color: RED }}>{s.convRate.toFixed(1)}%</Strong></div>
+                <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Avg Duration</Text><Strong style={{ display: "block", fontSize: 14, color: s.isLatencySpike ? RED : BLUE }}>{fmt(s.avgDuration)}</Strong></div>
+                <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Error Rate</Text><Strong style={{ display: "block", fontSize: 14, color: s.isErrorSurge ? RED : GREEN }}>{s.errorRate.toFixed(1)}%</Strong></div>
+                <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Confidence</Text><Strong style={{ display: "block", fontSize: 14, color: s.confidence > 60 ? ORANGE : BLUE }}>{s.confidence}%</Strong></div>
+              </Flex>
+              <Flex gap={6} flexWrap="wrap">
+                {s.causes.map((c, ci) => (
+                  <span key={ci} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: "rgba(194,25,48,0.12)", color: RED, fontWeight: 600 }}>{c}</span>
+                ))}
+              </Flex>
+            </div>
+          ))}
+        </Flex>
+      )}
+
+      {/* Funnel step degradation ranking */}
+      <SectionHeader title="Step Degradation Ranking" />
+      <Text style={{ fontSize: 11, opacity: 0.5 }}>Steps ranked by duration variability — higher degradation score = more inconsistent performance, likely root cause contributor.</Text>
+      <div className="uj-table-tile">
+        <DataTable
+          sortable
+          data={stepScores.map((s) => ({
+            Step: s.step,
+            "Avg Duration": s.avgDur,
+            "Peak Duration": (s as any).maxDur ?? 0,
+            "Avg Errors/hr": s.avgErrors,
+            "Avg Frustrated/hr": s.avgFrustrated,
+            "Degradation Score": s.degradationScore,
+          }))}
+          columns={[
+            { id: "Step", header: "Step", accessor: "Step", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
+            { id: "Avg Duration", header: "Avg Dur", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
+            { id: "Peak Duration", header: "Peak Dur", accessor: "Peak Duration", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 3000 ? RED : value > 1500 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
+            { id: "Avg Errors/hr", header: "Errors/hr", accessor: "Avg Errors/hr", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 5 ? RED : value > 1 ? YELLOW : GREEN }}>{value.toFixed(1)}</Text> },
+            { id: "Avg Frustrated/hr", header: "Frustrated/hr", accessor: "Avg Frustrated/hr", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 5 ? RED : value > 1 ? YELLOW : GREEN }}>{value.toFixed(1)}</Text> },
+            { id: "Degradation Score", header: "Degradation", accessor: "Degradation Score", sortType: "number" as any, cell: ({ value }: any) => (
+              <Flex alignItems="center" gap={8}>
+                <div style={{ width: 60, height: 6, background: "rgba(255,255,255,0.08)", borderRadius: 3 }}>
+                  <div style={{ width: `${Math.min(value, 100)}%`, height: "100%", background: value > 50 ? RED : value > 25 ? ORANGE : GREEN, borderRadius: 3 }} />
+                </div>
+                <Strong style={{ color: value > 50 ? RED : value > 25 ? ORANGE : GREEN, fontSize: 12 }}>{value.toFixed(0)}%</Strong>
+              </Flex>
+            ) },
+          ]}
+        />
+      </div>
+
+      {/* Hourly detail table */}
+      <SectionHeader title="Hourly Breakdown" />
+      <div className="uj-table-tile">
+        <DataTable
+          sortable
+          data={signals.map((s) => ({
+            Hour: `${s.hour}:00`,
+            Sessions: s.sessions,
+            "Conv Rate": s.convRate,
+            "Avg Duration": s.avgDuration,
+            "P90 Duration": s.p90Duration,
+            "Error Rate": s.errorRate,
+            Severity: s.severity,
+            Causes: s.causes.join(", ") || "—",
+          }))}
+          columns={[
+            { id: "Hour", header: "Hour", accessor: "Hour" },
+            { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+            { id: "Conv Rate", header: "Conv %", accessor: "Conv Rate", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: statusClr(value) }}>{fmtPct(value)}</Strong> },
+            { id: "Avg Duration", header: "Avg Dur", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
+            { id: "P90 Duration", header: "P90 Dur", accessor: "P90 Duration", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 4000 ? RED : value > 2000 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
+            { id: "Error Rate", header: "Err %", accessor: "Error Rate", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 5 ? RED : value > 2 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
+            { id: "Severity", header: "Severity", accessor: "Severity", cell: ({ value }: any) => <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${severityColor(value)}18`, color: severityColor(value), fontWeight: 700, textTransform: "uppercase" as const }}>{value}</span> },
+            { id: "Causes", header: "Root Causes", accessor: "Causes", cell: ({ value }: any) => <Text style={{ color: value !== "—" ? RED : "rgba(255,255,255,0.3)" }}>{value}</Text> },
+          ]}
+        />
+      </div>
+
+      {/* Diagnosis */}
+      <SectionHeader title="Automated Diagnosis" />
+      <Flex gap={12} flexWrap="wrap">
+        {criticalHours.length > 0 && (
+          <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${RED}` }}>
+            <Strong style={{ color: RED }}>Critical: Immediate Action Required</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              {criticalHours.length} hour(s) show overlapping latency spikes + error surges during conversion dips. 
+              Peak impact at {criticalHours[0]?.hour ?? 0}:00 with {fmtPct(criticalHours[0]?.convRate ?? 0)} conversion ({criticalHours[0]?.causes.join(" + ") ?? "multiple signals"}).
+              {stepScores[0]?.degradationScore > 30 ? ` Step "${stepScores[0].step}" shows highest degradation (${stepScores[0].degradationScore.toFixed(0)}%) — investigate this step first.` : ""}
+            </Paragraph>
+          </div>
+        )}
+        {impactHours.length > 0 && criticalHours.length === 0 && (
+          <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${ORANGE}` }}>
+            <Strong style={{ color: ORANGE }}>Warning: Monitor Closely</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              {impactHours.length} hour(s) show single-signal conversion impact. Most common cause: {impactHours[0]?.causes[0] ?? "latency"}.
+              Consider investigating backend performance during {impactHours[0]?.hour ?? 0}:00-{(impactHours[0]?.hour ?? 0) + 1}:00 window.
+            </Paragraph>
+          </div>
+        )}
+        {impactHours.length === 0 && (
+          <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${GREEN}` }}>
+            <Strong style={{ color: GREEN }}>Healthy: No Correlated Anomalies</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              No hours show overlapping conversion drops with technical signals. Performance is stable across the period.
+            </Paragraph>
+          </div>
+        )}
+        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${BLUE}` }}>
+          <Strong style={{ color: BLUE }}>Summary</Strong>
+          <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+            Monitored {hourly.length} hours, {impactHours.length} with correlated impact. 
+            Conversion {convChange >= 0 ? "improved" : "declined"} {Math.abs(convChange).toFixed(1)}% vs. previous period.
+            {durationChange > 10 ? ` Duration increased ${durationChange.toFixed(0)}% — likely primary contributor.` : ""}
+            {errorChange > 20 ? ` Error rate spiked ${errorChange.toFixed(0)}% — investigate error sources.` : ""}
+          </Paragraph>
+        </div>
+      </Flex>
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Predictive Forecasting
+// ===========================================================================
+function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallApdex, overallConv, isLoading, steps }: { trendData: any; apdexTrendData: any; quality: any; overallApdex: number; overallConv: number; isLoading: boolean; steps: StepDef[] }) {
+  if (isLoading) return <Loading />;
+
+  const trendRecords = (trendData.data?.records ?? []) as any[];
+  const apdexRecords = (apdexTrendData.data?.records ?? []) as any[];
+
+  // Parse daily trend data
+  const dailyMetrics = trendRecords.map((r: any) => ({
+    day: String(r.day_bucket ?? ""),
+    sessions: Number(r.total_sessions ?? 0),
+    converted: Number(r.converted_sessions ?? 0),
+    convRate: Number(r.conv_rate ?? 0),
+    avgDuration: Number(r.avg_duration ?? 0),
+    errors: Number(r.total_errors ?? 0),
+    actions: Number(r.total_actions ?? 0),
+    errorRate: Number(r.error_rate ?? 0),
+  }));
+
+  const dailyApdex = apdexRecords.map((r: any) => {
+    const total = Number(r.total ?? 0);
+    const sat = Number(r.satisfied ?? 0);
+    const tol = Number(r.tolerating ?? 0);
+    return {
+      day: String(r.day_bucket ?? ""),
+      apdex: calcApdex(sat, tol, total),
+      avgDur: Number(r.avg_dur ?? 0),
+      p90Dur: Number(r.p90_dur ?? 0),
+      total,
+      frustrated: Number(r.frustrated ?? 0),
+    };
+  });
+
+  // Linear regression helper
+  function linearRegression(values: number[]): { slope: number; intercept: number; predict: (x: number) => number } {
+    const n = values.length;
+    if (n < 2) return { slope: 0, intercept: values[0] ?? 0, predict: () => values[0] ?? 0 };
+    const xs = values.map((_, i) => i);
+    const sumX = xs.reduce((a, b) => a + b, 0);
+    const sumY = values.reduce((a, b) => a + b, 0);
+    const sumXY = xs.reduce((a, x, i) => a + x * values[i], 0);
+    const sumX2 = xs.reduce((a, x) => a + x * x, 0);
+    const denom = n * sumX2 - sumX * sumX;
+    const slope = denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
+    const intercept = (sumY - slope * sumX) / n;
+    return { slope, intercept, predict: (x: number) => intercept + slope * x };
+  }
+
+  // Build forecasts for key metrics
+  const apdexValues = dailyApdex.map(d => d.apdex);
+  const convValues = dailyMetrics.map(d => d.convRate);
+  const errorValues = dailyMetrics.map(d => d.errorRate);
+  const durationValues = dailyApdex.map(d => d.avgDur);
+
+  const apdexReg = linearRegression(apdexValues);
+  const convReg = linearRegression(convValues);
+  const errorReg = linearRegression(errorValues);
+  const durationReg = linearRegression(durationValues);
+
+  const n = apdexValues.length;
+  const FORECAST_DAYS = 7;
+
+  // Performance budget thresholds
+  const budgets = [
+    { metric: "Apdex", current: overallApdex, threshold: 0.85, direction: "above" as const, reg: apdexReg, format: (v: number) => v.toFixed(2), values: apdexValues, color: apdexClr(overallApdex) },
+    { metric: "Conversion Rate", current: overallConv, threshold: 20, direction: "above" as const, reg: convReg, format: fmtPct, values: convValues, color: statusClr(overallConv) },
+    { metric: "Error Rate", current: quality.total > 0 ? (quality.errors / quality.total) * 100 : 0, threshold: 2, direction: "below" as const, reg: errorReg, format: fmtPct, values: errorValues, color: (quality.total > 0 ? (quality.errors / quality.total) * 100 : 0) > 2 ? RED : GREEN },
+    { metric: "Avg Duration", current: quality.avg, threshold: 2000, direction: "below" as const, reg: durationReg, format: fmt, values: durationValues, color: quality.avg > 2000 ? RED : quality.avg > 1000 ? YELLOW : GREEN },
+  ].map((b) => {
+    const projected7d = b.reg.predict(n - 1 + FORECAST_DAYS);
+    const dailyRate = b.reg.slope;
+    const improving = b.direction === "above" ? dailyRate > 0 : dailyRate < 0;
+    const currentGood = b.direction === "above" ? b.current >= b.threshold : b.current <= b.threshold;
+    const projectedGood = b.direction === "above" ? projected7d >= b.threshold : projected7d <= b.threshold;
+
+    // Days to breach
+    let daysToBreach: number | null = null;
+    if (currentGood && !projectedGood && dailyRate !== 0) {
+      if (b.direction === "above") {
+        daysToBreach = dailyRate < 0 ? Math.ceil((b.threshold - b.current) / dailyRate) : null;
+      } else {
+        daysToBreach = dailyRate > 0 ? Math.ceil((b.threshold - b.current) / dailyRate) : null;
+      }
+      if (daysToBreach != null && daysToBreach < 0) daysToBreach = null;
+    }
+
+    const severity = daysToBreach != null && daysToBreach <= 3 ? "critical" : daysToBreach != null && daysToBreach <= 7 ? "warning" : !currentGood ? "breached" : "healthy";
+
+    return { ...b, projected7d, dailyRate, improving, currentGood, projectedGood, daysToBreach, severity };
+  });
+
+  const healthyCount = budgets.filter(b => b.severity === "healthy").length;
+  const atRiskCount = budgets.filter(b => b.severity === "warning" || b.severity === "critical").length;
+  const breachedCount = budgets.filter(b => b.severity === "breached").length;
+
+  const severityColor = (s: string) => s === "critical" ? RED : s === "warning" ? ORANGE : s === "breached" ? RED : GREEN;
+  const severityLabel = (s: string) => s === "critical" ? "BREACH IMMINENT" : s === "warning" ? "AT RISK" : s === "breached" ? "BREACHED" : "HEALTHY";
+
+  // SVG trend chart
+  const chartW = 720;
+  const chartH = 180;
+  const padL = 50;
+  const padR = 80;
+  const padT = 20;
+  const padB = 30;
+  const plotW = chartW - padL - padR;
+  const plotH = chartH - padT - padB;
+  const totalPoints = n + FORECAST_DAYS;
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Predictive Forecasting" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Projects key metrics forward {FORECAST_DAYS} days using linear regression on daily trends. Flags metrics trending toward budget breach. Use 7+ day timeframe for reliable forecasts.</Text>
+
+      {/* KPIs */}
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Data Points</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{n} days</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Healthy</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{healthyCount}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">At Risk</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: atRiskCount > 0 ? ORANGE : GREEN }}>{atRiskCount}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Breached</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: breachedCount > 0 ? RED : GREEN }}>{breachedCount}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Forecast</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>+{FORECAST_DAYS}d</Heading>
+        </div>
+      </Flex>
+
+      {/* Forecast cards per metric */}
+      <SectionHeader title="Metric Forecasts" />
+      <Flex gap={12} flexWrap="wrap">
+        {budgets.map((b) => (
+          <div key={b.metric} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(b.severity), minWidth: 320, flex: 1 }}>
+            <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
+              <Strong style={{ fontSize: 14 }}>{b.metric}</Strong>
+              <span style={{ fontSize: 10, padding: "2px 10px", borderRadius: 4, background: `${severityColor(b.severity)}18`, color: severityColor(b.severity), fontWeight: 700, textTransform: "uppercase" as const }}>{severityLabel(b.severity)}</span>
+            </Flex>
+            <Flex gap={20} style={{ marginBottom: 8 }}>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 16, color: b.color }}>{b.format(b.current)}</Strong></div>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Projected +7d</Text><Strong style={{ display: "block", fontSize: 16, color: b.projectedGood ? GREEN : RED }}>{b.format(b.projected7d)}</Strong></div>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Budget</Text><Strong style={{ display: "block", fontSize: 16, opacity: 0.6 }}>{b.direction === "above" ? "≥" : "≤"} {b.format(b.threshold)}</Strong></div>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 14, color: b.improving ? GREEN : RED }}>{b.improving ? "▲" : "▼"} {b.metric === "Avg Duration" ? fmt(Math.abs(b.dailyRate)) : Math.abs(b.dailyRate).toFixed(2)}/day</Strong></div>
+            </Flex>
+            {b.daysToBreach != null && (
+              <div style={{ padding: "6px 12px", background: `${severityColor(b.severity)}10`, borderRadius: 6, marginBottom: 6 }}>
+                <Strong style={{ color: severityColor(b.severity), fontSize: 12 }}>
+                  Projected to breach budget in ~{b.daysToBreach} day{b.daysToBreach !== 1 ? "s" : ""}
+                </Strong>
+              </div>
+            )}
+            {b.severity === "breached" && (
+              <div style={{ padding: "6px 12px", background: `${RED}10`, borderRadius: 6, marginBottom: 6 }}>
+                <Strong style={{ color: RED, fontSize: 12 }}>Currently below budget threshold — action needed</Strong>
+              </div>
+            )}
+            {/* Mini trend chart */}
+            <svg width="100%" viewBox={`0 0 300 50`} style={{ marginTop: 4 }}>
+              {/* Threshold line */}
+              {(() => {
+                const vMin = Math.min(...b.values, b.threshold, b.projected7d);
+                const vMax = Math.max(...b.values, b.threshold, b.projected7d);
+                const range = vMax - vMin || 1;
+                const thY = 45 - ((b.threshold - vMin) / range) * 40;
+                return <line x1={0} y1={thY} x2={300} y2={thY} stroke="rgba(255,255,255,0.2)" strokeDasharray="4 3" />;
+              })()}
+              {/* Actual data */}
+              {b.values.length > 1 && (() => {
+                const vMin = Math.min(...b.values, b.threshold, b.projected7d);
+                const vMax = Math.max(...b.values, b.threshold, b.projected7d);
+                const range = vMax - vMin || 1;
+                const actW = (n / totalPoints) * 290;
+                return <polyline fill="none" stroke={BLUE} strokeWidth={1.5} points={b.values.map((v, i) => {
+                  const x = 5 + (i / (n - 1)) * actW;
+                  const y = 45 - ((v - vMin) / range) * 40;
+                  return `${x},${y}`;
+                }).join(" ")} />;
+              })()}
+              {/* Forecast extension */}
+              {b.values.length > 0 && (() => {
+                const vMin = Math.min(...b.values, b.threshold, b.projected7d);
+                const vMax = Math.max(...b.values, b.threshold, b.projected7d);
+                const range = vMax - vMin || 1;
+                const actW = (n / totalPoints) * 290;
+                const lastActual = b.values[b.values.length - 1];
+                const points: string[] = [];
+                for (let d = 0; d <= FORECAST_DAYS; d++) {
+                  const val = d === 0 ? lastActual : b.reg.predict(n - 1 + d);
+                  const x = 5 + actW + (d / FORECAST_DAYS) * (290 - actW);
+                  const y = 45 - ((val - vMin) / range) * 40;
+                  points.push(`${x},${y}`);
+                }
+                return <polyline fill="none" stroke={PURPLE} strokeWidth={1.5} strokeDasharray="4 3" points={points.join(" ")} />;
+              })()}
+            </svg>
+          </div>
+        ))}
+      </Flex>
+
+      {/* Daily trend table */}
+      <SectionHeader title="Daily Trend Data" />
+      <div className="uj-table-tile">
+        <DataTable
+          sortable
+          data={dailyApdex.map((d, i) => {
+            const metrics = dailyMetrics[i];
+            return {
+              Day: d.day,
+              Sessions: metrics?.sessions ?? 0,
+              Apdex: d.apdex,
+              "Conv Rate": metrics?.convRate ?? 0,
+              "Avg Duration": d.avgDur,
+              "P90 Duration": d.p90Dur,
+              "Error Rate": metrics?.errorRate ?? 0,
+              "Frustrated %": d.total > 0 ? (d.frustrated / d.total) * 100 : 0,
+            };
+          })}
+          columns={[
+            { id: "Day", header: "Day", accessor: "Day", cell: ({ value }: any) => <Text style={{ fontSize: 12 }}>{value}</Text> },
+            { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+            { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
+            { id: "Conv Rate", header: "Conv %", accessor: "Conv Rate", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: statusClr(value) }}>{fmtPct(value)}</Strong> },
+            { id: "Avg Duration", header: "Avg Dur", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
+            { id: "P90 Duration", header: "P90 Dur", accessor: "P90 Duration", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 4000 ? RED : value > 2000 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
+            { id: "Error Rate", header: "Err %", accessor: "Error Rate", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 2 ? RED : value > 1 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
+            { id: "Frustrated %", header: "Frust %", accessor: "Frustrated %", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 10 ? RED : value > 5 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
+          ]}
+        />
+      </div>
+
+      {/* Forecast summary */}
+      <SectionHeader title="Forecast Summary" />
+      <div className="uj-table-tile">
+        <DataTable
+          data={budgets.map((b) => ({
+            Metric: b.metric,
+            Current: b.format(b.current),
+            "Budget Threshold": `${b.direction === "above" ? "≥" : "≤"} ${b.format(b.threshold)}`,
+            "Projected +7d": b.format(b.projected7d),
+            "Daily Rate": `${b.improving ? "+" : ""}${b.metric === "Avg Duration" ? fmt(b.dailyRate) : b.dailyRate.toFixed(3)}/day`,
+            Trend: b.improving ? "Improving" : "Degrading",
+            "Days to Breach": b.daysToBreach != null ? `~${b.daysToBreach}d` : b.severity === "breached" ? "NOW" : "Safe",
+            Status: severityLabel(b.severity),
+          }))}
+          columns={[
+            { id: "Metric", header: "Metric", accessor: "Metric", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
+            { id: "Current", header: "Current", accessor: "Current" },
+            { id: "Budget Threshold", header: "Budget", accessor: "Budget Threshold" },
+            { id: "Projected +7d", header: "Proj +7d", accessor: "Projected +7d" },
+            { id: "Daily Rate", header: "Daily Δ", accessor: "Daily Rate" },
+            { id: "Trend", header: "Trend", accessor: "Trend", cell: ({ value }: any) => <Strong style={{ color: value === "Improving" ? GREEN : RED }}>{value === "Improving" ? "▲" : "▼"} {value}</Strong> },
+            { id: "Days to Breach", header: "Breach In", accessor: "Days to Breach", cell: ({ value }: any) => <Strong style={{ color: value === "Safe" ? GREEN : value === "NOW" ? RED : ORANGE }}>{value}</Strong> },
+            { id: "Status", header: "Status", accessor: "Status", cell: ({ value }: any) => {
+              const c = value === "HEALTHY" ? GREEN : value === "AT RISK" ? ORANGE : RED;
+              return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${c}18`, color: c, fontWeight: 700 }}>{value}</span>;
+            } },
+          ]}
+        />
+      </div>
+
+      {/* Recommendations */}
+      <SectionHeader title="Recommendations" />
+      <Flex gap={12} flexWrap="wrap">
+        {budgets.filter(b => b.severity === "critical").map((b) => (
+          <div key={b.metric} className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${RED}` }}>
+            <Strong style={{ color: RED }}>Urgent: {b.metric}</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              Projected to breach {b.direction === "above" ? "minimum" : "maximum"} budget ({b.format(b.threshold)}) in ~{b.daysToBreach} day{(b.daysToBreach ?? 0) !== 1 ? "s" : ""}.
+              Current: {b.format(b.current)} → Projected: {b.format(b.projected7d)}.
+              Take immediate corrective action.
+            </Paragraph>
+          </div>
+        ))}
+        {budgets.filter(b => b.severity === "warning").map((b) => (
+          <div key={b.metric} className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${ORANGE}` }}>
+            <Strong style={{ color: ORANGE }}>Watch: {b.metric}</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              Trending toward budget breach in ~{b.daysToBreach} days. Monitor daily and prepare mitigation.
+            </Paragraph>
+          </div>
+        ))}
+        {budgets.filter(b => b.severity === "breached").map((b) => (
+          <div key={b.metric} className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${RED}` }}>
+            <Strong style={{ color: RED }}>Breached: {b.metric}</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              Currently {b.direction === "above" ? "below" : "above"} budget threshold ({b.format(b.threshold)}). Current value: {b.format(b.current)}.
+              {b.improving ? " Trend is improving — continue monitoring." : " Trend is degrading — escalate immediately."}
+            </Paragraph>
+          </div>
+        ))}
+        {budgets.every(b => b.severity === "healthy") && (
+          <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${GREEN}` }}>
+            <Strong style={{ color: GREEN }}>All Metrics Healthy</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              All metrics are within budget and projected to remain healthy over the next {FORECAST_DAYS} days. Continue regular monitoring.
+            </Paragraph>
+          </div>
+        )}
+      </Flex>
+
+      <div className="uj-table-tile" style={{ padding: 16 }}>
+        <Text style={{ fontSize: 11, opacity: 0.4 }}>
+          Forecasts use linear regression on {n} daily data points. Accuracy improves with longer timeframes (7+ days recommended). Projections assume current trends continue — external factors (deploys, traffic spikes) may alter trajectory.
+        </Text>
       </div>
     </Flex>
   );
