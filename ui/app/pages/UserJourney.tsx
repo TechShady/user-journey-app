@@ -4287,8 +4287,10 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
   ].map((b) => {
     const projected7d = b.reg.predict(n - 1 + FORECAST_DAYS);
     const dailyRate = b.reg.slope;
-    const isStable = Math.abs(dailyRate) < 0.001 || n < 2;
-    const improving = isStable ? false : b.direction === "above" ? dailyRate > 0 : dailyRate < 0;
+    // When insufficient data points, use gap between current and last value as a directional hint
+    const effectiveRate = n >= 2 ? dailyRate : (b.values.length > 0 ? (b.values[b.values.length - 1] - b.current) : 0);
+    const isStable = Math.abs(effectiveRate) < 0.001;
+    const improving = isStable ? false : b.direction === "above" ? effectiveRate > 0 : effectiveRate < 0;
     const trend: "improving" | "stable" | "degrading" = isStable ? "stable" : improving ? "improving" : "degrading";
     const currentGood = b.direction === "above" ? b.current >= b.threshold : b.current <= b.threshold;
     const projectedGood = b.direction === "above" ? projected7d >= b.threshold : projected7d <= b.threshold;
@@ -4306,7 +4308,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
 
     const severity = daysToBreach != null && daysToBreach <= 3 ? "critical" : daysToBreach != null && daysToBreach <= 7 ? "warning" : !currentGood ? "breached" : "healthy";
 
-    return { ...b, projected7d, dailyRate, improving, trend, isStable, currentGood, projectedGood, daysToBreach, severity };
+    return { ...b, projected7d, dailyRate, effectiveRate, improving, trend, isStable, currentGood, projectedGood, daysToBreach, severity };
   });
 
   const healthyCount = budgets.filter(b => b.severity === "healthy").length;
@@ -4369,7 +4371,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 16, color: b.color }}>{b.format(b.current)}</Strong></div>
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Projected +7d</Text><Strong style={{ display: "block", fontSize: 16, color: b.projectedGood ? GREEN : RED }}>{b.format(b.projected7d)}</Strong></div>
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Budget</Text><Strong style={{ display: "block", fontSize: 16, opacity: 0.6 }}>{b.direction === "above" ? "≥" : "≤"} {b.format(b.threshold)}</Strong></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 14, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.metric === "Avg Duration" ? fmt(Math.abs(b.dailyRate)) : Math.abs(b.dailyRate).toFixed(2)}/day`}</Strong></div>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 14, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.metric === "Avg Duration" ? fmt(Math.abs(b.effectiveRate)) : Math.abs(b.effectiveRate).toFixed(2)}/day`}</Strong></div>
             </Flex>
             {b.daysToBreach != null && (
               <div style={{ padding: "6px 12px", background: `${severityColor(b.severity)}10`, borderRadius: 6, marginBottom: 6 }}>
@@ -4387,35 +4389,40 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
             {(() => {
               const svgW = 300;
               const svgH = 100;
-              const vMin = Math.min(...b.values, b.threshold, b.projected7d);
-              const vMax = Math.max(...b.values, b.threshold, b.projected7d);
+              // Build combined series: [current, ...daily values] for actual, then forecast
+              const chartValues = [b.current, ...b.values];
+              const chartN = chartValues.length;
+              const totalPts = chartN + FORECAST_DAYS;
+              const allVals = [...chartValues, b.threshold, b.projected7d];
+              const vMin = Math.min(...allVals);
+              const vMax = Math.max(...allVals);
               const range = vMax - vMin || 1;
-              const thY = (svgH - 6) - ((b.threshold - vMin) / range) * (svgH - 12);
-              const actW = (n / totalPoints) * (svgW - 10);
               const valToY = (v: number) => (svgH - 6) - ((v - vMin) / range) * (svgH - 12);
+              const thY = valToY(b.threshold);
+              const actW = (chartN / totalPts) * (svgW - 10);
               return (
               <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ marginTop: 4 }}>
                 {/* Threshold line */}
                 <line x1={0} y1={thY} x2={svgW} y2={thY} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 3" />
                 <text x={svgW - 2} y={thY - 3} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>budget</text>
-                {/* Actual data */}
-                {b.values.length === 1 ? (
+                {/* Actual data line: current → daily values */}
+                {chartValues.length > 1 ? (
                   <>
-                    <line x1={5} y1={valToY(b.values[0])} x2={5 + actW} y2={valToY(b.values[0])} stroke={BLUE} strokeWidth={2} />
-                    <circle cx={5 + actW / 2} cy={valToY(b.values[0])} r={3} fill={BLUE} />
-                  </>
-                ) : b.values.length > 1 ? (
-                  <>
-                    <polygon fill={`${BLUE}12`} points={`5,${svgH - 6} ${b.values.map((v, i) => `${5 + (i / (n - 1)) * actW},${valToY(v)}`).join(" ")} ${5 + actW},${svgH - 6}`} />
-                    <polyline fill="none" stroke={BLUE} strokeWidth={2} points={b.values.map((v, i) => `${5 + (i / (n - 1)) * actW},${valToY(v)}`).join(" ")} />
-                    {b.values.map((v, i) => (
-                      <circle key={i} cx={5 + (i / (n - 1)) * actW} cy={valToY(v)} r={2} fill={BLUE} />
+                    <polygon fill={`${BLUE}12`} points={`5,${svgH - 6} ${chartValues.map((v, i) => `${5 + (i / (chartN - 1)) * actW},${valToY(v)}`).join(" ")} ${5 + actW},${svgH - 6}`} />
+                    <polyline fill="none" stroke={BLUE} strokeWidth={2} points={chartValues.map((v, i) => `${5 + (i / (chartN - 1)) * actW},${valToY(v)}`).join(" ")} />
+                    {chartValues.map((v, i) => (
+                      <circle key={i} cx={5 + (i / (chartN - 1)) * actW} cy={valToY(v)} r={i === 0 ? 3.5 : 2.5} fill={i === 0 ? GREEN : BLUE} />
                     ))}
+                  </>
+                ) : chartValues.length === 1 ? (
+                  <>
+                    <line x1={5} y1={valToY(chartValues[0])} x2={5 + actW} y2={valToY(chartValues[0])} stroke={BLUE} strokeWidth={2} />
+                    <circle cx={5} cy={valToY(chartValues[0])} r={3} fill={BLUE} />
                   </>
                 ) : null}
                 {/* Forecast extension */}
-                {b.values.length > 0 && (() => {
-                  const lastActual = b.values[b.values.length - 1];
+                {chartValues.length > 0 && (() => {
+                  const lastActual = chartValues[chartValues.length - 1];
                   const forecastPts: string[] = [];
                   for (let d = 0; d <= FORECAST_DAYS; d++) {
                     const val = d === 0 ? lastActual : b.reg.predict(n - 1 + d);
