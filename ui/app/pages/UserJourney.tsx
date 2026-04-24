@@ -3672,14 +3672,14 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
   // Calculate which step is the worst contributor
   const stepScores = steps.map((step) => {
     const hours = stepHourly.get(step.label);
-    if (!hours) return { step: step.label, avgDur: 0, avgErrors: 0, avgFrustrated: 0, degradationScore: 0 };
+    if (!hours) return { step: step.label, avgDur: 0, p90Dur: 0, avgErrors: 0, avgFrustrated: 0, degradationScore: 0 };
     const entries = Array.from(hours.values());
     const avgDur = entries.reduce((s, e) => s + e.avg_dur, 0) / Math.max(entries.length, 1);
+    const p90Dur = Math.max(...entries.map(e => e.p90_dur));
     const avgErrors = entries.reduce((s, e) => s + e.errors, 0) / Math.max(entries.length, 1);
     const avgFrustrated = entries.reduce((s, e) => s + e.frustrated, 0) / Math.max(entries.length, 1);
-    const maxDur = Math.max(...entries.map(e => e.avg_dur));
-    const degradationScore = (maxDur > 0 ? (maxDur - avgDur) / maxDur : 0) * 100;
-    return { step: step.label, avgDur, avgErrors, avgFrustrated, degradationScore, maxDur };
+    const degradationScore = p90Dur > 0 ? ((p90Dur - avgDur) / p90Dur) * 100 : 0;
+    return { step: step.label, avgDur, p90Dur, avgErrors, avgFrustrated, degradationScore };
   }).sort((a, b) => b.degradationScore - a.degradationScore);
 
   // Overall correlation summary
@@ -3832,14 +3832,14 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
 
       {/* Funnel step degradation ranking */}
       <SectionHeader title="Step Degradation Ranking" />
-      <Text style={{ fontSize: 11, opacity: 0.5 }}>Steps ranked by duration variability — higher degradation score = more inconsistent performance, likely root cause contributor.</Text>
+      <Text style={{ fontSize: 11, opacity: 0.5 }}>Steps ranked by P90 vs. Avg duration spread — higher degradation score = more tail latency, likely root cause contributor.</Text>
       <div className="uj-table-tile">
         <DataTable
           sortable
           data={stepScores.map((s) => ({
             Step: s.step,
             "Avg Duration": s.avgDur,
-            "Peak Duration": (s as any).maxDur ?? 0,
+            "P90 Duration": s.p90Dur,
             "Avg Errors/hr": s.avgErrors,
             "Avg Frustrated/hr": s.avgFrustrated,
             "Degradation Score": s.degradationScore,
@@ -3847,7 +3847,7 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
           columns={[
             { id: "Step", header: "Step", accessor: "Step", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
             { id: "Avg Duration", header: "Avg Dur", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
-            { id: "Peak Duration", header: "Peak Dur", accessor: "Peak Duration", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 3000 ? RED : value > 1500 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
+            { id: "P90 Duration", header: "P90 Dur", accessor: "P90 Duration", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 3000 ? RED : value > 1500 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
             { id: "Avg Errors/hr", header: "Errors/hr", accessor: "Avg Errors/hr", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 5 ? RED : value > 1 ? YELLOW : GREEN }}>{value.toFixed(1)}</Text> },
             { id: "Avg Frustrated/hr", header: "Frustrated/hr", accessor: "Avg Frustrated/hr", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 5 ? RED : value > 1 ? YELLOW : GREEN }}>{value.toFixed(1)}</Text> },
             { id: "Degradation Score", header: "Degradation", accessor: "Degradation Score", sortType: "number" as any, cell: ({ value }: any) => (
