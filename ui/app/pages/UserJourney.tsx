@@ -64,6 +64,7 @@ const TAB_KEYS = [
   "Geo Heatmap", "World Map", "Navigation Paths", "Sankey", "Anomaly Detection",
   "Conversion Attribution", "Executive Summary", "Segmentation",
   "Errors & Drop-offs", "What-If Analysis", "Root Cause Correlation", "Predictive Forecasting",
+  "Resource Waterfall", "Change Intelligence",
 ] as const;
 type TabKey = typeof TAB_KEYS[number];
 const DEFAULT_TAB_VISIBILITY: Record<TabKey, boolean> = Object.fromEntries(TAB_KEYS.map(k => [k, true])) as Record<TabKey, boolean>;
@@ -632,6 +633,88 @@ function forecastApdexTrendQuery(days: number, frontend: string, steps: StepDef[
 }
 
 // ---------------------------------------------------------------------------
+// Resource Waterfall — aggregated resource timing per funnel step
+// ---------------------------------------------------------------------------
+function resourceWaterfallQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const tagExpr = stepTagExpr(steps, steps.map((s) => s.label));
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| filter isNotNull(resource.name)
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd res_dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd res_type = coalesce(resource.type, "other")
+| fieldsAdd res_name = resource.name
+| summarize
+    count = count(),
+    avg_dur = avg(res_dur_ms),
+    p50_dur = percentile(res_dur_ms, 50),
+    p90_dur = percentile(res_dur_ms, 90),
+    p99_dur = percentile(res_dur_ms, 99),
+    max_dur = max(res_dur_ms),
+    total_dur = sum(res_dur_ms),
+    by: {step_tag, res_type, res_name}
+| sort total_dur desc
+| limit 100`;
+}
+
+function resourceByStepQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const tagExpr = stepTagExpr(steps, steps.map((s) => s.label));
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| filter isNotNull(resource.name)
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd res_dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd res_type = coalesce(resource.type, "other")
+| summarize
+    resources = count(),
+    avg_dur = avg(res_dur_ms),
+    p90_dur = percentile(res_dur_ms, 90),
+    total_dur = sum(res_dur_ms),
+    slow_count = countIf(res_dur_ms > 1000.0),
+    by: {step_tag, res_type}
+| sort total_dur desc`;
+}
+
+// ---------------------------------------------------------------------------
+// Change Intelligence — deployment events + before/after comparison
+// ---------------------------------------------------------------------------
+function deploymentEventsQuery(days: number): string {
+  const period = periodClause(days);
+  return `fetch events, ${period}
+| filter event.kind == "DAVIS_EVENT" or event.kind == "CUSTOM_DEPLOYMENT" or event.kind == "CUSTOM_INFO" or matchesValue(event.type, "*DEPLOYMENT*") or matchesValue(event.type, "*CUSTOM_DEPLOYMENT*")
+| fieldsAdd deploy_name = coalesce(event.name, event.title, "Deployment")
+| fieldsAdd deploy_source = coalesce(event.source, "unknown")
+| fieldsAdd deploy_version = coalesce(dt.event.deployment.version, "")
+| fields timestamp, deploy_name, deploy_source, deploy_version, event.type
+| sort timestamp desc
+| limit 50`;
+}
+
+function changeImpactQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd hour_ts = formatTimestamp(timestamp, format: "yyyy-MM-dd HH:00")
+| summarize
+    sessions = countDistinct(dt.rum.session.id),
+    actions = count(),
+    avg_dur = avg(dur_ms),
+    p90_dur = percentile(dur_ms, 90),
+    errors = countIf(characteristics.has_error == true),
+    satisfied = countIf(dur_ms <= ${APDEX_T}.0),
+    tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
+    frustrated = countIf(dur_ms > ${APDEX_4T}.0),
+    by: {hour_ts}
+| sort hour_ts asc`;
+}
+
+// ---------------------------------------------------------------------------
 // Shared Components
 // ---------------------------------------------------------------------------
 function ApdexGauge({ score, size = 80, label }: { score: number; size?: number; label?: string }) {
@@ -841,6 +924,8 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation.</Paragraph>
         <Paragraph><Strong>Root Cause Correlation</Strong>: Automatically correlates conversion drops with technical signals — latency spikes, error surges, and frustrated sessions — on an hourly timeline. Identifies which funnel steps degrade at the exact hours conversion dips. Surfaces ranked root cause signals with severity and confidence scores so you can pinpoint the technical driver behind every conversion drop without manual cross-referencing.</Paragraph>
         <Paragraph><Strong>Predictive Forecasting</Strong>: Uses daily trend data to project Apdex, conversion rate, error rate, and average duration forward 7 days via linear regression. Flags when a metric is on trajectory to breach a performance budget threshold before it actually happens. Includes trend direction, daily rate of change, and days-to-breach estimates for proactive incident prevention.</Paragraph>
+        <Paragraph><Strong>Resource Waterfall</Strong>: Aggregated resource timing per funnel step — third-party scripts, XHR/Fetch calls, images, CSS, and fonts. Shows which specific resources drag down LCP and increase page weight. Includes per-step resource type breakdown, top slow resources ranked by total time, and a visual waterfall bar chart showing P50/P90/Max latency ranges. Helps identify CDN misses, unoptimized images, and slow third-party scripts.</Paragraph>
+        <Paragraph><Strong>Change Intelligence</Strong>: Pulls deployment events from Dynatrace and overlays them on an hourly performance timeline. Automatically compares metrics in the window before and after each deployment to detect regressions. Shows before/after Apdex, duration, error rate, and frustrated % with severity classification. Use to validate whether a deploy caused a performance regression or improvement.</Paragraph>
       </HelpSection>
       <HelpSection title="Tab Settings">
         <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Tab Settings. Each of the 19 tabs can be toggled on or off individually. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
@@ -865,6 +950,8 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• Share Executive Summary with stakeholders for quick performance status updates.</Paragraph>
         <Paragraph>• Root Cause Correlation pinpoints the exact hour and technical signal behind conversion drops — check after every deployment.</Paragraph>
         <Paragraph>• Predictive Forecasting projects trends forward — use 7+ day timeframe for reliable forecasts. Check daily to catch budget breaches before they happen.</Paragraph>
+        <Paragraph>• Resource Waterfall identifies slow third-party scripts and resources per funnel step — prioritize optimizing the highest total-time resources.</Paragraph>
+        <Paragraph>• Change Intelligence shows before/after metrics around every deployment — check it after every release to catch regressions early.</Paragraph>
       </HelpSection>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16, marginTop: 8 }}>
         <Paragraph><Link href="https://github.com/TechShady/user-journey-app" target="_blank" rel="noopener noreferrer">GitHub Repository</Link></Paragraph>
@@ -1001,6 +1088,14 @@ export function UserJourney() {
   // NEW: Predictive Forecasting
   const forecastTrendData = useDql({ query: forecastTrendQuery(Math.max(timeframeDays, 7), frontend, steps) });
   const forecastApdexTrendData = useDql({ query: forecastApdexTrendQuery(Math.max(timeframeDays, 7), frontend, steps) });
+
+  // NEW: Resource Waterfall
+  const resourceWaterfallData = useDql({ query: resourceWaterfallQuery(timeframeDays, frontend, steps) });
+  const resourceByStepData = useDql({ query: resourceByStepQuery(timeframeDays, frontend, steps) });
+
+  // NEW: Change Intelligence
+  const deploymentEventsData = useDql({ query: deploymentEventsQuery(timeframeDays) });
+  const changeImpactData = useDql({ query: changeImpactQuery(timeframeDays, frontend, steps) });
 
   // Parse funnel
   const parseFunnel = (result: any) => {
@@ -1179,6 +1274,8 @@ export function UserJourney() {
             case "What-If Analysis": content = <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} />; break;
             case "Root Cause Correlation": content = <RootCauseCorrelationTab hourlyData={rootCauseCorrelationData} stepDropData={rootCauseStepDropData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} isLoading={rootCauseCorrelationData.isLoading || rootCauseStepDropData.isLoading} steps={steps} />; break;
             case "Predictive Forecasting": content = <PredictiveForecastingTab trendData={forecastTrendData} apdexTrendData={forecastApdexTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} isLoading={forecastTrendData.isLoading || forecastApdexTrendData.isLoading} steps={steps} />; break;
+            case "Resource Waterfall": content = <ResourceWaterfallTab waterfallData={resourceWaterfallData} byStepData={resourceByStepData} isLoading={resourceWaterfallData.isLoading || resourceByStepData.isLoading} steps={steps} />; break;
+            case "Change Intelligence": content = <ChangeIntelligenceTab deployData={deploymentEventsData} impactData={changeImpactData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} isLoading={deploymentEventsData.isLoading || changeImpactData.isLoading} />; break;
           }
           return <Tab key={tabId} title={tabId}>{content}</Tab>;
         })}
@@ -4396,6 +4493,573 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
           Forecasts use linear regression on {n} daily data points. Accuracy improves with longer timeframes (7+ days recommended). Projections assume current trends continue — external factors (deploys, traffic spikes) may alter trajectory.
         </Text>
       </div>
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Resource Waterfall
+// ===========================================================================
+function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: { waterfallData: any; byStepData: any; isLoading: boolean; steps: StepDef[] }) {
+  const [selectedStep, setSelectedStep] = useState<string>("all");
+  if (isLoading) return <Loading />;
+
+  const allResources = (waterfallData.data?.records ?? []) as any[];
+  const byStepRecords = (byStepData.data?.records ?? []) as any[];
+
+  // Parse resources
+  const resources = allResources.map((r: any) => ({
+    step: String(r.step_tag ?? ""),
+    type: String(r.res_type ?? "other"),
+    name: String(r.res_name ?? "unknown"),
+    count: Number(r.count ?? 0),
+    avgDur: Number(r.avg_dur ?? 0),
+    p50Dur: Number(r.p50_dur ?? 0),
+    p90Dur: Number(r.p90_dur ?? 0),
+    p99Dur: Number(r.p99_dur ?? 0),
+    maxDur: Number(r.max_dur ?? 0),
+    totalDur: Number(r.total_dur ?? 0),
+  }));
+
+  const filteredResources = selectedStep === "all" ? resources : resources.filter(r => r.step === selectedStep);
+  const sortedResources = [...filteredResources].sort((a, b) => b.totalDur - a.totalDur);
+
+  // Per-step resource summary
+  const stepSummary = new Map<string, { types: Map<string, { count: number; avgDur: number; p90Dur: number; totalDur: number; slowCount: number }> }>();
+  for (const r of byStepRecords) {
+    const step = String(r.step_tag ?? "");
+    const type = String(r.res_type ?? "other");
+    if (!stepSummary.has(step)) stepSummary.set(step, { types: new Map() });
+    stepSummary.get(step)!.types.set(type, {
+      count: Number(r.resources ?? 0),
+      avgDur: Number(r.avg_dur ?? 0),
+      p90Dur: Number(r.p90_dur ?? 0),
+      totalDur: Number(r.total_dur ?? 0),
+      slowCount: Number(r.slow_count ?? 0),
+    });
+  }
+
+  // Overall KPIs
+  const totalResources = resources.reduce((s, r) => s + r.count, 0);
+  const totalTime = resources.reduce((s, r) => s + r.totalDur, 0);
+  const avgResourceDur = totalResources > 0 ? resources.reduce((s, r) => s + r.avgDur * r.count, 0) / totalResources : 0;
+  const slowResources = resources.filter(r => r.p90Dur > 1000);
+  const uniqueTypes = new Set(resources.map(r => r.type));
+
+  // Type color mapping
+  const TYPE_COLORS: Record<string, string> = { xhr: BLUE, fetch: BLUE, script: PURPLE, css: CYAN, image: GREEN, font: ORANGE, other: YELLOW };
+  const typeClr = (t: string) => TYPE_COLORS[t.toLowerCase()] ?? YELLOW;
+
+  // Waterfall chart
+  const maxP90 = Math.max(...sortedResources.slice(0, 20).map(r => r.p90Dur), 1);
+  const barW = 300;
+
+  // Resource type breakdown per step
+  const stepCards = steps.map((step) => {
+    const data = stepSummary.get(step.label);
+    if (!data) return { step: step.label, types: [], totalResources: 0, totalTime: 0, slowCount: 0 };
+    const types = Array.from(data.types.entries()).map(([t, v]) => ({ type: t, ...v })).sort((a, b) => b.totalDur - a.totalDur);
+    return {
+      step: step.label,
+      types,
+      totalResources: types.reduce((s, t) => s + t.count, 0),
+      totalTime: types.reduce((s, t) => s + t.totalDur, 0),
+      slowCount: types.reduce((s, t) => s + t.slowCount, 0),
+    };
+  });
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Resource Waterfall" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Aggregated resource timing per funnel step. Identifies third-party scripts, XHR calls, images, and other resources dragging down page performance.</Text>
+
+      {/* KPIs */}
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Total Resources</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(totalResources)}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Total Load Time</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{fmt(totalTime)}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Avg Resource</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: avgResourceDur > 500 ? ORANGE : GREEN }}>{fmt(avgResourceDur)}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Slow (P90 &gt;1s)</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: slowResources.length > 5 ? RED : slowResources.length > 0 ? ORANGE : GREEN }}>{slowResources.length}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Resource Types</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: CYAN }}>{uniqueTypes.size}</Heading>
+        </div>
+      </Flex>
+
+      {/* Step filter */}
+      <Flex gap={8} alignItems="center" flexWrap="wrap">
+        <Strong style={{ fontSize: 12 }}>Filter by Step:</Strong>
+        <button onClick={() => setSelectedStep("all")} style={{ padding: "4px 12px", borderRadius: 4, border: `1px solid ${selectedStep === "all" ? BLUE : "rgba(255,255,255,0.15)"}`, background: selectedStep === "all" ? `${BLUE}20` : "transparent", color: selectedStep === "all" ? BLUE : "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>All Steps</button>
+        {steps.map((step) => (
+          <button key={step.label} onClick={() => setSelectedStep(step.label)} style={{ padding: "4px 12px", borderRadius: 4, border: `1px solid ${selectedStep === step.label ? BLUE : "rgba(255,255,255,0.15)"}`, background: selectedStep === step.label ? `${BLUE}20` : "transparent", color: selectedStep === step.label ? BLUE : "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>{step.label}</button>
+        ))}
+      </Flex>
+
+      {/* Per-step resource breakdown cards */}
+      <SectionHeader title="Resource Breakdown by Step" />
+      <Flex gap={12} flexWrap="wrap">
+        {stepCards.map((sc) => (
+          <div key={sc.step} className="uj-anomaly-card" style={{ borderLeftColor: BLUE, minWidth: 280, flex: 1 }}>
+            <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
+              <Strong style={{ fontSize: 13 }}>{sc.step}</Strong>
+              <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtCount(sc.totalResources)} resources</Text>
+            </Flex>
+            {sc.types.length === 0 ? (
+              <Text style={{ fontSize: 11, opacity: 0.4 }}>No resource data</Text>
+            ) : (
+              <Flex flexDirection="column" gap={4}>
+                {sc.types.slice(0, 6).map((t) => (
+                  <Flex key={t.type} alignItems="center" gap={8}>
+                    <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: `${typeClr(t.type)}20`, color: typeClr(t.type), fontWeight: 600, minWidth: 50, textAlign: "center" }}>{t.type}</span>
+                    <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 3 }}>
+                      <div style={{ height: "100%", width: `${Math.min((t.totalDur / Math.max(sc.totalTime, 1)) * 100, 100)}%`, background: typeClr(t.type), borderRadius: 3, opacity: 0.7 }} />
+                    </div>
+                    <Text style={{ fontSize: 10, minWidth: 50, textAlign: "right" }}>{fmt(t.avgDur)}</Text>
+                    <Text style={{ fontSize: 9, opacity: 0.4, minWidth: 30 }}>{fmtCount(t.count)}</Text>
+                  </Flex>
+                ))}
+              </Flex>
+            )}
+            {sc.slowCount > 0 && (
+              <Text style={{ fontSize: 10, color: ORANGE, marginTop: 6 }}>{sc.slowCount} slow resource{sc.slowCount !== 1 ? "s" : ""} (&gt;1s)</Text>
+            )}
+          </div>
+        ))}
+      </Flex>
+
+      {/* Visual waterfall chart */}
+      <SectionHeader title="Top Resources by Total Time" />
+      <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4 }}>Bar = P50 (solid) → P90 (striped). Color = resource type. Ranked by cumulative load time impact.</Text>
+      <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
+        <svg width="100%" viewBox={`0 0 720 ${Math.min(sortedResources.length, 20) * 28 + 30}`}>
+          {/* Header */}
+          <text x={4} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Resource</text>
+          <text x={420} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Timing</text>
+          <text x={620} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Count</text>
+          <text x={670} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>P90</text>
+          <line x1={0} y1={20} x2={720} y2={20} stroke="rgba(255,255,255,0.06)" />
+          {sortedResources.slice(0, 20).map((r, i) => {
+            const y = 28 + i * 28;
+            const color = typeClr(r.type);
+            const p50W = (r.p50Dur / maxP90) * barW;
+            const p90W = (r.p90Dur / maxP90) * barW;
+            const shortName = r.name.length > 50 ? "..." + r.name.slice(-47) : r.name;
+            return (
+              <g key={i}>
+                <text x={4} y={y + 4} fill="rgba(255,255,255,0.7)" fontSize={9}>{shortName.substring(0, 52)}</text>
+                <title>{`${r.name}\nType: ${r.type} | Step: ${r.step}\nAvg: ${fmt(r.avgDur)} | P50: ${fmt(r.p50Dur)} | P90: ${fmt(r.p90Dur)} | P99: ${fmt(r.p99Dur)}\nCount: ${r.count} | Total: ${fmt(r.totalDur)}`}</title>
+                {/* P90 bar (background) */}
+                <rect x={410} y={y - 8} width={Math.max(p90W, 2)} height={12} rx={2} fill={color} opacity={0.2} />
+                {/* P50 bar (foreground) */}
+                <rect x={410} y={y - 8} width={Math.max(p50W, 2)} height={12} rx={2} fill={color} opacity={0.6} />
+                {/* Type badge */}
+                <text x={410 + Math.max(p90W, 2) + 4} y={y + 3} fill={color} fontSize={8} fontWeight={600}>{r.type}</text>
+                <text x={620} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize={9}>{fmtCount(r.count)}</text>
+                <text x={670} y={y + 4} fill={r.p90Dur > 1000 ? RED : r.p90Dur > 500 ? ORANGE : GREEN} fontSize={9} fontWeight={600}>{fmt(r.p90Dur)}</text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* Full resource table */}
+      <SectionHeader title="All Resources" />
+      <div className="uj-table-tile">
+        <DataTable
+          sortable
+          data={sortedResources.map((r) => ({
+            Step: r.step,
+            Type: r.type,
+            Resource: r.name.length > 60 ? "..." + r.name.slice(-57) : r.name,
+            Count: r.count,
+            "Avg (ms)": r.avgDur,
+            "P50 (ms)": r.p50Dur,
+            "P90 (ms)": r.p90Dur,
+            "Total (ms)": r.totalDur,
+          }))}
+          columns={[
+            { id: "Step", header: "Step", accessor: "Step", cell: ({ value }: any) => <Text style={{ fontSize: 11 }}>{value}</Text> },
+            { id: "Type", header: "Type", accessor: "Type", cell: ({ value }: any) => <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: `${typeClr(value)}20`, color: typeClr(value), fontWeight: 600 }}>{value}</span> },
+            { id: "Resource", header: "Resource", accessor: "Resource", cell: ({ value }: any) => <Text style={{ fontSize: 10, wordBreak: "break-all" as const }}>{value}</Text> },
+            { id: "Count", header: "Count", accessor: "Count", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+            { id: "Avg (ms)", header: "Avg", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
+            { id: "P50 (ms)", header: "P50", accessor: "P50 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
+            { id: "P90 (ms)", header: "P90", accessor: "P90 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 1000 ? RED : value > 500 ? ORANGE : GREEN }}>{fmt(value)}</Strong> },
+            { id: "Total (ms)", header: "Total", accessor: "Total (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: PURPLE }}>{fmt(value)}</Strong> },
+          ]}
+        />
+      </div>
+
+      {/* Recommendations */}
+      <SectionHeader title="Optimization Opportunities" />
+      <Flex gap={12} flexWrap="wrap">
+        {slowResources.length > 3 && (
+          <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${RED}` }}>
+            <Strong style={{ color: RED }}>Critical: {slowResources.length} Slow Resources</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              {slowResources.length} resources have P90 latency &gt;1s. Top offender: "{sortedResources[0]?.name.split("/").pop()}" ({fmt(sortedResources[0]?.p90Dur)} P90). Consider lazy loading, CDN caching, or removing unused resources.
+            </Paragraph>
+          </div>
+        )}
+        {sortedResources.filter(r => r.type === "script" || r.type === "xhr" || r.type === "fetch").length > 0 && (
+          <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${ORANGE}` }}>
+            <Strong style={{ color: ORANGE }}>Watch: Script/XHR Resources</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              {sortedResources.filter(r => r.type === "script" || r.type === "xhr" || r.type === "fetch").length} script/XHR resources detected. Third-party scripts can block rendering and increase LCP. Audit for defer/async loading opportunities.
+            </Paragraph>
+          </div>
+        )}
+        {slowResources.length === 0 && (
+          <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${GREEN}` }}>
+            <Strong style={{ color: GREEN }}>Healthy: All Resources Fast</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>No resources have P90 latency above 1 second. Resource performance is healthy across all funnel steps.</Paragraph>
+          </div>
+        )}
+      </Flex>
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Change Intelligence
+// ===========================================================================
+function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, overallApdex, overallApdexPrev, isLoading }: { deployData: any; impactData: any; quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; isLoading: boolean }) {
+  if (isLoading) return <Loading />;
+
+  const deployRecords = (deployData.data?.records ?? []) as any[];
+  const impactRecords = (impactData.data?.records ?? []) as any[];
+
+  // Parse deployments
+  const deployments = deployRecords.map((r: any) => ({
+    timestamp: new Date(r.timestamp).getTime(),
+    tsStr: new Date(r.timestamp).toLocaleString(),
+    hourKey: new Date(r.timestamp).toISOString().substring(0, 13).replace("T", " ") + ":00",
+    name: String(r.deploy_name ?? "Deployment"),
+    source: String(r.deploy_source ?? "unknown"),
+    version: String(r.deploy_version ?? ""),
+    type: String(r["event.type"] ?? ""),
+  }));
+
+  // Parse hourly impact data
+  const hourlyImpact = impactRecords.map((r: any) => {
+    const total = Number(r.actions ?? 0);
+    const sat = Number(r.satisfied ?? 0);
+    const tol = Number(r.tolerating ?? 0);
+    return {
+      hourTs: String(r.hour_ts ?? ""),
+      sessions: Number(r.sessions ?? 0),
+      actions: total,
+      avgDur: Number(r.avg_dur ?? 0),
+      p90Dur: Number(r.p90_dur ?? 0),
+      errors: Number(r.errors ?? 0),
+      errorRate: total > 0 ? (Number(r.errors ?? 0) / total) * 100 : 0,
+      apdex: calcApdex(sat, tol, total),
+      frustrated: Number(r.frustrated ?? 0),
+      fruPct: total > 0 ? (Number(r.frustrated ?? 0) / total) * 100 : 0,
+    };
+  });
+
+  // For each deployment, compute before/after metrics (2-hour windows)
+  const deployAnalysis = deployments.map((dep) => {
+    const depHour = dep.hourKey;
+    const depIdx = hourlyImpact.findIndex(h => h.hourTs === depHour);
+
+    // Gather 2 hours before and 2 hours after
+    const beforeSlice = depIdx >= 2 ? hourlyImpact.slice(depIdx - 2, depIdx) : hourlyImpact.slice(0, depIdx);
+    const afterSlice = depIdx >= 0 && depIdx + 3 <= hourlyImpact.length ? hourlyImpact.slice(depIdx + 1, depIdx + 3) : hourlyImpact.slice(depIdx + 1);
+
+    const avg = (arr: any[], field: string) => arr.length > 0 ? arr.reduce((s, h) => s + h[field], 0) / arr.length : 0;
+
+    const before = {
+      apdex: avg(beforeSlice, "apdex"),
+      avgDur: avg(beforeSlice, "avgDur"),
+      p90Dur: avg(beforeSlice, "p90Dur"),
+      errorRate: avg(beforeSlice, "errorRate"),
+      fruPct: avg(beforeSlice, "fruPct"),
+      sessions: beforeSlice.reduce((s, h) => s + h.sessions, 0),
+    };
+    const after = {
+      apdex: avg(afterSlice, "apdex"),
+      avgDur: avg(afterSlice, "avgDur"),
+      p90Dur: avg(afterSlice, "p90Dur"),
+      errorRate: avg(afterSlice, "errorRate"),
+      fruPct: avg(afterSlice, "fruPct"),
+      sessions: afterSlice.reduce((s, h) => s + h.sessions, 0),
+    };
+
+    const apdexDelta = after.apdex - before.apdex;
+    const durDelta = before.avgDur > 0 ? ((after.avgDur - before.avgDur) / before.avgDur) * 100 : 0;
+    const errorDelta = after.errorRate - before.errorRate;
+    const fruDelta = after.fruPct - before.fruPct;
+
+    const severity = (apdexDelta < -0.1 || durDelta > 25 || errorDelta > 3) ? "regression" : (apdexDelta > 0.05 && durDelta < -5) ? "improvement" : "neutral";
+    const hasData = beforeSlice.length > 0 && afterSlice.length > 0;
+
+    return { ...dep, before, after, apdexDelta, durDelta, errorDelta, fruDelta, severity, hasData };
+  });
+
+  // KPIs
+  const totalDeploys = deployments.length;
+  const regressions = deployAnalysis.filter(d => d.severity === "regression");
+  const improvements = deployAnalysis.filter(d => d.severity === "improvement");
+
+  const severityColor = (s: string) => s === "regression" ? RED : s === "improvement" ? GREEN : BLUE;
+  const severityLabel = (s: string) => s === "regression" ? "REGRESSION" : s === "improvement" ? "IMPROVEMENT" : "NEUTRAL";
+
+  // SVG timeline
+  const chartW = 720;
+  const chartH = 200;
+  const padL = 40;
+  const padR = 20;
+  const padT = 20;
+  const padB = 30;
+  const plotW = chartW - padL - padR;
+  const plotH = chartH - padT - padB;
+
+  const maxApdex = Math.max(...hourlyImpact.map(h => h.apdex), 1);
+  const maxDur = Math.max(...hourlyImpact.map(h => h.avgDur), 1);
+  const totalHours = hourlyImpact.length;
+
+  // Find which hourly indices correspond to deployments
+  const deployHourIdxSet = new Set(deployments.map(d => hourlyImpact.findIndex(h => h.hourTs === d.hourKey)).filter(i => i >= 0));
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Change Intelligence" />
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Overlays deployment events on performance timeline. Compares before/after metrics in a 2-hour window around each deploy to detect regressions or improvements.</Text>
+
+      {/* KPIs */}
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Deployments</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{totalDeploys}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Regressions</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: regressions.length > 0 ? RED : GREEN }}>{regressions.length}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Improvements</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: improvements.length > 0 ? GREEN : BLUE }}>{improvements.length}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Neutral</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{totalDeploys - regressions.length - improvements.length}</Heading>
+        </div>
+        <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+          <Text className="uj-kpi-label">Data Points</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{totalHours}h</Heading>
+        </div>
+      </Flex>
+
+      {/* Timeline chart */}
+      <SectionHeader title="Performance Timeline with Deploy Markers" />
+      <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4 }}>Green = Apdex, blue dashed = avg duration (normalized). Red vertical lines = deployment events.</Text>
+      <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
+        {totalHours > 0 ? (
+          <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`}>
+            {/* Grid */}
+            <line x1={padL} y1={padT} x2={padL + plotW} y2={padT} stroke="rgba(255,255,255,0.05)" />
+            <line x1={padL} y1={padT + plotH / 2} x2={padL + plotW} y2={padT + plotH / 2} stroke="rgba(255,255,255,0.05)" />
+            <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="rgba(255,255,255,0.08)" />
+
+            {/* Deploy marker lines */}
+            {Array.from(deployHourIdxSet).map((idx) => {
+              const x = padL + (idx / Math.max(totalHours - 1, 1)) * plotW;
+              return (
+                <g key={`dep-${idx}`}>
+                  <line x1={x} y1={padT} x2={x} y2={padT + plotH} stroke={RED} strokeWidth={2} opacity={0.6} strokeDasharray="4 2" />
+                  <polygon points={`${x - 5},${padT - 2} ${x + 5},${padT - 2} ${x},${padT + 6}`} fill={RED} opacity={0.8} />
+                </g>
+              );
+            })}
+
+            {/* Apdex line */}
+            {hourlyImpact.length > 1 && (
+              <polyline fill="none" stroke={GREEN} strokeWidth={2} points={hourlyImpact.map((h, i) => {
+                const x = padL + (i / (totalHours - 1)) * plotW;
+                const y = padT + plotH - (h.apdex / maxApdex) * plotH;
+                return `${x},${y}`;
+              }).join(" ")} />
+            )}
+
+            {/* Duration line (normalized) */}
+            {hourlyImpact.length > 1 && (
+              <polyline fill="none" stroke={BLUE} strokeWidth={1.5} strokeDasharray="4 3" points={hourlyImpact.map((h, i) => {
+                const x = padL + (i / (totalHours - 1)) * plotW;
+                const y = padT + plotH - (h.avgDur / maxDur) * plotH;
+                return `${x},${y}`;
+              }).join(" ")} />
+            )}
+
+            {/* Data points */}
+            {hourlyImpact.map((h, i) => {
+              const x = padL + (i / Math.max(totalHours - 1, 1)) * plotW;
+              const yApdex = padT + plotH - (h.apdex / maxApdex) * plotH;
+              const isDeploy = deployHourIdxSet.has(i);
+              return <circle key={`pt-${i}`} cx={x} cy={yApdex} r={isDeploy ? 4 : 2} fill={isDeploy ? RED : GREEN} opacity={0.8}><title>{`${h.hourTs}\nApdex: ${h.apdex.toFixed(2)} | Dur: ${fmt(h.avgDur)} | Err: ${h.errorRate.toFixed(1)}%${isDeploy ? " | DEPLOY" : ""}`}</title></circle>;
+            })}
+
+            {/* Y axis labels */}
+            <text x={padL - 4} y={padT + 4} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>1.0</text>
+            <text x={padL - 4} y={padT + plotH / 2} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>0.5</text>
+            <text x={padL - 4} y={padT + plotH} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>0</text>
+
+            {/* X axis - first/last timestamps */}
+            {hourlyImpact.length > 0 && (
+              <>
+                <text x={padL} y={chartH - 4} textAnchor="start" fill="rgba(255,255,255,0.4)" fontSize={8}>{hourlyImpact[0].hourTs}</text>
+                <text x={padL + plotW} y={chartH - 4} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={8}>{hourlyImpact[hourlyImpact.length - 1].hourTs}</text>
+              </>
+            )}
+          </svg>
+        ) : (
+          <Text style={{ textAlign: "center", padding: 24, opacity: 0.4 }}>No hourly data available for the selected timeframe.</Text>
+        )}
+      </div>
+
+      {/* Deployment analysis cards */}
+      <SectionHeader title="Deployment Impact Analysis" />
+      {deployAnalysis.length === 0 ? (
+        <div className="uj-table-tile" style={{ padding: 24, textAlign: "center" }}>
+          <Text style={{ color: BLUE, fontSize: 14 }}>No deployment events detected in the current timeframe.</Text>
+          <Text style={{ display: "block", fontSize: 11, opacity: 0.5, marginTop: 8 }}>Deployment events are detected from Dynatrace DAVIS events and custom deployment events. Ensure deployment instrumentation is configured.</Text>
+        </div>
+      ) : (
+        <Flex gap={12} flexWrap="wrap" flexDirection="column">
+          {deployAnalysis.slice(0, 10).map((d, i) => (
+            <div key={i} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(d.severity), width: "100%" }}>
+              <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
+                <div>
+                  <Strong style={{ fontSize: 14 }}>{d.name}</Strong>
+                  {d.version && <Text style={{ fontSize: 11, opacity: 0.5, marginLeft: 8 }}>v{d.version}</Text>}
+                </div>
+                <Flex alignItems="center" gap={8}>
+                  <Text style={{ fontSize: 10, opacity: 0.5 }}>{d.tsStr}</Text>
+                  <span style={{ fontSize: 10, padding: "2px 10px", borderRadius: 4, background: `${severityColor(d.severity)}18`, color: severityColor(d.severity), fontWeight: 700, textTransform: "uppercase" as const }}>{severityLabel(d.severity)}</span>
+                </Flex>
+              </Flex>
+              {d.hasData ? (
+                <Flex gap={20} flexWrap="wrap">
+                  <div>
+                    <Text style={{ fontSize: 10, opacity: 0.5 }}>Apdex</Text>
+                    <Flex gap={4} alignItems="baseline">
+                      <Text style={{ fontSize: 12, opacity: 0.6 }}>{d.before.apdex.toFixed(2)}</Text>
+                      <Text style={{ fontSize: 10, opacity: 0.4 }}>→</Text>
+                      <Strong style={{ fontSize: 14, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.after.apdex.toFixed(2)}</Strong>
+                      <Text style={{ fontSize: 10, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.apdexDelta >= 0 ? "▲" : "▼"}{Math.abs(d.apdexDelta).toFixed(2)}</Text>
+                    </Flex>
+                  </div>
+                  <div>
+                    <Text style={{ fontSize: 10, opacity: 0.5 }}>Avg Duration</Text>
+                    <Flex gap={4} alignItems="baseline">
+                      <Text style={{ fontSize: 12, opacity: 0.6 }}>{fmt(d.before.avgDur)}</Text>
+                      <Text style={{ fontSize: 10, opacity: 0.4 }}>→</Text>
+                      <Strong style={{ fontSize: 14, color: d.durDelta <= 0 ? GREEN : RED }}>{fmt(d.after.avgDur)}</Strong>
+                      <Text style={{ fontSize: 10, color: d.durDelta <= 0 ? GREEN : RED }}>{d.durDelta > 0 ? "▲" : "▼"}{Math.abs(d.durDelta).toFixed(1)}%</Text>
+                    </Flex>
+                  </div>
+                  <div>
+                    <Text style={{ fontSize: 10, opacity: 0.5 }}>Error Rate</Text>
+                    <Flex gap={4} alignItems="baseline">
+                      <Text style={{ fontSize: 12, opacity: 0.6 }}>{fmtPct(d.before.errorRate)}</Text>
+                      <Text style={{ fontSize: 10, opacity: 0.4 }}>→</Text>
+                      <Strong style={{ fontSize: 14, color: d.errorDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.errorRate)}</Strong>
+                      <Text style={{ fontSize: 10, color: d.errorDelta <= 0 ? GREEN : RED }}>{d.errorDelta > 0 ? "▲" : "▼"}{Math.abs(d.errorDelta).toFixed(1)}pp</Text>
+                    </Flex>
+                  </div>
+                  <div>
+                    <Text style={{ fontSize: 10, opacity: 0.5 }}>Frustrated %</Text>
+                    <Flex gap={4} alignItems="baseline">
+                      <Text style={{ fontSize: 12, opacity: 0.6 }}>{fmtPct(d.before.fruPct)}</Text>
+                      <Text style={{ fontSize: 10, opacity: 0.4 }}>→</Text>
+                      <Strong style={{ fontSize: 14, color: d.fruDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.fruPct)}</Strong>
+                    </Flex>
+                  </div>
+                  <div>
+                    <Text style={{ fontSize: 10, opacity: 0.5 }}>Source</Text>
+                    <Text style={{ fontSize: 12 }}>{d.source}</Text>
+                  </div>
+                </Flex>
+              ) : (
+                <Text style={{ fontSize: 11, opacity: 0.4 }}>Insufficient before/after data for comparison. Extend timeframe for better analysis.</Text>
+              )}
+            </div>
+          ))}
+        </Flex>
+      )}
+
+      {/* Deployment events table */}
+      <SectionHeader title="All Deployment Events" />
+      <div className="uj-table-tile">
+        <DataTable
+          sortable
+          data={deployments.map((d) => ({
+            Timestamp: d.tsStr,
+            Name: d.name,
+            Version: d.version || "—",
+            Source: d.source,
+            Type: d.type,
+          }))}
+          columns={[
+            { id: "Timestamp", header: "Time", accessor: "Timestamp", cell: ({ value }: any) => <Text style={{ fontSize: 11 }}>{value}</Text> },
+            { id: "Name", header: "Deployment", accessor: "Name", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
+            { id: "Version", header: "Version", accessor: "Version" },
+            { id: "Source", header: "Source", accessor: "Source", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
+            { id: "Type", header: "Type", accessor: "Type", cell: ({ value }: any) => <Text style={{ fontSize: 10, opacity: 0.5 }}>{value}</Text> },
+          ]}
+        />
+      </div>
+
+      {/* Summary */}
+      <SectionHeader title="Summary" />
+      <Flex gap={12} flexWrap="wrap">
+        {regressions.length > 0 && (
+          <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${RED}` }}>
+            <Strong style={{ color: RED }}>Regressions Detected: {regressions.length}</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              {regressions.length} deployment{regressions.length !== 1 ? "s" : ""} caused measurable performance degradation.
+              Worst: "{regressions[0]?.name}" — Apdex dropped {Math.abs(regressions[0]?.apdexDelta ?? 0).toFixed(2)}, duration increased {Math.abs(regressions[0]?.durDelta ?? 0).toFixed(0)}%.
+              Consider rollback or hotfix.
+            </Paragraph>
+          </div>
+        )}
+        {improvements.length > 0 && (
+          <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${GREEN}` }}>
+            <Strong style={{ color: GREEN }}>Improvements: {improvements.length}</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              {improvements.length} deployment{improvements.length !== 1 ? "s" : ""} improved performance. Keep tracking to confirm sustained improvement.
+            </Paragraph>
+          </div>
+        )}
+        {deployments.length === 0 && (
+          <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${BLUE}` }}>
+            <Strong style={{ color: BLUE }}>No Deployments Detected</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              No deployment events found. Ensure Dynatrace deployment markers are configured via OneAgent, API, or CI/CD integration. Try extending the timeframe to capture recent deploys.
+            </Paragraph>
+          </div>
+        )}
+        {deployments.length > 0 && regressions.length === 0 && improvements.length === 0 && (
+          <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, borderLeft: `3px solid ${BLUE}` }}>
+            <Strong style={{ color: BLUE }}>All Deploys Neutral</Strong>
+            <Paragraph style={{ fontSize: 12, marginTop: 6 }}>
+              {deployments.length} deployment{deployments.length !== 1 ? "s were" : " was"} detected with no significant performance impact. Stable releases.
+            </Paragraph>
+          </div>
+        )}
+      </Flex>
     </Flex>
   );
 }
