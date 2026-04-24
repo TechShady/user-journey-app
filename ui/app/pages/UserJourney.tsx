@@ -68,6 +68,8 @@ const TAB_KEYS = [
 type TabKey = typeof TAB_KEYS[number];
 const DEFAULT_TAB_VISIBILITY: Record<TabKey, boolean> = Object.fromEntries(TAB_KEYS.map(k => [k, true])) as Record<TabKey, boolean>;
 const TAB_STATE_KEY = "uj-tab-visibility";
+const TAB_ORDER_STATE_KEY = "uj-tab-order";
+const DEFAULT_TAB_ORDER: TabKey[] = [...TAB_KEYS];
 
 const CWV = {
   lcp: { good: 2500, poor: 4000 },
@@ -762,11 +764,14 @@ export function UserJourney() {
   const [showSettings, setShowSettings] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [tabVisibility, setTabVisibility] = useState<Record<TabKey, boolean>>(DEFAULT_TAB_VISIBILITY);
+  const [tabOrder, setTabOrder] = useState<TabKey[]>([...DEFAULT_TAB_ORDER]);
+  const [draggedTabIdx, setDraggedTabIdx] = useState<number | null>(null);
   const [frontend, setFrontend] = useState<string>(DEFAULT_FRONTEND);
   const [steps, setSteps] = useState<StepDef[]>(DEFAULT_FUNNEL_STEPS);
 
   // Persist tab visibility per user
   const savedState = useUserAppState({ key: TAB_STATE_KEY });
+  const savedTabOrder = useUserAppState({ key: TAB_ORDER_STATE_KEY });
   const savedFrontend = useUserAppState({ key: FRONTEND_STATE_KEY });
   const savedSteps = useUserAppState({ key: STEPS_STATE_KEY });
   const { execute: saveState } = useSetUserAppState();
@@ -779,6 +784,21 @@ export function UserJourney() {
       } catch { /* ignore parse errors */ }
     }
   }, [savedState.data]);
+
+  useEffect(() => {
+    if (savedTabOrder.data?.value) {
+      try {
+        const parsed = JSON.parse(savedTabOrder.data.value as string) as string[];
+        if (Array.isArray(parsed) && parsed.length) {
+          // Merge: use saved order but add any new tabs appended to TAB_KEYS
+          const validKeys = new Set<string>(TAB_KEYS);
+          const ordered = parsed.filter(k => validKeys.has(k)) as TabKey[];
+          const missing = DEFAULT_TAB_ORDER.filter(k => !ordered.includes(k));
+          setTabOrder([...ordered, ...missing]);
+        }
+      } catch { /* ignore */ }
+    }
+  }, [savedTabOrder.data]);
 
   useEffect(() => {
     if (savedFrontend.data?.value) {
@@ -807,6 +827,20 @@ export function UserJourney() {
   };
 
   const isTabVisible = (tab: TabKey) => tabVisibility[tab] !== false;
+
+  const handleTabDragOver = (idx: number) => {
+    if (draggedTabIdx === null || draggedTabIdx === idx) return;
+    const updated = [...tabOrder];
+    const [moved] = updated.splice(draggedTabIdx, 1);
+    updated.splice(idx, 0, moved);
+    setTabOrder(updated);
+    setDraggedTabIdx(idx);
+  };
+
+  const saveTabOrder = (order: TabKey[]) => {
+    setTabOrder(order);
+    saveState({ key: TAB_ORDER_STATE_KEY, body: { value: JSON.stringify(order) } });
+  };
 
   // Current period queries
   const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps) });
@@ -967,73 +1001,59 @@ export function UserJourney() {
           )}
           <button onClick={() => { setSteps(DEFAULT_FUNNEL_STEPS); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(DEFAULT_FUNNEL_STEPS) } }); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 11, marginBottom: 16 }}>Reset to Defaults</button>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
-          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Tab Visibility</Paragraph>
-          <Paragraph style={{ marginBottom: 12, opacity: 0.6, fontSize: 12 }}>Toggle tabs on or off. Settings are saved per user and persist across sessions.</Paragraph>
-          {TAB_KEYS.map(tab => (
-            <div key={tab} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-              <Text style={{ fontSize: 13 }}>{tab}</Text>
+          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Tab Order & Visibility</Paragraph>
+          <Paragraph style={{ marginBottom: 12, opacity: 0.6, fontSize: 12 }}>Drag to reorder tabs and toggle visibility. Changes are saved per user and persist across sessions.</Paragraph>
+          {tabOrder.map((tab, idx) => (
+            <div
+              key={tab}
+              draggable
+              onDragStart={() => setDraggedTabIdx(idx)}
+              onDragOver={(e) => { e.preventDefault(); handleTabDragOver(idx); }}
+              onDragEnd={() => { setDraggedTabIdx(null); saveTabOrder(tabOrder); }}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "6px 8px", borderBottom: "1px solid rgba(255,255,255,0.06)",
+                background: draggedTabIdx === idx ? "rgba(69,137,255,0.12)" : "transparent",
+                cursor: "grab", transition: "background 0.15s ease",
+              }}
+            >
+              <Flex alignItems="center" gap={8}>
+                <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 14, userSelect: "none" }}>☰</span>
+                <Text style={{ fontSize: 13 }}>{tab}</Text>
+              </Flex>
               <Switch value={tabVisibility[tab] !== false} onChange={() => toggleTab(tab)} />
             </div>
           ))}
+          <button onClick={() => { saveTabOrder([...DEFAULT_TAB_ORDER]); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 11, marginTop: 8 }}>Reset Tab Order</button>
         </div>
       </Sheet>
 
-      {/* Tabs */}
+      {/* Tabs — rendered in user-defined tabOrder */}
       <Tabs defaultIndex={0}>
-        {isTabVisible("Funnel Overview") && <Tab title="Funnel Overview">
-          <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} />
-        </Tab>}
-        {isTabVisible("Trends") && <Tab title="Trends">
-          <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} />
-        </Tab>}
-        {isTabVisible("Web Vitals") && <Tab title="Web Vitals">
-          <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />
-        </Tab>}
-        {isTabVisible("Step Details") && <Tab title="Step Details">
-          <StepDetailsTab stepMap={stepMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} />
-        </Tab>}
-        {isTabVisible("Worst Sessions") && <Tab title="Worst Sessions">
-          <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />
-        </Tab>}
-        {isTabVisible("Exceptions") && <Tab title="Exceptions">
-          <JSErrorsTab data={jsErrorsData} isLoading={jsErrorsData.isLoading} frontend={frontend} />
-        </Tab>}
-        {isTabVisible("Click Issues") && <Tab title="Click Issues">
-          <ClickIssuesTab data={clickIssuesData} isLoading={clickIssuesData.isLoading} />
-        </Tab>}
-        {isTabVisible("Perf Budgets") && <Tab title="Perf Budgets">
-          <PerfBudgetsTab quality={quality} overallApdex={overallApdex} overallConv={overallConv} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading} />
-        </Tab>}
-        {isTabVisible("Geo Heatmap") && <Tab title="Geo Heatmap">
-          <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />
-        </Tab>}
-        {isTabVisible("World Map") && <Tab title="World Map">
-          <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />
-        </Tab>}
-        {isTabVisible("Navigation Paths") && <Tab title="Navigation Paths">
-          <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} />
-        </Tab>}
-        {isTabVisible("Sankey") && <Tab title="Sankey">
-          <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} />
-        </Tab>}
-        {isTabVisible("Anomaly Detection") && <Tab title="Anomaly Detection">
-          <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} />
-        </Tab>}
-        {isTabVisible("Conversion Attribution") && <Tab title="Conversion Attribution">
-          <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} />
-        </Tab>}
-        {isTabVisible("Executive Summary") && <Tab title="Executive Summary">
-          <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} />
-        </Tab>}
-        {isTabVisible("Segmentation") && <Tab title="Segmentation">
-          <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} />
-        </Tab>}
-        {isTabVisible("Errors & Drop-offs") && <Tab title="Errors & Drop-offs">
-          <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} steps={steps} />
-        </Tab>}
-        {isTabVisible("What-If Analysis") && <Tab title="What-If Analysis">
-          <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} />
-        </Tab>}
+        {tabOrder.filter(t => isTabVisible(t)).map(tabId => {
+          let content: React.ReactNode = null;
+          switch (tabId) {
+            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} />; break;
+            case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} />; break;
+            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
+            case "Step Details": content = <StepDetailsTab stepMap={stepMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} />; break;
+            case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />; break;
+            case "Exceptions": content = <JSErrorsTab data={jsErrorsData} isLoading={jsErrorsData.isLoading} frontend={frontend} />; break;
+            case "Click Issues": content = <ClickIssuesTab data={clickIssuesData} isLoading={clickIssuesData.isLoading} />; break;
+            case "Perf Budgets": content = <PerfBudgetsTab quality={quality} overallApdex={overallApdex} overallConv={overallConv} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading} />; break;
+            case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />; break;
+            case "World Map": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />; break;
+            case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} />; break;
+            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} />; break;
+            case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} />; break;
+            case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} />; break;
+            case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} />; break;
+            case "Segmentation": content = <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} />; break;
+            case "Errors & Drop-offs": content = <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} steps={steps} />; break;
+            case "What-If Analysis": content = <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} />; break;
+          }
+          return <Tab key={tabId} title={tabId}>{content}</Tab>;
+        })}
       </Tabs>
     </div>
   );
