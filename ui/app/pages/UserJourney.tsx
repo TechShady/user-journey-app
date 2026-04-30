@@ -2809,6 +2809,10 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world" }: { dat
 
         return (
           <>
+            <div style={{ padding: "16px 20px", background: "rgba(69,137,255,0.08)", borderRadius: 8, border: "1px solid rgba(69,137,255,0.2)", marginBottom: 8 }}>
+              <Strong style={{ fontSize: 13 }}>Coming Soon</Strong>
+              <Text style={{ opacity: 0.6, marginLeft: 8, fontSize: 12 }}>US state-level map visualization is under development. Currently showing aggregate US data from the world map query.</Text>
+            </div>
             <Flex gap={16} flexWrap="wrap">
               <div className="uj-kpi-card">
                 <Text className="uj-kpi-label">US Sessions</Text>
