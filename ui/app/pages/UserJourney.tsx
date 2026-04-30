@@ -18,6 +18,23 @@ import "./UserJourney.css";
 const DEFAULT_FRONTEND = "www.angular.easytravel.com";
 const FRONTEND_STATE_KEY = "uj-frontend-app";
 const STEPS_STATE_KEY = "uj-funnel-steps";
+const SANKEY_STYLE_STATE_KEY = "uj-sankey-style";
+const MAP_VIEW_STATE_KEY = "uj-map-view";
+type SankeyStyle = "classic" | "gradient" | "directed" | "alluvial" | "stateMachine";
+const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
+  { value: "classic", label: "Classic Sankey" },
+  { value: "gradient", label: "Gradient Sankey" },
+  { value: "directed", label: "Directed Flow Graph" },
+  { value: "alluvial", label: "Alluvial / Columnar" },
+  { value: "stateMachine", label: "State Machine" },
+];
+const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
+type MapViewSetting = "world" | "us";
+const MAP_VIEW_OPTIONS: { value: MapViewSetting; label: string }[] = [
+  { value: "world", label: "World" },
+  { value: "us", label: "United States" },
+];
+const DEFAULT_MAP_VIEW: MapViewSetting = "world";
 const MIN_STEPS = 2;
 const MAX_STEPS = 10;
 const GREEN = "#0D9C29";
@@ -61,7 +78,7 @@ const APDEX_4T = 12000;
 const TAB_KEYS = [
   "Funnel Overview", "Trends", "Web Vitals", "Step Details", "Worst Sessions",
   "Exceptions", "Click Issues", "Perf Budgets",
-  "Geo Heatmap", "World Map", "Navigation Paths", "Sankey", "Anomaly Detection",
+  "Geo Heatmap", "Map", "Navigation Paths", "Sankey", "Anomaly Detection",
   "Conversion Attribution", "Executive Summary", "Segmentation",
   "Errors & Drop-offs", "What-If Analysis", "Root Cause Correlation", "Predictive Forecasting",
   "Resource Waterfall", "Change Intelligence",
@@ -952,7 +969,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Click Issues</Strong>: Detects rage clicks (rapid repeated clicks indicating frustration) and dead clicks (clicks on non-responsive elements). Shows the worst offending elements, pages, and session impact to guide UX fixes.</Paragraph>
         <Paragraph><Strong>Perf Budgets</Strong>: Tracks actual metrics against defined performance budgets (Apdex ≥0.85, Conversion ≥20%, Avg Duration ≤2s, P90 ≤4s, Error Rate ≤2%, Frustrated ≤10%). Shows pass/fail status, margin from target, and hourly Apdex distribution to identify peak-hour degradation.</Paragraph>
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights. Country cards are clickable and open <Strong>User Sessions</Strong> filtered to that location.</Paragraph>
-        <Paragraph><Strong>World Map</Strong>: Interactive choropleth map colorized by session count, average duration, Apdex, or error rate. Provides a visual overview of geographic performance distribution. Countries with data are clickable and link to <Strong>User Sessions</Strong>.</Paragraph>
+        <Paragraph><Strong>Map</Strong>: Interactive choropleth map with World and US views, colorized by session count, average duration, Apdex, or error rate. Use the dropdown to switch between World (country-level) and US (state-level) views. Countries/states with data are clickable and link to <Strong>User Sessions</Strong>.</Paragraph>
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
         <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram showing user navigation paths. Click any node to see inbound/outbound connections. Inbound and outbound user actions in the popup are clickable — they open the <Strong>Vitals</Strong> app filtered to that specific page for detailed performance analysis.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations.</Paragraph>
@@ -1012,12 +1029,15 @@ export function UserJourney() {
   const [draggedTabIdx, setDraggedTabIdx] = useState<number | null>(null);
   const [frontend, setFrontend] = useState<string>(DEFAULT_FRONTEND);
   const [steps, setSteps] = useState<StepDef[]>(DEFAULT_FUNNEL_STEPS);
+  const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
 
   // Persist tab visibility per user
   const savedState = useUserAppState({ key: TAB_STATE_KEY });
   const savedTabOrder = useUserAppState({ key: TAB_ORDER_STATE_KEY });
   const savedFrontend = useUserAppState({ key: FRONTEND_STATE_KEY });
   const savedSteps = useUserAppState({ key: STEPS_STATE_KEY });
+  const savedSankeyStyle = useUserAppState({ key: SANKEY_STYLE_STATE_KEY });
+  const savedMapView = useUserAppState({ key: MAP_VIEW_STATE_KEY });
   const { execute: saveState } = useSetUserAppState();
 
   useEffect(() => {
@@ -1061,6 +1081,21 @@ export function UserJourney() {
       } catch { /* ignore parse errors */ }
     }
   }, [savedSteps.data]);
+
+  useEffect(() => {
+    if (savedSankeyStyle.data?.value) {
+      const val = savedSankeyStyle.data.value as string;
+      if (SANKEY_STYLE_OPTIONS.some(o => o.value === val)) setSankeyStyle(val as SankeyStyle);
+    }
+  }, [savedSankeyStyle.data]);
+
+  const [mapViewDefault, setMapViewDefault] = useState<MapViewSetting>(DEFAULT_MAP_VIEW);
+  useEffect(() => {
+    if (savedMapView.data?.value) {
+      const val = savedMapView.data.value as string;
+      if (MAP_VIEW_OPTIONS.some(o => o.value === val)) setMapViewDefault(val as MapViewSetting);
+    }
+  }, [savedMapView.data]);
 
   const toggleTab = (tab: TabKey) => {
     setTabVisibility(prev => {
@@ -1261,6 +1296,30 @@ export function UserJourney() {
           )}
           <button onClick={() => { setSteps(DEFAULT_FUNNEL_STEPS); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(DEFAULT_FUNNEL_STEPS) } }); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 11, marginBottom: 16 }}>Reset to Defaults</button>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
+          {/* Default Sankey Chart Style */}
+          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Default Sankey Chart Style</Paragraph>
+          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Choose the default visualization style for the Sankey tab. Can also be changed inline on the Sankey tab.</Paragraph>
+          <div style={{ marginBottom: 20 }}>
+            <Select value={sankeyStyle} onChange={(val) => { if (val) { setSankeyStyle(val as SankeyStyle); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: val as string } }); } }}>
+              <Select.Trigger style={{ minWidth: 200 }} />
+              <Select.Content>
+                {SANKEY_STYLE_OPTIONS.map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
+              </Select.Content>
+            </Select>
+          </div>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
+          {/* Default Map View */}
+          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Default Map View</Paragraph>
+          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Choose the default map view for the Map tab. Can also be changed inline.</Paragraph>
+          <div style={{ marginBottom: 20 }}>
+            <Select value={mapViewDefault} onChange={(val) => { if (val) { setMapViewDefault(val as MapViewSetting); saveState({ key: MAP_VIEW_STATE_KEY, body: { value: val as string } }); } }}>
+              <Select.Trigger style={{ minWidth: 200 }} />
+              <Select.Content>
+                {MAP_VIEW_OPTIONS.map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
+              </Select.Content>
+            </Select>
+          </div>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Tab Order & Visibility</Paragraph>
           <Paragraph style={{ marginBottom: 12, opacity: 0.6, fontSize: 12 }}>Drag to reorder tabs and toggle visibility. Changes are saved per user and persist across sessions.</Paragraph>
           {tabOrder.map((tab, idx) => (
@@ -1302,9 +1361,9 @@ export function UserJourney() {
             case "Click Issues": content = <ClickIssuesTab data={clickIssuesData} isLoading={clickIssuesData.isLoading} />; break;
             case "Perf Budgets": content = <PerfBudgetsTab quality={quality} overallApdex={overallApdex} overallConv={overallConv} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading} />; break;
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />; break;
-            case "World Map": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />; break;
+            case "Map": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} />; break;
             case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} />; break;
-            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} />; break;
+            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} />; break;
             case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} />; break;
@@ -2337,23 +2396,55 @@ function GeoHeatmapTab({ data, isLoading, frontend }: { data: any; isLoading: bo
 }
 
 // ===========================================================================
-// TAB: World Map — Real choropleth with d3-geo + world-atlas
+// TAB: Map — Real choropleth with d3-geo + world-atlas / us-atlas
 // ===========================================================================
 import { ISO_ALPHA2_TO_NUMERIC, ISO_NUMERIC_TO_ALPHA2 } from "../worldMapPaths";
-import { geoNaturalEarth1, geoPath } from "d3-geo";
+import { geoNaturalEarth1, geoPath, geoAlbersUsa } from "d3-geo";
 import { feature } from "topojson-client";
 import worldAtlas from "world-atlas/countries-110m.json";
+import usAtlas from "us-atlas/states-10m.json";
 
 const worldGeo = feature(worldAtlas as any, (worldAtlas as any).objects.countries);
 const projection = geoNaturalEarth1().fitSize([960, 500], worldGeo as any);
 const pathGen = geoPath().projection(projection);
 
-type MapMetric = "sessions" | "avgDur" | "apdex" | "errRate" | "lcp" | "cls" | "inp";
+const usGeo = feature(usAtlas as any, (usAtlas as any).objects.states);
+const usProjection = geoAlbersUsa().fitSize([960, 500], usGeo as any);
+const usPathGen = geoPath().projection(usProjection);
 
-function WorldMapTab({ data, isLoading, frontend }: { data: any; isLoading: boolean; frontend: string }) {
+// FIPS code to state abbreviation mapping
+const FIPS_TO_STATE: Record<string, string> = {
+  "01":"AL","02":"AK","04":"AZ","05":"AR","06":"CA","08":"CO","09":"CT","10":"DE",
+  "11":"DC","12":"FL","13":"GA","15":"HI","16":"ID","17":"IL","18":"IN","19":"IA",
+  "20":"KS","21":"KY","22":"LA","23":"ME","24":"MD","25":"MA","26":"MI","27":"MN",
+  "28":"MS","29":"MO","30":"MT","31":"NE","32":"NV","33":"NH","34":"NJ","35":"NM",
+  "36":"NY","37":"NC","38":"ND","39":"OH","40":"OK","41":"OR","42":"PA","44":"RI",
+  "45":"SC","46":"SD","47":"TN","48":"TX","49":"UT","50":"VT","51":"VA","53":"WA",
+  "54":"WV","55":"WI","56":"WY","60":"AS","66":"GU","69":"MP","72":"PR","78":"VI",
+};
+const STATE_TO_NAME: Record<string, string> = {
+  AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",
+  CT:"Connecticut",DE:"Delaware",DC:"District of Columbia",FL:"Florida",GA:"Georgia",
+  HI:"Hawaii",ID:"Idaho",IL:"Illinois",IN:"Indiana",IA:"Iowa",KS:"Kansas",KY:"Kentucky",
+  LA:"Louisiana",ME:"Maine",MD:"Maryland",MA:"Massachusetts",MI:"Michigan",MN:"Minnesota",
+  MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",NH:"New Hampshire",
+  NJ:"New Jersey",NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",
+  OH:"Ohio",OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",
+  SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",
+  WA:"Washington",WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming",PR:"Puerto Rico",
+};
+
+type MapMetric = "sessions" | "avgDur" | "apdex" | "errRate" | "lcp" | "cls" | "inp";
+type MapView = "world" | "us";
+
+function WorldMapTab({ data, isLoading, frontend, defaultView = "world" }: { data: any; isLoading: boolean; frontend: string; defaultView?: MapView }) {
   const [metric, setMetric] = useState<MapMetric>("sessions");
+  const [mapView, setMapView] = useState<MapView>(defaultView);
   const [animKey, setAnimKey] = useState(0);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hasUserChanged, setHasUserChanged] = useState(false);
+  // Sync with saved default if user hasn't manually changed yet
+  useEffect(() => { if (!hasUserChanged) setMapView(defaultView); }, [defaultView, hasUserChanged]);
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -2472,7 +2563,19 @@ function WorldMapTab({ data, isLoading, frontend }: { data: any; isLoading: bool
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       <style>{animCSS}</style>
-      <SectionHeader title="World Map" />
+      <Flex alignItems="center" justifyContent="space-between">
+        <SectionHeader title="Map" />
+        <Flex alignItems="center" gap={8}>
+          <Text style={{ fontSize: 11, opacity: 0.5 }}>View</Text>
+          <Select value={mapView} onChange={(val) => { if (val) { setMapView(val as MapView); setHasUserChanged(true); setAnimKey(k => k + 1); } }}>
+            <Select.Trigger style={{ minWidth: 120 }} />
+            <Select.Content>
+              <Select.Option value="world">World</Select.Option>
+              <Select.Option value="us">United States</Select.Option>
+            </Select.Content>
+          </Select>
+        </Flex>
+      </Flex>
       <Flex alignItems="center" gap={16}>
         <Text style={{ fontSize: 12, opacity: 0.7 }}>Colorize by:</Text>
         <Flex gap={8}>
@@ -2495,7 +2598,7 @@ function WorldMapTab({ data, isLoading, frontend }: { data: any; isLoading: bool
         </Flex>
       </Flex>
 
-      {countries.length === 0 ? (
+      {mapView === "world" && (countries.length === 0 ? (
         <div className="uj-table-tile" style={{ padding: 24 }}><Text>No geographic data available</Text></div>
       ) : (
         <>
@@ -2623,7 +2726,188 @@ function WorldMapTab({ data, isLoading, frontend }: { data: any; isLoading: bool
             />
           </div>
         </>
-      )}
+      ))}
+
+      {mapView === "us" && (() => {
+        // Build state-level data from rows with US country code
+        const usRows = rows.filter((r: any) => String(r.country ?? "").toUpperCase() === "US");
+
+        // Aggregate US-level totals
+        const usTotals = { sessions: 0, actions: 0, errors: 0, sat: 0, tol: 0, fru: 0 };
+        usRows.forEach((r: any) => {
+          usTotals.sessions += Number(r.sessions ?? 0);
+          usTotals.actions += Number(r.actions ?? 0);
+          usTotals.errors += Number(r.errors ?? 0);
+          usTotals.sat += Number(r.satisfied ?? 0);
+          usTotals.tol += Number(r.tolerating ?? 0);
+          usTotals.fru += Number(r.frustrated ?? 0);
+        });
+
+        // Try to build per-state data if geo.region.iso_code available
+        const stateMap = new Map<string, { sessions: number; actions: number; avgDur: number; errors: number; sat: number; tol: number; fru: number; stateName: string }>();
+        const hasRegionData = usRows.some((r: any) => r.region && String(r.region).startsWith("US-"));
+        if (hasRegionData) {
+          usRows.forEach((r: any) => {
+            const region = String(r.region ?? "");
+            const stateCode = region.replace("US-", "");
+            if (!stateCode) return;
+            const stateName = STATE_TO_NAME[stateCode] ?? stateCode;
+            const actions = Number(r.actions ?? 0);
+            const d = stateMap.get(stateCode) ?? { sessions: 0, actions: 0, avgDur: 0, errors: 0, sat: 0, tol: 0, fru: 0, stateName };
+            d.sessions += Number(r.sessions ?? 0);
+            d.avgDur = d.actions > 0 ? (d.avgDur * d.actions + Number(r.avg_dur ?? 0) * actions) / (d.actions + actions) : Number(r.avg_dur ?? 0);
+            d.actions += actions;
+            d.errors += Number(r.errors ?? 0);
+            d.sat += Number(r.satisfied ?? 0);
+            d.tol += Number(r.tolerating ?? 0);
+            d.fru += Number(r.frustrated ?? 0);
+            stateMap.set(stateCode, d);
+          });
+        }
+
+        const states = Array.from(stateMap.entries()).map(([code, d]) => ({
+          code,
+          ...d,
+          apdex: calcApdex(d.sat, d.tol, d.actions),
+          errRate: d.actions > 0 ? (d.errors / d.actions) * 100 : 0,
+        }));
+
+        const stateDataByFips = new Map<string, typeof states[0]>();
+        for (const s of states) {
+          const fips = Object.entries(FIPS_TO_STATE).find(([, abbr]) => abbr === s.code)?.[0];
+          if (fips) stateDataByFips.set(fips, s);
+        }
+
+        const getStateValue = (s: typeof states[0]): number => {
+          switch (metric) {
+            case "sessions": return s.sessions;
+            case "avgDur": return s.avgDur;
+            case "apdex": return s.apdex;
+            case "errRate": return s.errRate;
+            default: return s.sessions;
+          }
+        };
+
+        const stateValues = states.map(getStateValue);
+        const stateMaxVal = Math.max(...stateValues, 1);
+
+        const getStateColor = (s: typeof states[0]): string => {
+          const v = getStateValue(s);
+          switch (metric) {
+            case "sessions": {
+              const intensity = stateMaxVal > 0 ? v / stateMaxVal : 0;
+              return `rgb(${Math.round(20 + intensity * 35)}, ${Math.round(80 + intensity * 57)}, ${Math.round(120 + intensity * 135)})`;
+            }
+            case "avgDur": return v > 3000 ? RED : v > 1500 ? ORANGE : v > 800 ? YELLOW : GREEN;
+            case "apdex": return apdexClr(v);
+            case "errRate": return v > 5 ? RED : v > 2 ? ORANGE : v > 0.5 ? YELLOW : GREEN;
+            default: return BLUE;
+          }
+        };
+
+        const usApdex = calcApdex(usTotals.sat, usTotals.tol, usTotals.actions);
+
+        return (
+          <>
+            <Flex gap={16} flexWrap="wrap">
+              <div className="uj-kpi-card">
+                <Text className="uj-kpi-label">US Sessions</Text>
+                <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(usTotals.sessions)}</Heading>
+              </div>
+              <div className="uj-kpi-card">
+                <Text className="uj-kpi-label">US Apdex</Text>
+                <Heading level={2} className="uj-kpi-value" style={{ color: apdexClr(usApdex) }}>{usApdex.toFixed(2)}</Heading>
+              </div>
+              <div className="uj-kpi-card">
+                <Text className="uj-kpi-label">States with Data</Text>
+                <Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{states.length}</Heading>
+              </div>
+            </Flex>
+
+            <div style={{ background: "rgba(6,10,20,0.95)", borderRadius: 12, padding: 16, border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="uj-worldmap" key={`us-${animKey}`}>
+                <svg viewBox="0 0 960 600" style={{ width: "100%", display: "block" }}>
+                  <defs>
+                    <radialGradient id="uj-us-ocean" cx="50%" cy="40%" r="70%">
+                      <stop offset="0%" stopColor="rgba(12,18,35,1)" />
+                      <stop offset="100%" stopColor="rgba(4,8,16,1)" />
+                    </radialGradient>
+                  </defs>
+                  <rect width="960" height="600" fill="url(#uj-us-ocean)" rx="8" />
+                  {(usGeo as any).features.map((feat: any, idx: number) => {
+                    const fipsId = String(feat.id);
+                    const stateAbbr = FIPS_TO_STATE[fipsId] ?? "";
+                    const stateData = stateDataByFips.get(fipsId);
+                    const d = usPathGen(feat) ?? "";
+                    const isHovered = hoveredId === fipsId;
+                    const delay = Math.min(idx * 0.02, 0.8);
+                    const stateName = STATE_TO_NAME[stateAbbr] ?? feat.properties?.name ?? stateAbbr;
+
+                    if (stateData) {
+                      return (
+                        <a key={fipsId} href={sessionsFilterUrl(frontend, stateName)} target="_blank" rel="noopener noreferrer">
+                          <path
+                            d={d}
+                            fill={getStateColor(stateData)}
+                            stroke={isHovered ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.25)"}
+                            strokeWidth={isHovered ? 1.5 : 0.5}
+                            className="uj-country-path"
+                            style={{ animationDelay: `${delay}s`, cursor: "pointer" }}
+                            onMouseEnter={() => setHoveredId(fipsId)}
+                            onMouseLeave={() => setHoveredId(null)}
+                          >
+                            <title>{`${stateName} (${stateAbbr})\nSessions: ${fmtCount(stateData.sessions)}\nApdex: ${stateData.apdex.toFixed(2)}`}</title>
+                          </path>
+                        </a>
+                      );
+                    }
+                    return (
+                      <path key={fipsId} d={d} className="uj-country-empty uj-country-path" style={{ animationDelay: `${delay}s` }}>
+                        <title>{`${stateName} (${stateAbbr}) — No data`}</title>
+                      </path>
+                    );
+                  })}
+                </svg>
+              </div>
+            </div>
+
+            {states.length === 0 && (
+              <div className="uj-table-tile" style={{ padding: 16 }}>
+                <Text style={{ opacity: 0.6 }}>No state-level data available. The US map requires <code>geo.region.iso_code</code> data (e.g., "US-CA") in RUM events. Total US sessions: {fmtCount(usTotals.sessions)}.</Text>
+              </div>
+            )}
+
+            {states.length > 0 && (
+              <>
+                <SectionHeader title={`States Ranked by ${metricLabel[metric]}`} />
+                <div className="uj-table-tile">
+                  <DataTable
+                    sortable
+                    data={[...states].sort((a, b) => getStateValue(b) - getStateValue(a)).map((s) => ({
+                      State: `${s.stateName} (${s.code})`,
+                      stateName: s.stateName,
+                      Sessions: s.sessions,
+                      "Avg Duration": Math.round(s.avgDur),
+                      Apdex: s.apdex,
+                      "Error %": s.errRate,
+                    }))}
+                    columns={[
+                      { id: "State", header: "State", accessor: "State", cell: ({ value, row }: any) => {
+                        const sName = row?.original?.stateName;
+                        return <a href={sessionsFilterUrl(frontend, sName)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontWeight: 600 }}>{value} ↗</a>;
+                      }},
+                      { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ fontWeight: metric === "sessions" ? 700 : 400, color: metric === "sessions" ? BLUE : undefined }}>{fmtCount(value)}</Text> },
+                      { id: "Avg Duration", header: "Avg Duration", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ fontWeight: metric === "avgDur" ? 700 : 400, color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
+                      { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value), fontWeight: metric === "apdex" ? 700 : 400 }}>{value.toFixed(2)}</Strong> },
+                      { id: "Error %", header: "Error %", accessor: "Error %", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ fontWeight: metric === "errRate" ? 700 : 400, color: value > 5 ? RED : value > 1 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
+                    ]}
+                  />
+                </div>
+              </>
+            )}
+          </>
+        );
+      })()}
     </Flex>
   );
 }
@@ -3684,12 +3968,13 @@ function buildSankey(records: any[]): { nodes: SankeyNode[]; links: SankeyLink[]
   return { nodes, links, maxDepth };
 }
 
-function SankeyTab({ data, isLoading, appEntityId }: { data: any; isLoading: boolean; appEntityId: string }) {
+function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void }) {
   if (isLoading) return <Loading />;
 
   const records = (data.data?.records ?? []) as any[];
   const { nodes, links, maxDepth } = useMemo(() => buildSankey(records), [records]);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  const [focusLabel, setFocusLabel] = useState<string | null>(null);
 
   const totalSessions = records.reduce((a: number, r: any) => a + Number(r.sessions ?? r.d0 ?? 0), 0);
   const uniquePages = new Set(nodes.map(n => n.label)).size;
@@ -3717,6 +4002,59 @@ function SankeyTab({ data, isLoading, appEntityId }: { data: any; isLoading: boo
   const focusOutbound = hasFocus ? links.filter(l => l.source === focusNodeId) : [];
   const focusSessions = focusNode?.value ?? 0;
 
+  // Label-based focus for alternate charts (aggregates across all nodes with same label)
+  const labelNodeIds = focusLabel ? nodes.filter(n => n.label === focusLabel).map(n => n.id) : [];
+  const labelInbound = focusLabel ? links.filter(l => labelNodeIds.includes(l.target)).reduce((acc, l) => {
+    const src = nodes.find(n => n.id === l.source)!;
+    const existing = acc.find(a => a.label === src.label);
+    if (existing) existing.value += l.value; else acc.push({ label: src.label, value: l.value });
+    return acc;
+  }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value) : [];
+  const labelOutbound = focusLabel ? links.filter(l => labelNodeIds.includes(l.source)).reduce((acc, l) => {
+    const tgt = nodes.find(n => n.id === l.target)!;
+    const existing = acc.find(a => a.label === tgt.label);
+    if (existing) existing.value += l.value; else acc.push({ label: tgt.label, value: l.value });
+    return acc;
+  }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value) : [];
+  const labelSessions = focusLabel ? nodes.filter(n => n.label === focusLabel).reduce((a, n) => Math.max(a, n.value), 0) : 0;
+
+  const handleLabelClick = (label: string) => {
+    setFocusLabel(prev => prev === label ? null : label);
+  };
+
+  const renderLabelPopup = () => {
+    if (!focusLabel) return null;
+    return (
+      <div style={{ marginTop: 12, padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid " + BLUE }}>
+        <Flex alignItems="center" gap={8} style={{ marginBottom: 8 }}>
+          <Strong style={{ fontSize: 13 }}>{focusLabel}</Strong>
+          <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtCount(labelSessions)} sessions</Text>
+          <button onClick={() => setFocusLabel(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 10 }}>Clear</button>
+        </Flex>
+        {labelInbound.length > 0 && (
+          <div style={{ marginBottom: 6 }}>
+            <Text style={{ fontSize: 10, opacity: 0.5 }}>Inbound ({labelInbound.length}):</Text>
+            <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
+              {labelInbound.slice(0, 8).map((l, i) => (
+                <a key={i} href={appEntityId ? vitalsUrl(appEntityId, l.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${l.label}` : l.label}>{truncLabel(l.label, 30)} <Strong style={{ color: CYAN }}>{fmtCount(l.value)}</Strong></a>
+              ))}
+            </Flex>
+          </div>
+        )}
+        {labelOutbound.length > 0 && (
+          <div>
+            <Text style={{ fontSize: 10, opacity: 0.5 }}>Outbound ({labelOutbound.length}):</Text>
+            <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
+              {labelOutbound.slice(0, 8).map((l, i) => (
+                <a key={i} href={appEntityId ? vitalsUrl(appEntityId, l.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${l.label}` : l.label}>{truncLabel(l.label, 30)} <Strong style={{ color: GREEN }}>{fmtCount(l.value)}</Strong></a>
+              ))}
+            </Flex>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (nodes.length === 0) {
     return (
       <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
@@ -3738,11 +4076,22 @@ function SankeyTab({ data, isLoading, appEntityId }: { data: any; isLoading: boo
 
   const truncLabel = (s: string, max = 22) => s.length > max ? s.substring(0, max) + "…" : s;
 
-  return (
-    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <SectionHeader title="Sankey Flow Diagram" />
-      <Text style={{ fontSize: 12, opacity: 0.5 }}>User navigation flows visualized as a Sankey diagram. Width of each band represents the number of sessions taking that path. Top {nodes.length} page nodes shown.</Text>
-
+  // ---- Chart style selector + KPI header (shared across all styles) ----
+  const chartHeader = (
+    <>
+      <Flex alignItems="center" justifyContent="space-between">
+        <SectionHeader title="Sankey Flow Diagram" />
+        <Flex alignItems="center" gap={8}>
+          <Text style={{ fontSize: 11, opacity: 0.5 }}>Chart Style</Text>
+          <Select value={chartStyle} onChange={(val) => { if (val) onStyleChange(val as SankeyStyle); }}>
+            <Select.Trigger style={{ minWidth: 170 }} />
+            <Select.Content>
+              {SANKEY_STYLE_OPTIONS.map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
+            </Select.Content>
+          </Select>
+        </Flex>
+      </Flex>
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>{SANKEY_STYLE_OPTIONS.find(o => o.value === chartStyle)?.label}: User navigation flows. Top {nodes.length} page nodes shown.</Text>
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-kpi-card">
           <Text className="uj-kpi-label">Total Sessions</Text>
@@ -3761,102 +4110,448 @@ function SankeyTab({ data, isLoading, appEntityId }: { data: any; isLoading: boo
           <Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{maxDepth + 1} pages</Heading>
         </div>
       </Flex>
+    </>
+  );
 
+  // ---- Classic Sankey (original) ----
+  const renderClassicSankey = (useGradient: boolean) => (
+    <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
+      <svg width={W} height={H} style={{ display: "block", margin: "0 auto", cursor: hasFocus ? "pointer" : "default" }} onClick={() => setFocusNodeId(null)}>
+        {useGradient && (
+          <defs>
+            {links.map((l, i) => {
+              const srcNode = nodes.find(n => n.id === l.source)!;
+              const tgtNode = nodes.find(n => n.id === l.target)!;
+              return (
+                <linearGradient key={`lg-${i}`} id={`sankey-grad-${i}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor={SANKEY_COLORS[srcNode.depth % SANKEY_COLORS.length]} />
+                  <stop offset="100%" stopColor={SANKEY_COLORS[tgtNode.depth % SANKEY_COLORS.length]} />
+                </linearGradient>
+              );
+            })}
+          </defs>
+        )}
+        {Array.from({ length: maxDepth + 1 }, (_, d) => (
+          <text key={`dl-${d}`} x={PAD.left + d * colW + NODE_W / 2} y={12} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={10} fontWeight={600}>{DEPTH_LABELS[d] ?? `Page ${d + 1}`}</text>
+        ))}
+        {links.map((l, i) => {
+          const srcNode = nodes.find(n => n.id === l.source)!;
+          const tgtNode = nodes.find(n => n.id === l.target)!;
+          const x0 = PAD.left + srcNode.depth * colW + NODE_W;
+          const x1 = PAD.left + tgtNode.depth * colW;
+          const y0 = PAD.top + l.sy * scaleY + (l.thickness * scaleY) / 2;
+          const y1 = PAD.top + l.ty * scaleY + (l.thickness * scaleY) / 2;
+          const curvature = (x1 - x0) * 0.4;
+          const color = useGradient ? `url(#sankey-grad-${i})` : SANKEY_COLORS[srcNode.depth % SANKEY_COLORS.length];
+          const isConnected = !hasFocus || connectedLinks.has(i);
+          const opacity = hasFocus ? (isConnected ? 0.7 : 0.06) : 0.35;
+          return (
+            <path
+              key={`link-${i}`}
+              d={`M${x0},${y0} C${x0 + curvature},${y0} ${x1 - curvature},${y1} ${x1},${y1}`}
+              fill="none"
+              stroke={color}
+              strokeWidth={Math.max(1, l.thickness * scaleY)}
+              strokeOpacity={useGradient ? (hasFocus ? (isConnected ? 0.8 : 0.08) : 0.5) : opacity}
+              style={{ cursor: "pointer", transition: "stroke-opacity 0.2s" }}
+              onClick={(e) => { e.stopPropagation(); setFocusNodeId(srcNode.id); }}
+            >
+              <title>{`${srcNode.label} → ${tgtNode.label}: ${fmtCount(l.value)} sessions`}</title>
+            </path>
+          );
+        })}
+        {nodes.map((n) => {
+          const x = PAD.left + n.depth * colW;
+          const y = PAD.top + n.y * scaleY;
+          const h = Math.max(2, n.height * scaleY);
+          const color = SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
+          const isLeft = n.depth === 0;
+          const isRight = n.depth === maxDepth;
+          const labelX = isLeft ? x - 4 : isRight ? x + NODE_W + 4 : x + NODE_W + 4;
+          const anchor = isLeft ? "end" : "start";
+          const isFocused = n.id === focusNodeId;
+          const isConnected = !hasFocus || connectedNodes.has(n.id);
+          const nodeOpacity = hasFocus ? (isFocused ? 1 : isConnected ? 0.85 : 0.15) : 0.85;
+          const labelOpacity = hasFocus ? (isConnected ? 0.9 : 0.15) : 0.7;
+          return (
+            <g key={n.id} style={{ cursor: "pointer", transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); setFocusNodeId(isFocused ? null : n.id); }}>
+              <rect x={x} y={y} width={NODE_W} height={h} rx={3} fill={color} opacity={nodeOpacity} stroke={isFocused ? "#fff" : "none"} strokeWidth={isFocused ? 2 : 0}>
+                <title>{`${n.label}: ${fmtCount(n.value)} sessions`}</title>
+              </rect>
+              {h > 8 && (
+                <text x={labelX} y={y + h / 2 + 3.5} textAnchor={anchor} fill={`rgba(255,255,255,${labelOpacity})`} fontSize={10} fontWeight={isFocused ? 700 : 400}>
+                  {truncLabel(n.label)}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+      {hasFocus && focusNode && (
+        <div style={{ marginTop: 12, padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: `3px solid ${SANKEY_COLORS[focusNode.depth % SANKEY_COLORS.length]}` }}>
+          <Flex alignItems="center" gap={8} style={{ marginBottom: 8 }}>
+            <Strong style={{ fontSize: 13 }}>{focusNode.label}</Strong>
+            <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtCount(focusSessions)} sessions</Text>
+            <button onClick={() => setFocusNodeId(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 10 }}>Clear</button>
+          </Flex>
+          {focusInbound.length > 0 && (
+            <div style={{ marginBottom: 6 }}>
+              <Text style={{ fontSize: 10, opacity: 0.5 }}>Inbound ({focusInbound.length}):</Text>
+              <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
+                {focusInbound.sort((a, b) => b.value - a.value).slice(0, 6).map((l, i) => {
+                  const src = nodes.find(n => n.id === l.source)!;
+                  return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, src.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${src.label}` : src.label}>{truncLabel(src.label, 30)} <Strong style={{ color: CYAN }}>{fmtCount(l.value)}</Strong></a>;
+                })}
+              </Flex>
+            </div>
+          )}
+          {focusOutbound.length > 0 && (
+            <div>
+              <Text style={{ fontSize: 10, opacity: 0.5 }}>Outbound ({focusOutbound.length}):</Text>
+              <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
+                {focusOutbound.sort((a, b) => b.value - a.value).slice(0, 6).map((l, i) => {
+                  const tgt = nodes.find(n => n.id === l.target)!;
+                  return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, tgt.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${tgt.label}` : tgt.label}>{truncLabel(tgt.label, 30)} <Strong style={{ color: GREEN }}>{fmtCount(l.value)}</Strong></a>;
+                })}
+              </Flex>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  // ---- Directed Flow Graph ----
+  const renderDirectedFlowGraph = () => {
+    // Build unique nodes with positions in a force-directed-like layout
+    const uniqueNodes = new Map<string, { label: string; totalValue: number; depth: number }>();
+    for (const n of nodes) {
+      const existing = uniqueNodes.get(n.label);
+      if (!existing || n.value > existing.totalValue) {
+        uniqueNodes.set(n.label, { label: n.label, totalValue: n.value, depth: n.depth });
+      }
+    }
+    const uNodes = Array.from(uniqueNodes.values()).sort((a, b) => b.totalValue - a.totalValue).slice(0, 16);
+    // Aggregate links between unique labels
+    const edgeMap = new Map<string, number>();
+    for (const l of links) {
+      const src = nodes.find(n => n.id === l.source)!;
+      const tgt = nodes.find(n => n.id === l.target)!;
+      const key = `${src.label}|||${tgt.label}`;
+      edgeMap.set(key, (edgeMap.get(key) ?? 0) + l.value);
+    }
+    const edges = Array.from(edgeMap.entries()).map(([k, v]) => {
+      const [from, to] = k.split("|||");
+      return { from, to, value: v };
+    }).sort((a, b) => b.value - a.value).slice(0, 30);
+
+    const gW = 960;
+    const gH = 500;
+    const nodeRadius = 28;
+    // Position nodes in columns by depth
+    const depthGroups = new Map<number, typeof uNodes>();
+    for (const n of uNodes) {
+      const arr = depthGroups.get(n.depth) ?? [];
+      arr.push(n);
+      depthGroups.set(n.depth, arr);
+    }
+    const maxD = Math.max(...Array.from(depthGroups.keys()));
+    const nodePositions = new Map<string, { x: number; y: number }>();
+    for (const [d, group] of depthGroups) {
+      const colX = 80 + (d / Math.max(maxD, 1)) * (gW - 160);
+      group.forEach((n, i) => {
+        const rowY = 50 + (i / Math.max(group.length - 1, 1)) * (gH - 100);
+        nodePositions.set(n.label, { x: colX, y: group.length === 1 ? gH / 2 : rowY });
+      });
+    }
+
+    return (
       <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
-        <svg width={W} height={H} style={{ display: "block", margin: "0 auto", cursor: hasFocus ? "pointer" : "default" }} onClick={() => setFocusNodeId(null)}>
-          {/* Depth column labels */}
-          {Array.from({ length: maxDepth + 1 }, (_, d) => (
-            <text key={`dl-${d}`} x={PAD.left + d * colW + NODE_W / 2} y={12} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={10} fontWeight={600}>{DEPTH_LABELS[d] ?? `Page ${d + 1}`}</text>
-          ))}
-
-          {/* Links */}
-          {links.map((l, i) => {
-            const srcNode = nodes.find(n => n.id === l.source)!;
-            const tgtNode = nodes.find(n => n.id === l.target)!;
-            const x0 = PAD.left + srcNode.depth * colW + NODE_W;
-            const x1 = PAD.left + tgtNode.depth * colW;
-            const y0 = PAD.top + l.sy * scaleY + (l.thickness * scaleY) / 2;
-            const y1 = PAD.top + l.ty * scaleY + (l.thickness * scaleY) / 2;
-            const curvature = (x1 - x0) * 0.4;
-            const color = SANKEY_COLORS[srcNode.depth % SANKEY_COLORS.length];
-            const isConnected = !hasFocus || connectedLinks.has(i);
-            const opacity = hasFocus ? (isConnected ? 0.7 : 0.06) : 0.35;
+        <svg width={gW} height={gH} style={{ display: "block", margin: "0 auto" }}>
+          <defs>
+            <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="rgba(255,255,255,0.5)" />
+            </marker>
+          </defs>
+          {/* Edges */}
+          {edges.map((e, i) => {
+            const from = nodePositions.get(e.from);
+            const to = nodePositions.get(e.to);
+            if (!from || !to) return null;
+            const maxEdgeVal = edges[0]?.value ?? 1;
+            const thickness = Math.max(1, (e.value / maxEdgeVal) * 8);
+            const dx = to.x - from.x;
+            const dy = to.y - from.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const offsetX = dist > 0 ? (dx / dist) * nodeRadius : 0;
+            const offsetY = dist > 0 ? (dy / dist) * nodeRadius : 0;
+            const x1 = from.x + offsetX;
+            const y1 = from.y + offsetY;
+            const x2 = to.x - offsetX;
+            const y2 = to.y - offsetY;
+            const midX = (x1 + x2) / 2;
+            const midY = (y1 + y2) / 2 - 10;
             return (
-              <path
-                key={`link-${i}`}
-                d={`M${x0},${y0} C${x0 + curvature},${y0} ${x1 - curvature},${y1} ${x1},${y1}`}
-                fill="none"
-                stroke={color}
-                strokeWidth={Math.max(1, l.thickness * scaleY)}
-                strokeOpacity={opacity}
-                style={{ cursor: "pointer", transition: "stroke-opacity 0.2s" }}
-                onClick={(e) => { e.stopPropagation(); setFocusNodeId(srcNode.id); }}
-              >
-                <title>{`${srcNode.label} → ${tgtNode.label}: ${fmtCount(l.value)} sessions`}</title>
-              </path>
+              <g key={`edge-${i}`}>
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={SANKEY_COLORS[i % SANKEY_COLORS.length]} strokeWidth={thickness} strokeOpacity={0.4} markerEnd="url(#arrowhead)" />
+                <text x={midX} y={midY} textAnchor="middle" fill="rgba(255,255,255,0.6)" fontSize={9} fontWeight={600}>{fmtCount(e.value)}</text>
+              </g>
             );
           })}
-
           {/* Nodes */}
-          {nodes.map((n) => {
-            const x = PAD.left + n.depth * colW;
-            const y = PAD.top + n.y * scaleY;
-            const h = Math.max(2, n.height * scaleY);
+          {uNodes.map((n, i) => {
+            const pos = nodePositions.get(n.label);
+            if (!pos) return null;
             const color = SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
-            const isLeft = n.depth === 0;
-            const isRight = n.depth === maxDepth;
-            const labelX = isLeft ? x - 4 : isRight ? x + NODE_W + 4 : x + NODE_W + 4;
-            const anchor = isLeft ? "end" : "start";
-            const isFocused = n.id === focusNodeId;
-            const isConnected = !hasFocus || connectedNodes.has(n.id);
-            const nodeOpacity = hasFocus ? (isFocused ? 1 : isConnected ? 0.85 : 0.15) : 0.85;
-            const labelOpacity = hasFocus ? (isConnected ? 0.9 : 0.15) : 0.7;
+            const isFocused = focusLabel === n.label;
             return (
-              <g key={n.id} style={{ cursor: "pointer", transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); setFocusNodeId(isFocused ? null : n.id); }}>
-                <rect x={x} y={y} width={NODE_W} height={h} rx={3} fill={color} opacity={nodeOpacity} stroke={isFocused ? "#fff" : "none"} strokeWidth={isFocused ? 2 : 0}>
-                  <title>{`${n.label}: ${fmtCount(n.value)} sessions`}</title>
-                </rect>
-                {h > 8 && (
-                  <text x={labelX} y={y + h / 2 + 3.5} textAnchor={anchor} fill={`rgba(255,255,255,${labelOpacity})`} fontSize={10} fontWeight={isFocused ? 700 : 400}>
-                    {truncLabel(n.label)}
-                  </text>
-                )}
+              <g key={`node-${i}`} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
+                <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={color} fillOpacity={isFocused ? 1 : 0.8} stroke={isFocused ? "#fff" : color} strokeWidth={isFocused ? 3 : 2} />
+                <text x={pos.x} y={pos.y - 3} textAnchor="middle" fill="white" fontSize={8} fontWeight={600}>{truncLabel(n.label, 14)}</text>
+                <text x={pos.x} y={pos.y + 10} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={8}>{fmtCount(n.totalValue)}</text>
               </g>
             );
           })}
         </svg>
-        {hasFocus && focusNode && (
-          <div style={{ marginTop: 12, padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: `3px solid ${SANKEY_COLORS[focusNode.depth % SANKEY_COLORS.length]}` }}>
-            <Flex alignItems="center" gap={8} style={{ marginBottom: 8 }}>
-              <Strong style={{ fontSize: 13 }}>{focusNode.label}</Strong>
-              <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtCount(focusSessions)} sessions</Text>
-              <button onClick={() => setFocusNodeId(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 10 }}>Clear</button>
-            </Flex>
-            {focusInbound.length > 0 && (
-              <div style={{ marginBottom: 6 }}>
-                <Text style={{ fontSize: 10, opacity: 0.5 }}>Inbound ({focusInbound.length}):</Text>
-                <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
-                  {focusInbound.sort((a, b) => b.value - a.value).slice(0, 6).map((l, i) => {
-                    const src = nodes.find(n => n.id === l.source)!;
-                    return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, src.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${src.label}` : src.label}>{truncLabel(src.label, 30)} <Strong style={{ color: CYAN }}>{fmtCount(l.value)}</Strong></a>;
-                  })}
-                </Flex>
-              </div>
-            )}
-            {focusOutbound.length > 0 && (
-              <div>
-                <Text style={{ fontSize: 10, opacity: 0.5 }}>Outbound ({focusOutbound.length}):</Text>
-                <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
-                  {focusOutbound.sort((a, b) => b.value - a.value).slice(0, 6).map((l, i) => {
-                    const tgt = nodes.find(n => n.id === l.target)!;
-                    return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, tgt.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${tgt.label}` : tgt.label}>{truncLabel(tgt.label, 30)} <Strong style={{ color: GREEN }}>{fmtCount(l.value)}</Strong></a>;
-                  })}
-                </Flex>
-              </div>
-            )}
-          </div>
-        )}
+        {renderLabelPopup()}
       </div>
+    );
+  };
+
+  // ---- Alluvial / Columnar ----
+  const renderAlluvial = () => {
+    const aW = 960;
+    const aH = 540;
+    const aPAD = { top: 50, right: 40, bottom: 20, left: 40 };
+    const aInnerW = aW - aPAD.left - aPAD.right;
+    const aInnerH = aH - aPAD.top - aPAD.bottom;
+    const numCols = maxDepth + 1;
+    const aColW = numCols > 0 ? aInnerW / numCols : aInnerW;
+    const nodeW = 140;
+    const nodeH = 36;
+    const nodeGap = 8;
+
+    // Group nodes by depth
+    const depthCols = new Map<number, SankeyNode[]>();
+    for (const n of nodes) {
+      const arr = depthCols.get(n.depth) ?? [];
+      arr.push(n);
+      depthCols.set(n.depth, arr);
+    }
+
+    // Compute positions: discrete boxes arranged vertically within each Step column
+    const alluvialNodes = new Map<string, { x: number; y: number; w: number; h: number; label: string; value: number; depth: number; cx: number; cy: number }>();
+    for (const [d, col] of depthCols) {
+      const sorted = [...col].sort((a, b) => b.value - a.value).slice(0, 6); // limit per column
+      const cx = aPAD.left + d * aColW + aColW / 2;
+      const totalH = sorted.length * nodeH + (sorted.length - 1) * nodeGap;
+      let yStart = aPAD.top + (aInnerH - totalH) / 2;
+      if (yStart < aPAD.top) yStart = aPAD.top;
+      for (const n of sorted) {
+        const x = cx - nodeW / 2;
+        alluvialNodes.set(n.id, { x, y: yStart, w: nodeW, h: nodeH, label: n.label, value: n.value, depth: d, cx, cy: yStart + nodeH / 2 });
+        yStart += nodeH + nodeGap;
+      }
+    }
+
+    return (
+      <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
+        <svg width={aW} height={aH} style={{ display: "block", margin: "0 auto" }}>
+          {/* Column background panels */}
+          {Array.from({ length: numCols }, (_, d) => {
+            const cx = aPAD.left + d * aColW + aColW / 2;
+            const colPadX = 8;
+            return (
+              <g key={`col-bg-${d}`}>
+                <rect x={cx - aColW / 2 + colPadX} y={aPAD.top - 20} width={aColW - colPadX * 2} height={aInnerH + 30} rx={8} fill="rgba(60,60,80,0.35)" stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+                <text x={cx} y={aPAD.top - 6} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={12} fontWeight={700}>Step {d + 1}</text>
+              </g>
+            );
+          })}
+          {/* Connecting arrows between nodes */}
+          {links.map((l, i) => {
+            const src = alluvialNodes.get(l.source);
+            const tgt = alluvialNodes.get(l.target);
+            if (!src || !tgt) return null;
+            const x0 = src.x + src.w;
+            const y0 = src.cy;
+            const x1 = tgt.x;
+            const y1 = tgt.cy;
+            const cp = (x1 - x0) * 0.45;
+            const maxVal = links.length > 0 ? Math.max(...links.map(ll => ll.value)) : 1;
+            const thickness = Math.max(1, Math.min(4, (l.value / maxVal) * 4));
+            const color = "rgba(180,180,200,0.4)";
+            return (
+              <path key={`al-${i}`} d={`M${x0},${y0} C${x0 + cp},${y0} ${x1 - cp},${y1} ${x1},${y1}`} fill="none" stroke={color} strokeWidth={thickness} markerEnd="url(#alluvial-arrow)" />
+            );
+          })}
+          {/* Arrow marker */}
+          <defs>
+            <marker id="alluvial-arrow" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+              <polygon points="0 0, 6 2, 0 4" fill="rgba(180,180,200,0.5)" />
+            </marker>
+          </defs>
+          {/* Node rectangles */}
+          {Array.from(alluvialNodes.entries()).map(([id, n]) => {
+            const color = SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
+            const isFocused = focusLabel === n.label;
+            return (
+              <g key={id} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
+                <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={5} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : "rgba(255,255,255,0.15)"} strokeWidth={isFocused ? 2.5 : 1} />
+                <text x={n.cx} y={n.y + n.h / 2 + 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={600}>
+                  {truncLabel(n.label, 16)} — {fmtCount(n.value)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+        {renderLabelPopup()}
+      </div>
+    );
+  };
+
+  // ---- State Machine ----
+  const renderStateMachine = () => {
+    // Build aggregated transitions with conversion percentages
+    const stateNodes = new Map<string, { label: string; totalOutbound: number; totalInbound: number; value: number }>();
+    const stateEdges: { from: string; to: string; value: number; pct: number }[] = [];
+
+    // Get unique page labels with totals
+    for (const n of nodes) {
+      const existing = stateNodes.get(n.label);
+      if (existing) {
+        existing.value = Math.max(existing.value, n.value);
+      } else {
+        stateNodes.set(n.label, { label: n.label, totalOutbound: 0, totalInbound: 0, value: n.value });
+      }
+    }
+
+    // Aggregate edges between unique labels
+    const edgeMap = new Map<string, number>();
+    for (const l of links) {
+      const src = nodes.find(n => n.id === l.source)!;
+      const tgt = nodes.find(n => n.id === l.target)!;
+      const key = `${src.label}|||${tgt.label}`;
+      edgeMap.set(key, (edgeMap.get(key) ?? 0) + l.value);
+    }
+    for (const [key, value] of edgeMap) {
+      const [from, to] = key.split("|||");
+      const srcNode = stateNodes.get(from);
+      if (srcNode) srcNode.totalOutbound += value;
+      const tgtNode = stateNodes.get(to);
+      if (tgtNode) tgtNode.totalInbound += value;
+    }
+    for (const [key, value] of edgeMap) {
+      const [from, to] = key.split("|||");
+      const srcNode = stateNodes.get(from);
+      const pct = srcNode && srcNode.value > 0 ? (value / srcNode.value) * 100 : 0;
+      stateEdges.push({ from, to, value, pct });
+    }
+    stateEdges.sort((a, b) => b.value - a.value);
+    const topEdges = stateEdges.slice(0, 25);
+    const topLabels = new Set<string>();
+    for (const e of topEdges) { topLabels.add(e.from); topLabels.add(e.to); }
+    const smNodes = Array.from(stateNodes.values()).filter(n => topLabels.has(n.label)).sort((a, b) => b.value - a.value).slice(0, 12);
+
+    // Identify exit nodes: nodes with significantly more inbound than outbound (drop-off points)
+    const exitThreshold = 0.3; // if outbound < 30% of value, treat as exit-heavy
+    const exitNodes = new Set<string>();
+    for (const n of smNodes) {
+      if (n.value > 0 && n.totalOutbound < n.value * exitThreshold) {
+        exitNodes.add(n.label);
+      }
+    }
+
+    const smW = 960;
+    const smH = 540;
+    const nodeRectW = 120;
+    const nodeRectH = 46;
+    // Layout nodes in a flowing left-to-right grid
+    const cols = 4;
+    const rowCount = Math.ceil(smNodes.length / cols);
+    const cellW = smW / cols;
+    const cellH = smH / rowCount;
+    const smPositions = new Map<string, { x: number; y: number }>();
+    smNodes.forEach((n, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      smPositions.set(n.label, { x: cellW * col + cellW / 2, y: cellH * row + cellH / 2 });
+    });
+
+    return (
+      <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
+        <svg width={smW} height={smH} style={{ display: "block", margin: "0 auto" }}>
+          <defs>
+            <marker id="sm-arrow" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
+              <polygon points="0 0, 6 2, 0 4" fill="rgba(255,255,255,0.6)" />
+            </marker>
+          </defs>
+          {/* Edges with absolute session counts */}
+          {topEdges.map((e, i) => {
+            const from = smPositions.get(e.from);
+            const to = smPositions.get(e.to);
+            if (!from || !to) return null;
+            const dx = to.x - from.x;
+            const dy = to.y - from.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 1) return null;
+            const r = 50;
+            const ox = (dx / dist) * r;
+            const oy = (dy / dist) * r;
+            const x1 = from.x + ox;
+            const y1 = from.y + oy;
+            const x2 = to.x - ox;
+            const y2 = to.y - oy;
+            // Curve the edge slightly
+            const midX = (x1 + x2) / 2 + (dy / dist) * 18;
+            const midY = (y1 + y2) / 2 - (dx / dist) * 18;
+            const maxVal = topEdges[0]?.value ?? 1;
+            const thickness = Math.max(1.5, (e.value / maxVal) * 5);
+            const color = "rgba(200,200,220,0.5)";
+            return (
+              <g key={`sme-${i}`}>
+                <path d={`M${x1},${y1} Q${midX},${midY} ${x2},${y2}`} fill="none" stroke={color} strokeWidth={thickness} markerEnd="url(#sm-arrow)" />
+                <text x={midX} y={midY - 2} textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize={9} fontWeight={700}>{fmtCount(e.value)}</text>
+              </g>
+            );
+          })}
+          {/* State nodes as filled colored rectangles */}
+          {smNodes.map((n, i) => {
+            const pos = smPositions.get(n.label);
+            if (!pos) return null;
+            const isExit = exitNodes.has(n.label);
+            const color = isExit ? RED : SANKEY_COLORS[i % SANKEY_COLORS.length];
+            const isFocused = focusLabel === n.label;
+            return (
+              <g key={`smn-${i}`} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
+                <rect x={pos.x - nodeRectW / 2} y={pos.y - nodeRectH / 2} width={nodeRectW} height={nodeRectH} rx={6} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : "rgba(255,255,255,0.15)"} strokeWidth={isFocused ? 2.5 : 1} />
+                <text x={pos.x} y={pos.y - 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={700}>{isExit ? "Exit" : truncLabel(n.label, 14)}</text>
+                <text x={pos.x} y={pos.y + 12} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize={9}>{fmtCount(n.value)} sessions</text>
+              </g>
+            );
+          })}
+        </svg>
+        {renderLabelPopup()}
+      </div>
+    );
+  };
+
+  // ---- Render selected chart ----
+  const renderChart = () => {
+    switch (chartStyle) {
+      case "gradient": return renderClassicSankey(true);
+      case "directed": return renderDirectedFlowGraph();
+      case "alluvial": return renderAlluvial();
+      case "stateMachine": return renderStateMachine();
+      case "classic":
+      default: return renderClassicSankey(false);
+    }
+  };
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      {chartHeader}
+      {renderChart()}
 
       {/* Transition table */}
       <SectionHeader title="Top Transitions" />
