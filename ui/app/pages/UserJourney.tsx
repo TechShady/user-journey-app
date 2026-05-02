@@ -3276,7 +3276,7 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
   const maxDurActions = Math.max(...durations.map((d: any) => Number(d.actions ?? 0)), 1);
 
   const severityColor = (s: string) => s === "critical" ? RED : s === "high" ? ORANGE : s === "medium" ? YELLOW : GREEN;
-  const severityEmoji = (s: string) => s === "critical" ? "ðŸ”´" : s === "high" ? "ðŸŸ " : s === "medium" ? "ðŸŸ¡" : "ðŸŸ¢";
+  const severityEmoji = (s: string) => s === "critical" ? "🔴" : s === "high" ? "🟠" : s === "medium" ? "🟡" : "🟢";
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
@@ -3335,7 +3335,7 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
             "Avg (ms)": Math.round(s.avg),
             Errors: s.errors,
             Apdex: s.apdex,
-            "Traffic Î”": s.countDelta * 100,
+            "Traffic Δ": s.countDelta * 100,
             Anomaly: s.isAnomaly ? "YES" : "—",
           }))}
           columns={[
@@ -3344,7 +3344,7 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
             { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
             { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : GREEN }}>{value}</Strong> },
             { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
-            { id: "Traffic Î”", header: "Traffic Î”", accessor: "Traffic Î”", sortType: "number" as any, cell: ({ value }: any) => {
+            { id: "Traffic Δ", header: "Traffic Δ", accessor: "Traffic Δ", sortType: "number" as any, cell: ({ value }: any) => {
               const color = Math.abs(value) < 5 ? "rgba(255,255,255,0.4)" : value > 0 ? GREEN : RED;
               return <Strong style={{ color }}>{value >= 0 ? "+" : ""}{value.toFixed(1)}%</Strong>;
             }},
@@ -3387,7 +3387,7 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
       <SectionHeader title="Diagnosis" />
       <div className="uj-table-tile" style={{ padding: 20 }}>
         {anomalyCount === 0 ? (
-          <Flex gap={8} alignItems="center"><span>ðŸŸ¢</span><Text style={{ color: GREEN }}>All metrics within normal range. No anomalies detected.</Text></Flex>
+          <Flex gap={8} alignItems="center"><span>🟢</span><Text style={{ color: GREEN }}>All metrics within normal range. No anomalies detected.</Text></Flex>
         ) : (
           <Flex flexDirection="column" gap={8}>
             {anomalies.filter((a) => a.isAnomaly).map((a) => (
@@ -3802,7 +3802,7 @@ ${bottleneckHtml}
       {worstStep && worstStep.dropOff > 10 && (
         <div className="uj-table-tile" style={{ padding: 16, borderLeft: `3px solid ${worstStep.dropOff > 40 ? RED : worstStep.dropOff > 20 ? ORANGE : YELLOW}` }}>
           <Flex gap={8} alignItems="center">
-            <span style={{ fontSize: 18 }}>{worstStep.dropOff > 40 ? "ðŸ”´" : worstStep.dropOff > 20 ? "ðŸŸ " : "ðŸŸ¡"}</span>
+            <span style={{ fontSize: 18 }}>{worstStep.dropOff > 40 ? "🔴" : worstStep.dropOff > 20 ? "🟠" : "🟡"}</span>
             <div>
               <Strong style={{ fontSize: 13 }}>Biggest Bottleneck: {worstStep.from} → {worstStep.to}</Strong>
               <Text style={{ display: "block", fontSize: 11, opacity: 0.6 }}>{fmtPct(worstStep.dropOff)} drop-off rate. {worstStep.dropOff > 40 ? "Critical friction point — requires immediate attention." : "Significant abandonment — consider UX optimization."}</Text>
@@ -3934,7 +3934,7 @@ function ErrorsTab({ errors, funnelCounts, isLoading, steps }: { errors: any[]; 
         {dropOffs.map((d, i) => (
           <div key={i} className="uj-recommendation-card">
             <Flex alignItems="center" gap={8}>
-              <span className="uj-rec-icon">{d.pctLost > 40 ? "ðŸ”´" : d.pctLost > 20 ? "ðŸŸ¡" : "ðŸŸ¢"}</span>
+              <span className="uj-rec-icon">{d.pctLost > 40 ? "🔴" : d.pctLost > 20 ? "🟡" : "🟢"}</span>
               <div>
                 <Strong style={{ fontSize: 13 }}>{d.from} → {d.to}: {fmtPct(d.pctLost)} drop-off</Strong>
                 <Text style={{ fontSize: 11, opacity: 0.6, display: "block" }}>
@@ -4859,22 +4859,22 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
       {/* Period-over-period change summary */}
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-kpi-card" style={{ minWidth: 150 }}>
-          <Text className="uj-kpi-label">Conversion Î”</Text>
+          <Text className="uj-kpi-label">Conversion Δ</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: convChange >= 0 ? GREEN : RED }}>{convChange >= 0 ? "▲" : "▼"} {Math.abs(convChange).toFixed(1)}%</Heading>
           <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtPct(overallConvPrev)} → {fmtPct(overallConv)}</Text>
         </div>
         <div className="uj-kpi-card" style={{ minWidth: 150 }}>
-          <Text className="uj-kpi-label">Apdex Î”</Text>
+          <Text className="uj-kpi-label">Apdex Δ</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: apdexChange >= 0 ? GREEN : RED }}>{apdexChange >= 0 ? "▲" : "▼"} {Math.abs(apdexChange).toFixed(1)}%</Heading>
           <Text style={{ fontSize: 10, opacity: 0.5 }}>{overallApdexPrev.toFixed(2)} → {overallApdex.toFixed(2)}</Text>
         </div>
         <div className="uj-kpi-card" style={{ minWidth: 150 }}>
-          <Text className="uj-kpi-label">Error Rate Î”</Text>
+          <Text className="uj-kpi-label">Error Rate Δ</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: errorChange <= 0 ? GREEN : RED }}>{errorChange > 0 ? "▲" : "▼"} {Math.abs(errorChange).toFixed(1)}%</Heading>
           <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtPct(errorRatePrev)} → {fmtPct(errorRate)}</Text>
         </div>
         <div className="uj-kpi-card" style={{ minWidth: 150 }}>
-          <Text className="uj-kpi-label">Duration Î”</Text>
+          <Text className="uj-kpi-label">Duration Δ</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: durationChange <= 0 ? GREEN : RED }}>{durationChange > 0 ? "▲" : "▼"} {Math.abs(durationChange).toFixed(1)}%</Heading>
           <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmt(qualityPrev.avg)} → {fmt(quality.avg)}</Text>
         </div>
@@ -5262,7 +5262,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 16, color: b.color }}>{b.format(b.current)}</Strong></div>
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Projected +7d</Text><Strong style={{ display: "block", fontSize: 16, color: b.projectedGood ? GREEN : RED }}>{b.format(b.projected7d)}</Strong></div>
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Budget</Text><Strong style={{ display: "block", fontSize: 16, opacity: 0.6 }}>{b.direction === "above" ? "≥" : "≤"} {b.format(b.threshold)}</Strong></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Daily Î”</Text><Strong style={{ display: "block", fontSize: 14, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.format(Math.abs(b.effectiveRate))}/day`}</Strong></div>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 14, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.format(Math.abs(b.effectiveRate))}/day`}</Strong></div>
             </Flex>
             {b.daysToBreach != null && (
               <div style={{ padding: "6px 12px", background: `${severityColor(b.severity)}10`, borderRadius: 6, marginBottom: 6 }}>
@@ -5417,7 +5417,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
             { id: "Current", header: "Current", accessor: "Current" },
             { id: "Budget Threshold", header: "Budget", accessor: "Budget Threshold" },
             { id: "Projected +7d", header: "Proj +7d", accessor: "Projected +7d" },
-            { id: "Daily Rate", header: "Daily Î”", accessor: "Daily Rate" },
+            { id: "Daily Rate", header: "Daily Δ", accessor: "Daily Rate" },
             { id: "Trend", header: "Trend", accessor: "Trend", cell: ({ value }: any) => <Strong style={{ color: value === "Improving" ? GREEN : value === "Stable" ? BLUE : RED }}>{value === "Improving" ? "▲" : value === "Stable" ? "●" : "▼"} {value}</Strong> },
             { id: "Days to Breach", header: "Breach In", accessor: "Days to Breach", cell: ({ value }: any) => <Strong style={{ color: value === "Safe" ? GREEN : value === "NOW" ? RED : ORANGE }}>{value}</Strong> },
             { id: "Status", header: "Status", accessor: "Status", cell: ({ value }: any) => {
@@ -5532,7 +5532,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
 
   // Waterfall chart
   const maxP90 = Math.max(...sortedResources.slice(0, 20).map(r => r.p90Dur), 1);
-  const barW = 300;
+  const barW = 160;
 
   // Resource type breakdown per step
   const stepCards = steps.map((step) => {
@@ -5625,7 +5625,8 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
         <svg width="100%" viewBox={`0 0 720 ${Math.min(sortedResources.length, 20) * 28 + 30}`}>
           {/* Header */}
           <text x={4} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Resource</text>
-          <text x={420} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Timing</text>
+          <text x={412} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Type</text>
+          <text x={450} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Timing</text>
           <text x={620} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Count</text>
           <text x={670} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>P90</text>
           <line x1={0} y1={20} x2={720} y2={20} stroke="rgba(255,255,255,0.06)" />
@@ -5640,11 +5641,11 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
                 <text x={4} y={y + 4} fill="rgba(255,255,255,0.7)" fontSize={9}>{shortName.substring(0, 52)}</text>
                 <title>{`${r.name}\nType: ${r.type} | Step: ${r.step}\nAvg: ${fmt(r.avgDur)} | P50: ${fmt(r.p50Dur)} | P90: ${fmt(r.p90Dur)} | P99: ${fmt(r.p99Dur)}\nCount: ${r.count} | Total: ${fmt(r.totalDur)}`}</title>
                 {/* P90 bar (background) */}
-                <rect x={410} y={y - 8} width={Math.max(p90W, 2)} height={12} rx={2} fill={color} opacity={0.2} />
+                <rect x={450} y={y - 8} width={Math.max(p90W, 2)} height={12} rx={2} fill={color} opacity={0.2} />
                 {/* P50 bar (foreground) */}
-                <rect x={410} y={y - 8} width={Math.max(p50W, 2)} height={12} rx={2} fill={color} opacity={0.6} />
+                <rect x={450} y={y - 8} width={Math.max(p50W, 2)} height={12} rx={2} fill={color} opacity={0.6} />
                 {/* Type badge */}
-                <text x={410 + Math.max(p90W, 2) + 4} y={y + 3} fill={color} fontSize={8} fontWeight={600}>{r.type}</text>
+                <text x={412} y={y + 3} fill={color} fontSize={8} fontWeight={600}>{r.type}</text>
                 <text x={620} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize={9}>{fmtCount(r.count)}</text>
                 <text x={670} y={y + 4} fill={r.p90Dur > 1000 ? RED : r.p90Dur > 500 ? ORANGE : GREEN} fontSize={9} fontWeight={600}>{fmt(r.p90Dur)}</text>
               </g>
@@ -5875,7 +5876,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
               const x = padL + (idx / Math.max(totalHours - 1, 1)) * plotW;
               const depInfo = deployHourMap.get(idx);
               const h = hourlyImpact[idx];
-              const tip = depInfo ? `ðŸš€ ${depInfo.names.join(", ")}\nTime: ${depInfo.tsStr}\nEvents: ${depInfo.count}${h ? `\nApdex: ${h.apdex.toFixed(2)} | Dur: ${fmt(h.avgDur)} | Err: ${h.errorRate.toFixed(1)}%` : ""}` : "";
+              const tip = depInfo ? `🚀 ${depInfo.names.join(", ")}\nTime: ${depInfo.tsStr}\nEvents: ${depInfo.count}${h ? `\nApdex: ${h.apdex.toFixed(2)} | Dur: ${fmt(h.avgDur)} | Err: ${h.errorRate.toFixed(1)}%` : ""}` : "";
               return (
                 <g key={`dep-${idx}`}>
                   <line x1={x} y1={padT} x2={x} y2={padT + plotH} stroke={RED} strokeWidth={2} opacity={0.6} strokeDasharray="4 2" />
@@ -5908,7 +5909,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
               const x = padL + (i / Math.max(totalHours - 1, 1)) * plotW;
               const yApdex = padT + plotH - (h.apdex / maxApdex) * plotH;
               const isDeploy = deployHourIdxSet.has(i);
-              const depTip = isDeploy ? `\nðŸš€ ${deployHourMap.get(i)?.names.join(", ") ?? "Deploy"} (${deployHourMap.get(i)?.count ?? 1} events)` : "";
+              const depTip = isDeploy ? `\n🚀 ${deployHourMap.get(i)?.names.join(", ") ?? "Deploy"} (${deployHourMap.get(i)?.count ?? 1} events)` : "";
               return <circle key={`pt-${i}`} cx={x} cy={yApdex} r={isDeploy ? 4 : 2} fill={isDeploy ? RED : GREEN} opacity={0.8}><title>{`${h.hourTs}\nApdex: ${h.apdex.toFixed(2)} | Dur: ${fmt(h.avgDur)} | Err: ${h.errorRate.toFixed(1)}%${depTip}`}</title></circle>;
             })}
 
@@ -5964,7 +5965,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
                 <span style={{ fontSize: 12, padding: "3px 12px", borderRadius: 4, background: `${severityColor(d.severity)}18`, color: severityColor(d.severity), fontWeight: 700, flexShrink: 0 }}>{severityLabel(d.severity)}</span>
               </Flex>
               {/* Timestamp + source */}
-              <Text style={{ fontSize: 13, opacity: 0.5, display: "block", marginBottom: 4 }}>{d.tsStr}{d.source !== "unknown" ? ` Â· ${d.source}` : ""}</Text>
+              <Text style={{ fontSize: 13, opacity: 0.5, display: "block", marginBottom: 4 }}>{d.tsStr}{d.source !== "unknown" ? ` · ${d.source}` : ""}</Text>
               {/* Metadata tags */}
               {metaItems.length > 0 && (
                 <Flex gap={6} flexWrap="wrap" style={{ marginBottom: 8 }}>
@@ -6018,7 +6019,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
                   {/* Sparkline — taller, full width */}
                   {sparkSlice.length > 1 && (
                     <div>
-                      <Text style={{ fontSize: 11, opacity: 0.4, marginBottom: 2, display: "block" }}>Apdex (green) &amp; Duration (blue) Â±2h around deploy</Text>
+                      <Text style={{ fontSize: 11, opacity: 0.4, marginBottom: 2, display: "block" }}>Apdex (green) &amp; Duration (blue) ±2h around deploy</Text>
                       <svg width="100%" viewBox="0 0 400 80" style={{ maxHeight: 80 }}>
                         {/* Apdex area fill */}
                         <polygon
@@ -6325,7 +6326,7 @@ function SessionReplaySpotlightTab({ data, isLoading }: { data: any; isLoading: 
                     </div>
                   </Flex>
                   <Link href={replayUrl} target="_blank" rel="noopener noreferrer">
-                    <Button variant="emphasized" style={{ fontSize: 11 }}>\u25b6 Replay</Button>
+                    <Button variant="emphasized" style={{ fontSize: 11 }}>{"\u25B6"} Replay</Button>
                   </Link>
                 </Flex>
               </div>
@@ -6473,7 +6474,7 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
             <div style={{ flex: 1 }} />
             <Strong style={{ flex: 1, textAlign: "center", color: BLUE }}>Segment A</Strong>
             <Strong style={{ flex: 1, textAlign: "center", color: PURPLE }}>Segment B</Strong>
-            <Text style={{ flex: 1, textAlign: "right", opacity: 0.5, fontSize: 12 }}>\u0394 (A \u2212 B)</Text>
+            <Text style={{ flex: 1, textAlign: "right", opacity: 0.5, fontSize: 12 }}>{"\u0394 (A \u2212 B)"}</Text>
           </Flex>
           <Flex justifyContent="space-between" style={{ padding: "0 4px" }}>
             <div style={{ flex: 1 }} />
@@ -6500,18 +6501,31 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
           </div>
 
           {(() => {
-            const aScore = (a.apdex > b.apdex ? 1 : -1) + (a.avgDur < b.avgDur ? 1 : -1) + (a.errRate < b.errRate ? 1 : -1) + (aCwv.lcp < bCwv.lcp ? 1 : -1) + (aCwv.cls < bCwv.cls ? 1 : -1);
-            const winner = aScore > 0 ? "A" : aScore < 0 ? "B" : null;
-            const wColor = winner === "A" ? BLUE : winner === "B" ? PURPLE : YELLOW;
+            const coreScore = (a.apdex > b.apdex ? 1 : -1) + (a.avgDur < b.avgDur ? 1 : -1) + (a.p90Dur < b.p90Dur ? 1 : -1) + (a.errRate < b.errRate ? 1 : -1) + (a.totalSessions > b.totalSessions ? 1 : -1);
+            const coreWinner = coreScore > 0 ? "A" : coreScore < 0 ? "B" : null;
+            const coreColor = coreWinner === "A" ? BLUE : coreWinner === "B" ? PURPLE : YELLOW;
+            const cwvScore = (aCwv.lcp < bCwv.lcp ? 1 : -1) + (aCwv.cls < bCwv.cls ? 1 : -1) + (aCwv.inp < bCwv.inp ? 1 : -1) + (aCwv.ttfb < bCwv.ttfb ? 1 : -1);
+            const cwvWinner = cwvScore > 0 ? "A" : cwvScore < 0 ? "B" : null;
+            const cwvColor = cwvWinner === "A" ? BLUE : cwvWinner === "B" ? PURPLE : YELLOW;
             return (
-              <div className="uj-table-tile" style={{ padding: 16, borderLeft: `3px solid ${wColor}` }}>
-                <Strong style={{ color: wColor }}>{winner ? `Segment ${winner} outperforms on ${Math.abs(aScore)}/5 core metrics` : "Segments perform equally across core metrics"}</Strong>
-                <Paragraph style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>
-                  {winner === "A" && "Consider investigating Segment B for optimization opportunities."}
-                  {winner === "B" && "Consider investigating Segment A for optimization opportunities."}
-                  {!winner && "Both segments show comparable performance. Consider more granular segmentation."}
-                </Paragraph>
-              </div>
+              <Flex gap={12}>
+                <div className="uj-table-tile" style={{ padding: 16, borderLeft: `3px solid ${coreColor}`, flex: 1 }}>
+                  <Strong style={{ color: coreColor }}>{coreWinner ? `Segment ${coreWinner} outperforms on ${Math.abs(coreScore)}/5 core metrics` : "Segments perform equally across core metrics"}</Strong>
+                  <Paragraph style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>
+                    {coreWinner === "A" && "Consider investigating Segment B for optimization opportunities."}
+                    {coreWinner === "B" && "Consider investigating Segment A for optimization opportunities."}
+                    {!coreWinner && "Both segments show comparable performance. Consider more granular segmentation."}
+                  </Paragraph>
+                </div>
+                <div className="uj-table-tile" style={{ padding: 16, borderLeft: `3px solid ${cwvColor}`, flex: 1 }}>
+                  <Strong style={{ color: cwvColor }}>{cwvWinner ? `Segment ${cwvWinner} outperforms on ${Math.abs(cwvScore)}/4 Core Web Vitals` : "Segments perform equally across Core Web Vitals"}</Strong>
+                  <Paragraph style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>
+                    {cwvWinner === "A" && "Segment B has weaker web vitals \u2014 check LCP/INP for UX regressions."}
+                    {cwvWinner === "B" && "Segment A has weaker web vitals \u2014 check LCP/INP for UX regressions."}
+                    {!cwvWinner && "Both segments show comparable web vitals. No immediate action needed."}
+                  </Paragraph>
+                </div>
+              </Flex>
             );
           })()}
         </>
