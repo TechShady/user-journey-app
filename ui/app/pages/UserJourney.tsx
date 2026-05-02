@@ -117,7 +117,14 @@ function cwvClr(val: number, metric: keyof typeof CWV): string { return val <= C
 function cwvLabel(val: number, metric: keyof typeof CWV): string { return val <= CWV[metric].good ? "Good" : val <= CWV[metric].poor ? "Needs Improvement" : "Poor"; }
 function calcApdex(sat: number, tol: number, total: number): number { return total > 0 ? (sat + tol / 2) / total : 0; }
 
-function stepFilter(s: StepDef): string { return s.type === "view" ? `view.name == "${s.identifier}"` : `url.path == "${s.identifier}"`; }
+function stepFilter(s: StepDef): string {
+  if (s.type === "view") {
+    return s.identifier.endsWith("*")
+      ? `startsWith(view.name, "${s.identifier.slice(0, -1)}")`
+      : `view.name == "${s.identifier}"`;
+  }
+  return `url.path == "${s.identifier}"`;
+}
 function anyStepFilter(steps: StepDef[]): string { return steps.map(stepFilter).join(" or "); }
 function stepTagExpr(steps: StepDef[], labels: string[]): string {
   return `coalesce(\n    ${steps.map((s, i) => `if(${stepFilter(s)}, "${labels[i]}")`).join(",\n    ")},\n    "other")`;
@@ -598,8 +605,13 @@ function rootCauseStepDropQuery(days: number, frontend: string, steps: StepDef[]
 }
 
 // ---------------------------------------------------------------------------
-// Predictive Forecasting — hourly trend data to project forward
+// Predictive Forecasting — trend data to project forward
 // ---------------------------------------------------------------------------
+function forecastBucketFormat(days: number): string {
+  if (days <= 1) return "yyyy-MM-dd HH:00";
+  return "yyyy-MM-dd";
+}
+
 function forecastTrendQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
@@ -610,7 +622,7 @@ function forecastTrendQuery(days: number, frontend: string, steps: StepDef[]): s
 | filter ${anyStepFilter(steps)}
 | fieldsAdd step_tag = ${tagExpr}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
-| fieldsAdd day_bucket = formatTimestamp(timestamp, format: "yyyy-MM-dd")
+| fieldsAdd day_bucket = formatTimestamp(start_time, format: "${forecastBucketFormat(days)}")
 | summarize
     steps = collectDistinct(step_tag),
     avg_dur = avg(dur_ms),
@@ -638,7 +650,7 @@ function forecastApdexTrendQuery(days: number, frontend: string, steps: StepDef[
 | filter frontend.name == "${frontend}"
 | filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
-| fieldsAdd day_bucket = formatTimestamp(timestamp, format: "yyyy-MM-dd")
+| fieldsAdd day_bucket = formatTimestamp(start_time, format: "${forecastBucketFormat(days)}")
 | summarize
     total = count(),
     satisfied = countIf(dur_ms <= ${APDEX_T}.0),
@@ -648,6 +660,24 @@ function forecastApdexTrendQuery(days: number, frontend: string, steps: StepDef[
     p90_dur = percentile(dur_ms, 90),
     by: {day_bucket}
 | sort day_bucket asc`;
+}
+
+function forecastVitalsTrendQuery(days: number, frontend: string): string {
+  const period = periodClause(days);
+  return `timeseries {
+  lcp = avg(dt.frontend.web.page.largest_contentful_paint),
+  cls = avg(dt.frontend.web.page.cumulative_layout_shift),
+  inp = avg(dt.frontend.web.page.interaction_to_next_paint),
+  ttfb = avg(dt.frontend.web.navigation.time_to_first_byte),
+  load_end = avg(dt.frontend.web.navigation.load_event_end),
+  ts = start()
+}, ${period}, interval: ${days <= 1 ? "1h" : "1d"}, filter: {frontend.name == "${frontend}"}
+| fieldsAdd d = record(lcp_val = lcp[], cls_val = cls[], inp_val = inp[], ttfb_val = ttfb[], load_val = load_end[], ts = ts[])
+| expand d
+| fieldsAdd lcp_val = d[lcp_val], cls_val = d[cls_val], inp_val = d[inp_val], ttfb_val = d[ttfb_val], load_val = d[load_val], bucket_ts = d[ts]
+| filterOut isNull(lcp_val) and isNull(cls_val) and isNull(inp_val) and isNull(ttfb_val) and isNull(load_val)
+| sort bucket_ts asc
+| fields lcp_val, cls_val, inp_val, ttfb_val, load_val`;
 }
 
 // ---------------------------------------------------------------------------
@@ -979,7 +1009,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Errors &amp; Drop-offs</Strong>: Drop-off analysis between funnel steps with optimization recommendations.</Paragraph>
         <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation.</Paragraph>
         <Paragraph><Strong>Root Cause Correlation</Strong>: Automatically correlates conversion drops with technical signals — latency spikes, error surges, and frustrated sessions — on an hourly timeline. Identifies which funnel steps degrade at the exact hours conversion dips. Surfaces ranked root cause signals with severity and confidence scores so you can pinpoint the technical driver behind every conversion drop without manual cross-referencing.</Paragraph>
-        <Paragraph><Strong>Predictive Forecasting</Strong>: Uses daily trend data to project Apdex, conversion rate, error rate, and average duration forward 7 days via linear regression. Flags when a metric is on trajectory to breach a performance budget threshold before it actually happens. Includes trend direction, daily rate of change, and days-to-breach estimates for proactive incident prevention.</Paragraph>
+        <Paragraph><Strong>Predictive Forecasting</Strong>: Uses trend data from the selected timeframe to project Apdex, conversion rate, error rate, and average duration forward 7 days via linear regression. Flags when a metric is on trajectory to breach a performance budget threshold before it actually happens. Includes trend direction, rate of change, and days-to-breach estimates for proactive incident prevention.</Paragraph>
         <Paragraph><Strong>Resource Waterfall</Strong>: Aggregated resource timing per funnel step — third-party scripts, XHR/Fetch calls, images, CSS, and fonts. Shows which specific resources drag down LCP and increase page weight. Includes per-step resource type breakdown, top slow resources ranked by total time, and a visual waterfall bar chart showing P50/P90/Max latency ranges. Helps identify CDN misses, unoptimized images, and slow third-party scripts.</Paragraph>
         <Paragraph><Strong>Change Intelligence</Strong>: Pulls deployment events from Dynatrace and overlays them on an hourly performance timeline. Automatically compares metrics in the window before and after each deployment to detect regressions. Shows before/after Apdex, duration, error rate, and frustrated % with severity classification. Use to validate whether a deploy caused a performance regression or improvement.</Paragraph>
       </HelpSection>
@@ -1005,7 +1035,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• Conversion Attribution reveals the business impact of slow pages per device/browser.</Paragraph>
         <Paragraph>• Share Executive Summary with stakeholders for quick performance status updates.</Paragraph>
         <Paragraph>• Root Cause Correlation pinpoints the exact hour and technical signal behind conversion drops — check after every deployment.</Paragraph>
-        <Paragraph>• Predictive Forecasting projects trends forward — use 7+ day timeframe for reliable forecasts. Check daily to catch budget breaches before they happen.</Paragraph>
+        <Paragraph>• Predictive Forecasting projects trends forward — longer timeframes provide more data points for reliable forecasts. Check daily to catch budget breaches before they happen.</Paragraph>
         <Paragraph>• Resource Waterfall identifies slow third-party scripts and resources per funnel step — prioritize optimizing the highest total-time resources.</Paragraph>
         <Paragraph>• Change Intelligence shows before/after metrics around every deployment — check it after every release to catch regressions early.</Paragraph>
       </HelpSection>
@@ -1160,8 +1190,9 @@ export function UserJourney() {
   const rootCauseStepDropData = useDql({ query: rootCauseStepDropQuery(timeframeDays, frontend, steps) });
 
   // NEW: Predictive Forecasting
-  const forecastTrendData = useDql({ query: forecastTrendQuery(Math.max(timeframeDays, 7), frontend, steps) });
-  const forecastApdexTrendData = useDql({ query: forecastApdexTrendQuery(Math.max(timeframeDays, 7), frontend, steps) });
+  const forecastTrendData = useDql({ query: forecastTrendQuery(timeframeDays, frontend, steps) });
+  const forecastApdexTrendData = useDql({ query: forecastApdexTrendQuery(timeframeDays, frontend, steps) });
+  const forecastVitalsTrendData = useDql({ query: forecastVitalsTrendQuery(timeframeDays, frontend) });
 
   // NEW: Resource Waterfall
   const resourceWaterfallData = useDql({ query: resourceWaterfallQuery(timeframeDays, frontend, steps) });
@@ -1371,7 +1402,7 @@ export function UserJourney() {
             case "Errors & Drop-offs": content = <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} steps={steps} />; break;
             case "What-If Analysis": content = <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} />; break;
             case "Root Cause Correlation": content = <RootCauseCorrelationTab hourlyData={rootCauseCorrelationData} stepDropData={rootCauseStepDropData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} isLoading={rootCauseCorrelationData.isLoading || rootCauseStepDropData.isLoading} steps={steps} />; break;
-            case "Predictive Forecasting": content = <PredictiveForecastingTab trendData={forecastTrendData} apdexTrendData={forecastApdexTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} isLoading={forecastTrendData.isLoading || forecastApdexTrendData.isLoading} steps={steps} />; break;
+            case "Predictive Forecasting": content = <PredictiveForecastingTab trendData={forecastTrendData} apdexTrendData={forecastApdexTrendData} vitalsTrendData={forecastVitalsTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} isLoading={forecastTrendData.isLoading || forecastApdexTrendData.isLoading || forecastVitalsTrendData.isLoading} steps={steps} />; break;
             case "Resource Waterfall": content = <ResourceWaterfallTab waterfallData={resourceWaterfallData} byStepData={resourceByStepData} isLoading={resourceWaterfallData.isLoading || resourceByStepData.isLoading} steps={steps} />; break;
             case "Change Intelligence": content = <ChangeIntelligenceTab deployData={deploymentEventsData} impactData={changeImpactData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} isLoading={deploymentEventsData.isLoading || changeImpactData.isLoading} />; break;
           }
@@ -4916,7 +4947,7 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
 // ===========================================================================
 // TAB: Predictive Forecasting
 // ===========================================================================
-function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallApdex, overallConv, isLoading, steps }: { trendData: any; apdexTrendData: any; quality: any; overallApdex: number; overallConv: number; isLoading: boolean; steps: StepDef[] }) {
+function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, quality, overallApdex, overallConv, isLoading, steps }: { trendData: any; apdexTrendData: any; vitalsTrendData: any; quality: any; overallApdex: number; overallConv: number; isLoading: boolean; steps: StepDef[] }) {
   if (isLoading) return <Loading />;
 
   const trendRecords = (trendData.data?.records ?? []) as any[];
@@ -4974,6 +5005,26 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
   const errorReg = linearRegression(errorValues);
   const durationReg = linearRegression(durationValues);
 
+  // Web vitals trend data
+  const vitalsRecords = (vitalsTrendData.data?.records ?? []) as any[];
+  const lcpValues = vitalsRecords.map((r: any) => Number(r.lcp_val ?? 0)).filter(v => v > 0);
+  const clsValues = vitalsRecords.map((r: any) => Number(r.cls_val ?? 0));
+  const inpValues = vitalsRecords.map((r: any) => Number(r.inp_val ?? 0)).filter(v => v > 0);
+  const ttfbValues = vitalsRecords.map((r: any) => Number(r.ttfb_val ?? 0)).filter(v => v > 0);
+  const loadValues = vitalsRecords.map((r: any) => Number(r.load_val ?? 0)).filter(v => v > 0);
+
+  const lcpReg = linearRegression(lcpValues);
+  const clsReg = linearRegression(clsValues);
+  const inpReg = linearRegression(inpValues);
+  const ttfbReg = linearRegression(ttfbValues);
+  const loadReg = linearRegression(loadValues);
+
+  const currentLcp = lcpValues.length > 0 ? lcpValues[lcpValues.length - 1] : 0;
+  const currentCls = clsValues.length > 0 ? clsValues[clsValues.length - 1] : 0;
+  const currentInp = inpValues.length > 0 ? inpValues[inpValues.length - 1] : 0;
+  const currentTtfb = ttfbValues.length > 0 ? ttfbValues[ttfbValues.length - 1] : 0;
+  const currentLoad = loadValues.length > 0 ? loadValues[loadValues.length - 1] : 0;
+
   const n = apdexValues.length;
   const FORECAST_DAYS = 7;
 
@@ -4983,11 +5034,17 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
     { metric: "Conversion Rate", current: overallConv, threshold: 20, direction: "above" as const, reg: convReg, format: fmtPct, values: convValues, color: statusClr(overallConv) },
     { metric: "Error Rate", current: quality.total > 0 ? (quality.errors / quality.total) * 100 : 0, threshold: 2, direction: "below" as const, reg: errorReg, format: fmtPct, values: errorValues, color: (quality.total > 0 ? (quality.errors / quality.total) * 100 : 0) > 2 ? RED : GREEN },
     { metric: "Avg Duration", current: quality.avg, threshold: 2000, direction: "below" as const, reg: durationReg, format: fmt, values: durationValues, color: quality.avg > 2000 ? RED : quality.avg > 1000 ? YELLOW : GREEN },
+    { metric: "LCP", current: currentLcp, threshold: CWV.lcp.good, direction: "below" as const, reg: lcpReg, format: fmt, values: lcpValues, color: cwvClr(currentLcp, "lcp") },
+    { metric: "CLS", current: currentCls, threshold: CWV.cls.good, direction: "below" as const, reg: clsReg, format: (v: number) => v.toFixed(3), values: clsValues, color: cwvClr(currentCls, "cls") },
+    { metric: "INP", current: currentInp, threshold: CWV.inp.good, direction: "below" as const, reg: inpReg, format: fmt, values: inpValues, color: cwvClr(currentInp, "inp") },
+    { metric: "TTFB", current: currentTtfb, threshold: CWV.ttfb.good, direction: "below" as const, reg: ttfbReg, format: fmt, values: ttfbValues, color: cwvClr(currentTtfb, "ttfb") },
+    { metric: "Load Event End", current: currentLoad, threshold: 3000, direction: "below" as const, reg: loadReg, format: fmt, values: loadValues, color: currentLoad <= 3000 ? GREEN : currentLoad <= 5000 ? YELLOW : RED },
   ].map((b) => {
-    const projected7d = b.reg.predict(n - 1 + FORECAST_DAYS);
+    const bLen = b.values.length;
+    const projected7d = b.reg.predict(bLen - 1 + FORECAST_DAYS);
     const dailyRate = b.reg.slope;
     // When insufficient data points, use gap between current and last value as a directional hint
-    const effectiveRate = n >= 2 ? dailyRate : (b.values.length > 0 ? (b.values[b.values.length - 1] - b.current) : 0);
+    const effectiveRate = bLen >= 2 ? dailyRate : (b.values.length > 0 ? (b.values[b.values.length - 1] - b.current) : 0);
     const isStable = Math.abs(effectiveRate) < 0.001;
     const improving = isStable ? false : b.direction === "above" ? effectiveRate > 0 : effectiveRate < 0;
     const trend: "improving" | "stable" | "degrading" = isStable ? "stable" : improving ? "improving" : "degrading";
@@ -5005,17 +5062,17 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
       if (daysToBreach != null && daysToBreach < 0) daysToBreach = null;
     }
 
-    const severity = daysToBreach != null && daysToBreach <= 3 ? "critical" : daysToBreach != null && daysToBreach <= 7 ? "warning" : !currentGood ? "breached" : "healthy";
+    const severity = daysToBreach != null && daysToBreach <= 3 ? "critical" : daysToBreach != null && daysToBreach <= 7 ? "warning" : !currentGood && !projectedGood ? "breached" : !currentGood && projectedGood ? "recovering" : "healthy";
 
     return { ...b, projected7d, dailyRate, effectiveRate, improving, trend, isStable, currentGood, projectedGood, daysToBreach, severity };
   });
 
-  const healthyCount = budgets.filter(b => b.severity === "healthy").length;
+  const healthyCount = budgets.filter(b => b.severity === "healthy" || b.severity === "recovering").length;
   const atRiskCount = budgets.filter(b => b.severity === "warning" || b.severity === "critical").length;
   const breachedCount = budgets.filter(b => b.severity === "breached").length;
 
-  const severityColor = (s: string) => s === "critical" ? RED : s === "warning" ? ORANGE : s === "breached" ? RED : GREEN;
-  const severityLabel = (s: string) => s === "critical" ? "BREACH IMMINENT" : s === "warning" ? "AT RISK" : s === "breached" ? "BREACHED" : "HEALTHY";
+  const severityColor = (s: string) => s === "critical" ? RED : s === "warning" ? ORANGE : s === "breached" ? RED : s === "recovering" ? YELLOW : GREEN;
+  const severityLabel = (s: string) => s === "critical" ? "BREACH IMMINENT" : s === "warning" ? "AT RISK" : s === "breached" ? "BREACHED" : s === "recovering" ? "RECOVERING" : "HEALTHY";
 
   // SVG trend chart
   const chartW = 720;
@@ -5031,13 +5088,13 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       <SectionHeader title="Predictive Forecasting" />
-      <Text style={{ fontSize: 12, opacity: 0.5 }}>Projects key metrics forward {FORECAST_DAYS} days using linear regression on daily trends. Flags metrics trending toward budget breach. Use 7+ day timeframe for reliable forecasts.</Text>
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Projects key metrics forward {FORECAST_DAYS} days using linear regression on the selected timeframe. Flags metrics trending toward budget breach.</Text>
 
       {/* KPIs */}
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-kpi-card" style={{ minWidth: 140 }}>
           <Text className="uj-kpi-label">Data Points</Text>
-          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{n} days</Heading>
+          <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{n}</Heading>
         </div>
         <div className="uj-kpi-card" style={{ minWidth: 140 }}>
           <Text className="uj-kpi-label">Healthy</Text>
@@ -5070,7 +5127,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 16, color: b.color }}>{b.format(b.current)}</Strong></div>
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Projected +7d</Text><Strong style={{ display: "block", fontSize: 16, color: b.projectedGood ? GREEN : RED }}>{b.format(b.projected7d)}</Strong></div>
               <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Budget</Text><Strong style={{ display: "block", fontSize: 16, opacity: 0.6 }}>{b.direction === "above" ? "≥" : "≤"} {b.format(b.threshold)}</Strong></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 14, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.metric === "Avg Duration" ? fmt(Math.abs(b.effectiveRate)) : Math.abs(b.effectiveRate).toFixed(2)}/day`}</Strong></div>
+              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 14, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.format(Math.abs(b.effectiveRate))}/day`}</Strong></div>
             </Flex>
             {b.daysToBreach != null && (
               <div style={{ padding: "6px 12px", background: `${severityColor(b.severity)}10`, borderRadius: 6, marginBottom: 6 }}>
@@ -5081,13 +5138,19 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
             )}
             {b.severity === "breached" && (
               <div style={{ padding: "6px 12px", background: `${RED}10`, borderRadius: 6, marginBottom: 6 }}>
-                <Strong style={{ color: RED, fontSize: 12 }}>Currently below budget threshold — action needed</Strong>
+                <Strong style={{ color: RED, fontSize: 12 }}>Currently outside budget threshold — action needed</Strong>
+              </div>
+            )}
+            {b.severity === "recovering" && (
+              <div style={{ padding: "6px 12px", background: `${YELLOW}10`, borderRadius: 6, marginBottom: 6 }}>
+                <Strong style={{ color: YELLOW, fontSize: 12 }}>Currently outside budget but trending back toward compliance</Strong>
               </div>
             )}
             {/* Mini trend chart */}
             {(() => {
               const svgW = 300;
               const svgH = 100;
+              const rightPad = 40;
               // Build combined series: [current, ...daily values] for actual, then forecast
               const chartValues = [b.current, ...b.values];
               const chartN = chartValues.length;
@@ -5098,46 +5161,59 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
               const range = vMax - vMin || 1;
               const valToY = (v: number) => (svgH - 6) - ((v - vMin) / range) * (svgH - 12);
               const thY = valToY(b.threshold);
-              const actW = (chartN / totalPts) * (svgW - 10);
+              const actW = (chartN / totalPts) * (svgW - 10 - rightPad);
+              const fmtVal = (v: number) => b.format(v);
               return (
               <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ marginTop: 4 }}>
+                {/* Y-axis labels on right */}
+                <text x={svgW - 2} y={valToY(vMax) + 3} textAnchor="end" fill="rgba(255,255,255,0.35)" fontSize={7}>{fmtVal(vMax)}</text>
+                <text x={svgW - 2} y={valToY(vMin) - 1} textAnchor="end" fill="rgba(255,255,255,0.35)" fontSize={7}>{fmtVal(vMin)}</text>
+                {Math.abs(thY - valToY(vMax)) > 12 && Math.abs(thY - valToY(vMin)) > 12 && (
+                  <text x={svgW - 2} y={thY < 14 ? thY + 10 : thY - 2} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={7}>{fmtVal(b.threshold)}</text>
+                )}
                 {/* Threshold line */}
-                <line x1={0} y1={thY} x2={svgW} y2={thY} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 3" />
-                <text x={svgW - 2} y={thY - 3} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>budget</text>
+                <line x1={0} y1={thY} x2={svgW - rightPad} y2={thY} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 3" />
+                <text x={svgW - rightPad - 2} y={thY < 14 ? thY + 12 : thY - 3} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>budget</text>
                 {/* Actual data line: current → daily values */}
                 {chartValues.length > 1 ? (
                   <>
                     <polygon fill={`${BLUE}12`} points={`5,${svgH - 6} ${chartValues.map((v, i) => `${5 + (i / (chartN - 1)) * actW},${valToY(v)}`).join(" ")} ${5 + actW},${svgH - 6}`} />
                     <polyline fill="none" stroke={BLUE} strokeWidth={2} points={chartValues.map((v, i) => `${5 + (i / (chartN - 1)) * actW},${valToY(v)}`).join(" ")} />
                     {chartValues.map((v, i) => (
-                      <circle key={i} cx={5 + (i / (chartN - 1)) * actW} cy={valToY(v)} r={i === 0 ? 3.5 : 2.5} fill={i === 0 ? GREEN : BLUE} />
+                      <circle key={i} cx={5 + (i / (chartN - 1)) * actW} cy={valToY(v)} r={i === 0 ? 3.5 : 2.5} fill={i === 0 ? GREEN : BLUE} style={{ cursor: "pointer" }}><title>{fmtVal(v)}</title></circle>
                     ))}
                   </>
                 ) : chartValues.length === 1 ? (
                   <>
                     <line x1={5} y1={valToY(chartValues[0])} x2={5 + actW} y2={valToY(chartValues[0])} stroke={BLUE} strokeWidth={2} />
-                    <circle cx={5} cy={valToY(chartValues[0])} r={3} fill={BLUE} />
+                    <circle cx={5} cy={valToY(chartValues[0])} r={3} fill={BLUE} style={{ cursor: "pointer" }}><title>{fmtVal(chartValues[0])}</title></circle>
                   </>
                 ) : null}
                 {/* Forecast extension */}
                 {chartValues.length > 0 && (() => {
                   const lastActual = chartValues[chartValues.length - 1];
                   const forecastPts: string[] = [];
+                  const forecastVals: number[] = [];
                   for (let d = 0; d <= FORECAST_DAYS; d++) {
-                    const val = d === 0 ? lastActual : b.reg.predict(n - 1 + d);
-                    const x = 5 + actW + (d / FORECAST_DAYS) * (svgW - 10 - actW);
+                    const val = d === 0 ? lastActual : b.reg.predict(b.values.length - 1 + d);
+                    const x = 5 + actW + (d / FORECAST_DAYS) * (svgW - 10 - rightPad - actW);
                     forecastPts.push(`${x},${valToY(val)}`);
+                    forecastVals.push(val);
                   }
                   return (
                     <>
-                      <polygon fill={`${PURPLE}08`} points={`${5 + actW},${svgH - 6} ${forecastPts.join(" ")} ${svgW - 5},${svgH - 6}`} />
+                      <polygon fill={`${PURPLE}08`} points={`${5 + actW},${svgH - 6} ${forecastPts.join(" ")} ${svgW - 5 - rightPad},${svgH - 6}`} />
                       <polyline fill="none" stroke={PURPLE} strokeWidth={2} strokeDasharray="6 3" points={forecastPts.join(" ")} />
+                      {forecastVals.map((val, d) => {
+                        const x = 5 + actW + (d / FORECAST_DAYS) * (svgW - 10 - rightPad - actW);
+                        return d > 0 ? <circle key={`f${d}`} cx={x} cy={valToY(val)} r={1.5} fill={PURPLE} style={{ cursor: "pointer" }}><title>+{d}d: {fmtVal(val)}</title></circle> : null;
+                      })}
                     </>
                   );
                 })()}
                 {/* Vertical divider between actual & forecast */}
                 <line x1={5 + actW} y1={0} x2={5 + actW} y2={svgH} stroke="rgba(255,255,255,0.1)" strokeDasharray="2 2" />
-                <text x={5 + actW + 3} y={10} fill="rgba(255,255,255,0.2)" fontSize={7}>forecast</text>
+                <text x={5 + actW + 3} y={12} fill="rgba(255,255,255,0.2)" fontSize={7}>forecast</text>
               </svg>
               );
             })()}
@@ -5146,12 +5222,13 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
       </Flex>
 
       {/* Daily trend table */}
-      <SectionHeader title="Daily Trend Data" />
+      <SectionHeader title="Trend Data" />
       <div className="uj-table-tile">
         <DataTable
           sortable
           data={dailyApdex.map((d, i) => {
             const metrics = dailyMetrics[i];
+            const vitals = vitalsRecords[i];
             return {
               Day: d.day,
               Sessions: metrics?.sessions ?? 0,
@@ -5161,6 +5238,11 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
               "P90 Duration": d.p90Dur,
               "Error Rate": metrics?.errorRate ?? 0,
               "Frustrated %": d.total > 0 ? (d.frustrated / d.total) * 100 : 0,
+              LCP: Number(vitals?.lcp_val ?? 0),
+              CLS: Number(vitals?.cls_val ?? 0),
+              INP: Number(vitals?.inp_val ?? 0),
+              TTFB: Number(vitals?.ttfb_val ?? 0),
+              "Load End": Number(vitals?.load_val ?? 0),
             };
           })}
           columns={[
@@ -5172,6 +5254,11 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
             { id: "P90 Duration", header: "P90 Dur", accessor: "P90 Duration", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 4000 ? RED : value > 2000 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
             { id: "Error Rate", header: "Err %", accessor: "Error Rate", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 2 ? RED : value > 1 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
             { id: "Frustrated %", header: "Frust %", accessor: "Frustrated %", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 10 ? RED : value > 5 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
+            { id: "LCP", header: "LCP", accessor: "LCP", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "lcp") }}>{fmt(value)}</Strong> },
+            { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "cls") }}>{value.toFixed(3)}</Strong> },
+            { id: "INP", header: "INP", accessor: "INP", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "inp") }}>{fmt(value)}</Strong> },
+            { id: "TTFB", header: "TTFB", accessor: "TTFB", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "ttfb") }}>{fmt(value)}</Strong> },
+            { id: "Load End", header: "Load End", accessor: "Load End", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value <= 3000 ? GREEN : value <= 5000 ? YELLOW : RED }}>{fmt(value)}</Strong> },
           ]}
         />
       </div>
@@ -5248,7 +5335,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, quality, overallA
 
       <div className="uj-table-tile" style={{ padding: 16 }}>
         <Text style={{ fontSize: 11, opacity: 0.4 }}>
-          Forecasts use linear regression on {n} daily data points. Accuracy improves with longer timeframes (7+ days recommended). Projections assume current trends continue — external factors (deploys, traffic spikes) may alter trajectory.
+          Forecasts use linear regression on {n} data points from the selected timeframe. Accuracy improves with more data points. Projections assume current trends continue — external factors (deploys, traffic spikes) may alter trajectory.
         </Text>
       </div>
     </Flex>
