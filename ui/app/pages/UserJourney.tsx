@@ -6501,16 +6501,38 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
           </div>
 
           {(() => {
-            const coreScore = (a.apdex > b.apdex ? 1 : -1) + (a.avgDur < b.avgDur ? 1 : -1) + (a.p90Dur < b.p90Dur ? 1 : -1) + (a.errRate < b.errRate ? 1 : -1) + (a.totalSessions > b.totalSessions ? 1 : -1);
-            const coreWinner = coreScore > 0 ? "A" : coreScore < 0 ? "B" : null;
+            const cmp = (va: number, vb: number, lowerBetter = false) => {
+              if (va === vb || (va == null && vb == null)) return 0;
+              const aWins = lowerBetter ? va < vb : va > vb;
+              return aWins ? 1 : -1;
+            };
+            const coreResults = [cmp(a.totalSessions, b.totalSessions), cmp(a.apdex, b.apdex), cmp(a.avgDur, b.avgDur, true), cmp(a.p90Dur, b.p90Dur, true), cmp(a.errRate, b.errRate, true)];
+            const coreAWins = coreResults.filter(r => r === 1).length;
+            const coreBWins = coreResults.filter(r => r === -1).length;
+            const coreTied = coreResults.filter(r => r === 0).length;
+            const coreWinner = coreAWins > coreBWins ? "A" : coreBWins > coreAWins ? "B" : null;
+            const coreWinCount = Math.max(coreAWins, coreBWins);
             const coreColor = coreWinner === "A" ? BLUE : coreWinner === "B" ? PURPLE : YELLOW;
-            const cwvScore = (aCwv.lcp < bCwv.lcp ? 1 : -1) + (aCwv.cls < bCwv.cls ? 1 : -1) + (aCwv.inp < bCwv.inp ? 1 : -1) + (aCwv.ttfb < bCwv.ttfb ? 1 : -1);
-            const cwvWinner = cwvScore > 0 ? "A" : cwvScore < 0 ? "B" : null;
+
+            const cwvResults = [cmp(aCwv.lcp, bCwv.lcp, true), cmp(aCwv.cls, bCwv.cls, true), cmp(aCwv.inp, bCwv.inp, true), cmp(aCwv.ttfb, bCwv.ttfb, true)];
+            const cwvAWins = cwvResults.filter(r => r === 1).length;
+            const cwvBWins = cwvResults.filter(r => r === -1).length;
+            const cwvTied = cwvResults.filter(r => r === 0).length;
+            const cwvWinner = cwvAWins > cwvBWins ? "A" : cwvBWins > cwvAWins ? "B" : null;
+            const cwvWinCount = Math.max(cwvAWins, cwvBWins);
             const cwvColor = cwvWinner === "A" ? BLUE : cwvWinner === "B" ? PURPLE : YELLOW;
+
+            const coreSummary = coreWinner
+              ? `Segment ${coreWinner} outperforms on ${coreWinCount}/5 core metrics${coreTied ? ` (${coreTied} tied)` : ""}`
+              : `Segments tied across core metrics${coreTied ? ` (${coreTied} equal)` : ""}`;
+            const cwvSummary = cwvWinner
+              ? `Segment ${cwvWinner} outperforms on ${cwvWinCount}/4 Core Web Vitals${cwvTied ? ` (${cwvTied} tied)` : ""}`
+              : `Segments tied across Core Web Vitals${cwvTied ? ` (${cwvTied} equal)` : ""}`;
+
             return (
               <Flex gap={12}>
                 <div className="uj-table-tile" style={{ padding: 16, borderLeft: `3px solid ${coreColor}`, flex: 1 }}>
-                  <Strong style={{ color: coreColor }}>{coreWinner ? `Segment ${coreWinner} outperforms on ${Math.abs(coreScore)}/5 core metrics` : "Segments perform equally across core metrics"}</Strong>
+                  <Strong style={{ color: coreColor }}>{coreSummary}</Strong>
                   <Paragraph style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>
                     {coreWinner === "A" && "Consider investigating Segment B for optimization opportunities."}
                     {coreWinner === "B" && "Consider investigating Segment A for optimization opportunities."}
@@ -6518,7 +6540,7 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
                   </Paragraph>
                 </div>
                 <div className="uj-table-tile" style={{ padding: 16, borderLeft: `3px solid ${cwvColor}`, flex: 1 }}>
-                  <Strong style={{ color: cwvColor }}>{cwvWinner ? `Segment ${cwvWinner} outperforms on ${Math.abs(cwvScore)}/4 Core Web Vitals` : "Segments perform equally across Core Web Vitals"}</Strong>
+                  <Strong style={{ color: cwvColor }}>{cwvSummary}</Strong>
                   <Paragraph style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>
                     {cwvWinner === "A" && "Segment B has weaker web vitals \u2014 check LCP/INP for UX regressions."}
                     {cwvWinner === "B" && "Segment A has weaker web vitals \u2014 check LCP/INP for UX regressions."}
