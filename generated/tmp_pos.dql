@@ -1,0 +1,4 @@
+fetch dt.entity.application
+| filter contains(lower(entity.name), "pos")
+| fieldsKeep id, entity.name
+| limit 20

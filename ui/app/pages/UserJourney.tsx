@@ -17,7 +17,7 @@ import "./UserJourney.css";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const DEFAULT_FRONTEND = "www.angular.easytravel.com";
+const DEFAULT_FRONTEND = "POS";
 const FRONTEND_STATE_KEY = "uj-frontend-app";
 const STEPS_STATE_KEY = "uj-funnel-steps";
 const SANKEY_STYLE_STATE_KEY = "uj-sankey-style";
@@ -53,10 +53,11 @@ try { ENV_URL = getEnvironmentUrl(); } catch { /* dev fallback */ }
 type StepDef = { label: string; identifier: string; type: "view" | "request" };
 
 const DEFAULT_FUNNEL_STEPS: StepDef[] = [
-  { label: "Home Page", identifier: "home", type: "view" },
-  { label: "Login", identifier: "login", type: "request" },
-  { label: "Search", identifier: "search", type: "request" },
-  { label: "Payment", identifier: "payment", type: "request" },
+  { label: "Contract Selected", identifier: "/secure/contractclose3/contract/contractselected", type: "request" },
+  { label: "Check-In Inspection", identifier: "/secure/contractclose3/equipmentquestions/checkincondition", type: "request" },
+  { label: "Summary / Total Due", identifier: "/secure/contractclose3/summary/totaldue", type: "request" },
+  { label: "Payment", identifier: "/secure/contractclose3/payment/fullpayment", type: "request" },
+  { label: "Complete", identifier: "/secure/contractclose3/final/complete", type: "request" },
 ];
 
 const TIMEFRAME_OPTIONS = [

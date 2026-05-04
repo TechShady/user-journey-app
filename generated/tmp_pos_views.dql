@@ -1,0 +1,5 @@
+fetch user.events, from: now()-7d
+| filter frontend.name == "POS"
+| summarize actions = count(), sessions = countDistinct(dt.rum.session.id), by: {view.name}
+| sort actions desc
+| limit 30
