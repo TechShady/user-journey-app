@@ -53,11 +53,11 @@ try { ENV_URL = getEnvironmentUrl(); } catch { /* dev fallback */ }
 type StepDef = { label: string; identifier: string; type: "view" | "request" };
 
 const DEFAULT_FUNNEL_STEPS: StepDef[] = [
-  { label: "Contract Selected", identifier: "/secure/contractclose3/contract/contractselected", type: "request" },
-  { label: "Check-In Inspection", identifier: "/secure/contractclose3/equipmentquestions/checkincondition", type: "request" },
-  { label: "Summary / Total Due", identifier: "/secure/contractclose3/summary/totaldue", type: "request" },
-  { label: "Payment", identifier: "/secure/contractclose3/payment/fullpayment", type: "request" },
-  { label: "Complete", identifier: "/secure/contractclose3/final/complete", type: "request" },
+  { label: "Contract Selected", identifier: "/secure/contractclose3/contract/contractselected", type: "view" },
+  { label: "Check-In Inspection", identifier: "/secure/contractclose3/equipmentquestions/checkincondition", type: "view" },
+  { label: "Summary / Total Due", identifier: "/secure/contractclose3/summary/totaldue", type: "view" },
+  { label: "Payment", identifier: "/secure/contractclose3/payment/fullpayment", type: "view" },
+  { label: "Complete", identifier: "/secure/contractclose3/final/complete", type: "view" },
 ];
 
 const TIMEFRAME_OPTIONS = [
