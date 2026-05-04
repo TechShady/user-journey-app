@@ -176,6 +176,14 @@
   border-radius: 12px;
   overflow: hidden;
 }
+.uj-table-tile [role="cell"],
+.uj-table-tile [role="columnheader"] {
+  padding-right: 16px !important;
+  align-items: center !important;
+}
+.uj-table-tile [role="row"] {
+  align-items: center;
+}
 
 /* Step Detail Cards */
 .uj-step-detail-card {

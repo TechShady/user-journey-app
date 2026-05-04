@@ -5,6 +5,8 @@ import { Flex } from "@dynatrace/strato-components/layouts";
 import { Heading, Text, Strong, Paragraph, Link } from "@dynatrace/strato-components/typography";
 import { Tabs, Tab } from "@dynatrace/strato-components-preview/navigation";
 import { Select, TextInput } from "@dynatrace/strato-components-preview/forms";
+import { TimeframeSelector } from "@dynatrace/strato-components/filters";
+import type { Timeframe } from "@dynatrace/strato-components/core";
 import { ProgressBar } from "@dynatrace/strato-components/content";
 import { Button } from "@dynatrace/strato-components/buttons";
 import { Sheet } from "@dynatrace/strato-components/overlays";
@@ -71,8 +73,7 @@ const TIMEFRAME_OPTIONS = [
 ];
 
 const DEFAULT_TIMEFRAME = 0.083;
-const TRAFFIC_MULTIPLIERS = [1, 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-const APDEX_T = 3000;
+const TRAFFIC_MULTIPLIERS = [1, 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10];const APDEX_T = 3000;
 const APDEX_4T = 12000;
 
 const TAB_KEYS = [
@@ -102,10 +103,23 @@ const CWV = {
 // ---------------------------------------------------------------------------
 function periodClause(days: number, prev = false): string {
   if (days < 1) {
-    const h = Math.round(days * 24);
+    const h = Math.max(1, Math.round(days * 24));
     return prev ? `from: now() - ${h * 2}h, to: now() - ${h}h` : `from: now() - ${h}h`;
   }
-  return prev ? `from: now() - ${days * 2}d, to: now() - ${days}d` : `from: now() - ${days}d`;
+  const d = Math.max(1, Math.round(days));
+  return prev ? `from: now() - ${d * 2}d, to: now() - ${d}d` : `from: now() - ${d}d`;
+}
+
+// Convert a Strato Timeframe selection to a "days" duration used by the query
+// helpers. Absolute windows are treated as a duration anchored at now() so the
+// existing `now()-Xd` query patterns and previous-period comparison logic
+// continue to work unchanged.
+function timeframeToDays(tf: Timeframe | null): number | null {
+  if (!tf?.from?.absoluteDate || !tf?.to?.absoluteDate) return null;
+  const fromMs = Date.parse(tf.from.absoluteDate);
+  const toMs = Date.parse(tf.to.absoluteDate);
+  if (!isFinite(fromMs) || !isFinite(toMs) || toMs <= fromMs) return null;
+  return (toMs - fromMs) / 86400000;
 }
 function fmt(v: number | undefined): string { if (v == null || isNaN(v)) return "N/A"; return v >= 1000 ? (v / 1000).toFixed(2) + " s" : v.toFixed(0) + " ms"; }
 function fmtCount(v: number | undefined): string { if (v == null) return "0"; if (v >= 1e6) return (v / 1e6).toFixed(1) + "M"; if (v >= 1e3) return (v / 1e3).toFixed(1) + "k"; return Math.round(v).toLocaleString(); }
@@ -1167,6 +1181,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
 // ===========================================================================
 export function UserJourney() {
   const [timeframeDays, setTimeframeDays] = useState<number>(DEFAULT_TIMEFRAME);
+  const [timeframeRaw, setTimeframeRaw] = useState<Timeframe | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
@@ -1392,11 +1407,17 @@ export function UserJourney() {
         </Flex>
         <Flex alignItems="center" gap={12}>
           <Strong style={{ fontSize: 12 }}>Timeframe</Strong>
-          <Select value={timeframeDays} onChange={(val) => { if (val != null) setTimeframeDays(val as number); }}>
-            <Select.Content>
-              {TIMEFRAME_OPTIONS.map((o) => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
-            </Select.Content>
-          </Select>
+          <div style={{ minWidth: 280 }}>
+            <TimeframeSelector
+              value={timeframeRaw ?? { from: "now()-2h", to: "now()" }}
+              onChange={(tf) => {
+                setTimeframeRaw(tf);
+                const d = timeframeToDays(tf);
+                if (d != null) setTimeframeDays(d);
+                else setTimeframeDays(DEFAULT_TIMEFRAME);
+              }}
+            />
+          </div>
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" /></svg></button>
         </Flex>
