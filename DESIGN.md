@@ -2,7 +2,7 @@
 
 ## Overview
 
-The User Journey App is a 25-tab frontend observability suite built as a Dynatrace Platform App. It provides comprehensive Real User Monitoring (RUM) analysis including funnel tracking, Web Vitals, geographic heatmaps, predictive forecasting, and automated anomaly detection — all powered by DQL (Dynatrace Query Language).
+The User Journey App is a 26-tab frontend observability suite built as a Dynatrace Platform App. It provides comprehensive Real User Monitoring (RUM) analysis including funnel tracking, Web Vitals, geographic heatmaps, predictive forecasting, and automated anomaly detection — all powered by DQL (Dynatrace Query Language).
 
 **Architecture**: Single-page React app using Strato Design System components, `@dynatrace-sdk/react-hooks` (`useDql`) for data fetching, and SVG-based custom visualizations. All queries are parameterized by a user-selectable frontend application, funnel step definitions, and timeframe.
 
@@ -428,7 +428,7 @@ fetch user.events | filter frontend.name == "{frontend}" | filter {anyStepFilter
 
 ### 18. What-If Analysis
 
-**Purpose**: Simulated scenario modeling projecting impact of traffic increases.
+**Purpose**: Simulated scenario modeling projecting impact of traffic increases, including revenue impact when AOV is configured.
 
 **Key Features**:
 - Traffic multiplier slider (1-10x)
@@ -436,8 +436,9 @@ fetch user.events | filter frontend.name == "{frontend}" | filter {anyStepFilter
 - Projected latency increase
 - Projected conversion impact
 - Visual before/after comparison
+- Revenue Impact section (when AOV > 0): current vs. projected revenue, net revenue change, conversion degradation loss, ideal vs. actual revenue comparison, and "Perf Tax" rate showing revenue lost to performance under load
 
-**Queries**: Reuses `sessionFlowQuery` + `stepMetricsQuery` — applies traffic multiplier client-side with degradation model.
+**Queries**: Reuses `sessionFlowQuery` + `stepMetricsQuery` — applies traffic multiplier client-side with logarithmic degradation model. Revenue calculations are client-side using AOV from global settings.
 
 ---
 
@@ -675,6 +676,27 @@ fetch user.events, from: now() - {timeframe}
 
 ---
 
+### 26. Revenue Intelligence
+
+**Purpose**: Comprehensive revenue analytics translating performance metrics into dollar impact using Average Order Value (AOV).
+
+**Key Features**:
+- Top-line revenue KPIs: current revenue, previous period revenue, revenue change (absolute + %), revenue per session
+- Performance Tax breakdown: latency tax (revenue lost to slow pages, ~1% conversion loss per 100ms above 1s), frustration tax (revenue lost to frustrated sessions), error tax (revenue lost to errors), total recoverable revenue
+- Funnel Revenue Leakage table: estimated revenue lost at each funnel drop-off step, ranked by impact
+- Revenue Optimization Opportunities: ranked improvement scenarios (fix top drop-off, reduce latency, eliminate frustration, cut errors, improve Apdex) with projected revenue uplift per action
+- Prompts user to set AOV in Settings when not configured
+
+**Queries**: Reuses `sessionFlowQuery` (current + previous period), `stepMetricsQuery`, and `sessionQualityQuery`. All revenue calculations are client-side using the AOV global setting.
+
+**Revenue Models**:
+- Latency tax: industry benchmark of ~1% conversion loss per 100ms above 1s baseline, capped at 30%
+- Frustration tax: ~50% of frustrated users estimated to abandon
+- Error tax: ~30% of error-affected sessions estimated to convert less
+- Funnel leakage: dropped users assumed to have equal downstream conversion probability
+
+---
+
 ## Architecture Notes
 
 ### Query Infrastructure
@@ -694,6 +716,7 @@ fetch user.events, from: now() - {timeframe}
 | Tab Order | `uj-tab-order` | Drag-to-reorder tab sequence |
 | Sankey Style | `uj-sankey-style` | Preferred Sankey rendering mode |
 | Map View | `uj-map-view` | Default map view (World/US) |
+| Average Order Value | `uj-average-order-value` | Revenue per conversion for What-If & Revenue Intelligence |
 
 ### Key Constants
 

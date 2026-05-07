@@ -13,13 +13,12 @@ import { Sheet } from "@dynatrace/strato-components/overlays";
 import { Switch } from "@dynatrace/strato-components/forms";
 import { DataTable } from "@dynatrace/strato-components-preview/tables";
 import "./UserJourney.css";
+import { useSettings, DEFAULT_FRONTEND, DEFAULT_FUNNEL_STEPS, MIN_STEPS, MAX_STEPS, DEFAULT_AOV } from "../SettingsContext";
+import type { StepDef } from "../SettingsContext";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const DEFAULT_FRONTEND = "www.angular.easytravel.com";
-const FRONTEND_STATE_KEY = "uj-frontend-app";
-const STEPS_STATE_KEY = "uj-funnel-steps";
 const SANKEY_STYLE_STATE_KEY = "uj-sankey-style";
 const MAP_VIEW_STATE_KEY = "uj-map-view";
 type SankeyStyle = "classic" | "gradient" | "directed" | "alluvial" | "stateMachine";
@@ -37,8 +36,6 @@ const MAP_VIEW_OPTIONS: { value: MapViewSetting; label: string }[] = [
   { value: "us", label: "United States" },
 ];
 const DEFAULT_MAP_VIEW: MapViewSetting = "world";
-const MIN_STEPS = 2;
-const MAX_STEPS = 10;
 const GREEN = "#0D9C29";
 const YELLOW = "#B8860B";
 const RED = "#C21930";
@@ -50,14 +47,7 @@ const ORANGE = "#FF832B";
 let ENV_URL = "";
 try { ENV_URL = getEnvironmentUrl(); } catch { /* dev fallback */ }
 
-type StepDef = { label: string; identifier: string; type: "view" | "request" };
 
-const DEFAULT_FUNNEL_STEPS: StepDef[] = [
-  { label: "Home", identifier: "/easytravel/home", type: "view" },
-  { label: "Search", identifier: "/easytravel/search", type: "view" },
-  { label: "Journey Detail", identifier: "/easytravel/journeys/:id:", type: "view" },
-  { label: "Book", identifier: "/easytravel/journeys/:id:/book", type: "view" },
-];
 
 const TIMEFRAME_OPTIONS = [
   { label: "2 hours", value: 0.083 },
@@ -84,6 +74,7 @@ const TAB_KEYS = [
   "Errors & Drop-offs", "What-If Analysis", "Root Cause Correlation", "Predictive Forecasting",
   "Resource Waterfall", "Change Intelligence",
   "SLO Tracker", "Session Replay Spotlight", "A/B Comparison",
+  "Revenue Intelligence",
 ] as const;
 type TabKey = typeof TAB_KEYS[number];
 const DEFAULT_TAB_VISIBILITY: Record<TabKey, boolean> = Object.fromEntries(TAB_KEYS.map(k => [k, true])) as Record<TabKey, boolean>;
@@ -154,6 +145,7 @@ function timeframeAnchorMs(tf: Timeframe | null): number | null {
 function fmt(v: number | undefined): string { if (v == null || isNaN(v)) return "N/A"; return v >= 1000 ? (v / 1000).toFixed(2) + " s" : v.toFixed(0) + " ms"; }
 function fmtCount(v: number | undefined): string { if (v == null) return "0"; if (v >= 1e6) return (v / 1e6).toFixed(1) + "M"; if (v >= 1e3) return (v / 1e3).toFixed(1) + "k"; return Math.round(v).toLocaleString(); }
 function fmtPct(v: number | undefined): string { return (v == null || isNaN(v)) ? "0.0%" : v.toFixed(1) + "%"; }
+function fmtCurrency(v: number): string { if (v >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M"; if (v >= 1e3) return "$" + (v / 1e3).toFixed(1) + "k"; return "$" + v.toFixed(2); }
 function formatHourKey(d: Date): string { return d.toISOString().substring(0, 13).replace("T", " ") + ":00"; }
 function statusClr(pct: number): string { return pct >= 80 ? GREEN : pct >= 50 ? YELLOW : RED; }
 function apdexClr(a: number): string { return a >= 0.85 ? GREEN : a >= 0.7 ? YELLOW : a >= 0.5 ? ORANGE : RED; }
@@ -1168,7 +1160,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. Use <Strong>Export PDF</Strong> to open a print-ready report in a new tab (use browser Print → Save as PDF), or <Strong>Copy Text</Strong> to get a plain-text summary for Slack/Teams/email. Designed for quick status checks and executive presentations.</Paragraph>
         <Paragraph><Strong>Segmentation</Strong>: Device, browser, and geo breakdowns with Apdex per segment.</Paragraph>
         <Paragraph><Strong>Errors &amp; Drop-offs</Strong>: Drop-off analysis between funnel steps with optimization recommendations.</Paragraph>
-        <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation.</Paragraph>
+        <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation. When AOV is set in Settings, also shows revenue impact: projected revenue at higher traffic, net revenue change, conversion degradation loss, and a "Perf Tax" breakdown showing revenue lost to performance under load.</Paragraph>
         <Paragraph><Strong>Root Cause Correlation</Strong>: Automatically correlates conversion drops with technical signals — latency spikes, error surges, and frustrated sessions — on an hourly timeline. Identifies which funnel steps degrade at the exact hours conversion dips. Surfaces ranked root cause signals with severity and confidence scores so you can pinpoint the technical driver behind every conversion drop without manual cross-referencing.</Paragraph>
         <Paragraph><Strong>Predictive Forecasting</Strong>: Uses trend data from the selected timeframe to project Apdex, conversion rate, error rate, and average duration forward 7 days via linear regression. Flags when a metric is on trajectory to breach a performance budget threshold before it actually happens. Includes trend direction, rate of change, and days-to-breach estimates for proactive incident prevention.</Paragraph>
         <Paragraph><Strong>Resource Waterfall</Strong>: Aggregated resource timing per funnel step — third-party scripts, XHR/Fetch calls, images, CSS, and fonts. Shows which specific resources drag down LCP and increase page weight. Includes per-step resource type breakdown, top slow resources ranked by total time, and a visual waterfall bar chart showing P50/P90/Max latency ranges. Helps identify CDN misses, unoptimized images, and slow third-party scripts.</Paragraph>
@@ -1176,9 +1168,11 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>SLO Tracker</Strong>: Define Service Level Objectives for Apdex, error rate, LCP, CLS, INP, and TTFB with configurable targets. Tracks error budget burn-down over the selected timeframe with hourly granularity. Shows remaining budget %, burn rate (budget consumed per hour), and projected time to exhaustion. Color-coded status indicators flag SLOs at risk before they breach — enabling proactive SRE practices.</Paragraph>
         <Paragraph><Strong>Session Replay Spotlight</Strong>: Surfaces the highest-impact session replays ranked by an impact score combining errors, crashes, bounces, and interaction density. Shows session duration, error count, device, browser, and country. Each session links directly to <Strong>Dynatrace Session Replay</Strong> for instant visual debugging. Quickly find the sessions that matter most without manually searching.</Paragraph>
         <Paragraph><Strong>A/B Comparison</Strong>: Compare two user segments side-by-side across all key metrics. Pre-built segments for Desktop vs. Mobile, Chrome vs. Firefox, and US vs. non-US — or enter custom DQL filter expressions. Shows Apdex, conversion, error rate, duration, and Core Web Vitals for each segment with delta indicators highlighting which segment performs better. Use to quantify platform-specific gaps and prioritize optimization efforts.</Paragraph>
+        <Paragraph><Strong>Revenue Intelligence</Strong>: Comprehensive revenue analytics powered by the Average Order Value (AOV) set in Settings. Shows current vs. previous period revenue with change indicators, revenue per session, and three performance taxes: latency tax (revenue lost to slow pages), frustration tax (revenue lost to frustrated sessions), and error tax (revenue lost to errors). Includes a funnel leakage table showing estimated revenue lost at each drop-off step, and ranked optimization opportunities with projected revenue uplift for each improvement action. Requires AOV &gt; 0 in Settings.</Paragraph>
       </HelpSection>
       <HelpSection title="Tab Settings">
-        <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Tab Settings. Each of the 25 tabs can be toggled on or off individually. Drag to reorder. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
+        <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Tab Settings. Each of the 26 tabs can be toggled on or off individually. Drag to reorder. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
+        <Paragraph><Strong>Average Order Value</Strong>: Set in Settings to enable revenue metrics across What-If Analysis and Revenue Intelligence tabs. This value represents the average revenue per conversion (final funnel step completion). Set to 0 to hide revenue metrics.</Paragraph>
       </HelpSection>
       <HelpSection title="Apdex Score">
         <Paragraph>Apdex = (satisfied + tolerating/2) / total. Thresholds: <Strong>Satisfied ≤ {APDEX_T / 1000}s</Strong>, <Strong>Tolerating ≤ {APDEX_4T / 1000}s</Strong>, <Strong>Frustrated &gt; {APDEX_4T / 1000}s</Strong>. Ranges: ≥0.85 Excellent, ≥0.7 Good, ≥0.5 Fair, &lt;0.5 Poor.</Paragraph>
@@ -1205,6 +1199,8 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• SLO Tracker provides SRE-grade error budget tracking — set realistic targets and monitor burn rate to avoid SLO breaches.</Paragraph>
         <Paragraph>• Session Replay Spotlight surfaces the highest-impact sessions — start debugging with the sessions that affect the most users.</Paragraph>
         <Paragraph>• A/B Comparison quantifies platform gaps — use it to justify mobile optimization investments with data.</Paragraph>
+        <Paragraph>• Revenue Intelligence translates performance metrics into dollar impact — use it to build ROI cases for performance optimization.</Paragraph>
+        <Paragraph>• Set Average Order Value in Settings to unlock revenue projections in What-If Analysis and Revenue Intelligence tabs.</Paragraph>
       </HelpSection>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16, marginTop: 8 }}>
         <Paragraph><span style={{ color: "rgba(128,128,128,0.8)" }}>Source code &amp; issue tracker: </span><Link href="https://github.com/TechShady/user-journey-app" target="_blank" rel="noopener noreferrer">github.com/TechShady/user-journey-app</Link></Paragraph>
@@ -1226,15 +1222,12 @@ export function UserJourney() {
   const [tabVisibility, setTabVisibility] = useState<Record<TabKey, boolean>>(DEFAULT_TAB_VISIBILITY);
   const [tabOrder, setTabOrder] = useState<TabKey[]>([...DEFAULT_TAB_ORDER]);
   const [draggedTabIdx, setDraggedTabIdx] = useState<number | null>(null);
-  const [frontend, setFrontend] = useState<string>(DEFAULT_FRONTEND);
-  const [steps, setSteps] = useState<StepDef[]>(DEFAULT_FUNNEL_STEPS);
+  const { frontend, steps, saveFrontend, saveSteps, aov, saveAov } = useSettings();
   const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
 
   // Persist tab visibility per user
   const savedState = useUserAppState({ key: TAB_STATE_KEY });
   const savedTabOrder = useUserAppState({ key: TAB_ORDER_STATE_KEY });
-  const savedFrontend = useUserAppState({ key: FRONTEND_STATE_KEY });
-  const savedSteps = useUserAppState({ key: STEPS_STATE_KEY });
   const savedSankeyStyle = useUserAppState({ key: SANKEY_STYLE_STATE_KEY });
   const savedMapView = useUserAppState({ key: MAP_VIEW_STATE_KEY });
   const { execute: saveState } = useSetUserAppState();
@@ -1262,24 +1255,6 @@ export function UserJourney() {
       } catch { /* ignore */ }
     }
   }, [savedTabOrder.data]);
-
-  useEffect(() => {
-    if (savedFrontend.data?.value) {
-      const val = savedFrontend.data.value as string;
-      if (val.trim()) setFrontend(val.trim());
-    }
-  }, [savedFrontend.data]);
-
-  useEffect(() => {
-    if (savedSteps.data?.value) {
-      try {
-        const parsed = JSON.parse(savedSteps.data.value as string) as StepDef[];
-        if (Array.isArray(parsed) && parsed.length >= MIN_STEPS && parsed.length <= MAX_STEPS) {
-          setSteps(parsed);
-        }
-      } catch { /* ignore parse errors */ }
-    }
-  }, [savedSteps.data]);
 
   useEffect(() => {
     if (savedSankeyStyle.data?.value) {
@@ -1494,8 +1469,7 @@ export function UserJourney() {
               onChange={(val) => {
                 const v = (val ?? "").trim();
                 if (v) {
-                  setFrontend(v);
-                  saveState({ key: FRONTEND_STATE_KEY, body: { value: v } });
+                  saveFrontend(v);
                 }
               }}
               placeholder="e.g. www.angular.easytravel.com"
@@ -1510,21 +1484,21 @@ export function UserJourney() {
               <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
                 <Text style={{ fontSize: 12, fontWeight: 700, color: BLUE }}>Step {i + 1}</Text>
                 {steps.length > MIN_STEPS && (
-                  <button onClick={() => { const next = steps.filter((_, j) => j !== i); setSteps(next); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(next) } }); }} style={{ background: "none", border: "none", color: RED, cursor: "pointer", fontSize: 12, padding: "2px 6px" }}>✕ Remove</button>
+                  <button onClick={() => { const next = steps.filter((_, j) => j !== i); saveSteps(next); }} style={{ background: "none", border: "none", color: RED, cursor: "pointer", fontSize: 12, padding: "2px 6px" }}>✕ Remove</button>
                 )}
               </Flex>
               <Flex gap={8} style={{ marginBottom: 6 }}>
                 <div style={{ flex: 1 }}>
                   <Text style={{ fontSize: 10, opacity: 0.5, display: "block", marginBottom: 2 }}>Label</Text>
-                  <TextInput value={step.label} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], label: val ?? "" }; setSteps(next); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(next) } }); }} placeholder="e.g. Home Page" />
+                  <TextInput value={step.label} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], label: val ?? "" }; saveSteps(next); }} placeholder="e.g. Home Page" />
                 </div>
                 <div style={{ flex: 2 }}>
                   <Text style={{ fontSize: 10, opacity: 0.5, display: "block", marginBottom: 2 }}>Path / Identifier</Text>
-                  <TextInput value={step.identifier} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], identifier: val ?? "" }; setSteps(next); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(next) } }); }} placeholder="e.g. /easytravel/home" />
+                  <TextInput value={step.identifier} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], identifier: val ?? "" }; saveSteps(next); }} placeholder="e.g. /easytravel/home" />
                 </div>
                 <div style={{ minWidth: 100 }}>
                   <Text style={{ fontSize: 10, opacity: 0.5, display: "block", marginBottom: 2 }}>Type</Text>
-                  <Select value={step.type} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], type: (val ?? "view") as "view" | "request" }; setSteps(next); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(next) } }); }}>
+                  <Select value={step.type} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], type: (val ?? "view") as "view" | "request" }; saveSteps(next); }}>
                     <Select.Trigger style={{ minWidth: 90 }} />
                     <Select.Content>
                       <Select.Option value="view">View</Select.Option>
@@ -1536,9 +1510,27 @@ export function UserJourney() {
             </div>
           ))}
           {steps.length < MAX_STEPS && (
-            <button onClick={() => { const next = [...steps, { label: "", identifier: "", type: "view" as const }]; setSteps(next); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(next) } }); }} style={{ width: "100%", padding: "8px", background: "rgba(69,137,255,0.1)", border: "1px dashed rgba(69,137,255,0.3)", borderRadius: 6, color: BLUE, cursor: "pointer", fontSize: 12, marginBottom: 16 }}>+ Add Step</button>
+            <button onClick={() => { const next = [...steps, { label: "", identifier: "", type: "view" as const }]; saveSteps(next); }} style={{ width: "100%", padding: "8px", background: "rgba(69,137,255,0.1)", border: "1px dashed rgba(69,137,255,0.3)", borderRadius: 6, color: BLUE, cursor: "pointer", fontSize: 12, marginBottom: 16 }}>+ Add Step</button>
           )}
-          <button onClick={() => { setSteps(DEFAULT_FUNNEL_STEPS); saveState({ key: STEPS_STATE_KEY, body: { value: JSON.stringify(DEFAULT_FUNNEL_STEPS) } }); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 11, marginBottom: 16 }}>Reset to Defaults</button>
+          <button onClick={() => { saveSteps(DEFAULT_FUNNEL_STEPS); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 11, marginBottom: 16 }}>Reset to Defaults</button>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
+          {/* Average Order Value */}
+          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Average Order Value (AOV)</Paragraph>
+          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Set the average revenue per conversion. Used in What-If Analysis and Revenue Intelligence tabs to project revenue impact. Set to 0 to hide revenue metrics.</Paragraph>
+          <div style={{ marginBottom: 20 }}>
+            <Flex alignItems="center" gap={8}>
+              <Text style={{ fontSize: 16, fontWeight: 600 }}>$</Text>
+              <TextInput
+                value={aov > 0 ? String(aov) : ""}
+                onChange={(val) => {
+                  const v = Number(val);
+                  if (!isNaN(v) && v >= 0) saveAov(v);
+                  else if (!val) saveAov(0);
+                }}
+                placeholder="e.g. 85.00"
+              />
+            </Flex>
+          </div>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
           {/* Default Sankey Chart Style */}
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Default Sankey Chart Style</Paragraph>
@@ -1613,7 +1605,7 @@ export function UserJourney() {
             case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} />; break;
             case "Segmentation": content = <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} />; break;
             case "Errors & Drop-offs": content = <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} steps={steps} />; break;
-            case "What-If Analysis": content = <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} />; break;
+            case "What-If Analysis": content = <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} aov={aov} />; break;
             case "Root Cause Correlation": content = <RootCauseCorrelationTab hourlyData={rootCauseCorrelationData} stepDropData={rootCauseStepDropData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} isLoading={rootCauseCorrelationData.isLoading || rootCauseStepDropData.isLoading} steps={steps} />; break;
             case "Predictive Forecasting": content = <PredictiveForecastingTab trendData={forecastTrendData} apdexTrendData={forecastApdexTrendData} vitalsTrendData={forecastVitalsTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} isLoading={forecastTrendData.isLoading || forecastApdexTrendData.isLoading || forecastVitalsTrendData.isLoading} steps={steps} />; break;
             case "Resource Waterfall": content = <ResourceWaterfallTab waterfallData={resourceWaterfallData} byStepData={resourceByStepData} isLoading={resourceWaterfallData.isLoading || resourceByStepData.isLoading} steps={steps} />; break;
@@ -1621,6 +1613,7 @@ export function UserJourney() {
             case "SLO Tracker": content = <SLOTrackerTab apdexTrend={sloApdexTrendData} cwvTrend={sloCwvTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} cwv={cwv} isLoading={sloApdexTrendData.isLoading || sloCwvTrendData.isLoading} />; break;
             case "Session Replay Spotlight": content = <SessionReplaySpotlightTab data={sessionReplayData} isLoading={sessionReplayData.isLoading} />; break;
             case "A/B Comparison": content = <ABComparisonTab segAData={abSegAData} segBData={abSegBData} segACwv={abSegACwv} segBCwv={abSegBCwv} dimension={abDimension} setDimension={setAbDimension} segA={abSegA} segB={abSegB} setSegA={setAbSegA} setSegB={setAbSegB} isLoading={abSegAData.isLoading || abSegBData.isLoading || abSegACwv.isLoading || abSegBCwv.isLoading} />; break;
+            case "Revenue Intelligence": content = <RevenueIntelligenceTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} quality={quality} qualityPrev={qualityPrev} isLoading={isLoading || qualityData.isLoading} steps={steps} aov={aov} />; break;
           }
           return <Tab key={tabId} title={tabId}>{content}</Tab>;
         })}
@@ -4033,7 +4026,7 @@ function ErrorsTab({ errors, funnelCounts, isLoading, steps }: { errors: any[]; 
 // ===========================================================================
 // TAB: What-If Analysis
 // ===========================================================================
-function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps }: { funnelCounts: number[]; stepMap: Map<string, any>; overallApdex: number; isLoading: boolean; steps: StepDef[] }) {
+function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov }: { funnelCounts: number[]; stepMap: Map<string, any>; overallApdex: number; isLoading: boolean; steps: StepDef[]; aov: number }) {
   const [mult, setMult] = useState(2);
   if (isLoading) return <Loading />;
 
@@ -4042,8 +4035,20 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps }: { 
   const errFactor = 1 + Math.log2(mult) * 0.15;
   const convDegradation = Math.log2(mult) * 0.08;
   const projApdex = Math.max(0, overallApdex - Math.log2(mult) * 0.08);
-  const projConv = funnelCounts[0] > 0 ? Math.max(0, (funnelCounts[lastIdx] / funnelCounts[0]) * 100 * (1 - convDegradation)) : 0;
+  const currConvRate = funnelCounts[0] > 0 ? (funnelCounts[lastIdx] / funnelCounts[0]) * 100 : 0;
+  const projConv = Math.max(0, currConvRate * (1 - convDegradation));
   const projFunnel = funnelCounts.map((c, i) => i === 0 ? Math.round(c * mult) : Math.round(c * mult * Math.pow(1 - convDegradation, i)));
+
+  // Revenue calculations
+  const currConversions = funnelCounts[lastIdx];
+  const projConversions = projFunnel[lastIdx];
+  const currRevenue = currConversions * aov;
+  const projRevenue = projConversions * aov;
+  const revenueDelta = projRevenue - currRevenue;
+  // What the revenue WOULD be if conv rate didn't degrade
+  const idealConversions = Math.round(funnelCounts[lastIdx] * mult);
+  const idealRevenue = idealConversions * aov;
+  const convLossRevenue = idealRevenue - projRevenue;
 
   const projSteps: FunnelStep[] = steps.map((step, i) => ({
     label: step.label,
@@ -4068,11 +4073,48 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps }: { 
           <Text className="uj-metric-label">Apdex Impact</Text>
           <Strong style={{ color: projApdex < overallApdex ? RED : GREEN, fontSize: 16 }}>{overallApdex.toFixed(2)} → {projApdex.toFixed(2)}</Strong>
         </div>
-        <div className={`uj-impact-card ${projConv < (funnelCounts[funnelCounts.length - 1] / Math.max(1, funnelCounts[0])) * 100 ? "uj-impact-negative" : "uj-impact-positive"}`}>
+        <div className={`uj-impact-card ${projConv < currConvRate ? "uj-impact-negative" : "uj-impact-positive"}`}>
           <Text className="uj-metric-label">Conversion Impact</Text>
-          <Strong style={{ color: RED, fontSize: 16 }}>{fmtPct((funnelCounts[funnelCounts.length - 1] / Math.max(1, funnelCounts[0])) * 100)} → {fmtPct(projConv)}</Strong>
+          <Strong style={{ color: RED, fontSize: 16 }}>{fmtPct(currConvRate)} → {fmtPct(projConv)}</Strong>
         </div>
       </Flex>
+
+      {aov > 0 && (
+        <>
+          <SectionHeader title="Revenue Impact" />
+          <Flex gap={16} flexWrap="wrap">
+            <div className="uj-revenue-card">
+              <Text className="uj-metric-label">Current Revenue</Text>
+              <Strong className="uj-metric-value" style={{ color: BLUE }}>{fmtCurrency(currRevenue)}</Strong>
+              <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(currConversions)} conversions × {fmtCurrency(aov)}</Text>
+            </div>
+            <div className="uj-revenue-card">
+              <Text className="uj-metric-label">Projected Revenue ({mult}x)</Text>
+              <Strong className="uj-metric-value" style={{ color: projRevenue > currRevenue ? GREEN : RED }}>{fmtCurrency(projRevenue)}</Strong>
+              <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(projConversions)} conversions × {fmtCurrency(aov)}</Text>
+            </div>
+            <div className="uj-revenue-card">
+              <Text className="uj-metric-label">Net Revenue Change</Text>
+              <Strong className="uj-metric-value" style={{ color: revenueDelta >= 0 ? GREEN : RED }}>{revenueDelta >= 0 ? "+" : ""}{fmtCurrency(revenueDelta)}</Strong>
+              <Text style={{ fontSize: 11, opacity: 0.5 }}>{revenueDelta >= 0 ? "Gain" : "Loss"} from {mult}x traffic</Text>
+            </div>
+            <div className={`uj-impact-card uj-impact-negative`}>
+              <Text className="uj-metric-label">Conv Degradation Loss</Text>
+              <Strong className="uj-metric-value" style={{ color: RED }}>{fmtCurrency(convLossRevenue)}</Strong>
+              <Text style={{ fontSize: 11, opacity: 0.5 }}>Revenue lost vs. ideal (no conv drop)</Text>
+            </div>
+          </Flex>
+
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Flex gap={24} flexWrap="wrap" alignItems="center">
+              <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Ideal Revenue (no degradation)</Text><br /><Strong style={{ color: CYAN }}>{fmtCurrency(idealRevenue)}</Strong></div>
+              <div><Text style={{ fontSize: 11, opacity: 0.5 }}>→ Actual Projected</Text><br /><Strong style={{ color: projRevenue < idealRevenue ? YELLOW : GREEN }}>{fmtCurrency(projRevenue)}</Strong></div>
+              <div><Text style={{ fontSize: 11, opacity: 0.5 }}>= Perf Tax</Text><br /><Strong style={{ color: RED }}>{convLossRevenue > 0 ? "-" : ""}{fmtCurrency(convLossRevenue)}</Strong></div>
+              <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Perf Tax Rate</Text><br /><Strong style={{ color: RED }}>{idealRevenue > 0 ? fmtPct((convLossRevenue / idealRevenue) * 100) : "0.0%"}</Strong></div>
+            </Flex>
+          </div>
+        </>
+      )}
 
       <SectionHeader title="Projected Funnel" />
       <div className="uj-funnel-container"><FunnelChart steps={projSteps} stepDefs={steps} /></div>
@@ -4103,7 +4145,172 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps }: { 
 
       <div className="uj-table-tile" style={{ padding: 24 }}>
         <Text style={{ fontSize: 11, opacity: 0.5 }}>
-          Projections: logarithmic contention model. At 2x: ~35% latency increase, ~8% conversion degradation per doubling. Apdex degrades ~0.08 per doubling.
+          Projections: logarithmic contention model. At 2x: ~35% latency increase, ~8% conversion degradation per doubling. Apdex degrades ~0.08 per doubling.{aov > 0 ? ` Revenue projections use AOV of ${fmtCurrency(aov)}. "Perf Tax" is the revenue lost due to conversion degradation under load.` : " Set Average Order Value in Settings to enable revenue projections."}
+        </Text>
+      </div>
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Revenue Intelligence
+// ===========================================================================
+function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overallConv, overallConvPrev, overallApdex, quality, qualityPrev, isLoading, steps, aov }: { funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; overallConv: number; overallConvPrev: number; overallApdex: number; quality: any; qualityPrev: any; isLoading: boolean; steps: StepDef[]; aov: number }) {
+  if (isLoading) return <Loading />;
+
+  if (aov <= 0) {
+    return (
+      <Flex flexDirection="column" gap={16} style={{ paddingTop: 16 }} alignItems="center">
+        <div className="uj-table-tile" style={{ padding: 32, textAlign: "center", maxWidth: 500 }}>
+          <Text style={{ fontSize: 36, display: "block", marginBottom: 12 }}>💰</Text>
+          <Heading level={5}>Average Order Value Not Set</Heading>
+          <Paragraph style={{ opacity: 0.6, marginTop: 8 }}>Open <Strong>Settings</Strong> (⚙) and set an <Strong>Average Order Value</Strong> to enable Revenue Intelligence. This value represents the average revenue per conversion and is used to calculate all revenue metrics.</Paragraph>
+        </div>
+      </Flex>
+    );
+  }
+
+  const lastIdx = steps.length - 1;
+  const currConversions = funnelCounts[lastIdx];
+  const prevConversions = funnelCountsPrev[lastIdx] || 0;
+  const currRevenue = currConversions * aov;
+  const prevRevenue = prevConversions * aov;
+  const revenueDelta = currRevenue - prevRevenue;
+  const revenueDeltaPct = prevRevenue > 0 ? ((revenueDelta / prevRevenue) * 100) : 0;
+
+  // Revenue per session
+  const rps = quality.sessions > 0 ? currRevenue / quality.sessions : 0;
+  const rpsPrev = qualityPrev.sessions > 0 ? prevRevenue / qualityPrev.sessions : 0;
+
+  // Funnel leakage — revenue lost at each step
+  const stepLeakage = steps.slice(1).map((step, i) => {
+    const entering = funnelCounts[i];
+    const exiting = funnelCounts[i + 1];
+    const dropped = entering - exiting;
+    const dropRate = entering > 0 ? (dropped / entering) * 100 : 0;
+    const lostConversions = entering > 0 ? dropped * (funnelCounts[lastIdx] / Math.max(1, funnelCounts[i])) : 0;
+    const lostRevenue = lostConversions * aov;
+    return { from: steps[i].label, to: step.label, dropped, dropRate, lostRevenue };
+  }).sort((a, b) => b.lostRevenue - a.lostRevenue);
+
+  const totalLeakedRevenue = stepLeakage.reduce((a, s) => a + s.lostRevenue, 0);
+
+  // Performance-speed revenue correlation (based on Apdex bands)
+  const errRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
+  const fruPct = quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0;
+  const frustratedRevLoss = currRevenue * (fruPct / 100) * 0.5; // ~50% of frustrated users abandon
+  const errorRevLoss = currRevenue * (errRate / 100) * 0.3; // ~30% of error-affected sessions convert less
+
+  // Latency tax: every 100ms above 1s costs ~1% conversion (industry benchmark)
+  const avgDuration = quality.avg ?? 0;
+  const latencyPenaltyPct = avgDuration > 1000 ? Math.min(30, ((avgDuration - 1000) / 100) * 1) : 0;
+  const latencyRevLoss = currRevenue > 0 ? (funnelCounts[0] * (overallConv / 100) * aov * latencyPenaltyPct / 100) : 0;
+
+  // Improvement scenarios
+  const scenarios = [
+    { label: "Fix top drop-off step", improvement: stepLeakage[0] ? Math.min(stepLeakage[0].dropRate * 0.25, 15) : 0 },
+    { label: "Reduce avg duration to <1s", improvement: latencyPenaltyPct * 0.5 },
+    { label: "Eliminate frustrated sessions", improvement: fruPct * 0.5 },
+    { label: "Cut error rate in half", improvement: errRate * 0.15 },
+    { label: "Improve Apdex to 0.95", improvement: overallApdex < 0.95 ? (0.95 - overallApdex) * 20 : 0 },
+  ].map(s => ({ ...s, addedRevenue: currRevenue * (s.improvement / 100) })).filter(s => s.addedRevenue > 0).sort((a, b) => b.addedRevenue - a.addedRevenue);
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      {/* Top-line revenue KPIs */}
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-revenue-card uj-revenue-hero">
+          <Text className="uj-metric-label">Current Revenue</Text>
+          <Strong className="uj-metric-value" style={{ color: BLUE, fontSize: 28 }}>{fmtCurrency(currRevenue)}</Strong>
+          <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(currConversions)} conversions × {fmtCurrency(aov)} AOV</Text>
+        </div>
+        <div className="uj-revenue-card">
+          <Text className="uj-metric-label">Previous Period</Text>
+          <Strong className="uj-metric-value" style={{ color: "rgba(128,128,128,0.7)" }}>{fmtCurrency(prevRevenue)}</Strong>
+          <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(prevConversions)} conversions</Text>
+        </div>
+        <div className={`uj-revenue-card ${revenueDelta >= 0 ? "uj-revenue-positive" : "uj-revenue-negative"}`}>
+          <Text className="uj-metric-label">Revenue Change</Text>
+          <Strong className="uj-metric-value" style={{ color: revenueDelta >= 0 ? GREEN : RED }}>{revenueDelta >= 0 ? "+" : ""}{fmtCurrency(revenueDelta)}</Strong>
+          <Text style={{ fontSize: 11, color: revenueDelta >= 0 ? GREEN : RED }}>{revenueDelta >= 0 ? "▲" : "▼"} {fmtPct(Math.abs(revenueDeltaPct))} vs prev</Text>
+        </div>
+        <div className="uj-revenue-card">
+          <Text className="uj-metric-label">Revenue per Session</Text>
+          <Strong className="uj-metric-value" style={{ color: CYAN }}>{fmtCurrency(rps)}</Strong>
+          <Text style={{ fontSize: 11, color: rps >= rpsPrev ? GREEN : RED }}>{rps >= rpsPrev ? "▲" : "▼"} prev: {fmtCurrency(rpsPrev)}</Text>
+        </div>
+      </Flex>
+
+      {/* Performance Tax Summary */}
+      <SectionHeader title="Performance Tax" />
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-impact-card uj-impact-negative">
+          <Text className="uj-metric-label">Latency Tax</Text>
+          <Strong style={{ color: RED, fontSize: 18 }}>{fmtCurrency(latencyRevLoss)}</Strong>
+          <Text style={{ fontSize: 11, opacity: 0.5 }}>Avg {fmt(avgDuration)} → {fmtPct(latencyPenaltyPct)} conv penalty</Text>
+        </div>
+        <div className="uj-impact-card uj-impact-negative">
+          <Text className="uj-metric-label">Frustration Tax</Text>
+          <Strong style={{ color: RED, fontSize: 18 }}>{fmtCurrency(frustratedRevLoss)}</Strong>
+          <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtPct(fruPct)} frustrated sessions</Text>
+        </div>
+        <div className="uj-impact-card uj-impact-negative">
+          <Text className="uj-metric-label">Error Tax</Text>
+          <Strong style={{ color: RED, fontSize: 18 }}>{fmtCurrency(errorRevLoss)}</Strong>
+          <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtPct(errRate)} error rate</Text>
+        </div>
+        <div className="uj-impact-card uj-impact-negative">
+          <Text className="uj-metric-label">Total Perf Tax</Text>
+          <Strong style={{ color: RED, fontSize: 18 }}>{fmtCurrency(latencyRevLoss + frustratedRevLoss + errorRevLoss)}</Strong>
+          <Text style={{ fontSize: 11, opacity: 0.5 }}>Revenue recoverable via perf</Text>
+        </div>
+      </Flex>
+
+      {/* Funnel Revenue Leakage */}
+      <SectionHeader title="Funnel Revenue Leakage" />
+      <div className="uj-table-tile">
+        <DataTable
+          data={stepLeakage.map(s => ({
+            Transition: `${s.from} → ${s.to}`,
+            "Dropped Sessions": s.dropped,
+            "Drop Rate": s.dropRate,
+            "Est. Lost Revenue": s.lostRevenue,
+          }))}
+          columns={[
+            { id: "Transition", header: "Transition", accessor: "Transition" },
+            { id: "Dropped Sessions", header: "Dropped", accessor: "Dropped Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+            { id: "Drop Rate", header: "Drop %", accessor: "Drop Rate", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 40 ? RED : value > 20 ? YELLOW : GREEN }}>{fmtPct(value)}</Strong> },
+            { id: "Est. Lost Revenue", header: "Est. Lost Revenue", accessor: "Est. Lost Revenue", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCurrency(value)}</Strong> },
+          ]}
+        />
+      </div>
+      <div className="uj-table-tile" style={{ padding: 12 }}>
+        <Flex justifyContent="space-between" alignItems="center">
+          <Text style={{ fontSize: 12, fontWeight: 600 }}>Total Funnel Leakage</Text>
+          <Strong style={{ color: RED, fontSize: 16 }}>{fmtCurrency(totalLeakedRevenue)}</Strong>
+        </Flex>
+      </div>
+
+      {/* Improvement Opportunities */}
+      <SectionHeader title="Revenue Optimization Opportunities" />
+      <div className="uj-rec-list">
+        {scenarios.map((s, i) => (
+          <div key={i} className="uj-rec-item">
+            <Flex alignItems="center" gap={8}>
+              <span className="uj-rec-icon">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "💡"}</span>
+              <div style={{ flex: 1 }}>
+                <Strong style={{ fontSize: 13 }}>{s.label}</Strong>
+                <Text style={{ fontSize: 11, opacity: 0.6, display: "block" }}>+{fmtPct(s.improvement)} conversion uplift potential</Text>
+              </div>
+              <Strong style={{ color: GREEN, fontSize: 16 }}>+{fmtCurrency(s.addedRevenue)}</Strong>
+            </Flex>
+          </div>
+        ))}
+      </div>
+
+      <div className="uj-table-tile" style={{ padding: 24 }}>
+        <Text style={{ fontSize: 11, opacity: 0.5 }}>
+          Revenue Intelligence uses an AOV of {fmtCurrency(aov)}. Latency tax uses the industry benchmark of ~1% conversion loss per 100ms above 1s. Frustration/error taxes use conservative impact estimates. Funnel leakage estimates assume dropped users had equal downstream conversion probability. Change AOV in Settings (⚙) to recalculate.
         </Text>
       </div>
     </Flex>

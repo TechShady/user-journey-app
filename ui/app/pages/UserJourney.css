@@ -301,6 +301,35 @@
   border: 1px solid rgba(194, 25, 48, 0.2);
 }
 
+/* Revenue Cards */
+.uj-revenue-card {
+  flex: 1 1 180px;
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 10px;
+  padding: 16px 20px;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.uj-revenue-hero {
+  flex: 1.5 1 240px;
+  border: 1px solid rgba(69, 137, 255, 0.3);
+  background: rgba(69, 137, 255, 0.06);
+}
+
+.uj-revenue-positive {
+  background: rgba(13, 156, 41, 0.06);
+  border: 1px solid rgba(13, 156, 41, 0.2);
+}
+
+.uj-revenue-negative {
+  background: rgba(194, 25, 48, 0.06);
+  border: 1px solid rgba(194, 25, 48, 0.2);
+}
+
 /* CWV Cards */
 .uj-cwv-card {
   background: rgba(128, 128, 128, 0.06);
