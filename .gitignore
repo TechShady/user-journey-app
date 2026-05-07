@@ -2,3 +2,7 @@ node_modules/
 dist/
 .dt-app/
 *.tsbuildinfo
+
+# Temp PNGs (Outlook, Toast, Windows screenshots)
+/*.png
+!screenshot.png
