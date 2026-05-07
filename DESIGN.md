@@ -1,0 +1,730 @@
+# User Journey App — Design Document
+
+## Overview
+
+The User Journey App is a 25-tab frontend observability suite built as a Dynatrace Platform App. It provides comprehensive Real User Monitoring (RUM) analysis including funnel tracking, Web Vitals, geographic heatmaps, predictive forecasting, and automated anomaly detection — all powered by DQL (Dynatrace Query Language).
+
+**Architecture**: Single-page React app using Strato Design System components, `@dynatrace-sdk/react-hooks` (`useDql`) for data fetching, and SVG-based custom visualizations. All queries are parameterized by a user-selectable frontend application, funnel step definitions, and timeframe.
+
+---
+
+## Tab Reference
+
+### 1. Funnel Overview
+
+**Purpose**: Visualize user progression through defined funnel steps with conversion rates, Apdex scoring, and drop-off analysis.
+
+**Key Features**:
+- Colorized SVG funnel with step-by-step conversion percentages
+- Period-over-period comparison overlay (optional)
+- Per-step Apdex gauges and satisfaction breakdowns
+- KPI cards: Total Sessions, Conversions, Conversion Rate, Apdex, Error Rate, Avg Duration
+
+**Queries**:
+
+```dql
+-- sessionFlowQuery: Strict sequential funnel progression
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd step_tag = coalesce(if(view.name == "/home", "Home"), if(view.name == "/search", "Search"), ..., "other")
+| summarize steps = collectDistinct(step_tag), by: {dt.rum.session.id}
+| fieldsAdd reached_step1 = iAny(steps[] == "step1"), reached_step2 = iAny(steps[] == "step2"), ...
+| summarize total_sessions = count(), at_step1 = countIf(reached_step1), at_step2 = countIf(reached_step1 AND reached_step2), ...
+```
+
+```dql
+-- stepMetricsQuery: Per-step Apdex + duration percentiles
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {stepFilters}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000
+| fieldsAdd step_tag = {stepTagExpr}
+| fieldsAdd satisfaction = if(dur_ms <= 3000, "satisfied", else: if(dur_ms <= 12000, "tolerating", else: "frustrated"))
+| summarize sessions = countDistinctExact(dt.rum.session.id), total_actions = count(), avg_duration_ms = avg(dur_ms), p50 = percentile(dur_ms, 50), p90 = percentile(dur_ms, 90), p99 = percentile(dur_ms, 99), error_count = countIf(characteristics.has_error), satisfied = countIf(satisfaction == "satisfied"), tolerating = countIf(satisfaction == "tolerating"), frustrated = countIf(satisfaction == "frustrated"), by: {step_tag}
+```
+
+```dql
+-- sessionQualityQuery: Overall quality metrics
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000
+| fieldsAdd satisfaction = if(dur_ms <= 3000, "satisfied", else: if(dur_ms <= 12000, "tolerating", else: "frustrated"))
+| summarize total_actions = count(), total_sessions = countDistinctExact(dt.rum.session.id), avg_duration = avg(dur_ms), p50_duration = percentile(dur_ms, 50), p90_duration = percentile(dur_ms, 90), error_count = countIf(characteristics.has_error), satisfied = countIf(satisfaction == "satisfied"), tolerating = countIf(satisfaction == "tolerating"), frustrated = countIf(satisfaction == "frustrated")
+```
+
+---
+
+### 2. Trends
+
+**Purpose**: Period-over-period comparison showing improvement or degradation across 10 key metrics.
+
+**Key Features**:
+- Delta arrows with percentage change
+- Color-coded improvement/degradation indicators
+- 10 metrics: Sessions, Actions, Conversion Rate, Apdex, Avg Duration, P50, P90, Error Rate, Total Errors, Frustrated %
+
+**Queries**: Reuses `sessionQualityQuery` and `sessionFlowQuery` for both current and previous period (2x timeframe shifted back).
+
+---
+
+### 3. Web Vitals
+
+**Purpose**: Track Core Web Vitals (LCP, CLS, INP, TTFB) with good/poor threshold classification.
+
+**Key Features**:
+- Gauge visualizations per metric with color thresholds
+- Weighted Performance Health Score (LCP 35%, CLS 25%, INP 25%, TTFB 15%)
+- Page-level breakdown table
+- Threshold reference card
+
+**Queries**:
+
+```dql
+-- cwvQuery: Timeseries CWV averages
+timeseries {
+  lcp = avg(dt.frontend.web.page.largest_contentful_paint),
+  cls = avg(dt.frontend.web.page.cumulative_layout_shift),
+  inp = avg(dt.frontend.web.page.interaction_to_next_paint),
+  ttfb = avg(dt.frontend.web.page.time_to_first_byte),
+  load_end = avg(dt.frontend.web.page.load_event_end)
+}, from: now() - {timeframe}, filter: {frontend.name == "{frontend}"}
+| fieldsAdd lcp_avg = arrayAvg(lcp), cls_avg = arrayAvg(cls), inp_avg = arrayAvg(inp), ttfb_avg = arrayAvg(ttfb)
+```
+
+```dql
+-- cwvByPageQuery: CWV per page
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_page_summary == true
+| fieldsAdd lcp_ms = web_vitals.largest_contentful_paint, cls_val = web_vitals.cumulative_layout_shift, ttfb_ms = web_vitals.time_to_first_byte, fcp_ms = web_vitals.first_contentful_paint
+| summarize lcp_avg = avg(lcp_ms), cls_avg = avg(cls_val), ttfb_avg = avg(ttfb_ms), load_avg = avg(fcp_ms), by: {view.name}
+| sort lcp_avg desc
+| limit 20
+```
+
+---
+
+### 4. Step Details
+
+**Purpose**: Deep-dive into individual funnel steps with Apdex, satisfaction distribution, and duration percentiles.
+
+**Key Features**:
+- Per-step Apdex gauge with label (Excellent/Good/Fair/Poor)
+- Satisfaction bar (satisfied/tolerating/frustrated breakdown)
+- Duration percentiles (P50, P90, P99)
+- Error rate per step
+- Links to Dynatrace Vitals app
+
+**Queries**: Reuses `stepMetricsQuery`.
+
+---
+
+### 5. Worst Sessions
+
+**Purpose**: Surface the worst-performing sessions ranked by frustrated actions, errors, and slowness.
+
+**Key Features**:
+- Top 25 sessions with impact ranking
+- Session Replay direct links
+- Per-session metrics: actions, avg/max duration, errors, Apdex
+
+**Queries**:
+
+```dql
+-- worstSessionsQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000
+| fieldsAdd satisfaction = if(dur_ms <= 3000, "satisfied", else: if(dur_ms <= 12000, "tolerating", else: "frustrated"))
+| summarize actions = count(), avg_dur = avg(dur_ms), max_dur = max(dur_ms), errors = countIf(characteristics.has_error), frustrated = countIf(satisfaction == "frustrated"), satisfied = countIf(satisfaction == "satisfied"), tolerating = countIf(satisfaction == "tolerating"), start_ts = min(timestamp), by: {dt.rum.session.id}
+| sort frustrated desc, errors desc, max_dur desc
+| limit 25
+```
+
+---
+
+### 6. Exceptions
+
+**Purpose**: JavaScript exception analysis grouped by error identity with affected session counts.
+
+**Key Features**:
+- Error grouping by error name/ID
+- Occurrences, affected sessions, affected pages
+- First/last seen timestamps
+- Direct links to Dynatrace Error Inspector
+- Impact bars visualization
+
+**Queries**:
+
+```dql
+-- jsErrorsQuery
+fetch user.events, from: now() - {timeframe}, samplingRatio: 1
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_error
+| filter error.type == "exception"
+| summarize occurrences = count(), affected_users = countDistinctExact(dt.rum.user.id), affected_sessions = countDistinctExact(dt.rum.session.id), first_seen = min(timestamp), last_seen = max(timestamp), pages = collectDistinct(view.name), by: {error.id, error.name}
+| sort occurrences desc
+| limit 30
+```
+
+---
+
+### 7. Click Issues
+
+**Purpose**: Detect rage clicks and dead clicks indicating UX frustration.
+
+**Key Features**:
+- Rage click detection (rapid repeated clicks)
+- Dead click detection (clicks with no response)
+- Occurrences, affected sessions, target elements, pages
+- UX frustration indicators
+
+**Queries**:
+
+```dql
+-- clickIssuesQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter in(event.type, {"rageClick", "deadClick"})
+| summarize occurrences = count(), affected_sessions = countDistinctExact(dt.rum.session.id), by: {event.type, view.name, target.element}
+| sort occurrences desc
+| limit 30
+```
+
+---
+
+### 8. Perf Budgets
+
+**Purpose**: Performance budget compliance monitoring with pass/fail thresholds.
+
+**Key Features**:
+- 6 budget metrics: Apdex >= 0.85, Conversion >= 20%, Avg Duration <= 2s, P90 <= 4s, Error Rate <= 2%, Frustrated <= 10%
+- Pass/fail status with margin to threshold
+- Hourly Apdex distribution chart
+
+**Queries**:
+
+```dql
+-- hourlyDistributionQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000, hour = getHour(timestamp)
+| fieldsAdd satisfaction = if(dur_ms <= 3000, "satisfied", else: if(dur_ms <= 12000, "tolerating", else: "frustrated"))
+| summarize actions = count(), avg_dur = avg(dur_ms), p90_dur = percentile(dur_ms, 90), errors = countIf(characteristics.has_error), satisfied = countIf(satisfaction == "satisfied"), tolerating = countIf(satisfaction == "tolerating"), frustrated = countIf(satisfaction == "frustrated"), by: {hour}
+```
+
+Also reuses `sessionQualityQuery`.
+
+---
+
+### 9. Geo Heatmap
+
+**Purpose**: Country and city-level performance heatmap with Apdex coloring and satisfaction breakdowns.
+
+**Key Features**:
+- Country-level performance cards (top 20)
+- City drill-down table
+- Clickable → links to User Sessions filtered by location
+- Apdex color scale
+
+**Queries**:
+
+```dql
+-- geoPerformanceQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000, satisfaction, country = geo.country.name, city = geo.city.name, lcp_ms, cls_val, inp_ms
+| summarize actions = count(), sessions = countDistinctExact(dt.rum.session.id), avg_dur = avg(dur_ms), p90_dur = percentile(dur_ms, 90), errors = countIf(characteristics.has_error), satisfied = countIf(satisfaction == "satisfied"), tolerating = countIf(satisfaction == "tolerating"), frustrated = countIf(satisfaction == "frustrated"), lcp_avg = avg(lcp_ms), cls_avg = avg(cls_val), inp_avg = avg(inp_ms), by: {geo.country.isoCode, geo.country.name, geo.city.name}
+| sort sessions desc
+| limit 50
+```
+
+---
+
+### 10. Map
+
+**Purpose**: Interactive choropleth map with World and US state views.
+
+**Key Features**:
+- World map (d3-geo Natural Earth projection + world-atlas TopoJSON)
+- US state map (Albers USA projection + us-atlas TopoJSON)
+- 7 colorize-by metrics: Sessions, Avg Duration, Apdex, Error Rate, LCP, CLS, INP
+- Clickable countries/states link to User Sessions
+- Hover tooltips with full metrics
+
+**Queries**: Reuses `geoPerformanceQuery` + US-specific state aggregation from the same data.
+
+---
+
+### 11. Navigation Paths
+
+**Purpose**: Reveal actual user navigation flows, unexpected paths, loops, and exit points.
+
+**Key Features**:
+- Top navigation flows grouped by source page
+- Funnel-aligned path tagging
+- Transition counts and average session depth
+- Direct links to Vitals app per page
+
+**Queries**:
+
+```dql
+-- navigationPathsQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| sort timestamp asc
+| summarize path = collectArray(view.name), by: {dt.rum.session.id}
+| filter size(path) >= 2
+| fieldsAdd step1 = path[0], step2 = path[1]
+| fieldsAdd transition = concat(step1, " -> ", step2)
+| summarize occurrences = count(), avg_depth = avg(size(path)), by: {transition, step1, step2}
+| sort occurrences desc
+| limit 30
+```
+
+---
+
+### 12. Sankey
+
+**Purpose**: Multi-step flow visualization showing session progression through pages.
+
+**Key Features**:
+- 5 rendering styles: Classic Sankey, Gradient Sankey, Directed Flow Graph, Alluvial/Columnar, State Machine
+- Click nodes for inbound/outbound flow detail
+- Links to Vitals app from flow detail popups
+- Focus mode with filtered connections
+
+**Queries**:
+
+```dql
+-- sankeyQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| sort timestamp asc
+| summarize path = collectArray(view.name), by: {dt.rum.session.id}
+| filter size(path) >= 2
+| fieldsAdd s0 = path[0], s1 = path[1], s2 = path[2], s3 = path[3], s4 = path[4]
+| summarize sessions = count(), by: {s0, s1, s2, s3, s4}
+| sort sessions desc
+| limit 200
+```
+
+---
+
+### 13. Anomaly Detection
+
+**Purpose**: Automated anomaly detection across key metrics with severity classification.
+
+**Key Features**:
+- Stability Score (0-100)
+- 7 monitored metrics with deviation thresholds
+- Per-step traffic anomaly detection
+- Duration distribution histogram
+- Automated diagnosis text
+
+**Queries**: Reuses `sessionQualityQuery` (current + prev), `sessionFlowQuery` (current + prev), `stepMetricsQuery`.
+
+```dql
+-- sessionDurationDistributionQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000
+| fieldsAdd dur_bucket = if(dur_ms <= 500, "0-500ms", else: if(dur_ms <= 1000, "500ms-1s", else: if(dur_ms <= 2000, "1-2s", else: if(dur_ms <= 3000, "2-3s", else: if(dur_ms <= 5000, "3-5s", else: if(dur_ms <= 10000, "5-10s", else: ">10s"))))))
+| summarize actions = count(), sessions = countDistinctExact(dt.rum.session.id), avg_dur = avg(dur_ms), errors = countIf(characteristics.has_error), by: {dur_bucket}
+```
+
+---
+
+### 14. Conversion Attribution
+
+**Purpose**: Identify factors most impacting conversion by device, browser, and speed buckets.
+
+**Key Features**:
+- Speed-to-conversion correlation (fast/medium/slow buckets)
+- Device type attribution
+- Browser attribution
+- Full device x browser cross-section table
+
+**Queries**:
+
+```dql
+-- conversionAttributionQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd step_tag = {stepTagExpr}, dur_ms = toDouble(duration) / 1000000, deviceType = device.type, browserName = browser.name
+| summarize steps = collectDistinct(step_tag), avg_dur = avg(dur_ms), errors = countIf(characteristics.has_error), by: {dt.rum.session.id, deviceType, browserName}
+| fieldsAdd converted = iAll(steps[] == "step1") AND iAll(steps[] == "step2") AND ...
+| summarize total_sessions = count(), converted_sessions = countIf(converted), avg_duration = avg(avg_dur), avg_errors = avg(errors), by: {deviceType, browserName}
+| fieldsAdd conv_rate = 100.0 * converted_sessions / total_sessions
+| sort total_sessions desc
+| limit 30
+```
+
+---
+
+### 15. Executive Summary
+
+**Purpose**: One-page executive overview with weighted letter grade and key highlights.
+
+**Key Features**:
+- Weighted letter grade (A-F) combining Apdex, Conversion, Error Rate, CWV
+- Highlight cards for critical metrics
+- Funnel summary with bottleneck identification
+- CWV snapshot
+- Export to PDF and Copy-to-clipboard
+
+**Queries**: Reuses `sessionQualityQuery`, `cwvQuery`, `sessionFlowQuery`, `stepMetricsQuery`.
+
+---
+
+### 16. Segmentation
+
+**Purpose**: User segment analysis by device, browser, and geography.
+
+**Key Features**:
+- Device type breakdown (Desktop, Mobile, Tablet)
+- Browser breakdown with Apdex per browser
+- Geographic segment performance
+
+**Queries**:
+
+```dql
+-- deviceQuery
+fetch user.events | filter frontend.name == "{frontend}" | filter {anyStepFilter}
+| summarize sessions = countDistinctExact(dt.rum.session.id), actions = count(), avg_dur = avg(dur_ms), by: {device.type}
+
+-- browserQuery
+fetch user.events | filter frontend.name == "{frontend}" | filter {anyStepFilter}
+| summarize sessions = countDistinctExact(dt.rum.session.id), actions = count(), avg_dur = avg(dur_ms), by: {browser.name}
+
+-- geoQuery
+fetch user.events | filter frontend.name == "{frontend}" | filter {anyStepFilter}
+| summarize sessions = countDistinctExact(dt.rum.session.id), actions = count(), avg_dur = avg(dur_ms), by: {geo.country.name}
+```
+
+---
+
+### 17. Errors & Drop-offs
+
+**Purpose**: Correlate errors with funnel abandonment to identify drop-off causes.
+
+**Key Features**:
+- Drop-off analysis between funnel steps
+- Error counts per step transition
+- Optimization recommendations
+
+**Queries**: Reuses `errorQuery` + `sessionFlowQuery` results with client-side correlation.
+
+---
+
+### 18. What-If Analysis
+
+**Purpose**: Simulated scenario modeling projecting impact of traffic increases.
+
+**Key Features**:
+- Traffic multiplier slider (1-10x)
+- Projected Apdex degradation
+- Projected latency increase
+- Projected conversion impact
+- Visual before/after comparison
+
+**Queries**: Reuses `sessionFlowQuery` + `stepMetricsQuery` — applies traffic multiplier client-side with degradation model.
+
+---
+
+### 19. Root Cause Correlation
+
+**Purpose**: Correlate conversion drops with latency spikes, error surges, and P90 outliers on an hourly timeline.
+
+**Key Features**:
+- Hourly timeline SVG chart
+- Ranked signals with confidence scores
+- Step degradation ranking
+- Automated diagnosis text
+
+**Queries**:
+
+```dql
+-- rootCauseCorrelationQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd step_tag = {stepTagExpr}, dur_ms = toDouble(duration) / 1000000, hour_bucket = formatTimestamp(timestamp, "yyyy-MM-dd HH:00")
+| summarize steps = collectDistinct(step_tag), avg_dur = avg(dur_ms), errors = countIf(characteristics.has_error), by: {dt.rum.session.id, hour_bucket}
+| fieldsAdd converted = {allStepsReached}
+| summarize total_sessions = count(), converted_sessions = countIf(converted), avg_duration = avg(avg_dur), p90_duration = percentile(avg_dur, 90), error_sessions = countIf(errors > 0), avg_errors = avg(errors), by: {hour_bucket}
+| fieldsAdd conv_rate = 100.0 * converted_sessions / total_sessions, error_rate = 100.0 * error_sessions / total_sessions
+| sort hour_bucket asc
+```
+
+```dql
+-- rootCauseStepDropQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd dur_ms, step_tag, satisfaction, hour_bucket
+| summarize actions = count(), avg_dur = avg(dur_ms), p90_dur = percentile(dur_ms, 90), errors = countIf(characteristics.has_error), frustrated = countIf(satisfaction == "frustrated"), by: {step_tag, hour_bucket}
+```
+
+---
+
+### 20. Predictive Forecasting
+
+**Purpose**: Linear regression projecting key metrics 7 days forward with breach estimates.
+
+**Key Features**:
+- Trend sparklines with forecast extension
+- Days-to-breach estimates for Apdex, conversion, error rate
+- Multi-metric forecasting (Apdex, conversion, error rate, duration, CWV)
+
+**Queries**:
+
+```dql
+-- forecastTrendQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd step_tag, dur_ms, day_bucket = formatTimestamp(timestamp, "yyyy-MM-dd")
+| summarize steps = collectDistinct(step_tag), by: {dt.rum.session.id, day_bucket}
+| fieldsAdd converted = {allStepsReached}
+| summarize total_sessions = count(), converted_sessions = countIf(converted), avg_duration = avg(...), total_errors = sum(...), by: {day_bucket}
+| fieldsAdd conv_rate, error_rate
+| sort day_bucket asc
+```
+
+```dql
+-- forecastApdexTrendQuery
+fetch user.events | fieldsAdd dur_ms, day_bucket
+| summarize total = count(), satisfied = countIf(dur_ms <= 3000), tolerating = countIf(dur_ms > 3000 AND dur_ms <= 12000), frustrated = countIf(dur_ms > 12000), avg_dur = avg(dur_ms), p90_dur = percentile(dur_ms, 90), by: {day_bucket}
+| sort day_bucket asc
+```
+
+```dql
+-- forecastVitalsTrendQuery
+timeseries { lcp = avg(dt.frontend.web.page.largest_contentful_paint), cls = avg(...cumulative_layout_shift), inp = avg(...interaction_to_next_paint), ttfb = avg(...time_to_first_byte) }, interval: 1d, from: now() - {timeframe}
+```
+
+---
+
+### 21. Resource Waterfall
+
+**Purpose**: Aggregated resource timing per funnel step showing scripts, CSS, images, fonts, and XHR load times.
+
+**Key Features**:
+- Visual waterfall bars (P50/P90)
+- Per-step resource type breakdown
+- Optimization recommendations (slow resources flagged)
+
+**Queries**:
+
+```dql
+-- resourceWaterfallQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_request == true
+| fieldsAdd res_dur_ms = toDouble(duration) / 1000000, step_tag = {stepTagExpr}, res_type = if(endsWith(url.path, ".js"), "script", else: if(endsWith(url.path, ".css"), "css", else: if(matchesPhrase(content.type, "image"), "image", else: if(matchesPhrase(content.type, "font"), "font", else: "xhr")))), res_name = url.path
+| summarize count = count(), avg_dur = avg(res_dur_ms), p50_dur = percentile(res_dur_ms, 50), p90_dur = percentile(res_dur_ms, 90), p99_dur = percentile(res_dur_ms, 99), max_dur = max(res_dur_ms), total_dur = sum(res_dur_ms), by: {step_tag, res_type, res_name}
+| sort total_dur desc
+| limit 100
+```
+
+```dql
+-- resourceByStepQuery
+fetch user.events | filter has_request
+| summarize resources = count(), avg_dur = avg(res_dur_ms), p90_dur = percentile(res_dur_ms, 90), total_dur = sum(res_dur_ms), slow_count = countIf(res_dur_ms > 1000), by: {step_tag, res_type}
+```
+
+---
+
+### 22. Change Intelligence
+
+**Purpose**: Overlay deployment events on hourly performance timeline for before/after analysis.
+
+**Key Features**:
+- Deployment event markers on timeline
+- Before/after Apdex, duration, error rate, frustrated %
+- Severity classification (improvement, degradation, critical)
+
+**Queries**:
+
+```dql
+-- deploymentEventsQuery
+fetch events, from: now() - {timeframe}
+| filter event.type == "CUSTOM_DEPLOYMENT" OR event.type == "task.deployment.finished"
+| fieldsAdd deploy_name = event.name, source, version = tag.version, stage = tag.stage, component = tag.component, service = tag.service, desc = description, project = tag.project, repo = tag.repository, hour_key = formatTimestamp(timestamp, "yyyy-MM-dd HH:00")
+| summarize deploy_count = count(), first_time = min(timestamp), by: {hour_key, deploy_name, version, stage, component, service}
+| sort first_time desc
+```
+
+```dql
+-- changeImpactQuery (hourly user metrics)
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd dur_ms, hour_ts = formatTimestamp(timestamp, "yyyy-MM-dd HH:00")
+| fieldsAdd satisfaction
+| summarize sessions = countDistinctExact(dt.rum.session.id), actions = count(), avg_dur = avg(dur_ms), p90_dur = percentile(dur_ms, 90), errors = countIf(characteristics.has_error), satisfied = countIf(satisfaction == "satisfied"), tolerating = countIf(satisfaction == "tolerating"), frustrated = countIf(satisfaction == "frustrated"), by: {hour_ts}
+| sort hour_ts asc
+```
+
+---
+
+### 23. SLO Tracker
+
+**Purpose**: Service Level Objective tracking with error budget burn-down.
+
+**Key Features**:
+- SLO definitions: Apdex >= 0.85, Error Rate <= 2%, LCP <= 2500ms, CLS <= 0.1, INP <= 200ms, TTFB <= 800ms
+- Error budget remaining + burn rate
+- Projected exhaustion time
+- Hourly granularity trend
+
+**Queries**:
+
+```dql
+-- sloApdexTrendQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| fieldsAdd dur_ms, hour_key = formatTimestamp(timestamp, "yyyy-MM-dd HH:00")
+| fieldsAdd satisfaction
+| summarize total = count(), satisfied = countIf(satisfaction == "satisfied"), tolerating = countIf(satisfaction == "tolerating"), errors = countIf(characteristics.has_error), avg_dur = avg(dur_ms), by: {hour_key}
+| sort hour_key asc
+```
+
+```dql
+-- sloCwvTrendQuery
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_page_summary == true
+| fieldsAdd lcp_ms = web_vitals.largest_contentful_paint, cls_val = web_vitals.cumulative_layout_shift, inp_ms = web_vitals.interaction_to_next_paint, ttfb_ms = web_vitals.time_to_first_byte, bucket_key = formatTimestamp(timestamp, "yyyy-MM-dd HH:00")
+| summarize lcp_val = avg(lcp_ms), cls_val = avg(cls_val), inp_val = avg(inp_ms), ttfb_val = avg(ttfb_ms), by: {bucket_key}
+| sort bucket_key asc
+```
+
+---
+
+### 24. Session Replay Spotlight
+
+**Purpose**: Surface highest-impact session replays ranked by a composite impact score.
+
+**Key Features**:
+- Impact score formula: `errors * 10 + crash * 50 + bounce * 20 + (interactions > 10) * 5`
+- Top 50 sessions with direct Replay links
+- Duration, error count, device, browser, country metadata
+- Crash and bounce badges
+
+**Queries**:
+
+```dql
+-- sessionReplayQuery
+fetch user.sessions, from: now() - {timeframe}
+| filter characteristics.has_replay == true
+| filter dt.rum.user_type == "real_user"
+| filter frontend.name == "{frontend}"
+| fieldsAdd dur_s = toDouble(duration) / 1000000000, err = error_count, navs = navigation_count, interactions = interaction_count, is_bounce = bounce, has_crash = crash, user_tag = dt.rum.user.tag, device = device.type, browser = browser.name, country = geo.country.name
+| fieldsAdd impact_score = err * 10 + toInt(has_crash) * 50 + toInt(is_bounce) * 20 + if(interactions > 10, 5, else: 0)
+| sort impact_score desc
+| limit 50
+```
+
+---
+
+### 25. A/B Comparison
+
+**Purpose**: Side-by-side segment comparison for platform variants.
+
+**Key Features**:
+- Preset comparisons: Desktop vs Mobile, Chrome vs Firefox, US vs non-US
+- Custom DQL filter segments
+- Apdex, conversion, error rate, duration deltas
+- CWV comparison per segment
+
+**Queries**:
+
+```dql
+-- abSegmentQuery (called twice, once per segment)
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter {anyStepFilter}
+| filter {segmentFilter}  -- e.g. device.type == "Desktop" or browser.name == "Chrome"
+| fieldsAdd dur_ms, day_bucket = formatTimestamp(timestamp, "yyyy-MM-dd")
+| fieldsAdd satisfaction
+| summarize sessions = countDistinctExact(dt.rum.session.id), actions = count(), avg_dur = avg(dur_ms), p90_dur = percentile(dur_ms, 90), errors = countIf(characteristics.has_error), satisfied = countIf(satisfaction == "satisfied"), tolerating = countIf(satisfaction == "tolerating"), frustrated = countIf(satisfaction == "frustrated"), by: {day_bucket}
+| sort day_bucket asc
+```
+
+```dql
+-- abSegmentCwvQuery (called twice, once per segment)
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_page_summary == true
+| filter {segmentFilter}
+| fieldsAdd lcp_ms, cls_val, inp_ms, ttfb_ms
+| summarize lcp_avg = avg(lcp_ms), cls_avg = avg(cls_val), inp_avg = avg(inp_ms), ttfb_avg = avg(ttfb_ms), page_views = count()
+```
+
+---
+
+## Architecture Notes
+
+### Query Infrastructure
+
+- **Data fetching**: All queries use `useDql()` from `@dynatrace-sdk/react-hooks` which handles polling for long-running queries
+- **Timeframe**: User-selectable via `TimeframeSelector` (2h to 90d). Supports absolute windows with shifted anchors for historical analysis
+- **Period comparison**: Many tabs run queries twice (current period + previous period of same duration) for delta calculations
+- **Caching**: `useDql` deduplicates identical queries within a render cycle
+
+### User Configuration (Persisted via UserAppState)
+
+| Setting | State Key | Description |
+|---------|-----------|-------------|
+| Frontend App | `uj-frontend-app` | Which RUM application to analyze |
+| Funnel Steps | `uj-funnel-steps` | Custom step definitions (2-10 steps) |
+| Tab Visibility | `uj-tab-visibility` | Show/hide individual tabs |
+| Tab Order | `uj-tab-order` | Drag-to-reorder tab sequence |
+| Sankey Style | `uj-sankey-style` | Preferred Sankey rendering mode |
+| Map View | `uj-map-view` | Default map view (World/US) |
+
+### Key Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| APDEX_T | 3000 ms | Satisfied threshold |
+| APDEX_4T | 12000 ms | Frustrated threshold |
+| CWV LCP Good | 2500 ms | Core Web Vital threshold |
+| CWV CLS Good | 0.1 | Core Web Vital threshold |
+| CWV INP Good | 200 ms | Core Web Vital threshold |
+| CWV TTFB Good | 800 ms | Core Web Vital threshold |
+
+### Required Scopes
+
+```json
+[
+  "storage:events:read",
+  "storage:user.events:read",
+  "storage:user.sessions:read",
+  "storage:metrics:read",
+  "storage:entities:read",
+  "storage:system:read",
+  "storage:buckets:read",
+  "state:user-app-states:read",
+  "state:user-app-states:write"
+]
+```
+
+### External Dependencies
+
+- `d3-geo` — Map projections (Natural Earth, Albers USA)
+- `topojson-client` — TopoJSON → GeoJSON conversion
+- `world-atlas` — World country boundaries
+- `us-atlas` — US state boundaries
