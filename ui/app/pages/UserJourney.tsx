@@ -1200,7 +1200,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• A/B Comparison quantifies platform gaps — use it to justify mobile optimization investments with data.</Paragraph>
       </HelpSection>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16, marginTop: 8 }}>
-        <Paragraph><Link href="https://github.com/TechShady/user-journey-app" target="_blank" rel="noopener noreferrer">GitHub Repository</Link></Paragraph>
+        <Paragraph><span style={{ color: "rgba(128,128,128,0.8)" }}>Source code &amp; issue tracker: </span><Link href="https://github.com/TechShady/user-journey-app" target="_blank" rel="noopener noreferrer">github.com/TechShady/user-journey-app</Link></Paragraph>
       </div>
     </div>
   );
