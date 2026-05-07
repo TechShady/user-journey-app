@@ -145,7 +145,7 @@ function timeframeAnchorMs(tf: Timeframe | null): number | null {
 function fmt(v: number | undefined): string { if (v == null || isNaN(v)) return "N/A"; return v >= 1000 ? (v / 1000).toFixed(2) + " s" : v.toFixed(0) + " ms"; }
 function fmtCount(v: number | undefined): string { if (v == null) return "0"; if (v >= 1e6) return (v / 1e6).toFixed(1) + "M"; if (v >= 1e3) return (v / 1e3).toFixed(1) + "k"; return Math.round(v).toLocaleString(); }
 function fmtPct(v: number | undefined): string { return (v == null || isNaN(v)) ? "0.0%" : v.toFixed(1) + "%"; }
-function fmtCurrency(v: number): string { if (v >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M"; if (v >= 1e3) return "$" + (v / 1e3).toFixed(1) + "k"; return "$" + v.toFixed(2); }
+function fmtCurrency(v: number | undefined): string { if (v == null || isNaN(v)) return "$0.00"; if (Math.abs(v) >= 1e6) return (v < 0 ? "-" : "") + "$" + (Math.abs(v) / 1e6).toFixed(2) + "M"; if (Math.abs(v) >= 1e3) return (v < 0 ? "-" : "") + "$" + (Math.abs(v) / 1e3).toFixed(1) + "k"; return (v < 0 ? "-$" : "$") + Math.abs(v).toFixed(2); }
 function formatHourKey(d: Date): string { return d.toISOString().substring(0, 13).replace("T", " ") + ":00"; }
 function statusClr(pct: number): string { return pct >= 80 ? GREEN : pct >= 50 ? YELLOW : RED; }
 function apdexClr(a: number): string { return a >= 0.85 ? GREEN : a >= 0.7 ? YELLOW : a >= 0.5 ? ORANGE : RED; }
@@ -1613,7 +1613,7 @@ export function UserJourney() {
             case "SLO Tracker": content = <SLOTrackerTab apdexTrend={sloApdexTrendData} cwvTrend={sloCwvTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} cwv={cwv} isLoading={sloApdexTrendData.isLoading || sloCwvTrendData.isLoading} />; break;
             case "Session Replay Spotlight": content = <SessionReplaySpotlightTab data={sessionReplayData} isLoading={sessionReplayData.isLoading} />; break;
             case "A/B Comparison": content = <ABComparisonTab segAData={abSegAData} segBData={abSegBData} segACwv={abSegACwv} segBCwv={abSegBCwv} dimension={abDimension} setDimension={setAbDimension} segA={abSegA} segB={abSegB} setSegA={setAbSegA} setSegB={setAbSegB} isLoading={abSegAData.isLoading || abSegBData.isLoading || abSegACwv.isLoading || abSegBCwv.isLoading} />; break;
-            case "Revenue Intelligence": content = <RevenueIntelligenceTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} quality={quality} qualityPrev={qualityPrev} isLoading={isLoading || qualityData.isLoading} steps={steps} aov={aov} />; break;
+            case "Revenue Intelligence": content = <RevenueIntelligenceTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} quality={quality} qualityPrev={qualityPrev} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} />; break;
           }
           return <Tab key={tabId} title={tabId}>{content}</Tab>;
         })}
@@ -4040,13 +4040,13 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
   const projFunnel = funnelCounts.map((c, i) => i === 0 ? Math.round(c * mult) : Math.round(c * mult * Math.pow(1 - convDegradation, i)));
 
   // Revenue calculations
-  const currConversions = funnelCounts[lastIdx];
-  const projConversions = projFunnel[lastIdx];
+  const currConversions = funnelCounts[lastIdx] ?? 0;
+  const projConversions = projFunnel[lastIdx] ?? 0;
   const currRevenue = currConversions * aov;
   const projRevenue = projConversions * aov;
   const revenueDelta = projRevenue - currRevenue;
   // What the revenue WOULD be if conv rate didn't degrade
-  const idealConversions = Math.round(funnelCounts[lastIdx] * mult);
+  const idealConversions = Math.round((funnelCounts[lastIdx] ?? 0) * mult);
   const idealRevenue = idealConversions * aov;
   const convLossRevenue = idealRevenue - projRevenue;
 
@@ -4171,8 +4171,8 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
   }
 
   const lastIdx = steps.length - 1;
-  const currConversions = funnelCounts[lastIdx];
-  const prevConversions = funnelCountsPrev[lastIdx] || 0;
+  const currConversions = funnelCounts[lastIdx] ?? 0;
+  const prevConversions = funnelCountsPrev[lastIdx] ?? 0;
   const currRevenue = currConversions * aov;
   const prevRevenue = prevConversions * aov;
   const revenueDelta = currRevenue - prevRevenue;
