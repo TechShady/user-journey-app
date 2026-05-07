@@ -101,7 +101,26 @@ const CWV = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+// When the TimeframeSelector arrow buttons shift the window into the past
+// (e.g. `now-4h..now-2h`), we need queries to actually look at that shifted
+// window — not always at `now()`. We track the current end anchor (epoch ms)
+// at module scope so `periodClause` can emit absolute ISO timestamps, and so
+// query strings change when the user shifts the window (driving useDql refetch).
+let CURRENT_ANCHOR_MS: number | null = null;
+export function setQueryAnchorMs(ms: number | null) { CURRENT_ANCHOR_MS = ms; }
+
+function toIso(ms: number): string { return new Date(ms).toISOString(); }
+
 function periodClause(days: number, prev = false): string {
+  // Anchored mode: emit absolute from/to so a shifted window queries the
+  // shifted data window, not always now(). Bake the anchor into the string
+  // so any change re-keys the query.
+  if (CURRENT_ANCHOR_MS != null) {
+    const durMs = Math.max(1, days) * 86400000;
+    const to = prev ? CURRENT_ANCHOR_MS - durMs : CURRENT_ANCHOR_MS;
+    const from = to - durMs;
+    return `from: "${toIso(from)}", to: "${toIso(to)}"`;
+  }
   if (days < 1) {
     const h = Math.max(1, Math.round(days * 24));
     return prev ? `from: now() - ${h * 2}h, to: now() - ${h}h` : `from: now() - ${h}h`;
@@ -120,6 +139,17 @@ function timeframeToDays(tf: Timeframe | null): number | null {
   const toMs = Date.parse(tf.to.absoluteDate);
   if (!isFinite(fromMs) || !isFinite(toMs) || toMs <= fromMs) return null;
   return (toMs - fromMs) / 86400000;
+}
+
+// Returns the end anchor (epoch ms) for an absolute timeframe, or null when
+// the user has selected a "now-relative" window (we treat that as live).
+function timeframeAnchorMs(tf: Timeframe | null): number | null {
+  if (!tf?.to?.absoluteDate) return null;
+  const toMs = Date.parse(tf.to.absoluteDate);
+  if (!isFinite(toMs)) return null;
+  // If the end is essentially "now" (within 60s), treat as live → no anchor.
+  if (Math.abs(Date.now() - toMs) < 60_000) return null;
+  return toMs;
 }
 function fmt(v: number | undefined): string { if (v == null || isNaN(v)) return "N/A"; return v >= 1000 ? (v / 1000).toFixed(2) + " s" : v.toFixed(0) + " ms"; }
 function fmtCount(v: number | undefined): string { if (v == null) return "0"; if (v >= 1e6) return (v / 1e6).toFixed(1) + "M"; if (v >= 1e3) return (v / 1e3).toFixed(1) + "k"; return Math.round(v).toLocaleString(); }
@@ -1182,6 +1212,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
 export function UserJourney() {
   const [timeframeDays, setTimeframeDays] = useState<number>(DEFAULT_TIMEFRAME);
   const [timeframeRaw, setTimeframeRaw] = useState<Timeframe | null>(null);
+  const [timeframeAnchor, setTimeframeAnchor] = useState<number | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
@@ -1283,6 +1314,10 @@ export function UserJourney() {
   };
 
   // Current period queries
+  // Sync the module-level query anchor BEFORE building any query strings, so
+  // arrow-shifted (past-window) timeframes produce queries against the
+  // shifted window and re-key useDql to refetch.
+  setQueryAnchorMs(timeframeAnchor);
   const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps) });
   const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps) });
   const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend) });
@@ -1415,6 +1450,7 @@ export function UserJourney() {
                 const d = timeframeToDays(tf);
                 if (d != null) setTimeframeDays(d);
                 else setTimeframeDays(DEFAULT_TIMEFRAME);
+                setTimeframeAnchor(timeframeAnchorMs(tf));
               }}
             />
           </div>
