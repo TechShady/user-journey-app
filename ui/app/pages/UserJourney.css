@@ -15,7 +15,7 @@
   justify-content: space-between;
   margin-bottom: 24px;
   padding-bottom: 16px;
-  border-bottom: 1px solid rgba(99, 130, 191, 0.15);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
 }
 
 .uj-logo {
@@ -37,8 +37,8 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  background: rgba(128, 128, 128, 0.06);
   cursor: pointer;
   transition: all 0.2s;
   padding: 0;
@@ -52,14 +52,14 @@
 .uj-section-header {
   margin-top: 8px;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(99, 130, 191, 0.1);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
 }
 
 /* KPI Cards */
 .uj-kpi-card {
   flex: 1 1 140px;
-  background: rgba(20, 24, 40, 0.6);
-  border: 1px solid rgba(99, 130, 191, 0.15);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 12px;
   padding: 16px 20px;
   min-width: 130px;
@@ -85,8 +85,8 @@
   flex-direction: column;
   gap: 12px;
   padding: 20px;
-  background: rgba(20, 24, 40, 0.4);
-  border: 1px solid rgba(99, 130, 191, 0.12);
+  background: rgba(128, 128, 128, 0.04);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-radius: 12px;
 }
 
@@ -126,7 +126,7 @@
 
 .uj-funnel-bar-container {
   height: 36px;
-  background: rgba(99, 130, 191, 0.06);
+  background: rgba(128, 128, 128, 0.08);
   border-radius: 8px;
   overflow: hidden;
   position: relative;
@@ -161,7 +161,7 @@
   font-weight: 600;
   padding: 3px 8px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(128, 128, 128, 0.08);
   white-space: nowrap;
 }
 
@@ -171,8 +171,8 @@
 
 /* Table Tile */
 .uj-table-tile {
-  background: rgba(20, 24, 40, 0.4);
-  border: 1px solid rgba(99, 130, 191, 0.12);
+  background: rgba(128, 128, 128, 0.04);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -187,8 +187,8 @@
 
 /* Step Detail Cards */
 .uj-step-detail-card {
-  background: rgba(20, 24, 40, 0.5);
-  border: 1px solid rgba(99, 130, 191, 0.15);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 12px;
   padding: 20px 24px;
 }
@@ -209,8 +209,8 @@
 
 /* Metric Boxes */
 .uj-metric-box {
-  background: rgba(99, 130, 191, 0.06);
-  border: 1px solid rgba(99, 130, 191, 0.1);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-radius: 10px;
   padding: 14px 18px;
   min-width: 120px;
@@ -263,8 +263,8 @@
 }
 
 .uj-recommendation-card {
-  background: rgba(20, 24, 40, 0.5);
-  border: 1px solid rgba(99, 130, 191, 0.12);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-radius: 10px;
   padding: 14px 18px;
 }
@@ -277,8 +277,8 @@
 /* What-If Cards */
 .uj-whatif-card {
   flex: 1 1 160px;
-  background: rgba(20, 24, 40, 0.6);
-  border: 1px solid rgba(99, 130, 191, 0.15);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 10px;
   padding: 16px 20px;
   min-width: 140px;
@@ -303,8 +303,8 @@
 
 /* CWV Cards */
 .uj-cwv-card {
-  background: rgba(30, 41, 59, 0.45);
-  border: 1px solid rgba(99, 130, 191, 0.15);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 12px;
   padding: 16px 20px;
   min-width: 160px;
@@ -346,9 +346,9 @@
   font-weight: 600;
   padding: 6px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(99, 130, 191, 0.2);
-  background: rgba(99, 130, 191, 0.06);
-  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  background: rgba(128, 128, 128, 0.06);
+  color: rgba(128, 128, 128, 0.7);
   cursor: pointer;
   transition: all 0.2s;
   white-space: nowrap;
@@ -369,8 +369,8 @@
   flex: 1 1 180px;
   min-width: 160px;
   max-width: 240px;
-  background: rgba(20, 24, 40, 0.6);
-  border: 1px solid rgba(99, 130, 191, 0.15);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 12px;
   padding: 16px 20px;
 }
@@ -391,8 +391,8 @@
 
 /* Error Cards */
 .uj-error-card {
-  background: rgba(20, 24, 40, 0.5);
-  border: 1px solid rgba(99, 130, 191, 0.12);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-radius: 12px;
   padding: 16px 20px;
 }
@@ -450,8 +450,8 @@
 /* Cohort cards */
 .uj-cohort-card {
   flex: 1 1 340px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-radius: 12px;
   padding: 20px;
   transition: border-color 0.2s ease;
@@ -463,8 +463,8 @@
 /* Budget cards */
 .uj-budget-card {
   flex: 1 1 280px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-radius: 12px;
   padding: 16px;
   transition: border-color 0.2s ease;
@@ -477,8 +477,8 @@
 .uj-geo-card {
   flex: 1 1 220px;
   max-width: 280px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-left: 3px solid;
   border-radius: 8px;
   padding: 12px;
@@ -490,8 +490,8 @@
 
 /* Flow cards */
 .uj-flow-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-radius: 12px;
   padding: 16px;
   transition: border-color 0.2s ease;
@@ -503,8 +503,8 @@
 /* Anomaly cards */
 .uj-anomaly-card {
   flex: 1 1 260px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-left: 3px solid;
   border-radius: 8px;
   padding: 14px;
@@ -517,8 +517,8 @@
 /* Attribution cards */
 .uj-attribution-card {
   flex: 1 1 220px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-radius: 12px;
   padding: 16px;
   transition: border-color 0.2s ease;
@@ -531,8 +531,8 @@
 .uj-grade-card {
   text-align: center;
   padding: 24px 32px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-radius: 16px;
   min-width: 160;
 }

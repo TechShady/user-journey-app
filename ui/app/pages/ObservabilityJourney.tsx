@@ -31,7 +31,7 @@ const LEVELS = [
     name: "Foundational",
     tagline: "Visibility without consistency",
     desc: "Basic observability is established, but data remains siloed and insights are largely descriptive and manual.",
-    color: "#fbbf24",
+    color: "#B8860B",
   },
   {
     num: 1,

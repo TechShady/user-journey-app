@@ -1,9 +1,9 @@
 {
   "$schema": "./.dt-app/app.config.schema.json",
-  "environmentUrl": "https://mqv31449.apps.dynatrace.com/",
+  "environmentUrl": "https://guu84124.apps.dynatrace.com/",
   "app": {
     "name": "User Journey",
-    "version": "4.34.1",
+    "version": "4.35.9",
     "description": "User Journey — 25-tab frontend observability suite",
     "id": "my.user.journey.app",
     "scopes": [

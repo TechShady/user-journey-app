@@ -17,7 +17,7 @@ import "./UserJourney.css";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const DEFAULT_FRONTEND = "POS";
+const DEFAULT_FRONTEND = "www.angular.easytravel.com";
 const FRONTEND_STATE_KEY = "uj-frontend-app";
 const STEPS_STATE_KEY = "uj-funnel-steps";
 const SANKEY_STYLE_STATE_KEY = "uj-sankey-style";
@@ -40,7 +40,7 @@ const DEFAULT_MAP_VIEW: MapViewSetting = "world";
 const MIN_STEPS = 2;
 const MAX_STEPS = 10;
 const GREEN = "#0D9C29";
-const YELLOW = "#FCD53F";
+const YELLOW = "#B8860B";
 const RED = "#C21930";
 const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
@@ -53,11 +53,10 @@ try { ENV_URL = getEnvironmentUrl(); } catch { /* dev fallback */ }
 type StepDef = { label: string; identifier: string; type: "view" | "request" };
 
 const DEFAULT_FUNNEL_STEPS: StepDef[] = [
-  { label: "Contract Selected", identifier: "/secure/contractclose3/contract/contractselected", type: "view" },
-  { label: "Check-In Inspection", identifier: "/secure/contractclose3/equipmentquestions/checkincondition", type: "view" },
-  { label: "Summary / Total Due", identifier: "/secure/contractclose3/summary/totaldue", type: "view" },
-  { label: "Payment", identifier: "/secure/contractclose3/payment/fullpayment", type: "view" },
-  { label: "Complete", identifier: "/secure/contractclose3/final/complete", type: "view" },
+  { label: "Home", identifier: "/easytravel/home", type: "view" },
+  { label: "Search", identifier: "/easytravel/search", type: "view" },
+  { label: "Journey Detail", identifier: "/easytravel/journeys/:id:", type: "view" },
+  { label: "Book", identifier: "/easytravel/journeys/:id:/book", type: "view" },
 ];
 
 const TIMEFRAME_OPTIONS = [
@@ -1008,7 +1007,7 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs }: { steps: Funne
       </defs>
       {/* Previous period ghost */}
       {prevSteps && prevWidths && prevWidths.map((_, i) => (
-        <path key={`prev-${i}`} d={segPath(prevWidths, i)} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2" strokeDasharray="6 4" />
+        <path key={`prev-${i}`} d={segPath(prevWidths, i)} fill="none" stroke="rgba(128,128,128,0.4)" strokeWidth="2" strokeDasharray="6 4" />
       ))}
       {/* Current period segments */}
       {steps.map((_, i) => (
@@ -1086,7 +1085,7 @@ function MultiplierSlider({ value, onChange }: { value: number; onChange: (v: nu
       <input type="range" min={0} max={TRAFFIC_MULTIPLIERS.length - 1} value={TRAFFIC_MULTIPLIERS.indexOf(value)} onChange={(e) => onChange(TRAFFIC_MULTIPLIERS[Number(e.target.value)])} className="uj-slider" />
       <div style={{ position: "relative", width: "100%", height: 18 }}>
         {TRAFFIC_MULTIPLIERS.map((v, i) => (
-          <span key={v} style={{ position: "absolute", left: `${(i / (TRAFFIC_MULTIPLIERS.length - 1)) * 100}%`, transform: "translateX(-50%)", fontSize: 10, color: v === value ? BLUE : "rgba(255,255,255,0.35)", fontWeight: v === value ? 700 : 400 }}>{v}x</span>
+          <span key={v} style={{ position: "absolute", left: `${(i / (TRAFFIC_MULTIPLIERS.length - 1)) * 100}%`, transform: "translateX(-50%)", fontSize: 10, color: v === value ? BLUE : "rgba(128,128,128,0.6)", fontWeight: v === value ? 700 : 400 }}>{v}x</span>
         ))}
       </div>
     </Flex>
@@ -1128,7 +1127,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
         <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram showing user navigation paths. Click any node to see inbound/outbound connections. Inbound and outbound user actions in the popup are clickable — they open the <Strong>Vitals</Strong> app filtered to that specific page for detailed performance analysis.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations.</Paragraph>
-        <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device Ã— browser cross-section.</Paragraph>
+        <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device x browser cross-section.</Paragraph>
         <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. Use <Strong>Export PDF</Strong> to open a print-ready report in a new tab (use browser Print → Save as PDF), or <Strong>Copy Text</Strong> to get a plain-text summary for Slack/Teams/email. Designed for quick status checks and executive presentations.</Paragraph>
         <Paragraph><Strong>Segmentation</Strong>: Device, browser, and geo breakdowns with Apdex per segment.</Paragraph>
         <Paragraph><Strong>Errors &amp; Drop-offs</Strong>: Drop-off analysis between funnel steps with optimization recommendations.</Paragraph>
@@ -1419,8 +1418,8 @@ export function UserJourney() {
               }}
             />
           </div>
-          <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
-          <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" /></svg></button>
+          <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
+          <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
         </Flex>
       </div>
       <Sheet title="User Journey — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -1690,7 +1689,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
             { id: "Action", header: "Step", accessor: "Action" },
             { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
             { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
-            { id: "P90 (ms)", header: "P90", accessor: "P90 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+            { id: "P90 (ms)", header: "P90", accessor: "P90 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
             { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
             { id: "Conv %", header: "Conv %", accessor: "Conv %", sortType: "number" as any, cell: ({ value, rowData }: any) => rowData.Step === 1 ? <Text style={{ opacity: 0.5 }}>entry</Text> : <Strong style={{ color: statusClr(value) }}>{fmtPct(value)}</Strong> },
             { id: "Abandons", header: "Abandons", accessor: "Abandons", sortType: "number" as any, cell: ({ value, rowData }: any) => rowData.Step === 1 ? <Text style={{ opacity: 0.5 }}>—</Text> : <Strong style={{ color: value > 0 ? RED : GREEN }}>{fmtCount(value)}</Strong> },
@@ -1893,7 +1892,7 @@ function StepDetailsTab({ stepMap, isLoading, appEntityId, steps }: { stepMap: M
               <div className="uj-metric-box"><Text className="uj-metric-label">Avg Duration</Text><Strong className="uj-metric-value" style={{ color: avg > 3000 ? RED : avg > 1000 ? YELLOW : GREEN }}>{fmt(avg)}</Strong></div>
               <div className="uj-metric-box"><Text className="uj-metric-label">P50</Text><Strong className="uj-metric-value">{fmt(p50)}</Strong></div>
               <div className="uj-metric-box"><Text className="uj-metric-label">P90</Text><Strong className="uj-metric-value" style={{ color: p90 > 3000 ? RED : p90 > 1500 ? YELLOW : GREEN }}>{fmt(p90)}</Strong></div>
-              <div className="uj-metric-box"><Text className="uj-metric-label">P99</Text><Strong className="uj-metric-value" style={{ color: p99 > 5000 ? RED : undefined }}>{fmt(p99)}</Strong></div>
+              <div className="uj-metric-box"><Text className="uj-metric-label">P99</Text><Strong className="uj-metric-value" style={{ color: p99 > 5000 ? RED : GREEN }}>{fmt(p99)}</Strong></div>
               <div className="uj-metric-box"><Text className="uj-metric-label">Events</Text><Strong className="uj-metric-value" style={{ color: BLUE }}>{fmtCount(total)}</Strong></div>
               <div className="uj-metric-box"><Text className="uj-metric-label">Errors</Text><Strong className="uj-metric-value" style={{ color: errors > 0 ? RED : GREEN }}>{errors}</Strong></div>
               <div className="uj-metric-box"><Text className="uj-metric-label">Error Rate</Text><Strong className="uj-metric-value" style={{ color: errRate > 5 ? RED : errRate > 1 ? YELLOW : GREEN }}>{fmtPct(errRate)}</Strong></div>
@@ -1962,8 +1961,8 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
                 ) : <Text>{value}</Text>;
               }},
               { id: "Actions", header: "Actions", accessor: "Actions", sortType: "number" as any, cell: ({ value }: any) => <Text>{value}</Text> },
-              { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
-              { id: "Max (ms)", header: "Max Duration", accessor: "Max (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 10000 ? RED : value > 5000 ? ORANGE : undefined }}>{fmt(value)}</Strong> },
+              { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
+              { id: "Max (ms)", header: "Max Duration", accessor: "Max (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 10000 ? RED : value > 5000 ? ORANGE : GREEN }}>{fmt(value)}</Strong> },
               { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : GREEN }}>{value}</Strong> },
               { id: "Frustrated", header: "Frustrated", accessor: "Frustrated", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : GREEN }}>{value}</Strong> },
               { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
@@ -2538,8 +2537,8 @@ function GeoHeatmapTab({ data, isLoading, frontend }: { data: any; isLoading: bo
                 }},
                 { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
                 { id: "Actions", header: "Actions", accessor: "Actions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-                { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
-                { id: "P90 (ms)", header: "P90", accessor: "P90 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 4000 ? RED : value > 2000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+                { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
+                { id: "P90 (ms)", header: "P90", accessor: "P90 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 4000 ? RED : value > 2000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
                 { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : GREEN }}>{value}</Strong> },
                 { id: "Error %", header: "Error %", accessor: "Error %", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 5 ? RED : value > 1 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
                 { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
@@ -2571,7 +2570,7 @@ function GeoHeatmapTab({ data, isLoading, frontend }: { data: any; isLoading: bo
                 { id: "Country", header: "Country", accessor: "Country" },
                 { id: "City", header: "City", accessor: "City", cell: ({ value }: any) => <Strong>{value}</Strong> },
                 { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-                { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+                { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
                 { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : GREEN }}>{value}</Strong> },
                 { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
               ]}
@@ -2773,9 +2772,9 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world" }: { dat
               onClick={() => handleMetricChange(m)}
               style={{
                 padding: "6px 14px", borderRadius: 6, border: "1px solid",
-                borderColor: metric === m ? BLUE : "rgba(255,255,255,0.15)",
+                borderColor: metric === m ? BLUE : "rgba(128,128,128,0.3)",
                 background: metric === m ? `${BLUE}22` : "transparent",
-                color: metric === m ? BLUE : "rgba(255,255,255,0.6)",
+                color: metric === m ? BLUE : "rgba(128,128,128,0.7)",
                 fontSize: 12, fontWeight: metric === m ? 700 : 400, cursor: "pointer",
                 transition: "all 0.2s ease",
               }}
@@ -3363,7 +3362,7 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
           columns={[
             { id: "Step", header: "Step", accessor: "Step", cell: ({ value }: any) => <Strong>{value}</Strong> },
             { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-            { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+            { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
             { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : GREEN }}>{value}</Strong> },
             { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
             { id: "Traffic Δ", header: "Traffic Δ", accessor: "Traffic Δ", sortType: "number" as any, cell: ({ value }: any) => {
@@ -3529,7 +3528,7 @@ function ConversionAttributionTab({ data, overallConv, isLoading }: { data: any;
               { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
               { id: "Converted", header: "Converted", accessor: "Converted", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCount(value)}</Strong> },
               { id: "Conv %", header: "Conv %", accessor: "Conv %", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: statusClr(value) }}>{fmtPct(value)}</Strong> },
-              { id: "Avg Duration", header: "Avg Duration", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+              { id: "Avg Duration", header: "Avg Duration", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
               { id: "Avg Errors", header: "Avg Errors/Session", accessor: "Avg Errors", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 1 ? RED : value > 0 ? ORANGE : GREEN }}>{value.toFixed(2)}</Text> },
             ]}
           />
@@ -3546,7 +3545,7 @@ function ConversionAttributionTab({ data, overallConv, isLoading }: { data: any;
               { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
               { id: "Converted", header: "Converted", accessor: "Converted", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCount(value)}</Strong> },
               { id: "Conv %", header: "Conv %", accessor: "Conv %", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: statusClr(value) }}>{fmtPct(value)}</Strong> },
-              { id: "Avg Duration", header: "Avg Duration", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+              { id: "Avg Duration", header: "Avg Duration", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
               { id: "Avg Errors", header: "Avg Errors/Session", accessor: "Avg Errors", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 1 ? RED : value > 0 ? ORANGE : GREEN }}>{value.toFixed(2)}</Text> },
             ]}
           />
@@ -3554,7 +3553,7 @@ function ConversionAttributionTab({ data, overallConv, isLoading }: { data: any;
       </div>
 
       {/* Full cross-section */}
-      <SectionHeader title="Full Device Ã— Browser Breakdown" />
+      <SectionHeader title="Full Device x Browser Breakdown" />
       <div className="uj-table-tile">
         <DataTable
           sortable
@@ -3571,7 +3570,7 @@ function ConversionAttributionTab({ data, overallConv, isLoading }: { data: any;
             { id: "Browser", header: "Browser", accessor: "Browser" },
             { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
             { id: "Conv %", header: "Conv %", accessor: "Conv %", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: statusClr(value) }}>{fmtPct(value)}</Strong> },
-            { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+            { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
             { id: "Avg Errors", header: "Avg Errors", accessor: "Avg Errors", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 1 ? RED : value > 0 ? ORANGE : GREEN }}>{value.toFixed(2)}</Text> },
           ]}
         />
@@ -3896,7 +3895,7 @@ function SegmentationTab({ devices, browsers, geos, isLoading }: { devices: any[
     { id: nameField, header: nameHeader, accessor: nameField },
     { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
     { id: "Actions", header: "Actions", accessor: "Actions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-    { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : undefined }}>{fmt(value)}</Text> },
+    { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
     { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
   ];
 
@@ -5646,12 +5645,12 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
       <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
         <svg width="100%" viewBox={`0 0 720 ${Math.min(sortedResources.length, 20) * 28 + 30}`}>
           {/* Header */}
-          <text x={4} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Resource</text>
-          <text x={412} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Type</text>
-          <text x={450} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Timing</text>
-          <text x={620} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>Count</text>
-          <text x={670} y={14} fill="rgba(255,255,255,0.4)" fontSize={9} fontWeight={600}>P90</text>
-          <line x1={0} y1={20} x2={720} y2={20} stroke="rgba(255,255,255,0.06)" />
+          <text x={4} y={14} fill="rgba(128,128,128,0.7)" fontSize={9} fontWeight={600}>Resource</text>
+          <text x={412} y={14} fill="rgba(128,128,128,0.7)" fontSize={9} fontWeight={600}>Type</text>
+          <text x={450} y={14} fill="rgba(128,128,128,0.7)" fontSize={9} fontWeight={600}>Timing</text>
+          <text x={620} y={14} fill="rgba(128,128,128,0.7)" fontSize={9} fontWeight={600}>Count</text>
+          <text x={670} y={14} fill="rgba(128,128,128,0.7)" fontSize={9} fontWeight={600}>P90</text>
+          <line x1={0} y1={20} x2={720} y2={20} stroke="rgba(128,128,128,0.15)" />
           {sortedResources.slice(0, 20).map((r, i) => {
             const y = 28 + i * 28;
             const color = typeClr(r.type);
@@ -5660,7 +5659,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
             const shortName = r.name.length > 50 ? "..." + r.name.slice(-47) : r.name;
             return (
               <g key={i}>
-                <text x={4} y={y + 4} fill="rgba(255,255,255,0.7)" fontSize={9}>{shortName.substring(0, 52)}</text>
+                <text x={4} y={y + 4} fill="rgba(128,128,128,0.85)" fontSize={9}>{shortName.substring(0, 52)}</text>
                 <title>{`${r.name}\nType: ${r.type} | Step: ${r.step}\nAvg: ${fmt(r.avgDur)} | P50: ${fmt(r.p50Dur)} | P90: ${fmt(r.p90Dur)} | P99: ${fmt(r.p99Dur)}\nCount: ${r.count} | Total: ${fmt(r.totalDur)}`}</title>
                 {/* P90 bar (background) */}
                 <rect x={450} y={y - 8} width={Math.max(p90W, 2)} height={12} rx={2} fill={color} opacity={0.2} />
@@ -5668,7 +5667,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
                 <rect x={450} y={y - 8} width={Math.max(p50W, 2)} height={12} rx={2} fill={color} opacity={0.6} />
                 {/* Type badge */}
                 <text x={412} y={y + 3} fill={color} fontSize={8} fontWeight={600}>{r.type}</text>
-                <text x={620} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize={9}>{fmtCount(r.count)}</text>
+                <text x={620} y={y + 4} fill="rgba(128,128,128,0.7)" fontSize={9}>{fmtCount(r.count)}</text>
                 <text x={670} y={y + 4} fill={r.p90Dur > 1000 ? RED : r.p90Dur > 500 ? ORANGE : GREEN} fontSize={9} fontWeight={600}>{fmt(r.p90Dur)}</text>
               </g>
             );
@@ -6096,7 +6095,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
             { id: "Timestamp", header: "Time", accessor: "Timestamp", cell: ({ value }: any) => <Text style={{ fontSize: 11 }}>{value}</Text> },
             { id: "Hour", header: "Hour", accessor: "Hour", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
             { id: "Name", header: "Deployment", accessor: "Name", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
-            { id: "Count", header: "Events", accessor: "Count", sortType: "number" as any, cell: ({ value }: any) => <Text>{value}</Text> },
+            { id: "Count", header: "Events", accessor: "Count", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ textAlign: "center", width: "100%", display: "block" }}>{value}</Text> },
             { id: "Source", header: "Source", accessor: "Source", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
             { id: "Version", header: "Version", accessor: "Version", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
             { id: "Stage", header: "Stage", accessor: "Stage", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
