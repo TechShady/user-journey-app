@@ -202,6 +202,13 @@ function sessionsFilterUrl(frontend: string, locationName?: string): string {
   return `${ENV_URL}/ui/apps/dynatrace.users.sessions/sessions/sessions?tf=now-2h%3Bnow&perspective=general#filtering=${encodeURIComponent(filter)}`;
 }
 
+/** Open a URL in a new tab. Uses window.open() so that Mac browsers (which block
+ *  target="_blank" inside sandboxed iframes) treat it as a direct user gesture. */
+function openLink(url: string, e?: React.MouseEvent) {
+  if (e) e.preventDefault();
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 function SectionHeader({ title }: { title: string }) {
   return <div className="uj-section-header"><Heading level={5}>{title}</Heading></div>;
 }
@@ -1060,13 +1067,13 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs }: { steps: Funne
           <g key={i}>
             {i > 0 && <line x1={cx - widths[i] / 2} y1={y} x2={cx + widths[i] / 2} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />}
             {stepUrl ? (
-              <a href={stepUrl} target="_blank" rel="noopener noreferrer" style={{ cursor: "pointer" }}>
+              <g style={{ cursor: "pointer" }} onClick={() => openLink(stepUrl)}>
                 <circle cx={24} cy={midY} r={13} fill={`${sClr}1A`} stroke={sClr} strokeWidth="1.5" />
                 <text x={24} y={midY + 4} textAnchor="middle" fill={sClr} fontSize="12" fontWeight="700">{i + 1}</text>
                 <text x={cx} y={midY - 10} textAnchor="middle" fill="rgba(255,255,255,0.95)" fontSize="14" fontWeight="600" textDecoration="underline">{step.label}</text>
                 <text x={cx} y={midY + 8} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="12">{fmtCount(step.count)} sessions</text>
                 <title>Open in Vitals: {stepDefs[i]?.identifier ?? step.label}</title>
-              </a>
+              </g>
             ) : (
               <>
                 <circle cx={24} cy={midY} r={13} fill={`${sClr}1A`} stroke={sClr} strokeWidth="1.5" />
@@ -1288,6 +1295,23 @@ export function UserJourney() {
       if (MAP_VIEW_OPTIONS.some(o => o.value === val)) setMapViewDefault(val as MapViewSetting);
     }
   }, [savedMapView.data]);
+
+  // Fix: Mac browsers block target="_blank" inside sandboxed iframes.
+  // Intercept all such clicks and use window.open() as a direct user gesture.
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement).closest('a[target="_blank"]') as HTMLAnchorElement | null;
+      if (!anchor) return;
+      // getAttribute works for both HTML <a> and SVG <a> elements
+      const href = anchor.getAttribute('href');
+      if (href) {
+        e.preventDefault();
+        window.open(href, '_blank', 'noopener,noreferrer');
+      }
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
 
   const toggleTab = (tab: TabKey) => {
     setTabVisibility(prev => {
@@ -2847,7 +2871,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world" }: { dat
 
                   if (c) {
                     return (
-                      <a key={numId} href={sessionsFilterUrl(frontend, c.countryName)} target="_blank" rel="noopener noreferrer">
+                      <g key={numId} style={{ cursor: "pointer" }} onClick={() => openLink(sessionsFilterUrl(frontend, c.countryName))}>
                         <path
                           d={d}
                           fill={getColor(c)}
@@ -2860,7 +2884,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world" }: { dat
                         >
                           <title>{`${c.countryName} (${c.iso})\n${metricLabel[metric]}: ${formatValue(c)}\nSessions: ${fmtCount(c.sessions)}\nApdex: ${c.apdex.toFixed(2)}\nAvg Duration: ${fmt(c.avgDur)}\nError Rate: ${fmtPct(c.errRate)}`}</title>
                         </path>
-                      </a>
+                      </g>
                     );
                   }
                   return (
@@ -3072,7 +3096,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world" }: { dat
 
                     if (stateData) {
                       return (
-                        <a key={fipsId} href={sessionsFilterUrl(frontend, stateName)} target="_blank" rel="noopener noreferrer">
+                        <g key={fipsId} style={{ cursor: "pointer" }} onClick={() => openLink(sessionsFilterUrl(frontend, stateName))}>
                           <path
                             d={d}
                             fill={getStateColor(stateData)}
@@ -3085,7 +3109,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world" }: { dat
                           >
                             <title>{`${stateName} (${stateAbbr})\nSessions: ${fmtCount(stateData.sessions)}\nApdex: ${stateData.apdex.toFixed(2)}`}</title>
                           </path>
-                        </a>
+                        </g>
                       );
                     }
                     return (
