@@ -4183,13 +4183,16 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
   const rpsPrev = qualityPrev.sessions > 0 ? prevRevenue / qualityPrev.sessions : 0;
 
   // Funnel leakage — revenue lost at each step
+  // For each transition, estimate: if those dropped users had continued at the same
+  // rate as users who DID pass this step, how many would have converted?
   const stepLeakage = steps.slice(1).map((step, i) => {
     const entering = funnelCounts[i];
     const exiting = funnelCounts[i + 1];
     const dropped = entering - exiting;
     const dropRate = entering > 0 ? (dropped / entering) * 100 : 0;
-    const lostConversions = entering > 0 ? dropped * (funnelCounts[lastIdx] / Math.max(1, funnelCounts[i])) : 0;
-    const lostRevenue = lostConversions * aov;
+    // Conversion rate from the NEXT step onward (for users who passed this step)
+    const downstreamConvRate = exiting > 0 ? (funnelCounts[lastIdx] / exiting) : 0;
+    const lostRevenue = dropped * downstreamConvRate * aov;
     return { from: steps[i].label, to: step.label, dropped, dropRate, lostRevenue };
   }).sort((a, b) => b.lostRevenue - a.lostRevenue);
 
@@ -4246,22 +4249,22 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-impact-card uj-impact-negative">
           <Text className="uj-metric-label">Latency Tax</Text>
-          <Strong style={{ color: RED, fontSize: 18 }}>{fmtCurrency(latencyRevLoss)}</Strong>
+          <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(latencyRevLoss)}</Strong>
           <Text style={{ fontSize: 11, opacity: 0.5 }}>Avg {fmt(avgDuration)} → {fmtPct(latencyPenaltyPct)} conv penalty</Text>
         </div>
         <div className="uj-impact-card uj-impact-negative">
           <Text className="uj-metric-label">Frustration Tax</Text>
-          <Strong style={{ color: RED, fontSize: 18 }}>{fmtCurrency(frustratedRevLoss)}</Strong>
+          <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(frustratedRevLoss)}</Strong>
           <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtPct(fruPct)} frustrated sessions</Text>
         </div>
         <div className="uj-impact-card uj-impact-negative">
           <Text className="uj-metric-label">Error Tax</Text>
-          <Strong style={{ color: RED, fontSize: 18 }}>{fmtCurrency(errorRevLoss)}</Strong>
+          <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(errorRevLoss)}</Strong>
           <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtPct(errRate)} error rate</Text>
         </div>
         <div className="uj-impact-card uj-impact-negative">
           <Text className="uj-metric-label">Total Perf Tax</Text>
-          <Strong style={{ color: RED, fontSize: 18 }}>{fmtCurrency(latencyRevLoss + frustratedRevLoss + errorRevLoss)}</Strong>
+          <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(latencyRevLoss + frustratedRevLoss + errorRevLoss)}</Strong>
           <Text style={{ fontSize: 11, opacity: 0.5 }}>Revenue recoverable via perf</Text>
         </div>
       </Flex>
@@ -4272,15 +4275,15 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
         <DataTable
           data={stepLeakage.map(s => ({
             Transition: `${s.from} → ${s.to}`,
-            "Dropped Sessions": s.dropped,
-            "Drop Rate": s.dropRate,
-            "Est. Lost Revenue": s.lostRevenue,
+            DroppedSessions: s.dropped,
+            DropRate: s.dropRate,
+            LostRevenue: s.lostRevenue,
           }))}
           columns={[
             { id: "Transition", header: "Transition", accessor: "Transition" },
-            { id: "Dropped Sessions", header: "Dropped", accessor: "Dropped Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-            { id: "Drop Rate", header: "Drop %", accessor: "Drop Rate", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 40 ? RED : value > 20 ? YELLOW : GREEN }}>{fmtPct(value)}</Strong> },
-            { id: "Est. Lost Revenue", header: "Est. Lost Revenue", accessor: "Est. Lost Revenue", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCurrency(value)}</Strong> },
+            { id: "DroppedSessions", header: "Dropped", accessor: "DroppedSessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+            { id: "DropRate", header: "Drop %", accessor: "DropRate", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 40 ? RED : value > 20 ? YELLOW : GREEN }}>{fmtPct(value)}</Strong> },
+            { id: "LostRevenue", header: "Est. Lost Revenue", accessor: "LostRevenue", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCurrency(value)}</Strong> },
           ]}
         />
       </div>
