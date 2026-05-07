@@ -1,0 +1,3 @@
+timeseries cnt = sum(dt.frontend.user_action.count), from: now() - 7d, by: {dt.entity.application}
+| sort arraySum(cnt) desc
+| limit 20

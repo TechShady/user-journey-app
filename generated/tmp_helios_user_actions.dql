@@ -1,0 +1,5 @@
+fetch dt.entity.user_action_of_application
+| filter belongs_to[dt.entity.application] == "APPLICATION-608D12757C26FCA4"
+| fields id, entity.name
+| sort entity.name asc
+| limit 50

@@ -1144,7 +1144,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       </HelpSection>
       <HelpSection title="Tabs">
         <Paragraph><Strong>Funnel Overview</Strong>: KPIs, colorized funnel (color by drop-off severity), per-step Apdex, and step analysis table. Toggle <Strong>Compare</Strong> to overlay the previous period as dashed outlines and see ▲▼ deltas on each step.</Paragraph>
-        <Paragraph><Strong>Trends</Strong>: Period-over-period comparison of all key metrics. Shows current vs. previous period with delta arrows — green for improvement, red for regression. Inverted logic for duration/errors (lower = better).</Paragraph>
+        <Paragraph><Strong>Trends</Strong>: Period-over-period comparison of all key metrics. Shows current vs. previous period with delta arrows — green for improvement, red for regression. Inverted logic for duration/errors (lower = better). When AOV is set, adds a Revenue trend card showing current vs. previous period estimated revenue.</Paragraph>
         <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), page-level CWV breakdown, and performance health score.</Paragraph>
         <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99).</Paragraph>
         <Paragraph><Strong>Worst Sessions</Strong>: Surfaces the worst-performing sessions ranked by frustrated actions, errors, and slowness. Each session links directly to <Strong>Dynatrace Session Replay</Strong> for instant root-cause analysis.</Paragraph>
@@ -1155,16 +1155,16 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Map</Strong>: Interactive choropleth map with World and US views, colorized by session count, average duration, Apdex, error rate, or estimated revenue (when AOV is set). Use the dropdown to switch between World (country-level) and US (state-level) views. Countries/states with data are clickable and link to <Strong>User Sessions</Strong>.</Paragraph>
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
         <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram showing user navigation paths. Click any node to see inbound/outbound connections. Inbound and outbound user actions in the popup are clickable — they open the <Strong>Vitals</Strong> app filtered to that specific page for detailed performance analysis.</Paragraph>
-        <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations.</Paragraph>
+        <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations. When AOV is set, shows Revenue at Risk from anomalous conversion drops.</Paragraph>
         <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device x browser cross-section. When AOV is set, adds revenue columns to device and browser tables and revenue totals to speed buckets.</Paragraph>
-        <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. Use <Strong>Export PDF</Strong> to open a print-ready report in a new tab (use browser Print → Save as PDF), or <Strong>Copy Text</Strong> to get a plain-text summary for Slack/Teams/email. Designed for quick status checks and executive presentations.</Paragraph>
+        <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. When AOV is set, revenue appears in key metrics, performance snapshot, and exports. Use <Strong>Export PDF</Strong> to open a print-ready report in a new tab (use browser Print → Save as PDF), or <Strong>Copy Text</Strong> to get a plain-text summary for Slack/Teams/email. Designed for quick status checks and executive presentations.</Paragraph>
         <Paragraph><Strong>Segmentation</Strong>: Device, browser, and geo breakdowns with Apdex per segment.</Paragraph>
         <Paragraph><Strong>Errors &amp; Drop-offs</Strong>: Drop-off analysis between funnel steps with optimization recommendations. When AOV is set, each drop-off card shows the estimated revenue at risk from abandoned sessions.</Paragraph>
         <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation. When AOV is set in Settings, also shows revenue impact: projected revenue at higher traffic, net revenue change, conversion degradation loss, and a "Perf Tax" breakdown showing revenue lost to performance under load.</Paragraph>
         <Paragraph><Strong>Root Cause Correlation</Strong>: Automatically correlates conversion drops with technical signals — latency spikes, error surges, and frustrated sessions — on an hourly timeline. Identifies which funnel steps degrade at the exact hours conversion dips. Surfaces ranked root cause signals with severity and confidence scores so you can pinpoint the technical driver behind every conversion drop without manual cross-referencing. When AOV is set, shows the estimated revenue at risk from sessions occurring during impact hours.</Paragraph>
         <Paragraph><Strong>Predictive Forecasting</Strong>: Uses trend data from the selected timeframe to project Apdex, conversion rate, error rate, and average duration forward 7 days via linear regression. Flags when a metric is on trajectory to breach a performance budget threshold before it actually happens. Includes trend direction, rate of change, and days-to-breach estimates for proactive incident prevention.</Paragraph>
         <Paragraph><Strong>Resource Waterfall</Strong>: Aggregated resource timing per funnel step — third-party scripts, XHR/Fetch calls, images, CSS, and fonts. Shows which specific resources drag down LCP and increase page weight. Includes per-step resource type breakdown, top slow resources ranked by total time, and a visual waterfall bar chart showing P50/P90/Max latency ranges. Helps identify CDN misses, unoptimized images, and slow third-party scripts.</Paragraph>
-        <Paragraph><Strong>Change Intelligence</Strong>: Pulls deployment events from Dynatrace and overlays them on an hourly performance timeline. Automatically compares metrics in the window before and after each deployment to detect regressions. Shows before/after Apdex, duration, error rate, and frustrated % with severity classification. Use to validate whether a deploy caused a performance regression or improvement.</Paragraph>
+        <Paragraph><Strong>Change Intelligence</Strong>: Pulls deployment events from Dynatrace and overlays them on an hourly performance timeline. Automatically compares metrics in the window before and after each deployment to detect regressions. Shows before/after Apdex, duration, error rate, and frustrated % with severity classification. When AOV is set, shows estimated revenue loss per regression and total revenue impact across all regressive deployments. Use to validate whether a deploy caused a performance regression or improvement.</Paragraph>
         <Paragraph><Strong>SLO Tracker</Strong>: Define Service Level Objectives for Apdex, error rate, LCP, CLS, INP, and TTFB with configurable targets. Tracks error budget burn-down over the selected timeframe with hourly granularity. Shows remaining budget %, burn rate (budget consumed per hour), and projected time to exhaustion. Color-coded status indicators flag SLOs at risk before they breach — enabling proactive SRE practices.</Paragraph>
         <Paragraph><Strong>Session Replay Spotlight</Strong>: Surfaces the highest-impact session replays ranked by an impact score combining errors, crashes, bounces, and interaction density. Shows session duration, error count, device, browser, and country. Each session links directly to <Strong>Dynatrace Session Replay</Strong> for instant visual debugging. Quickly find the sessions that matter most without manually searching.</Paragraph>
         <Paragraph><Strong>A/B Comparison</Strong>: Compare two user segments side-by-side across all key metrics. Pre-built segments for Desktop vs. Mobile, Chrome vs. Firefox, and US vs. non-US — or enter custom DQL filter expressions. Shows Apdex, conversion, error rate, duration, and Core Web Vitals for each segment with delta indicators highlighting which segment performs better. Use to quantify platform-specific gaps and prioritize optimization efforts.</Paragraph>
@@ -1172,7 +1172,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       </HelpSection>
       <HelpSection title="Tab Settings">
         <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Tab Settings. Each of the 26 tabs can be toggled on or off individually. Drag to reorder. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
-        <Paragraph><Strong>Average Order Value</Strong>: Set in Settings to enable revenue metrics across What-If Analysis, Revenue Intelligence, Errors &amp; Drop-offs, Conversion Attribution, Map, and Root Cause Correlation tabs. This value represents the average revenue per conversion (final funnel step completion). Set to 0 to hide revenue metrics.</Paragraph>
+        <Paragraph><Strong>Average Order Value</Strong>: Set in Settings to enable revenue metrics across What-If Analysis, Revenue Intelligence, Errors &amp; Drop-offs, Conversion Attribution, Map, Root Cause Correlation, Trends, Executive Summary, Anomaly Detection, and Change Intelligence tabs. This value represents the average revenue per conversion (final funnel step completion). Set to 0 to hide revenue metrics.</Paragraph>
       </HelpSection>
       <HelpSection title="Apdex Score">
         <Paragraph>Apdex = (satisfied + tolerating/2) / total. Thresholds: <Strong>Satisfied ≤ {APDEX_T / 1000}s</Strong>, <Strong>Tolerating ≤ {APDEX_4T / 1000}s</Strong>, <Strong>Frustrated &gt; {APDEX_4T / 1000}s</Strong>. Ranges: ≥0.85 Excellent, ≥0.7 Good, ≥0.5 Fair, &lt;0.5 Poor.</Paragraph>
@@ -1589,7 +1589,7 @@ export function UserJourney() {
           let content: React.ReactNode = null;
           switch (tabId) {
             case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} />; break;
-            case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} />; break;
+            case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />; break;
@@ -1600,16 +1600,16 @@ export function UserJourney() {
             case "Map": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} />; break;
             case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} />; break;
             case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} />; break;
-            case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} />; break;
+            case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} />; break;
-            case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} />; break;
+            case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} aov={aov} />; break;
             case "Segmentation": content = <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} />; break;
             case "Errors & Drop-offs": content = <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} steps={steps} aov={aov} />; break;
             case "What-If Analysis": content = <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} aov={aov} />; break;
             case "Root Cause Correlation": content = <RootCauseCorrelationTab hourlyData={rootCauseCorrelationData} stepDropData={rootCauseStepDropData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} isLoading={rootCauseCorrelationData.isLoading || rootCauseStepDropData.isLoading} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Predictive Forecasting": content = <PredictiveForecastingTab trendData={forecastTrendData} apdexTrendData={forecastApdexTrendData} vitalsTrendData={forecastVitalsTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} isLoading={forecastTrendData.isLoading || forecastApdexTrendData.isLoading || forecastVitalsTrendData.isLoading} steps={steps} />; break;
             case "Resource Waterfall": content = <ResourceWaterfallTab waterfallData={resourceWaterfallData} byStepData={resourceByStepData} isLoading={resourceWaterfallData.isLoading || resourceByStepData.isLoading} steps={steps} />; break;
-            case "Change Intelligence": content = <ChangeIntelligenceTab deployData={deploymentEventsData} impactData={changeImpactData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} isLoading={deploymentEventsData.isLoading || changeImpactData.isLoading} />; break;
+            case "Change Intelligence": content = <ChangeIntelligenceTab deployData={deploymentEventsData} impactData={changeImpactData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} isLoading={deploymentEventsData.isLoading || changeImpactData.isLoading} aov={aov} overallConv={overallConv} funnelCounts={funnelCounts} />; break;
             case "SLO Tracker": content = <SLOTrackerTab apdexTrend={sloApdexTrendData} cwvTrend={sloCwvTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} cwv={cwv} isLoading={sloApdexTrendData.isLoading || sloCwvTrendData.isLoading} />; break;
             case "Session Replay Spotlight": content = <SessionReplaySpotlightTab data={sessionReplayData} isLoading={sessionReplayData.isLoading} />; break;
             case "A/B Comparison": content = <ABComparisonTab segAData={abSegAData} segBData={abSegBData} segACwv={abSegACwv} segBCwv={abSegBCwv} dimension={abDimension} setDimension={setAbDimension} segA={abSegA} segB={abSegB} setSegA={setAbSegA} setSegB={setAbSegB} isLoading={abSegAData.isLoading || abSegBData.isLoading || abSegACwv.isLoading || abSegBCwv.isLoading} />; break;
@@ -1757,16 +1757,21 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
 // ===========================================================================
 // TAB: Trends (Period-over-Period Comparison) — NEW
 // ===========================================================================
-function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, isLoading, steps }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; isLoading: boolean; steps: StepDef[] }) {
+function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, isLoading, steps, aov }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; isLoading: boolean; steps: StepDef[]; aov: number }) {
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
   const errorRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
 
+  const lastIdx = steps.length - 1;
+  const currRevenue = aov > 0 ? (funnelCounts[lastIdx] ?? 0) * aov : 0;
+  const prevRevenue = aov > 0 ? (funnelCountsPrev[lastIdx] ?? 0) * aov : 0;
+
   const trends = [
     { label: "Sessions", current: quality.sessions, prev: qualityPrev.sessions, inverted: false, format: fmtCount },
     { label: "Total Actions", current: quality.total, prev: qualityPrev.total, inverted: false, format: fmtCount },
     { label: "Conversion Rate", current: overallConv, prev: overallConvPrev, inverted: false, format: fmtPct },
+    ...(aov > 0 ? [{ label: "Revenue", current: currRevenue, prev: prevRevenue, inverted: false, format: fmtCurrency }] : []),
     { label: "Apdex", current: overallApdex, prev: overallApdexPrev, inverted: false, format: (v: number) => v.toFixed(2) },
     { label: "Avg Duration", current: quality.avg, prev: qualityPrev.avg, inverted: true, format: fmt },
     { label: "P50 Duration", current: quality.p50, prev: qualityPrev.p50, inverted: true, format: fmt },
@@ -3308,7 +3313,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any
 // ===========================================================================
 // TAB: Anomaly Detection — NEW
 // ===========================================================================
-function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev, stepMap, durationDist, isLoading, steps }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; durationDist: any; isLoading: boolean; steps: StepDef[] }) {
+function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev, stepMap, durationDist, isLoading, steps, aov }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; durationDist: any; isLoading: boolean; steps: StepDef[]; aov: number }) {
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -3386,6 +3391,17 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
           <Text className="uj-kpi-label">Metrics Monitored</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{anomalies.length}</Heading>
         </div>
+        {aov > 0 && (() => {
+          const convAnomaly = anomalies.find(a => a.metric === "Conversion");
+          const convDrop = convAnomaly && convAnomaly.deviation < 0 ? Math.abs(convAnomaly.deviation) : 0;
+          const revenueAtRisk = convDrop > 0 ? (funnelCounts[0] ?? 0) * (convDrop / 100) * aov : 0;
+          return revenueAtRisk > 0 ? (
+            <div className="uj-kpi-card">
+              <Text className="uj-kpi-label">Revenue at Risk</Text>
+              <Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCurrency(revenueAtRisk)}</Heading>
+            </div>
+          ) : null;
+        })()}
       </Flex>
 
       {/* Anomaly cards */}
@@ -3650,7 +3666,7 @@ function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCou
 // ===========================================================================
 // TAB: Executive Summary — NEW
 // ===========================================================================
-function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[] }) {
+function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps, aov }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[]; aov: number }) {
   const [copied, setCopied] = useState(false);
   if (isLoading) return <Loading />;
 
@@ -3672,9 +3688,14 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
   const gradeColor = overallGradeNum >= 80 ? GREEN : overallGradeNum >= 65 ? YELLOW : overallGradeNum >= 50 ? ORANGE : RED;
 
   // Key highlights
+  const lastIdx = steps.length - 1;
+  const currRevenue = aov > 0 ? (funnelCounts[lastIdx] ?? 0) * aov : 0;
+  const prevRevenue = aov > 0 ? (funnelCountsPrev[lastIdx] ?? 0) * aov : 0;
+
   const highlights: { label: string; value: string; trend: "up" | "down" | "flat"; good: boolean }[] = [
     { label: "Sessions", value: fmtCount(quality.sessions), trend: quality.sessions > qualityPrev.sessions ? "up" : quality.sessions < qualityPrev.sessions ? "down" : "flat", good: quality.sessions >= qualityPrev.sessions },
     { label: "Conversion", value: fmtPct(overallConv), trend: overallConv > overallConvPrev ? "up" : overallConv < overallConvPrev ? "down" : "flat", good: overallConv >= overallConvPrev },
+    ...(aov > 0 ? [{ label: "Revenue", value: fmtCurrency(currRevenue), trend: (currRevenue > prevRevenue ? "up" : currRevenue < prevRevenue ? "down" : "flat") as "up" | "down" | "flat", good: currRevenue >= prevRevenue }] : []),
     { label: "Apdex", value: overallApdex.toFixed(2), trend: overallApdex > overallApdexPrev ? "up" : overallApdex < overallApdexPrev ? "down" : "flat", good: overallApdex >= overallApdexPrev },
     { label: "Error Rate", value: fmtPct(errorRate), trend: errorRate < errorRatePrev ? "up" : errorRate > errorRatePrev ? "down" : "flat", good: errorRate <= errorRatePrev },
   ];
@@ -3706,6 +3727,7 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
       { m: "Error Rate", v: fmtPct(errorRate), s: errorRate <= 2 ? "Good" : errorRate <= 5 ? "Fair" : "Poor" },
       { m: "Conversion Rate", v: fmtPct(overallConv), s: overallConv >= 20 ? "Good" : overallConv >= 10 ? "Fair" : "Poor" },
       { m: "Frustrated %", v: fmtPct(fruPct), s: fruPct <= 10 ? "Good" : fruPct <= 20 ? "Fair" : "Poor" },
+      ...(aov > 0 ? [{ m: "Revenue", v: fmtCurrency(currRevenue), s: currRevenue >= prevRevenue ? "Good" : "Poor" }, { m: "AOV", v: fmtCurrency(aov), s: "—" }] : []),
     ].map(r => `<tr><td style="padding:6px 12px;font-weight:600">${r.m}</td><td style="padding:6px 12px">${r.v}</td><td style="padding:6px 12px;font-weight:600;color:${statusOf(r.s)}">${r.s}</td></tr>`).join("");
 
     const cwvRows = [
@@ -3811,6 +3833,9 @@ ${bottleneckHtml}
       `  Conversion: ${fmtPct(overallConv)}`,
       `  Frustrated: ${fmtPct(fruPct)}`,
     );
+    if (aov > 0) {
+      lines.push(``, `REVENUE`, `  Current: ${fmtCurrency(currRevenue)}`, `  Previous: ${fmtCurrency(prevRevenue)}`, `  AOV: ${fmtCurrency(aov)}`);
+    }
     navigator.clipboard.writeText(lines.join("\n")).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -3933,6 +3958,7 @@ ${bottleneckHtml}
             { Metric: "Error Rate", Value: fmtPct(errorRate), Status: errorRate <= 2 ? "Good" : errorRate <= 5 ? "Fair" : "Poor" },
             { Metric: "Conversion Rate", Value: fmtPct(overallConv), Status: overallConv >= 20 ? "Good" : overallConv >= 10 ? "Fair" : "Poor" },
             { Metric: "Frustrated %", Value: fmtPct(fruPct), Status: fruPct <= 10 ? "Good" : fruPct <= 20 ? "Fair" : "Poor" },
+            ...(aov > 0 ? [{ Metric: "Revenue", Value: fmtCurrency(currRevenue), Status: currRevenue >= prevRevenue ? "Good" : "Poor" }, { Metric: "AOV", Value: fmtCurrency(aov), Status: "—" }] : []),
           ]}
           columns={[
             { id: "Metric", header: "Metric", accessor: "Metric", cell: ({ value }: any) => <Strong>{value}</Strong> },
@@ -6040,7 +6066,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
 // ===========================================================================
 // TAB: Change Intelligence
 // ===========================================================================
-function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, overallApdex, overallApdexPrev, isLoading }: { deployData: any; impactData: any; quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; isLoading: boolean }) {
+function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, overallApdex, overallApdexPrev, isLoading, aov, overallConv, funnelCounts }: { deployData: any; impactData: any; quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; isLoading: boolean; aov: number; overallConv: number; funnelCounts: number[] }) {
   if (isLoading) return <Loading />;
 
   const deployRecords = (deployData.data?.records ?? []) as any[];
@@ -6183,6 +6209,19 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
           <Text className="uj-kpi-label">Data Points</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{totalHours}h</Heading>
         </div>
+        {aov > 0 && regressions.length > 0 && (() => {
+          const totalRevenueImpact = regressions.reduce((sum, d) => {
+            const sessionsAfter = d.after.sessions || (quality.sessions / Math.max(totalDeploys, 1));
+            const convDrop = Math.max(0, -d.apdexDelta) * 10; // rough: 0.1 apdex drop ≈ 1% conversion drop
+            return sum + sessionsAfter * (convDrop / 100) * aov;
+          }, 0);
+          return totalRevenueImpact > 0 ? (
+            <div className="uj-kpi-card" style={{ minWidth: 140 }}>
+              <Text className="uj-kpi-label">Revenue Impact</Text>
+              <Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCurrency(totalRevenueImpact)}</Heading>
+            </div>
+          ) : null;
+        })()}
       </Flex>
 
       {/* Timeline chart */}
@@ -6340,6 +6379,16 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
                         <Strong style={{ fontSize: 22, color: d.fruDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.fruPct)}</Strong>
                       </Flex>
                     </div>
+                    {aov > 0 && d.apdexDelta < 0 && (() => {
+                      const sessionsAfter = d.after.sessions || (quality.sessions / Math.max(totalDeploys, 1));
+                      const estRevLoss = sessionsAfter * (Math.abs(d.apdexDelta) * 10 / 100) * aov;
+                      return estRevLoss > 0 ? (
+                        <div>
+                          <Text style={{ fontSize: 13, opacity: 0.5 }}>Est. Revenue Loss</Text>
+                          <Strong style={{ fontSize: 22, color: RED }}>{fmtCurrency(estRevLoss)}</Strong>
+                        </div>
+                      ) : null;
+                    })()}
                   </Flex>
                   {/* Sparkline — taller, full width */}
                   {sparkSlice.length > 1 && (

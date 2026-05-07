@@ -1,0 +1,4 @@
+timeseries cnt = sum(dt.frontend.user_action.count), from: now() - 7d, by: {dt.entity.application, dt.rum.user_action.name}
+| filter dt.entity.application == "APPLICATION-608D12757C26FCA4"
+| sort arraySum(cnt) desc
+| limit 40
