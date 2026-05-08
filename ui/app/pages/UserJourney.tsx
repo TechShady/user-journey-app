@@ -4938,6 +4938,43 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
 
   const truncLabel = (s: string, max = 22) => s.length > max ? s.substring(0, max) + "\u2026" : s;
 
+  // ---- Exit node detection: nodes with outbound < 30% of their value ----
+  const exitNodeIds = useMemo(() => {
+    const outboundByNode = new Map<string, number>();
+    for (const l of links) {
+      outboundByNode.set(l.source, (outboundByNode.get(l.source) ?? 0) + l.value);
+    }
+    const exitIds = new Set<string>();
+    for (const n of nodes) {
+      const outbound = outboundByNode.get(n.id) ?? 0;
+      if (n.value > 0 && outbound < n.value * 0.3) {
+        exitIds.add(n.id);
+      }
+    }
+    return exitIds;
+  }, [nodes, links]);
+
+  // Also compute exit labels (for Directed/Alluvial/StateMachine which use label-based focus)
+  const exitLabels = useMemo(() => {
+    const labelOutbound = new Map<string, number>();
+    const labelValue = new Map<string, number>();
+    for (const l of links) {
+      const src = nodes.find(n => n.id === l.source);
+      if (src) labelOutbound.set(src.label, (labelOutbound.get(src.label) ?? 0) + l.value);
+    }
+    for (const n of nodes) {
+      labelValue.set(n.label, Math.max(labelValue.get(n.label) ?? 0, n.value));
+    }
+    const exitSet = new Set<string>();
+    for (const [label, value] of labelValue) {
+      const outbound = labelOutbound.get(label) ?? 0;
+      if (value > 0 && outbound < value * 0.3) {
+        exitSet.add(label);
+      }
+    }
+    return exitSet;
+  }, [nodes, links]);
+
   // ---- Chart style selector + KPI header (shared across all styles) ----
   const chartHeader = (
     <>
@@ -5056,7 +5093,8 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
           const y = PAD.top + n.y * scaleY;
           const h = Math.max(2, n.height * scaleY);
           const inFunnel = isFunnelPage(n.label);
-          const color = inFunnel ? "#FFD700" : SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
+          const isExit = exitNodeIds.has(n.id);
+          const color = isExit ? RED : inFunnel ? "#FFD700" : SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
           const isLeft = n.depth === 0;
           const isRight = n.depth === maxDepth;
           const labelX = isLeft ? x - 4 : isRight ? x + NODE_W + 4 : x + NODE_W + 4;
@@ -5067,13 +5105,13 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
           const labelOpacity = hasFocus ? (isConnected ? 0.9 : (focusMode ? 0 : 0.15)) : 0.7;
           return (
             <g key={n.id} style={{ cursor: "pointer", transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); setFocusNodeId(isFocused ? null : n.id); }}>
-              {inFunnel && <rect x={x - 3} y={y - 3} width={NODE_W + 6} height={h + 6} rx={5} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={nodeOpacity * 0.6} />}
-              <rect x={x} y={y} width={NODE_W} height={h} rx={3} fill={color} opacity={nodeOpacity} stroke={isFocused ? "#fff" : (inFunnel ? "#FFD700" : "none")} strokeWidth={isFocused ? 2 : (inFunnel ? 1.5 : 0)}>
-                <title>{`${n.label}: ${fmtCount(n.value)} sessions${inFunnel ? " ★ Funnel Page" : ""}`}</title>
+              {inFunnel && !isExit && <rect x={x - 3} y={y - 3} width={NODE_W + 6} height={h + 6} rx={5} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={nodeOpacity * 0.6} />}
+              <rect x={x} y={y} width={NODE_W} height={h} rx={3} fill={color} opacity={nodeOpacity} stroke={isFocused ? "#fff" : (isExit ? RED : inFunnel ? "#FFD700" : "none")} strokeWidth={isFocused ? 2 : (isExit || inFunnel ? 1.5 : 0)}>
+                <title>{`${n.label}: ${fmtCount(n.value)} sessions${isExit ? " ⛔ Exit Point" : inFunnel ? " ★ Funnel Page" : ""}`}</title>
               </rect>
               {h > 8 && (
-                <text x={labelX} y={y + h / 2 + 3.5} textAnchor={anchor} fill={`rgba(255,255,255,${labelOpacity})`} fontSize={10} fontWeight={isFocused || inFunnel ? 700 : 400}>
-                  {inFunnel ? "★ " : ""}{truncLabel(n.label)}
+                <text x={labelX} y={y + h / 2 + 3.5} textAnchor={anchor} fill={`rgba(255,255,255,${labelOpacity})`} fontSize={10} fontWeight={isFocused || inFunnel || isExit ? 700 : 400}>
+                  {isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(n.label)}
                 </text>
               )}
             </g>
@@ -5252,13 +5290,14 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             const pos = nodePositions.get(n.label);
             if (!pos) return null;
             const inFunnel = isFunnelPage(n.label);
-            const color = inFunnel ? "#FFD700" : SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
+            const isExit = exitLabels.has(n.label);
+            const color = isExit ? RED : inFunnel ? "#FFD700" : SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
             const isFocused = focusLabel === n.label;
             return (
               <g key={`node-${i}`} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
-                {inFunnel && <circle cx={pos.x} cy={pos.y} r={nodeRadius + 4} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
+                {inFunnel && !isExit && <circle cx={pos.x} cy={pos.y} r={nodeRadius + 4} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
                 <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={color} fillOpacity={isFocused ? 1 : 0.8} stroke={isFocused ? "#fff" : color} strokeWidth={isFocused ? 3 : 2} />
-                <text x={pos.x} y={pos.y - 3} textAnchor="middle" fill="white" fontSize={8} fontWeight={600}>{inFunnel ? "★ " : ""}{truncLabel(n.label, 14)}</text>
+                <text x={pos.x} y={pos.y - 3} textAnchor="middle" fill="white" fontSize={8} fontWeight={600}>{isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(n.label, 14)}</text>
                 <text x={pos.x} y={pos.y + 10} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={8}>{fmtCount(n.totalValue)}</text>
               </g>
             );
@@ -5345,14 +5384,15 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
           {/* Node rectangles */}
           {Array.from(alluvialNodes.entries()).map(([id, n]) => {
             const inFunnel = isFunnelPage(n.label);
-            const color = inFunnel ? "#FFD700" : SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
+            const isExit = exitLabels.has(n.label);
+            const color = isExit ? RED : inFunnel ? "#FFD700" : SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
             const isFocused = focusLabel === n.label;
             return (
               <g key={id} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
-                {inFunnel && <rect x={n.x - 3} y={n.y - 3} width={n.w + 6} height={n.h + 6} rx={7} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
-                <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={5} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : (inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1} />
+                {inFunnel && !isExit && <rect x={n.x - 3} y={n.y - 3} width={n.w + 6} height={n.h + 6} rx={7} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
+                <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={5} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : (isExit ? RED : inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1} />
                 <text x={n.cx} y={n.y + n.h / 2 + 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={600}>
-                  {inFunnel ? "★ " : ""}{truncLabel(n.label, 16)} — {fmtCount(n.value)}
+                  {isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(n.label, 16)} — {fmtCount(n.value)}
                 </text>
               </g>
             );
@@ -5405,15 +5445,6 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     const topLabels = new Set<string>();
     for (const e of topEdges) { topLabels.add(e.from); topLabels.add(e.to); }
     const smNodes = Array.from(stateNodes.values()).filter(n => topLabels.has(n.label)).sort((a, b) => b.value - a.value).slice(0, 12);
-
-    // Identify exit nodes: nodes with significantly more inbound than outbound (drop-off points)
-    const exitThreshold = 0.3; // if outbound < 30% of value, treat as exit-heavy
-    const exitNodes = new Set<string>();
-    for (const n of smNodes) {
-      if (n.value > 0 && n.totalOutbound < n.value * exitThreshold) {
-        exitNodes.add(n.label);
-      }
-    }
 
     const smW = 960;
     const smH = 540;
@@ -5472,7 +5503,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
           {smNodes.map((n, i) => {
             const pos = smPositions.get(n.label);
             if (!pos) return null;
-            const isExit = exitNodes.has(n.label);
+            const isExit = exitLabels.has(n.label);
             const inFunnel = isFunnelPage(n.label);
             const color = isExit ? RED : inFunnel ? "#FFD700" : SANKEY_COLORS[i % SANKEY_COLORS.length];
             const isFocused = focusLabel === n.label;
