@@ -514,6 +514,56 @@ function sankeyQuery(days: number, frontend: string): string {
 | limit 200`;
 }
 
+// NEW: Sankey CWV per page — web vitals health for funnel exit analysis
+function sankeyCwvPerPageQuery(days: number, frontend: string): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| fieldsAdd
+    lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
+    cls_val = toDouble(web_vitals.cumulative_layout_shift),
+    inp_ms = toDouble(web_vitals.interaction_to_next_paint) / 1000000.0
+| summarize
+    lcp = avg(lcp_ms),
+    cls = avg(cls_val),
+    inp = avg(inp_ms),
+    pageViews = count(),
+    by: {pageName}
+| sort pageViews desc
+| limit 50`;
+}
+
+// NEW: Sankey errors per page — error counts for exit correlation
+function sankeyErrorsPerPageQuery(days: number, frontend: string): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter characteristics.has_error == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| summarize
+    errorCount = count(),
+    errorSessions = countDistinct(dt.rum.session.id),
+    by: {pageName}
+| sort errorCount desc
+| limit 50`;
+}
+
+// NEW: Sankey extended paths — full session paths for return analysis
+function sankeyExtendedPathsQuery(days: number, frontend: string): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| sort timestamp asc
+| summarize path = collectArray(pageName), by: {dt.rum.session.id}
+| fieldsAdd pathLen = arraySize(path)
+| filter pathLen >= 2
+| limit 500`;
+}
+
 // NEW: Hourly distribution for performance budgets
 function hourlyDistributionQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
@@ -1192,7 +1242,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights. Country cards are clickable and open <Strong>User Sessions</Strong> filtered to that location.</Paragraph>
         <Paragraph><Strong>Map</Strong>: Interactive choropleth map with World and US views, colorized by session count, average duration, Apdex, error rate, or estimated revenue (when AOV is set). Use the dropdown to switch between World (country-level) and US (state-level) views. Countries/states with data are clickable and link to <Strong>User Sessions</Strong>.</Paragraph>
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
-        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram showing user navigation paths. Click any node to see inbound/outbound connections. Inbound and outbound user actions in the popup are clickable — they open the <Strong>Vitals</Strong> app filtered to that specific page for detailed performance analysis.</Paragraph>
+        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram showing user navigation paths across 5 chart styles (Classic, Gradient, Directed Flow, Alluvial, State Machine). Funnel pages are highlighted in gold with ★ markers and dashed borders across all chart styles, making it easy to see the defined funnel within the broader navigation flow. Click any node to see inbound/outbound connections, Core Web Vitals (LCP, CLS, INP) with color-coded health scores, error counts, and funnel exit analysis. Outbound links to off-funnel pages are flagged in red. Exit analysis shows how many users leave the funnel at each page, where they go, whether they return, and estimated lost revenue. Below the chart: <Strong>Key Observations</Strong> auto-generates insights about completion rates, return rates, lost revenue, and performance issues. <Strong>Recommendations</Strong> provides prioritized (HIGH/MEDIUM/LOW) actionable suggestions. <Strong>Funnel Exit Analysis</Strong> shows a detailed table of exit points with return rates and revenue impact. <Strong>Off-Funnel Destinations</Strong> reveals where users go after leaving the funnel. <Strong>Page Health Scorecard</Strong> ranks all pages by a composite health score combining CWV and error data. Inbound/outbound links in popups open the <Strong>Vitals</Strong> app for detailed page analysis.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations. When AOV is set, shows Revenue at Risk from anomalous conversion drops.</Paragraph>
         <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device x browser cross-section. When AOV is set, adds revenue columns to device and browser tables and revenue totals to speed buckets.</Paragraph>
         <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. When AOV is set, revenue appears in key metrics, performance snapshot, and exports. Use <Strong>Export PDF</Strong> to open a print-ready report in a new tab (use browser Print → Save as PDF), or <Strong>Copy Text</Strong> to get a plain-text summary for Slack/Teams/email. Designed for quick status checks and executive presentations.</Paragraph>
@@ -1227,6 +1277,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• Check Perf Budgets daily to catch regressions before they impact users.</Paragraph>
         <Paragraph>• Use Geo Heatmap to justify CDN edge locations in underperforming regions.</Paragraph>
         <Paragraph>• Navigation Paths reveals where users actually go vs. the intended funnel.</Paragraph>
+        <Paragraph>• Sankey highlights funnel pages in gold — click any node to see CWV health, errors, and exit analysis. Check the Funnel Exit Analysis table to find where users leave and whether they return.</Paragraph>
         <Paragraph>• Anomaly Detection flags metrics that deviate significantly from baseline — check after every release.</Paragraph>
         <Paragraph>• Conversion Attribution reveals the business impact of slow pages per device/browser.</Paragraph>
         <Paragraph>• Share Executive Summary with stakeholders for quick performance status updates.</Paragraph>
@@ -1380,6 +1431,9 @@ export function UserJourney() {
   const geoPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays, frontend, steps) });
   const navigationPathsData = useDql({ query: navigationPathsQuery(timeframeDays, frontend) });
   const sankeyData = useDql({ query: sankeyQuery(timeframeDays, frontend) });
+  const sankeyCwvData = useDql({ query: sankeyCwvPerPageQuery(timeframeDays, frontend) });
+  const sankeyErrorData = useDql({ query: sankeyErrorsPerPageQuery(timeframeDays, frontend) });
+  const sankeyPathsData = useDql({ query: sankeyExtendedPathsQuery(timeframeDays, frontend) });
   const appEntityData = useDql({ query: appEntityQuery(frontend) });
   const appEntityId = (appEntityData.data?.records?.[0] as any)?.['id'] ?? '';
   const hourlyDistributionData = useDql({ query: hourlyDistributionQuery(timeframeDays, frontend, steps) });
@@ -1637,7 +1691,7 @@ export function UserJourney() {
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />; break;
             case "Map": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} />; break;
             case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} />; break;
-            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} />; break;
+            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} aov={aov} />; break;
@@ -4527,7 +4581,7 @@ function buildSankey(records: any[]): { nodes: SankeyNode[]; links: SankeyLink[]
   return { nodes, links, maxDepth };
 }
 
-function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void }) {
+function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any }) {
   if (isLoading) return <Loading />;
 
   const records = (data.data?.records ?? []) as any[];
@@ -4582,6 +4636,220 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
     setFocusLabel(prev => prev === label ? null : label);
   };
 
+  // ---- Funnel page identification ----
+  const funnelPageIds = useMemo(() => new Set(steps.map(s => s.identifier)), [steps]);
+  const funnelPageLabels = useMemo(() => new Set(steps.map(s => s.label)), [steps]);
+  const isFunnelPage = (label: string): boolean => {
+    for (const s of steps) {
+      if (s.identifier.endsWith("*")) {
+        if (label.startsWith(s.identifier.slice(0, -1))) return true;
+      } else {
+        if (label === s.identifier || label === s.label) return true;
+      }
+    }
+    return funnelPageLabels.has(label) || funnelPageIds.has(label);
+  };
+  const funnelStepIndex = (label: string): number => {
+    return steps.findIndex(s => {
+      if (s.identifier.endsWith("*")) return label.startsWith(s.identifier.slice(0, -1));
+      return label === s.identifier || label === s.label;
+    });
+  };
+
+  // ---- CWV per page map ----
+  const cwvMap = useMemo(() => {
+    const m = new Map<string, { lcp: number; cls: number; inp: number; pageViews: number }>();
+    for (const r of (cwvData?.data?.records ?? []) as any[]) {
+      m.set(String(r.pageName ?? ""), { lcp: Number(r.lcp ?? 0), cls: Number(r.cls ?? 0), inp: Number(r.inp ?? 0), pageViews: Number(r.pageViews ?? 0) });
+    }
+    return m;
+  }, [cwvData]);
+
+  // ---- Errors per page map ----
+  const errorMap = useMemo(() => {
+    const m = new Map<string, { errorCount: number; errorSessions: number }>();
+    for (const r of (errorData?.data?.records ?? []) as any[]) {
+      m.set(String(r.pageName ?? ""), { errorCount: Number(r.errorCount ?? 0), errorSessions: Number(r.errorSessions ?? 0) });
+    }
+    return m;
+  }, [errorData]);
+
+  // ---- Extended path analysis: funnel exits, returns, lost revenue ----
+  const pathAnalysis = useMemo(() => {
+    const pathRecords = (pathsData?.data?.records ?? []) as any[];
+    let totalPaths = 0;
+    let funnelCompletions = 0;
+    let funnelExits = 0;
+    let returnsAfterExit = 0;
+    const exitPoints = new Map<string, { exits: number; returns: number; nextPages: Map<string, number> }>();
+    const offFunnelPages = new Map<string, number>();
+
+    for (const r of pathRecords) {
+      const path: string[] = (r.path ?? []).map((p: any) => String(p));
+      if (path.length < 2) continue;
+      totalPaths++;
+
+      let maxFunnelStep = -1;
+      let exitedAt = "";
+      let didReturn = false;
+      let wasInFunnel = false;
+
+      for (let i = 0; i < path.length; i++) {
+        const page = path[i];
+        const stepIdx = funnelStepIndex(page);
+        if (stepIdx >= 0) {
+          if (exitedAt && !didReturn) {
+            didReturn = true;
+            returnsAfterExit++;
+            const ep = exitPoints.get(exitedAt);
+            if (ep) ep.returns++;
+          }
+          maxFunnelStep = Math.max(maxFunnelStep, stepIdx);
+          wasInFunnel = true;
+          exitedAt = "";
+        } else if (wasInFunnel && !exitedAt) {
+          // User just left the funnel
+          exitedAt = path[i - 1] ?? "";
+          funnelExits++;
+          const ep = exitPoints.get(exitedAt) ?? { exits: 0, returns: 0, nextPages: new Map() };
+          ep.exits++;
+          const nextCount = ep.nextPages.get(page) ?? 0;
+          ep.nextPages.set(page, nextCount + 1);
+          exitPoints.set(exitedAt, ep);
+          offFunnelPages.set(page, (offFunnelPages.get(page) ?? 0) + 1);
+        } else if (!isFunnelPage(page)) {
+          offFunnelPages.set(page, (offFunnelPages.get(page) ?? 0) + 1);
+        }
+      }
+
+      if (maxFunnelStep === steps.length - 1) funnelCompletions++;
+    }
+
+    // Sort exit points by exits desc
+    const sortedExits = Array.from(exitPoints.entries())
+      .map(([page, data]) => ({ page, ...data, nextPagesList: Array.from(data.nextPages.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5) }))
+      .sort((a, b) => b.exits - a.exits);
+
+    // Sort off-funnel pages
+    const sortedOffFunnel = Array.from(offFunnelPages.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+    return { totalPaths, funnelCompletions, funnelExits, returnsAfterExit, sortedExits, sortedOffFunnel };
+  }, [pathsData, steps]);
+
+  // ---- Page health: combine CWV + errors for each page ----
+  const pageHealth = useMemo(() => {
+    const allLabels = new Set(nodes.map(n => n.label));
+    const health: { label: string; isFunnel: boolean; lcp: number; cls: number; inp: number; errors: number; errorSessions: number; sessions: number; healthScore: number; issues: string[] }[] = [];
+    for (const label of allLabels) {
+      const cwv = cwvMap.get(label);
+      const err = errorMap.get(label);
+      const nodeVal = nodes.filter(n => n.label === label).reduce((a, n) => Math.max(a, n.value), 0);
+      const lcp = cwv?.lcp ?? 0;
+      const cls = cwv?.cls ?? 0;
+      const inp = cwv?.inp ?? 0;
+      const errors = err?.errorCount ?? 0;
+      const errorSessions = err?.errorSessions ?? 0;
+      const issues: string[] = [];
+      if (lcp > CWV.lcp.poor) issues.push("LCP Poor");
+      else if (lcp > CWV.lcp.good) issues.push("LCP Needs Improvement");
+      if (cls > CWV.cls.poor) issues.push("CLS Poor");
+      else if (cls > CWV.cls.good) issues.push("CLS Needs Improvement");
+      if (inp > CWV.inp.poor) issues.push("INP Poor");
+      else if (inp > CWV.inp.good) issues.push("INP Needs Improvement");
+      if (errors > 0) issues.push(`${fmtCount(errors)} errors`);
+      // Health score: 100 = perfect, deduct for issues
+      let score = 100;
+      if (lcp > CWV.lcp.poor) score -= 30; else if (lcp > CWV.lcp.good) score -= 15;
+      if (cls > CWV.cls.poor) score -= 20; else if (cls > CWV.cls.good) score -= 10;
+      if (inp > CWV.inp.poor) score -= 25; else if (inp > CWV.inp.good) score -= 12;
+      if (nodeVal > 0 && errorSessions > 0) score -= Math.min(25, Math.round((errorSessions / nodeVal) * 100));
+      health.push({ label, isFunnel: isFunnelPage(label), lcp, cls, inp, errors, errorSessions, sessions: nodeVal, healthScore: Math.max(0, score), issues });
+    }
+    return health.sort((a, b) => a.healthScore - b.healthScore);
+  }, [nodes, cwvMap, errorMap, steps]);
+
+  // ---- Key observations & recommendations engine ----
+  const { observations, recommendations } = useMemo(() => {
+    const obs: { icon: string; text: string; severity: "critical" | "warning" | "info" }[] = [];
+    const recs: { text: string; impact: "high" | "medium" | "low" }[] = [];
+
+    // Funnel completion rate
+    const completionRate = pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0;
+    if (completionRate < 20) {
+      obs.push({ icon: "\u{1F6A8}", text: `Only ${fmtPct(completionRate)} of sessions complete the full funnel`, severity: "critical" });
+      recs.push({ text: "Investigate top funnel exit points \u2014 most users are abandoning before conversion", impact: "high" });
+    } else if (completionRate < 50) {
+      obs.push({ icon: "\u26A0\uFE0F", text: `${fmtPct(completionRate)} funnel completion rate \u2014 room for improvement`, severity: "warning" });
+    } else {
+      obs.push({ icon: "\u2705", text: `${fmtPct(completionRate)} funnel completion rate`, severity: "info" });
+    }
+
+    // Return rate after exit
+    const returnRate = pathAnalysis.funnelExits > 0 ? (pathAnalysis.returnsAfterExit / pathAnalysis.funnelExits) * 100 : 0;
+    if (returnRate < 15) {
+      obs.push({ icon: "\u{1F6A8}", text: `Only ${fmtPct(returnRate)} of users return after leaving the funnel`, severity: "critical" });
+      recs.push({ text: "Add re-engagement CTAs on off-funnel pages to guide users back", impact: "high" });
+    } else if (returnRate < 40) {
+      obs.push({ icon: "\u26A0\uFE0F", text: `${fmtPct(returnRate)} return rate after funnel exit`, severity: "warning" });
+    }
+
+    // Lost revenue
+    if (aov > 0 && pathAnalysis.funnelExits > pathAnalysis.returnsAfterExit) {
+      const lostSessions = pathAnalysis.funnelExits - pathAnalysis.returnsAfterExit;
+      const potentialRevenue = lostSessions * aov * (completionRate / 100);
+      if (potentialRevenue > 0) {
+        obs.push({ icon: "\u{1F4B0}", text: `Est. ${fmtCurrency(potentialRevenue)} potential lost revenue from ${fmtCount(lostSessions)} non-returning exits`, severity: "warning" });
+      }
+    }
+
+    // Poor CWV on funnel pages
+    const poorFunnelPages = pageHealth.filter(p => p.isFunnel && p.healthScore < 60);
+    if (poorFunnelPages.length > 0) {
+      obs.push({ icon: "\u{1F534}", text: `${poorFunnelPages.length} funnel page(s) have poor health scores: ${poorFunnelPages.map(p => p.label).join(", ")}`, severity: "critical" });
+      recs.push({ text: `Fix performance on ${poorFunnelPages[0].label} \u2014 ${poorFunnelPages[0].issues.join(", ")}`, impact: "high" });
+    }
+
+    // Error-heavy pages
+    const errorPages = pageHealth.filter(p => p.errors > 10).sort((a, b) => b.errors - a.errors);
+    if (errorPages.length > 0) {
+      obs.push({ icon: "\u274C", text: `${errorPages[0].label} has ${fmtCount(errorPages[0].errors)} errors affecting ${fmtCount(errorPages[0].errorSessions)} sessions`, severity: "critical" });
+      recs.push({ text: `Prioritize error resolution on ${errorPages[0].label} \u2014 high error volume is likely driving abandonment`, impact: "high" });
+    }
+
+    // Top exit point analysis
+    if (pathAnalysis.sortedExits.length > 0) {
+      const topExit = pathAnalysis.sortedExits[0];
+      obs.push({ icon: "\u{1F6AA}", text: `Top exit point: "${topExit.page}" with ${fmtCount(topExit.exits)} exits (${fmtPct(topExit.exits > 0 ? (topExit.returns / topExit.exits) * 100 : 0)} return)`, severity: "warning" });
+      if (topExit.nextPagesList.length > 0) {
+        recs.push({ text: `Users leaving "${topExit.page}" go to "${topExit.nextPagesList[0][0]}" \u2014 consider adding funnel CTAs there`, impact: "medium" });
+      }
+    }
+
+    // Off-funnel traffic
+    if (pathAnalysis.sortedOffFunnel.length > 0) {
+      const topOff = pathAnalysis.sortedOffFunnel[0];
+      obs.push({ icon: "\u2197\uFE0F", text: `"${topOff[0]}" is the #1 off-funnel destination with ${fmtCount(topOff[1])} visits`, severity: "info" });
+    }
+
+    // Recommendations for pages with poor INP (usability)
+    const poorInpPages = pageHealth.filter(p => p.inp > CWV.inp.poor);
+    if (poorInpPages.length > 0) {
+      recs.push({ text: `${poorInpPages.length} page(s) have poor INP (>500ms) \u2014 poor interactivity may frustrate users and cause exits`, impact: "medium" });
+    }
+
+    // Recommendation: optimize LCP on entry pages
+    const entryNodes = nodes.filter(n => n.depth === 0);
+    for (const en of entryNodes) {
+      const cwv = cwvMap.get(en.label);
+      if (cwv && cwv.lcp > CWV.lcp.good) {
+        recs.push({ text: `Entry page "${en.label}" has LCP ${Math.round(cwv.lcp)}ms \u2014 slow first impressions increase bounce rate`, impact: "high" });
+        break;
+      }
+    }
+
+    return { observations: obs, recommendations: recs };
+  }, [pathAnalysis, pageHealth, aov, nodes, cwvMap, steps]);
+
   const renderLabelPopup = () => {
     if (!focusLabel) return null;
     return (
@@ -4589,6 +4857,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
         <Flex alignItems="center" gap={8} style={{ marginBottom: 8 }}>
           <Strong style={{ fontSize: 13 }}>{focusLabel}</Strong>
           <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtCount(labelSessions)} sessions</Text>
+          {isFunnelPage(focusLabel) && <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 3, background: "rgba(255,215,0,0.12)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", fontWeight: 700 }}>★ Funnel</span>}
           <button onClick={() => setFocusLabel(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 12 }}>Clear</button>
         </Flex>
         {labelInbound.length > 0 && (
@@ -4602,15 +4871,48 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
           </div>
         )}
         {labelOutbound.length > 0 && (
-          <div>
+          <div style={{ marginBottom: 6 }}>
             <Text style={{ fontSize: 12, opacity: 0.5 }}>Outbound ({labelOutbound.length}):</Text>
             <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
-              {labelOutbound.slice(0, 8).map((l, i) => (
-                <a key={i} href={appEntityId ? vitalsUrl(appEntityId, l.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${l.label}` : l.label}>{truncLabel(l.label, 30)} <Strong style={{ color: GREEN }}>{fmtCount(l.value)}</Strong></a>
-              ))}
+              {labelOutbound.slice(0, 8).map((l, i) => {
+                const outFunnel = !isFunnelPage(l.label);
+                return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, l.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: outFunnel ? "rgba(194,25,48,0.1)" : "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default", border: outFunnel ? "1px solid rgba(194,25,48,0.2)" : "none" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = outFunnel ? "rgba(194,25,48,0.1)" : "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${l.label}` : l.label}>{outFunnel ? "↗ " : ""}{truncLabel(l.label, 30)} <Strong style={{ color: outFunnel ? RED : GREEN }}>{fmtCount(l.value)}</Strong></a>;
+              })}
             </Flex>
           </div>
         )}
+        {/* CWV + Error health */}
+        {(() => {
+          const cwv = cwvMap.get(focusLabel);
+          const err = errorMap.get(focusLabel);
+          const health = pageHealth.find(p => p.label === focusLabel);
+          if (!cwv && !err) return null;
+          return (
+            <div style={{ marginTop: 6, padding: "6px 10px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.12)" }}>
+              <Flex gap={12} flexWrap="wrap" alignItems="center">
+                {health && <Text style={{ fontSize: 11, fontWeight: 700 }}>Health: <span style={{ color: health.healthScore >= 70 ? GREEN : health.healthScore >= 40 ? YELLOW : RED }}>{health.healthScore}/100</span></Text>}
+                {cwv && cwv.lcp > 0 && <Text style={{ fontSize: 11 }}>LCP: <span style={{ color: cwvClr(cwv.lcp, "lcp"), fontWeight: 600 }}>{Math.round(cwv.lcp)}ms</span></Text>}
+                {cwv && cwv.cls > 0 && <Text style={{ fontSize: 11 }}>CLS: <span style={{ color: cwvClr(cwv.cls, "cls"), fontWeight: 600 }}>{cwv.cls.toFixed(3)}</span></Text>}
+                {cwv && cwv.inp > 0 && <Text style={{ fontSize: 11 }}>INP: <span style={{ color: cwvClr(cwv.inp, "inp"), fontWeight: 600 }}>{Math.round(cwv.inp)}ms</span></Text>}
+                {err && err.errorCount > 0 && <Text style={{ fontSize: 11 }}>Errors: <span style={{ color: RED, fontWeight: 600 }}>{fmtCount(err.errorCount)}</span></Text>}
+              </Flex>
+            </div>
+          );
+        })()}
+        {/* Exit analysis */}
+        {(() => {
+          const exitInfo = pathAnalysis.sortedExits.find(e => e.page === focusLabel);
+          if (!exitInfo) return null;
+          return (
+            <div style={{ marginTop: 6, padding: "6px 10px", background: "rgba(194,25,48,0.06)", borderRadius: 6, border: "1px solid rgba(194,25,48,0.12)" }}>
+              <Flex gap={12} flexWrap="wrap" alignItems="center">
+                <Text style={{ fontSize: 11, fontWeight: 700, color: RED }}>Funnel Exits: {fmtCount(exitInfo.exits)}</Text>
+                <Text style={{ fontSize: 11 }}>Returns: <span style={{ color: GREEN, fontWeight: 600 }}>{fmtCount(exitInfo.returns)}</span></Text>
+                {exitInfo.nextPagesList.length > 0 && <Text style={{ fontSize: 11 }}>→ {exitInfo.nextPagesList[0][0]}</Text>}
+              </Flex>
+            </div>
+          );
+        })()}
       </div>
     );
   };
@@ -4685,6 +4987,19 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
           <Text className="uj-kpi-label">Max Depth</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{maxDepth + 1} pages</Heading>
         </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Funnel Completion</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: pathAnalysis.totalPaths > 0 && (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) < 0.3 ? RED : GREEN }}>{fmtPct(pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0)}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Funnel Exits</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCount(pathAnalysis.funnelExits)}</Heading>
+        </div>
+      </Flex>
+      <Flex gap={12} alignItems="center" style={{ padding: "4px 0" }}>
+        <Flex gap={4} alignItems="center"><span style={{ width: 12, height: 12, borderRadius: 2, background: "#FFD700", display: "inline-block", border: "1px dashed rgba(255,215,0,0.6)" }} /><Text style={{ fontSize: 11, opacity: 0.6 }}>Funnel Page</Text></Flex>
+        <Flex gap={4} alignItems="center"><span style={{ width: 12, height: 12, borderRadius: 2, background: BLUE, display: "inline-block" }} /><Text style={{ fontSize: 11, opacity: 0.6 }}>Non-Funnel</Text></Flex>
+        <Flex gap={4} alignItems="center"><span style={{ width: 12, height: 12, borderRadius: 2, background: RED, display: "inline-block" }} /><Text style={{ fontSize: 11, opacity: 0.6 }}>Exit Point</Text></Flex>
       </Flex>
     </>
   );
@@ -4740,7 +5055,8 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
           const x = PAD.left + n.depth * colW;
           const y = PAD.top + n.y * scaleY;
           const h = Math.max(2, n.height * scaleY);
-          const color = SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
+          const inFunnel = isFunnelPage(n.label);
+          const color = inFunnel ? "#FFD700" : SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
           const isLeft = n.depth === 0;
           const isRight = n.depth === maxDepth;
           const labelX = isLeft ? x - 4 : isRight ? x + NODE_W + 4 : x + NODE_W + 4;
@@ -4751,12 +5067,13 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
           const labelOpacity = hasFocus ? (isConnected ? 0.9 : (focusMode ? 0 : 0.15)) : 0.7;
           return (
             <g key={n.id} style={{ cursor: "pointer", transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); setFocusNodeId(isFocused ? null : n.id); }}>
-              <rect x={x} y={y} width={NODE_W} height={h} rx={3} fill={color} opacity={nodeOpacity} stroke={isFocused ? "#fff" : "none"} strokeWidth={isFocused ? 2 : 0}>
-                <title>{`${n.label}: ${fmtCount(n.value)} sessions`}</title>
+              {inFunnel && <rect x={x - 3} y={y - 3} width={NODE_W + 6} height={h + 6} rx={5} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={nodeOpacity * 0.6} />}
+              <rect x={x} y={y} width={NODE_W} height={h} rx={3} fill={color} opacity={nodeOpacity} stroke={isFocused ? "#fff" : (inFunnel ? "#FFD700" : "none")} strokeWidth={isFocused ? 2 : (inFunnel ? 1.5 : 0)}>
+                <title>{`${n.label}: ${fmtCount(n.value)} sessions${inFunnel ? " ★ Funnel Page" : ""}`}</title>
               </rect>
               {h > 8 && (
-                <text x={labelX} y={y + h / 2 + 3.5} textAnchor={anchor} fill={`rgba(255,255,255,${labelOpacity})`} fontSize={10} fontWeight={isFocused ? 700 : 400}>
-                  {truncLabel(n.label)}
+                <text x={labelX} y={y + h / 2 + 3.5} textAnchor={anchor} fill={`rgba(255,255,255,${labelOpacity})`} fontSize={10} fontWeight={isFocused || inFunnel ? 700 : 400}>
+                  {inFunnel ? "★ " : ""}{truncLabel(n.label)}
                 </text>
               )}
             </g>
@@ -4770,6 +5087,12 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
             <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtCount(focusSessions)} sessions</Text>
             <button onClick={() => setFocusNodeId(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 12 }}>Clear</button>
           </Flex>
+          {/* Funnel status badge */}
+          {isFunnelPage(focusNode.label) && (
+            <div style={{ marginBottom: 8, padding: "3px 8px", background: "rgba(255,215,0,0.12)", border: "1px solid rgba(255,215,0,0.3)", borderRadius: 4, display: "inline-block" }}>
+              <Text style={{ fontSize: 11, color: "#FFD700", fontWeight: 700 }}>★ Funnel Step {funnelStepIndex(focusNode.label) + 1}: {steps[funnelStepIndex(focusNode.label)]?.label ?? ""}</Text>
+            </div>
+          )}
           {focusInbound.length > 0 && (
             <div style={{ marginBottom: 6 }}>
               <Text style={{ fontSize: 12, opacity: 0.5 }}>Inbound ({focusInbound.length}):</Text>
@@ -4782,16 +5105,66 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
             </div>
           )}
           {focusOutbound.length > 0 && (
-            <div>
+            <div style={{ marginBottom: 6 }}>
               <Text style={{ fontSize: 12, opacity: 0.5 }}>Outbound ({focusOutbound.length}):</Text>
               <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
                 {focusOutbound.sort((a, b) => b.value - a.value).slice(0, 6).map((l, i) => {
                   const tgt = nodes.find(n => n.id === l.target)!;
-                  return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, tgt.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${tgt.label}` : tgt.label}>{truncLabel(tgt.label, 30)} <Strong style={{ color: GREEN }}>{fmtCount(l.value)}</Strong></a>;
+                  const outFunnel = !isFunnelPage(tgt.label);
+                  return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, tgt.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: outFunnel ? "rgba(194,25,48,0.1)" : "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default", border: outFunnel ? "1px solid rgba(194,25,48,0.2)" : "none" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = outFunnel ? "rgba(194,25,48,0.1)" : "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${tgt.label}` : tgt.label}>{outFunnel ? "↗ " : ""}{truncLabel(tgt.label, 30)} <Strong style={{ color: outFunnel ? RED : GREEN }}>{fmtCount(l.value)}</Strong></a>;
                 })}
               </Flex>
             </div>
           )}
+          {/* CWV + Error health for focused page */}
+          {(() => {
+            const cwv = cwvMap.get(focusNode.label);
+            const err = errorMap.get(focusNode.label);
+            const health = pageHealth.find(p => p.label === focusNode.label);
+            if (!cwv && !err) return null;
+            return (
+              <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.12)" }}>
+                <Flex gap={16} flexWrap="wrap" alignItems="center">
+                  {health && <Text style={{ fontSize: 11, fontWeight: 700 }}>Health: <span style={{ color: health.healthScore >= 70 ? GREEN : health.healthScore >= 40 ? YELLOW : RED }}>{health.healthScore}/100</span></Text>}
+                  {cwv && cwv.lcp > 0 && <Text style={{ fontSize: 11 }}>LCP: <span style={{ color: cwvClr(cwv.lcp, "lcp"), fontWeight: 600 }}>{Math.round(cwv.lcp)}ms</span></Text>}
+                  {cwv && cwv.cls > 0 && <Text style={{ fontSize: 11 }}>CLS: <span style={{ color: cwvClr(cwv.cls, "cls"), fontWeight: 600 }}>{cwv.cls.toFixed(3)}</span></Text>}
+                  {cwv && cwv.inp > 0 && <Text style={{ fontSize: 11 }}>INP: <span style={{ color: cwvClr(cwv.inp, "inp"), fontWeight: 600 }}>{Math.round(cwv.inp)}ms</span></Text>}
+                  {err && err.errorCount > 0 && <Text style={{ fontSize: 11 }}>Errors: <span style={{ color: RED, fontWeight: 600 }}>{fmtCount(err.errorCount)}</span> ({fmtCount(err.errorSessions)} sessions)</Text>}
+                </Flex>
+                {health && health.issues.length > 0 && (
+                  <Text style={{ fontSize: 11, color: RED, marginTop: 4 }}>Issues: {health.issues.join(" · ")}</Text>
+                )}
+              </div>
+            );
+          })()}
+          {/* Exit analysis for this page */}
+          {(() => {
+            const exitInfo = pathAnalysis.sortedExits.find(e => e.page === focusNode.label);
+            if (!exitInfo) return null;
+            const nonReturning = exitInfo.exits - exitInfo.returns;
+            const lostRev = aov > 0 ? nonReturning * aov * 0.5 : 0;
+            return (
+              <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(194,25,48,0.06)", borderRadius: 6, border: "1px solid rgba(194,25,48,0.15)" }}>
+                <Text style={{ fontSize: 12, fontWeight: 700, color: RED }}>Funnel Exit Analysis</Text>
+                <Flex gap={16} flexWrap="wrap" style={{ marginTop: 4 }}>
+                  <Text style={{ fontSize: 11 }}>Exits: <Strong>{fmtCount(exitInfo.exits)}</Strong></Text>
+                  <Text style={{ fontSize: 11 }}>Returns: <Strong style={{ color: GREEN }}>{fmtCount(exitInfo.returns)}</Strong> ({fmtPct(exitInfo.exits > 0 ? (exitInfo.returns / exitInfo.exits) * 100 : 0)})</Text>
+                  <Text style={{ fontSize: 11 }}>Non-returning: <Strong style={{ color: RED }}>{fmtCount(nonReturning)}</Strong></Text>
+                  {lostRev > 0 && <Text style={{ fontSize: 11 }}>Est. Lost Revenue: <Strong style={{ color: RED }}>{fmtCurrency(lostRev)}</Strong></Text>}
+                </Flex>
+                {exitInfo.nextPagesList.length > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    <Text style={{ fontSize: 11, opacity: 0.5 }}>Where they go:</Text>
+                    <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
+                      {exitInfo.nextPagesList.map(([page, count], i) => (
+                        <span key={i} style={{ fontSize: 11, padding: "1px 6px", borderRadius: 3, background: "rgba(194,25,48,0.08)", border: "1px solid rgba(194,25,48,0.15)" }}>{truncLabel(page, 25)} <Strong style={{ color: ORANGE }}>{fmtCount(count)}</Strong></span>
+                      ))}
+                    </Flex>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
@@ -4878,12 +5251,14 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
           {uNodes.map((n, i) => {
             const pos = nodePositions.get(n.label);
             if (!pos) return null;
-            const color = SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
+            const inFunnel = isFunnelPage(n.label);
+            const color = inFunnel ? "#FFD700" : SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
             const isFocused = focusLabel === n.label;
             return (
               <g key={`node-${i}`} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
+                {inFunnel && <circle cx={pos.x} cy={pos.y} r={nodeRadius + 4} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
                 <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={color} fillOpacity={isFocused ? 1 : 0.8} stroke={isFocused ? "#fff" : color} strokeWidth={isFocused ? 3 : 2} />
-                <text x={pos.x} y={pos.y - 3} textAnchor="middle" fill="white" fontSize={8} fontWeight={600}>{truncLabel(n.label, 14)}</text>
+                <text x={pos.x} y={pos.y - 3} textAnchor="middle" fill="white" fontSize={8} fontWeight={600}>{inFunnel ? "★ " : ""}{truncLabel(n.label, 14)}</text>
                 <text x={pos.x} y={pos.y + 10} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={8}>{fmtCount(n.totalValue)}</text>
               </g>
             );
@@ -4969,13 +5344,15 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
           </defs>
           {/* Node rectangles */}
           {Array.from(alluvialNodes.entries()).map(([id, n]) => {
-            const color = SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
+            const inFunnel = isFunnelPage(n.label);
+            const color = inFunnel ? "#FFD700" : SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
             const isFocused = focusLabel === n.label;
             return (
               <g key={id} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
-                <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={5} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : "rgba(255,255,255,0.15)"} strokeWidth={isFocused ? 2.5 : 1} />
+                {inFunnel && <rect x={n.x - 3} y={n.y - 3} width={n.w + 6} height={n.h + 6} rx={7} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
+                <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={5} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : (inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1} />
                 <text x={n.cx} y={n.y + n.h / 2 + 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={600}>
-                  {truncLabel(n.label, 16)} — {fmtCount(n.value)}
+                  {inFunnel ? "★ " : ""}{truncLabel(n.label, 16)} — {fmtCount(n.value)}
                 </text>
               </g>
             );
@@ -5096,12 +5473,14 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
             const pos = smPositions.get(n.label);
             if (!pos) return null;
             const isExit = exitNodes.has(n.label);
-            const color = isExit ? RED : SANKEY_COLORS[i % SANKEY_COLORS.length];
+            const inFunnel = isFunnelPage(n.label);
+            const color = isExit ? RED : inFunnel ? "#FFD700" : SANKEY_COLORS[i % SANKEY_COLORS.length];
             const isFocused = focusLabel === n.label;
             return (
               <g key={`smn-${i}`} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
-                <rect x={pos.x - nodeRectW / 2} y={pos.y - nodeRectH / 2} width={nodeRectW} height={nodeRectH} rx={6} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : "rgba(255,255,255,0.15)"} strokeWidth={isFocused ? 2.5 : 1} />
-                <text x={pos.x} y={pos.y - 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={700}>{isExit ? "Exit" : truncLabel(n.label, 14)}</text>
+                {inFunnel && <rect x={pos.x - nodeRectW / 2 - 3} y={pos.y - nodeRectH / 2 - 3} width={nodeRectW + 6} height={nodeRectH + 6} rx={8} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
+                <rect x={pos.x - nodeRectW / 2} y={pos.y - nodeRectH / 2} width={nodeRectW} height={nodeRectH} rx={6} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : (inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1} />
+                <text x={pos.x} y={pos.y - 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={700}>{isExit ? "Exit" : (inFunnel ? "★ " : "") + truncLabel(n.label, 14)}</text>
                 <text x={pos.x} y={pos.y + 12} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize={9}>{fmtCount(n.value)} sessions</text>
               </g>
             );
@@ -5128,6 +5507,141 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {chartHeader}
       {renderChart()}
+
+      {/* ---- Key Observations ---- */}
+      {observations.length > 0 && (
+        <>
+          <SectionHeader title="Key Observations" />
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Flex flexDirection="column" gap={8}>
+              {observations.map((o, i) => (
+                <Flex key={i} gap={8} alignItems="flex-start" style={{ padding: "6px 10px", background: o.severity === "critical" ? "rgba(194,25,48,0.06)" : o.severity === "warning" ? "rgba(255,131,43,0.06)" : "rgba(128,128,128,0.04)", borderRadius: 6, borderLeft: `3px solid ${o.severity === "critical" ? RED : o.severity === "warning" ? ORANGE : GREEN}` }}>
+                  <Text style={{ fontSize: 14, flexShrink: 0 }}>{o.icon}</Text>
+                  <Text style={{ fontSize: 13 }}>{o.text}</Text>
+                </Flex>
+              ))}
+            </Flex>
+          </div>
+        </>
+      )}
+
+      {/* ---- Recommendations ---- */}
+      {recommendations.length > 0 && (
+        <>
+          <SectionHeader title="Recommendations" />
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Flex flexDirection="column" gap={6}>
+              {recommendations.map((r, i) => (
+                <Flex key={i} gap={8} alignItems="center" style={{ padding: "6px 10px", background: "rgba(128,128,128,0.04)", borderRadius: 6 }}>
+                  <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 3, fontWeight: 700, background: r.impact === "high" ? "rgba(194,25,48,0.12)" : r.impact === "medium" ? "rgba(255,131,43,0.12)" : "rgba(128,128,128,0.1)", color: r.impact === "high" ? RED : r.impact === "medium" ? ORANGE : "inherit" }}>{r.impact.toUpperCase()}</span>
+                  <Text style={{ fontSize: 13 }}>{r.text}</Text>
+                </Flex>
+              ))}
+            </Flex>
+          </div>
+        </>
+      )}
+
+      {/* ---- Funnel Exit Analysis ---- */}
+      {pathAnalysis.sortedExits.length > 0 && (
+        <>
+          <SectionHeader title="Funnel Exit Analysis" />
+          <Flex gap={16} flexWrap="wrap">
+            <div className="uj-kpi-card">
+              <Text className="uj-kpi-label">Sessions Analyzed</Text>
+              <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(pathAnalysis.totalPaths)}</Heading>
+            </div>
+            <div className="uj-kpi-card">
+              <Text className="uj-kpi-label">Funnel Completions</Text>
+              <Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCount(pathAnalysis.funnelCompletions)}</Heading>
+            </div>
+            <div className="uj-kpi-card">
+              <Text className="uj-kpi-label">Funnel Exits</Text>
+              <Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCount(pathAnalysis.funnelExits)}</Heading>
+            </div>
+            <div className="uj-kpi-card">
+              <Text className="uj-kpi-label">Return After Exit</Text>
+              <Heading level={2} className="uj-kpi-value" style={{ color: pathAnalysis.funnelExits > 0 && (pathAnalysis.returnsAfterExit / pathAnalysis.funnelExits) < 0.3 ? RED : YELLOW }}>{fmtCount(pathAnalysis.returnsAfterExit)} ({fmtPct(pathAnalysis.funnelExits > 0 ? (pathAnalysis.returnsAfterExit / pathAnalysis.funnelExits) * 100 : 0)})</Heading>
+            </div>
+            {aov > 0 && (
+              <div className="uj-kpi-card">
+                <Text className="uj-kpi-label">Est. Lost Revenue</Text>
+                <Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCurrency((pathAnalysis.funnelExits - pathAnalysis.returnsAfterExit) * aov * 0.5)}</Heading>
+              </div>
+            )}
+          </Flex>
+          <div className="uj-table-tile">
+            <DataTable
+              sortable
+              data={pathAnalysis.sortedExits.slice(0, 15).map(e => ({
+                "Exit Page": e.page.substring(0, 40),
+                Exits: e.exits,
+                Returns: e.returns,
+                "Return Rate": e.exits > 0 ? (e.returns / e.exits) * 100 : 0,
+                "Non-Returning": e.exits - e.returns,
+                "Lost Revenue": aov > 0 ? (e.exits - e.returns) * aov * 0.5 : 0,
+                "Top Destination": e.nextPagesList[0]?.[0]?.substring(0, 30) ?? "—",
+              }))}
+              columns={[
+                { id: "Exit Page", header: "Exit Page", accessor: "Exit Page", cell: ({ value }: any) => <Strong style={{ color: RED }}>{value}</Strong> },
+                { id: "Exits", header: "Exits", accessor: "Exits", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
+                { id: "Returns", header: "Returns", accessor: "Returns", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: GREEN }}>{fmtCount(value)}</Text> },
+                { id: "Return Rate", header: "Return %", accessor: "Return Rate", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: value < 20 ? RED : value < 50 ? YELLOW : GREEN, fontWeight: 600 }}>{fmtPct(value)}</span> },
+                { id: "Non-Returning", header: "Lost Users", accessor: "Non-Returning", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> },
+                ...(aov > 0 ? [{ id: "Lost Revenue", header: "Est. Lost Revenue", accessor: "Lost Revenue", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCurrency(value)}</Strong> }] : []),
+                { id: "Top Destination", header: "Where They Go", accessor: "Top Destination", cell: ({ value }: any) => <Text style={{ color: ORANGE }}>{value}</Text> },
+              ]}
+            />
+          </div>
+        </>
+      )}
+
+      {/* ---- Off-Funnel Destinations ---- */}
+      {pathAnalysis.sortedOffFunnel.length > 0 && (
+        <>
+          <SectionHeader title="Off-Funnel Destinations" />
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 8, display: "block" }}>Pages users navigate to after leaving the defined funnel flow</Text>
+            <Flex gap={8} flexWrap="wrap">
+              {pathAnalysis.sortedOffFunnel.map(([page, count], i) => (
+                <a key={i} href={appEntityId ? vitalsUrl(appEntityId, page) : "#"} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, background: "rgba(255,131,43,0.08)", border: "1px solid rgba(255,131,43,0.2)", color: "inherit", textDecoration: "none" }}>
+                  {truncLabel(page, 30)} <Strong style={{ color: ORANGE }}>{fmtCount(count)}</Strong>
+                </a>
+              ))}
+            </Flex>
+          </div>
+        </>
+      )}
+
+      {/* ---- Page Health Scorecard ---- */}
+      <SectionHeader title="Page Health Scorecard" />
+      <div className="uj-table-tile">
+        <DataTable
+          sortable
+          data={pageHealth.slice(0, 20).map(p => ({
+            Page: p.label.substring(0, 40),
+            Funnel: p.isFunnel ? "★ Yes" : "No",
+            Health: p.healthScore,
+            Sessions: p.sessions,
+            "LCP (ms)": p.lcp > 0 ? Math.round(p.lcp) : null,
+            CLS: p.cls > 0 ? p.cls : null,
+            "INP (ms)": p.inp > 0 ? Math.round(p.inp) : null,
+            Errors: p.errors,
+            Issues: p.issues.join(", ") || "None",
+          }))}
+          columns={[
+            { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Strong>{value}</Strong> },
+            { id: "Funnel", header: "Funnel", accessor: "Funnel", cell: ({ value }: any) => <Text style={{ color: value === "★ Yes" ? "#FFD700" : "inherit", fontWeight: value === "★ Yes" ? 700 : 400 }}>{value}</Text> },
+            { id: "Health", header: "Health", accessor: "Health", sortType: "number" as any, cell: ({ value }: any) => <span style={{ display: "inline-block", width: "100%", padding: "2px 8px", borderRadius: 4, background: value >= 70 ? "rgba(13,156,41,0.15)" : value >= 40 ? "rgba(184,134,11,0.15)" : "rgba(194,25,48,0.15)", color: value >= 70 ? GREEN : value >= 40 ? YELLOW : RED, fontWeight: 700, textAlign: "center" }}>{value}/100</span> },
+            { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+            { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "lcp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
+            { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "cls"), fontWeight: 600 }}>{value.toFixed(3)}</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
+            { id: "INP (ms)", header: "INP", accessor: "INP (ms)", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "inp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
+            { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => value > 0 ? <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> : <Text style={{ opacity: 0.3 }}>0</Text> },
+            { id: "Issues", header: "Issues", accessor: "Issues", cell: ({ value }: any) => <Text style={{ fontSize: 11, color: value === "None" ? GREEN : RED }}>{value}</Text> },
+          ]}
+        />
+      </div>
 
       {/* Transition table */}
       <SectionHeader title="Top Transitions" />
