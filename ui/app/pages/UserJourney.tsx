@@ -63,7 +63,7 @@ const TIMEFRAME_OPTIONS = [
 ];
 
 const DEFAULT_TIMEFRAME = 0.083;
-const TRAFFIC_MULTIPLIERS = [1, 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10];const APDEX_T = 3000;
+const TRAFFIC_MULTIPLIERS = [0, 1, 2, 3, 4, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 125, 150, 175, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 2000, 3000, 4000, 5000];const TRAFFIC_TICK_LABELS = new Set([0, 10, 50, 100, 200, 500, 1000, 2000, 5000]);const APDEX_T = 3000;
 const APDEX_4T = 12000;
 
 const TAB_KEYS = [
@@ -1108,13 +1108,13 @@ function MultiplierSlider({ value, onChange }: { value: number; onChange: (v: nu
   return (
     <Flex flexDirection="column" gap={8} style={{ marginBottom: 16 }}>
       <Flex gap={12} alignItems="center">
-        <Strong>Traffic Multiplier:</Strong>
-        <Strong style={{ color: BLUE, fontSize: 18 }}>{value}x</Strong>
+        <Strong>Traffic Change:</Strong>
+        <Strong style={{ color: BLUE, fontSize: 18 }}>+{value}%</Strong>
       </Flex>
       <input type="range" min={0} max={TRAFFIC_MULTIPLIERS.length - 1} value={TRAFFIC_MULTIPLIERS.indexOf(value)} onChange={(e) => onChange(TRAFFIC_MULTIPLIERS[Number(e.target.value)])} className="uj-slider" />
       <div style={{ position: "relative", width: "100%", height: 18 }}>
         {TRAFFIC_MULTIPLIERS.map((v, i) => (
-          <span key={v} style={{ position: "absolute", left: `${(i / (TRAFFIC_MULTIPLIERS.length - 1)) * 100}%`, transform: "translateX(-50%)", fontSize: 10, color: v === value ? BLUE : "rgba(128,128,128,0.6)", fontWeight: v === value ? 700 : 400 }}>{v}x</span>
+          TRAFFIC_TICK_LABELS.has(v) ? <span key={v} style={{ position: "absolute", left: `${(i / (TRAFFIC_MULTIPLIERS.length - 1)) * 100}%`, transform: "translateX(-50%)", fontSize: 10, color: v === value ? BLUE : "rgba(128,128,128,0.6)", fontWeight: v === value ? 700 : 400 }}>{v}%</span> : null
         ))}
       </div>
     </Flex>
@@ -4074,14 +4074,16 @@ function ErrorsTab({ errors, funnelCounts, isLoading, steps, aov }: { errors: an
 // TAB: What-If Analysis
 // ===========================================================================
 function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov }: { funnelCounts: number[]; stepMap: Map<string, any>; overallApdex: number; isLoading: boolean; steps: StepDef[]; aov: number }) {
-  const [mult, setMult] = useState(2);
+  const [pctChange, setPctChange] = useState(100);
   if (isLoading) return <Loading />;
 
+  const mult = 1 + pctChange / 100;
   const lastIdx = steps.length - 1;
-  const latFactor = 1 + Math.log2(mult) * 0.5;
-  const errFactor = 1 + Math.log2(mult) * 0.15;
-  const convDegradation = Math.log2(mult) * 0.08;
-  const projApdex = Math.max(0, overallApdex - Math.log2(mult) * 0.08);
+  const log2m = mult > 1 ? Math.log2(mult) : 0;
+  const latFactor = 1 + log2m * 0.5;
+  const errFactor = 1 + log2m * 0.15;
+  const convDegradation = log2m * 0.08;
+  const projApdex = Math.max(0, overallApdex - log2m * 0.08);
   const currConvRate = funnelCounts[0] > 0 ? (funnelCounts[lastIdx] / funnelCounts[0]) * 100 : 0;
   const projConv = Math.max(0, currConvRate * (1 - convDegradation));
   const projFunnel = funnelCounts.map((c, i) => i === 0 ? Math.round(c * mult) : Math.round(c * mult * Math.pow(1 - convDegradation, i)));
@@ -4106,7 +4108,7 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <MultiplierSlider value={mult} onChange={setMult} />
+      <MultiplierSlider value={pctChange} onChange={setPctChange} />
 
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-whatif-card"><Text className="uj-metric-label">Projected Sessions</Text><Strong className="uj-metric-value" style={{ color: PURPLE }}>{fmtCount(projFunnel[0])}</Strong></div>
@@ -4136,14 +4138,14 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
               <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(currConversions)} conversions × {fmtCurrency(aov)}</Text>
             </div>
             <div className="uj-revenue-card">
-              <Text className="uj-metric-label">Projected Revenue ({mult}x)</Text>
+              <Text className="uj-metric-label">Projected Revenue (+{pctChange}%)</Text>
               <Strong className="uj-metric-value" style={{ color: projRevenue > currRevenue ? GREEN : RED }}>{fmtCurrency(projRevenue)}</Strong>
               <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(projConversions)} conversions × {fmtCurrency(aov)}</Text>
             </div>
             <div className="uj-revenue-card">
               <Text className="uj-metric-label">Net Revenue Change</Text>
               <Strong className="uj-metric-value" style={{ color: revenueDelta >= 0 ? GREEN : RED }}>{revenueDelta >= 0 ? "+" : ""}{fmtCurrency(revenueDelta)}</Strong>
-              <Text style={{ fontSize: 11, opacity: 0.5 }}>{revenueDelta >= 0 ? "Gain" : "Loss"} from {mult}x traffic</Text>
+              <Text style={{ fontSize: 11, opacity: 0.5 }}>{revenueDelta >= 0 ? "Gain" : "Loss"} from +{pctChange}% traffic</Text>
             </div>
             <div className={`uj-impact-card uj-impact-negative`}>
               <Text className="uj-metric-label">Conv Degradation Loss</Text>
@@ -4179,7 +4181,7 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
           columns={[
             { id: "Step", header: "Step", accessor: "Step" },
             { id: "Curr Sessions", header: "Curr", accessor: "Curr Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-            { id: "Proj Sessions", header: `Proj (${mult}x)`, accessor: "Proj Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: PURPLE }}>{fmtCount(value)}</Strong> },
+            { id: "Proj Sessions", header: `Proj (+${pctChange}%)`, accessor: "Proj Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: PURPLE }}>{fmtCount(value)}</Strong> },
             { id: "Curr Avg", header: "Curr Avg", accessor: "Curr Avg", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
             { id: "Proj Avg", header: "Proj Avg", accessor: "Proj Avg", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : BLUE }}>{fmt(value)}</Strong> },
             { id: "Curr P90", header: "Curr P90", accessor: "Curr P90", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
