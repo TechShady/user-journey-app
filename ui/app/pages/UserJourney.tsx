@@ -1219,6 +1219,23 @@ function HelpSection({ title, children }: { title: string; children: React.React
 function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }) {
   return (
     <div style={{ padding: "4px 0" }}>
+      <HelpSection title="What's New">
+        <div style={{ margin: "8px 0" }}>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 8, 2026</Paragraph>
+            <Paragraph><Strong>Sankey — Funnel Analytics &amp; Health Scoring</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Funnel pages highlighted in gold (★) with dashed borders across all 5 chart styles</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Exit detection: pages where ≥30% outbound traffic leaves the funnel flagged in red (⛔)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Per-page Core Web Vitals (LCP, CLS, INP) and error counts on node selection</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Key Observations and Recommendations auto-generated from data</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Funnel Exit Analysis table with return rates and estimated lost revenue</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Off-Funnel Destinations table showing where users go after leaving</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Page Health Scorecard with composite health score (CWV + errors)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Error counts in Health Scorecard link to <Strong>Dynatrace Error Inspector</Strong> filtered by page</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• 3 new DQL queries: CWV per page, errors per page, extended session paths</Paragraph>
+          </div>
+        </div>
+      </HelpSection>
       <HelpSection title="Overview">
         <Paragraph>The <Strong>User Journey</Strong> app provides comprehensive frontend observability for <Strong>{frontend}</Strong>. It tracks users through a {steps.length}-step conversion funnel using real-time DQL queries against Dynatrace Grail. The funnel is <Strong>strict sequential</Strong>: each step requires all previous steps.</Paragraph>
       </HelpSection>
@@ -5651,14 +5668,13 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
           sortable
           data={pageHealth.slice(0, 20).map(p => ({
             Page: p.label.substring(0, 40),
-            _pageFull: p.label,
             Funnel: p.isFunnel ? "★ Yes" : "No",
             Health: p.healthScore,
             Sessions: p.sessions,
             "LCP (ms)": p.lcp > 0 ? Math.round(p.lcp) : null,
             CLS: p.cls > 0 ? p.cls : null,
             "INP (ms)": p.inp > 0 ? Math.round(p.inp) : null,
-            Errors: p.errors,
+            Errors: `${p.errors}\t${p.label}`,
             Issues: p.issues.join(", ") || "None",
           }))}
           columns={[
@@ -5669,7 +5685,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "lcp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
             { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "cls"), fontWeight: 600 }}>{value.toFixed(3)}</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
             { id: "INP (ms)", header: "INP", accessor: "INP (ms)", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "inp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
-            { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value, row }: any) => value > 0 ? <a href={`${ENV_URL}/ui/apps/dynatrace.error.inspector/explorer?tf=now-2h%3Bnow&sort=affected_users%3Adescending&perspective=impact#filtering=${encodeURIComponent(`"Frontend" = "${frontend}" "Page" = "${row.original?._pageFull ?? row._pageFull ?? ""}"`)}`} target="_blank" rel="noopener noreferrer" style={{ color: RED, fontWeight: 700, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")} title="Open in Error Inspector">{fmtCount(value)}</a> : <Text style={{ opacity: 0.3 }}>0</Text> },
+            { id: "Errors", header: "Errors", accessor: "Errors", cell: ({ value }: any) => { const [cnt, pg] = String(value).split("\t"); const n = Number(cnt); return n > 0 ? <a href={`${ENV_URL}/ui/apps/dynatrace.error.inspector/explorer?tf=now-2h%3Bnow&sort=affected_users%3Adescending&perspective=impact#filtering=${encodeURIComponent(`"Frontend" = "${frontend}" "Page" = "${pg}"`)}`} target="_blank" rel="noopener noreferrer" style={{ color: RED, fontWeight: 700, textDecoration: "none" }} onMouseEnter={(e: any) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e: any) => (e.currentTarget.style.textDecoration = "none")} title="Open in Error Inspector">{fmtCount(n)}</a> : <Text style={{ opacity: 0.3 }}>0</Text>; } },
             { id: "Issues", header: "Issues", accessor: "Issues", cell: ({ value }: any) => <Text style={{ fontSize: 11, color: value === "None" ? GREEN : RED }}>{value}</Text> },
           ]}
         />

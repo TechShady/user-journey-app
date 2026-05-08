@@ -826,3 +826,16 @@ Revenue features appear across multiple tabs when `aov > 0` in global settings:
 | Revenue Intelligence | Dedicated tab with all revenue analytics |
 
 All revenue calculations are client-side — no additional DQL queries needed beyond existing funnel/quality data.
+
+### Help System
+
+- **Help Sheet**: Slide-out panel (`<Sheet>`) with `HelpContent` component covering all 26 tabs, configuration, Apdex, CWV thresholds, and tips
+- **What's New section**: Changelog at the top of Help, newest entries first. Each entry has a date stamp, title, and bullet-pointed feature list. Styled with blue left-border accent cards. New changes are added at the top; older entries slide down — serves as an in-app audit log of feature changes
+
+---
+
+## Changelog
+
+| Date | Version | Changes |
+|------|---------|---------|
+| 2026-05-08 | 4.47.3 | **Sankey — Funnel Analytics & Health Scoring**: Funnel page highlighting (gold/★/dashed borders across all 5 chart styles), exit detection (≥30% off-funnel = red/⛔), per-page CWV & error overlays on node selection, Key Observations & Recommendations engine, Funnel Exit Analysis table (return rates, lost revenue), Off-Funnel Destinations table, Page Health Scorecard (composite health score), Error Inspector linking from scorecard, 3 new DQL queries (CWV per page, errors per page, extended paths), What's New section added to Help |
