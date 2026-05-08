@@ -309,6 +309,7 @@ fetch user.events, from: now() - {timeframe}
 - **Off-Funnel Destinations table**: Where users go after leaving the funnel, with session counts
 - **Page Health Scorecard table**: All pages ranked by composite health score (0-100) combining CWV and error data. Error counts are clickable links to **Dynatrace Error Inspector** pre-filtered by frontend and page name
 - **Path analysis**: Extended session paths analyzed for exits, returns, completions, and off-funnel navigation
+- **Rich hover tooltips**: All chart styles show top 3 inbound/outbound connections with counts & percentages, self-reload detection (⟲ indicator when >5% of inbound is same-page), and error counts on hover
 
 **Queries**:
 
@@ -838,4 +839,6 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-05-08 | 4.47.7 | **Sankey — Rich Hover Tooltips**: All 4 renderers now show rich hover tooltips with top 3 inbound/outbound (count & %), self-reload detection (⟲), and error counts. `buildNodeTooltip()` for classic/gradient, `buildLabelTooltip()` for directed/alluvial/state machine |
+| 2026-05-08 | 4.47.6 | **Error Inspector linking fix**: Use `(Web) Page Name` filter field instead of `Page` |
 | 2026-05-08 | 4.47.3 | **Sankey — Funnel Analytics & Health Scoring**: Funnel page highlighting (gold/★/dashed borders across all 5 chart styles), exit detection (≥30% off-funnel = red/⛔), per-page CWV & error overlays on node selection, Key Observations & Recommendations engine, Funnel Exit Analysis table (return rates, lost revenue), Off-Funnel Destinations table, Page Health Scorecard (composite health score), Error Inspector linking from scorecard, 3 new DQL queries (CWV per page, errors per page, extended paths), What's New section added to Help |

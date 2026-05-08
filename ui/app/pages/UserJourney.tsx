@@ -1233,6 +1233,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
             <Paragraph style={{ fontSize: 13 }}>• Page Health Scorecard with composite health score (CWV + errors)</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• Error counts in Health Scorecard link to <Strong>Dynatrace Error Inspector</Strong> filtered by page</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• 3 new DQL queries: CWV per page, errors per page, extended session paths</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Rich hover tooltips: top 3 inbound/outbound with counts &amp; percentages, self-reload detection, error counts</Paragraph>
           </div>
         </div>
       </HelpSection>
@@ -1259,7 +1260,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights. Country cards are clickable and open <Strong>User Sessions</Strong> filtered to that location.</Paragraph>
         <Paragraph><Strong>Map</Strong>: Interactive choropleth map with World and US views, colorized by session count, average duration, Apdex, error rate, or estimated revenue (when AOV is set). Use the dropdown to switch between World (country-level) and US (state-level) views. Countries/states with data are clickable and link to <Strong>User Sessions</Strong>.</Paragraph>
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
-        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram showing user navigation paths across 5 chart styles (Classic, Gradient, Directed Flow, Alluvial, State Machine). Funnel pages are highlighted in gold with ★ markers and dashed borders across all chart styles, making it easy to see the defined funnel within the broader navigation flow. Click any node to see inbound/outbound connections, Core Web Vitals (LCP, CLS, INP) with color-coded health scores, error counts, and funnel exit analysis. Outbound links to off-funnel pages are flagged in red. Exit analysis shows how many users leave the funnel at each page, where they go, whether they return, and estimated lost revenue. Below the chart: <Strong>Key Observations</Strong> auto-generates insights about completion rates, return rates, lost revenue, and performance issues. <Strong>Recommendations</Strong> provides prioritized (HIGH/MEDIUM/LOW) actionable suggestions. <Strong>Funnel Exit Analysis</Strong> shows a detailed table of exit points with return rates and revenue impact. <Strong>Off-Funnel Destinations</Strong> reveals where users go after leaving the funnel. <Strong>Page Health Scorecard</Strong> ranks all pages by a composite health score combining CWV and error data — error counts are clickable links that open the <Strong>Dynatrace Error Inspector</Strong> pre-filtered by frontend and page name for instant drill-down. Inbound/outbound links in popups open the <Strong>Vitals</Strong> app for detailed page analysis.</Paragraph>
+        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram showing user navigation paths across 5 chart styles (Classic, Gradient, Directed Flow, Alluvial, State Machine). Funnel pages are highlighted in gold with ★ markers and dashed borders across all chart styles, making it easy to see the defined funnel within the broader navigation flow. Click any node to see inbound/outbound connections, Core Web Vitals (LCP, CLS, INP) with color-coded health scores, error counts, and funnel exit analysis. Outbound links to off-funnel pages are flagged in red. Exit analysis shows how many users leave the funnel at each page, where they go, whether they return, and estimated lost revenue. Below the chart: <Strong>Key Observations</Strong> auto-generates insights about completion rates, return rates, lost revenue, and performance issues. <Strong>Recommendations</Strong> provides prioritized (HIGH/MEDIUM/LOW) actionable suggestions. <Strong>Funnel Exit Analysis</Strong> shows a detailed table of exit points with return rates and revenue impact. <Strong>Off-Funnel Destinations</Strong> reveals where users go after leaving the funnel. <Strong>Page Health Scorecard</Strong> ranks all pages by a composite health score combining CWV and error data — error counts are clickable links that open the <Strong>Dynatrace Error Inspector</Strong> pre-filtered by frontend and page name for instant drill-down. Hover over any node to see a rich tooltip with top 3 inbound/outbound connections (count &amp; percentage), self-reload detection (⟲), and error counts. Inbound/outbound links in popups open the <Strong>Vitals</Strong> app for detailed page analysis.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations. When AOV is set, shows Revenue at Risk from anomalous conversion drops.</Paragraph>
         <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device x browser cross-section. When AOV is set, adds revenue columns to device and browser tables and revenue totals to speed buckets.</Paragraph>
         <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. When AOV is set, revenue appears in key metrics, performance snapshot, and exports. Use <Strong>Export PDF</Strong> to open a print-ready report in a new tab (use browser Print → Save as PDF), or <Strong>Copy Text</Strong> to get a plain-text summary for Slack/Teams/email. Designed for quick status checks and executive presentations.</Paragraph>
@@ -4653,6 +4654,80 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     setFocusLabel(prev => prev === label ? null : label);
   };
 
+  // ---- Node tooltip builder (rich hover with top 3 inbound/outbound) ----
+  const buildNodeTooltip = (nodeId: string): string => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return "";
+    const inFunnel = isFunnelPage(node.label);
+    const isExit = exitNodeIds.has(nodeId);
+    const inbound = links.filter(l => l.target === nodeId).map(l => {
+      const src = nodes.find(n => n.id === l.source)!;
+      return { label: src.label, value: l.value };
+    }).sort((a, b) => b.value - a.value);
+    const outbound = links.filter(l => l.source === nodeId).map(l => {
+      const tgt = nodes.find(n => n.id === l.target)!;
+      return { label: tgt.label, value: l.value };
+    }).sort((a, b) => b.value - a.value);
+    const totalIn = inbound.reduce((s, x) => s + x.value, 0);
+    const totalOut = outbound.reduce((s, x) => s + x.value, 0);
+    const selfIn = inbound.find(x => x.label === node.label);
+    const selfReloadPct = selfIn && totalIn > 0 ? (selfIn.value / totalIn) * 100 : 0;
+    const lines: string[] = [`${node.label}: ${fmtCount(node.value)} sessions`];
+    if (isExit) lines[0] += " ⛔ Exit Point";
+    else if (inFunnel) lines[0] += " ★ Funnel";
+    if (selfReloadPct > 5) lines.push(`⟲ Self-reload: ${Math.round(selfReloadPct)}% (${fmtCount(selfIn!.value)})`);
+    if (inbound.length > 0) {
+      lines.push(`Inbound (${inbound.length}):`);
+      inbound.slice(0, 3).forEach(x => { const pct = totalIn > 0 ? (x.value / totalIn) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
+    }
+    if (outbound.length > 0) {
+      lines.push(`Outbound (${outbound.length}):`);
+      outbound.slice(0, 3).forEach(x => { const pct = totalOut > 0 ? (x.value / totalOut) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
+    }
+    const err = errorMap.get(node.label);
+    if (err && err.errorCount > 0) lines.push(`Errors: ${fmtCount(err.errorCount)} (${fmtCount(err.errorSessions)} sessions)`);
+    return lines.join("\n");
+  };
+
+  const buildLabelTooltip = (label: string): string => {
+    const matchNodes = nodes.filter(n => n.label === label);
+    const totalSessions = matchNodes.reduce((a, n) => Math.max(a, n.value), 0);
+    const nodeIds = matchNodes.map(n => n.id);
+    const inFunnel = isFunnelPage(label);
+    const isExit = exitLabels.has(label);
+    const inbound = links.filter(l => nodeIds.includes(l.target)).reduce((acc, l) => {
+      const src = nodes.find(n => n.id === l.source)!;
+      const existing = acc.find(a => a.label === src.label);
+      if (existing) existing.value += l.value; else acc.push({ label: src.label, value: l.value });
+      return acc;
+    }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value);
+    const outbound = links.filter(l => nodeIds.includes(l.source)).reduce((acc, l) => {
+      const tgt = nodes.find(n => n.id === l.target)!;
+      const existing = acc.find(a => a.label === tgt.label);
+      if (existing) existing.value += l.value; else acc.push({ label: tgt.label, value: l.value });
+      return acc;
+    }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value);
+    const totalIn = inbound.reduce((s, x) => s + x.value, 0);
+    const totalOut = outbound.reduce((s, x) => s + x.value, 0);
+    const selfIn = inbound.find(x => x.label === label);
+    const selfReloadPct = selfIn && totalIn > 0 ? (selfIn.value / totalIn) * 100 : 0;
+    const lines: string[] = [`${label}: ${fmtCount(totalSessions)} sessions`];
+    if (isExit) lines[0] += " ⛔ Exit Point";
+    else if (inFunnel) lines[0] += " ★ Funnel";
+    if (selfReloadPct > 5) lines.push(`⟲ Self-reload: ${Math.round(selfReloadPct)}% (${fmtCount(selfIn!.value)})`);
+    if (inbound.length > 0) {
+      lines.push(`Inbound (${inbound.length}):`);
+      inbound.slice(0, 3).forEach(x => { const pct = totalIn > 0 ? (x.value / totalIn) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
+    }
+    if (outbound.length > 0) {
+      lines.push(`Outbound (${outbound.length}):`);
+      outbound.slice(0, 3).forEach(x => { const pct = totalOut > 0 ? (x.value / totalOut) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
+    }
+    const err = errorMap.get(label);
+    if (err && err.errorCount > 0) lines.push(`Errors: ${fmtCount(err.errorCount)} (${fmtCount(err.errorSessions)} sessions)`);
+    return lines.join("\n");
+  };
+
   // ---- Funnel page identification ----
   const funnelPageIds = useMemo(() => new Set(steps.map(s => s.identifier)), [steps]);
   const funnelPageLabels = useMemo(() => new Set(steps.map(s => s.label)), [steps]);
@@ -5124,7 +5199,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             <g key={n.id} style={{ cursor: "pointer", transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); setFocusNodeId(isFocused ? null : n.id); }}>
               {inFunnel && !isExit && <rect x={x - 3} y={y - 3} width={NODE_W + 6} height={h + 6} rx={5} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={nodeOpacity * 0.6} />}
               <rect x={x} y={y} width={NODE_W} height={h} rx={3} fill={color} opacity={nodeOpacity} stroke={isFocused ? "#fff" : (isExit ? RED : inFunnel ? "#FFD700" : "none")} strokeWidth={isFocused ? 2 : (isExit || inFunnel ? 1.5 : 0)}>
-                <title>{`${n.label}: ${fmtCount(n.value)} sessions${isExit ? " ⛔ Exit Point" : inFunnel ? " ★ Funnel Page" : ""}`}</title>
+                <title>{buildNodeTooltip(n.id)}</title>
               </rect>
               {h > 8 && (
                 <text x={labelX} y={y + h / 2 + 3.5} textAnchor={anchor} fill={`rgba(255,255,255,${labelOpacity})`} fontSize={10} fontWeight={isFocused || inFunnel || isExit ? 700 : 400}>
@@ -5313,7 +5388,9 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             return (
               <g key={`node-${i}`} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
                 {inFunnel && !isExit && <circle cx={pos.x} cy={pos.y} r={nodeRadius + 4} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
-                <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={color} fillOpacity={isFocused ? 1 : 0.8} stroke={isFocused ? "#fff" : color} strokeWidth={isFocused ? 3 : 2} />
+                <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={color} fillOpacity={isFocused ? 1 : 0.8} stroke={isFocused ? "#fff" : color} strokeWidth={isFocused ? 3 : 2}>
+                  <title>{buildLabelTooltip(n.label)}</title>
+                </circle>
                 <text x={pos.x} y={pos.y - 3} textAnchor="middle" fill="white" fontSize={8} fontWeight={600}>{isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(n.label, 14)}</text>
                 <text x={pos.x} y={pos.y + 10} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={8}>{fmtCount(n.totalValue)}</text>
               </g>
@@ -5407,7 +5484,9 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             return (
               <g key={id} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
                 {inFunnel && !isExit && <rect x={n.x - 3} y={n.y - 3} width={n.w + 6} height={n.h + 6} rx={7} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
-                <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={5} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : (isExit ? RED : inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1} />
+                <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={5} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : (isExit ? RED : inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1}>
+                  <title>{buildLabelTooltip(n.label)}</title>
+                </rect>
                 <text x={n.cx} y={n.y + n.h / 2 + 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={600}>
                   {isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(n.label, 16)} — {fmtCount(n.value)}
                 </text>
@@ -5527,7 +5606,9 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             return (
               <g key={`smn-${i}`} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
                 {inFunnel && <rect x={pos.x - nodeRectW / 2 - 3} y={pos.y - nodeRectH / 2 - 3} width={nodeRectW + 6} height={nodeRectH + 6} rx={8} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
-                <rect x={pos.x - nodeRectW / 2} y={pos.y - nodeRectH / 2} width={nodeRectW} height={nodeRectH} rx={6} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : (inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1} />
+                <rect x={pos.x - nodeRectW / 2} y={pos.y - nodeRectH / 2} width={nodeRectW} height={nodeRectH} rx={6} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : (inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1}>
+                  <title>{buildLabelTooltip(n.label)}</title>
+                </rect>
                 <text x={pos.x} y={pos.y - 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={700}>{isExit ? "Exit" : (inFunnel ? "★ " : "") + truncLabel(n.label, 14)}</text>
                 <text x={pos.x} y={pos.y + 12} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize={9}>{fmtCount(n.value)} sessions</text>
               </g>
