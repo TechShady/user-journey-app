@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useDql, useUserAppState, useSetUserAppState } from "@dynatrace-sdk/react-hooks";
 import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment";
 import { Flex } from "@dynatrace/strato-components/layouts";
@@ -213,7 +213,7 @@ function Delta({ current, previous, inverted = false, suffix = "" }: { current: 
   const improving = inverted ? delta < 0 : delta > 0;
   const color = Math.abs(pct) < 1 ? "rgba(255,255,255,0.4)" : improving ? GREEN : RED;
   const arrow = delta > 0 ? "▲" : delta < 0 ? "▼" : "●";
-  return <span style={{ fontSize: 11, color, fontWeight: 600 }}>{arrow} {Math.abs(pct).toFixed(1)}%{suffix}</span>;
+  return <span style={{ fontSize: 13, color, fontWeight: 600 }}>{arrow} {Math.abs(pct).toFixed(1)}%{suffix}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -975,7 +975,7 @@ function ApdexGauge({ score, size = 80, label }: { score: number; size?: number;
         <text x={size / 2} y={size / 2} textAnchor="middle" fill={color} fontSize={size * 0.22} fontWeight="700">{score.toFixed(2)}</text>
         <text x={size / 2} y={size / 2 + 14} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize={size * 0.12}>{apdexLabel(score)}</text>
       </svg>
-      {label && <Text style={{ fontSize: 10, opacity: 0.6 }}>{label}</Text>}
+      {label && <Text style={{ fontSize: 12, opacity: 0.6 }}>{label}</Text>}
     </div>
   );
 }
@@ -985,7 +985,7 @@ function CwvCard({ label, value, unit, metric }: { label: string; value: number;
   const status = cwvLabel(value, metric);
   return (
     <div className="uj-cwv-card">
-      <Text style={{ fontSize: 11, opacity: 0.6 }}>{label}</Text>
+      <Text style={{ fontSize: 13, opacity: 0.6 }}>{label}</Text>
       <Heading level={3} style={{ color, margin: "4px 0 2px" }}>{metric === "cls" ? value.toFixed(3) : fmt(value)}</Heading>
       <span className="uj-cwv-badge" style={{ background: `${color}22`, color, borderColor: `${color}44` }}>{status}</span>
       <div className="uj-cwv-thresholds">
@@ -1001,6 +1001,34 @@ function CwvCard({ label, value, unit, metric }: { label: string; value: number;
 // Smooth Funnel SVG — per-step colorized + optional compare overlay
 // ---------------------------------------------------------------------------
 interface FunnelStep { label: string; count: number; convFromPrev: number; overallConv: number; apdex?: number }
+
+function useCountUp(target: number, duration = 800, delay = 0): number {
+  const [value, setValue] = useState(0);
+  const prev = useRef(0);
+  useEffect(() => {
+    if (target === prev.current) return;
+    const start = prev.current;
+    prev.current = target;
+    const t0 = performance.now() + delay;
+    let raf: number;
+    const tick = (now: number) => {
+      const elapsed = now - t0;
+      if (elapsed < 0) { raf = requestAnimationFrame(tick); return; }
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(Math.round(start + (target - start) * eased));
+      if (progress < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration, delay]);
+  return value;
+}
+
+function CountUpText({ value, delay = 0, suffix = "", ...props }: { value: number; delay?: number; suffix?: string } & React.SVGProps<SVGTextElement>) {
+  const animated = useCountUp(value, 800, delay);
+  return <text {...props}>{fmtCount(animated)}{suffix}</text>;
+}
 
 function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0 }: { steps: FunnelStep[]; prevSteps?: FunnelStep[]; appEntityId?: string; stepDefs: StepDef[]; aov?: number }) {
   const maxCount = Math.max(1, ...steps.map((s) => s.count), ...(prevSteps ?? []).map((s) => s.count));
@@ -1046,7 +1074,7 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0 }: { ste
       ))}
       {/* Current period segments */}
       {steps.map((_, i) => (
-        <path key={i} d={segPath(widths, i)} fill={`url(#funnelStep${i})`} stroke={stepColors[i]} strokeWidth="1" strokeOpacity="0.5" />
+        <path key={i} d={segPath(widths, i)} fill={`url(#funnelStep${i})`} stroke={stepColors[i]} strokeWidth="1" strokeOpacity="0.5" className="uj-funnel-segment" style={{ animationDelay: `${i * 120}ms` }} />
       ))}
       {/* Labels */}
       {steps.map((step, i) => {
@@ -1060,16 +1088,17 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0 }: { ste
         const countDeltaPct = prevStep && prevStep.count > 0 ? (countDelta / prevStep.count) * 100 : 0;
 
         const stepUrl = appEntityId ? vitalsUrl(appEntityId, stepDefs[i]?.identifier ?? step.label) : undefined;
+        const stagger = i * 120;
 
         return (
-          <g key={i}>
+          <g key={i} className="uj-funnel-label" style={{ animationDelay: `${stagger + 60}ms` }}>
             {i > 0 && <line x1={cx - widths[i] / 2} y1={y} x2={cx + widths[i] / 2} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />}
             {stepUrl ? (
               <g style={{ cursor: "pointer" }} onClick={() => openLink(stepUrl)}>
                 <circle cx={24} cy={midY} r={13} fill={`${sClr}1A`} stroke={sClr} strokeWidth="1.5" />
                 <text x={24} y={midY + 4} textAnchor="middle" fill={sClr} fontSize="12" fontWeight="700">{i + 1}</text>
                 <text x={cx} y={midY - 10} textAnchor="middle" fill="rgba(255,255,255,0.95)" fontSize="14" fontWeight="600" textDecoration="underline">{step.label}</text>
-                <text x={cx} y={midY + 8} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="12">{fmtCount(step.count)} sessions</text>
+                <CountUpText value={step.count} delay={stagger + 200} suffix=" sessions" x={cx} y={midY + 8} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="12" />
                 <title>Open in Vitals: {stepDefs[i]?.identifier ?? step.label}</title>
               </g>
             ) : (
@@ -1077,7 +1106,7 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0 }: { ste
                 <circle cx={24} cy={midY} r={13} fill={`${sClr}1A`} stroke={sClr} strokeWidth="1.5" />
                 <text x={24} y={midY + 4} textAnchor="middle" fill={sClr} fontSize="12" fontWeight="700">{i + 1}</text>
                 <text x={cx} y={midY - 10} textAnchor="middle" fill="rgba(255,255,255,0.95)" fontSize="14" fontWeight="600">{step.label}</text>
-                <text x={cx} y={midY + 8} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="12">{fmtCount(step.count)} sessions</text>
+                <CountUpText value={step.count} delay={stagger + 200} suffix=" sessions" x={cx} y={midY + 8} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="12" />
               </>
             )}
             {step.apdex != null && (
@@ -1123,7 +1152,7 @@ function MultiplierSlider({ value, onChange }: { value: number; onChange: (v: nu
       <input type="range" min={0} max={TRAFFIC_MULTIPLIERS.length - 1} value={TRAFFIC_MULTIPLIERS.indexOf(value)} onChange={(e) => onChange(TRAFFIC_MULTIPLIERS[Number(e.target.value)])} className="uj-slider" />
       <div style={{ position: "relative", width: "100%", height: 18 }}>
         {TRAFFIC_MULTIPLIERS.map((v, i) => (
-          TRAFFIC_TICK_LABELS.has(v) ? <span key={v} style={{ position: "absolute", left: `${(i / (TRAFFIC_MULTIPLIERS.length - 1)) * 100}%`, transform: "translateX(-50%)", fontSize: 10, color: v === value ? BLUE : "rgba(128,128,128,0.6)", fontWeight: v === value ? 700 : 400 }}>{v}%</span> : null
+          TRAFFIC_TICK_LABELS.has(v) ? <span key={v} style={{ position: "absolute", left: `${(i / (TRAFFIC_MULTIPLIERS.length - 1)) * 100}%`, transform: "translateX(-50%)", fontSize: 12, color: v === value ? BLUE : "rgba(128,128,128,0.6)", fontWeight: v === value ? 700 : 400 }}>{v}%</span> : null
         ))}
       </div>
     </Flex>
@@ -1149,7 +1178,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
             <Paragraph key={i}><Strong>Step {i + 1} — {step.label}</Strong> ({step.type === "view" ? "view" : "XHR"}: {step.identifier}): {i === 0 ? "Entry point." : `Requires Step${i > 1 ? "s" : ""} 1${i > 1 ? `-${i}` : ""}.`}</Paragraph>
           ))}
         </div>
-        <Paragraph style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>Steps are configurable via Settings (⚙). Min {MIN_STEPS}, max {MAX_STEPS} steps.</Paragraph>
+        <Paragraph style={{ fontSize: 13, opacity: 0.6, marginTop: 8 }}>Steps are configurable via Settings (⚙). Min {MIN_STEPS}, max {MAX_STEPS} steps.</Paragraph>
       </HelpSection>
       <HelpSection title="Tabs">
         <Paragraph><Strong>Funnel Overview</Strong>: KPIs, colorized funnel (color by drop-off severity), per-step Apdex, and step analysis table. Toggle <Strong>Compare</Strong> to overlay the previous period as dashed outlines and see ▲▼ deltas on each step.</Paragraph>
@@ -1498,15 +1527,15 @@ export function UserJourney() {
               </Flex>
               <Flex gap={8} style={{ marginBottom: 6 }}>
                 <div style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 10, opacity: 0.5, display: "block", marginBottom: 2 }}>Label</Text>
+                  <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 2 }}>Label</Text>
                   <TextInput value={step.label} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], label: val ?? "" }; saveSteps(next); }} placeholder="e.g. Home Page" />
                 </div>
                 <div style={{ flex: 2 }}>
-                  <Text style={{ fontSize: 10, opacity: 0.5, display: "block", marginBottom: 2 }}>Path / Identifier</Text>
+                  <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 2 }}>Path / Identifier</Text>
                   <TextInput value={step.identifier} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], identifier: val ?? "" }; saveSteps(next); }} placeholder="e.g. /easytravel/home" />
                 </div>
                 <div style={{ minWidth: 100 }}>
-                  <Text style={{ fontSize: 10, opacity: 0.5, display: "block", marginBottom: 2 }}>Type</Text>
+                  <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 2 }}>Type</Text>
                   <Select value={step.type} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], type: (val ?? "view") as "view" | "request" }; saveSteps(next); }}>
                     <Select.Trigger style={{ minWidth: 90 }} />
                     <Select.Content>
@@ -1521,7 +1550,7 @@ export function UserJourney() {
           {steps.length < MAX_STEPS && (
             <button onClick={() => { const next = [...steps, { label: "", identifier: "", type: "view" as const }]; saveSteps(next); }} style={{ width: "100%", padding: "8px", background: "rgba(69,137,255,0.1)", border: "1px dashed rgba(69,137,255,0.3)", borderRadius: 6, color: BLUE, cursor: "pointer", fontSize: 12, marginBottom: 16 }}>+ Add Step</button>
           )}
-          <button onClick={() => { saveSteps(DEFAULT_FUNNEL_STEPS); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 11, marginBottom: 16 }}>Reset to Defaults</button>
+          <button onClick={() => { saveSteps(DEFAULT_FUNNEL_STEPS); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 13, marginBottom: 16 }}>Reset to Defaults</button>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
           {/* Average Order Value */}
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Average Order Value (AOV)</Paragraph>
@@ -1588,7 +1617,7 @@ export function UserJourney() {
               <Switch value={tabVisibility[tab] !== false} onChange={() => toggleTab(tab)} />
             </div>
           ))}
-          <button onClick={() => { saveTabOrder([...DEFAULT_TAB_ORDER]); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 11, marginTop: 8 }}>Reset Tab Order</button>
+          <button onClick={() => { saveTabOrder([...DEFAULT_TAB_ORDER]); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 13, marginTop: 8 }}>Reset Tab Order</button>
         </div>
       </Sheet>
 
@@ -1600,7 +1629,7 @@ export function UserJourney() {
             case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
-            case "Step Details": content = <StepDetailsTab stepMap={stepMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} />; break;
+            case "Step Details": content = <StepDetailsTab stepMap={stepMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />; break;
             case "Exceptions": content = <JSErrorsTab data={jsErrorsData} isLoading={jsErrorsData.isLoading} frontend={frontend} />; break;
             case "Click Issues": content = <ClickIssuesTab data={clickIssuesData} isLoading={clickIssuesData.isLoading} />; break;
@@ -1612,16 +1641,16 @@ export function UserJourney() {
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} aov={aov} />; break;
-            case "Segmentation": content = <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} />; break;
+            case "Segmentation": content = <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading} aov={aov} overallConv={overallConv} />; break;
             case "Errors & Drop-offs": content = <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} steps={steps} aov={aov} />; break;
             case "What-If Analysis": content = <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} aov={aov} />; break;
             case "Root Cause Correlation": content = <RootCauseCorrelationTab hourlyData={rootCauseCorrelationData} stepDropData={rootCauseStepDropData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} isLoading={rootCauseCorrelationData.isLoading || rootCauseStepDropData.isLoading} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
-            case "Predictive Forecasting": content = <PredictiveForecastingTab trendData={forecastTrendData} apdexTrendData={forecastApdexTrendData} vitalsTrendData={forecastVitalsTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} isLoading={forecastTrendData.isLoading || forecastApdexTrendData.isLoading || forecastVitalsTrendData.isLoading} steps={steps} />; break;
+            case "Predictive Forecasting": content = <PredictiveForecastingTab trendData={forecastTrendData} apdexTrendData={forecastApdexTrendData} vitalsTrendData={forecastVitalsTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} isLoading={forecastTrendData.isLoading || forecastApdexTrendData.isLoading || forecastVitalsTrendData.isLoading} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Resource Waterfall": content = <ResourceWaterfallTab waterfallData={resourceWaterfallData} byStepData={resourceByStepData} isLoading={resourceWaterfallData.isLoading || resourceByStepData.isLoading} steps={steps} />; break;
             case "Change Intelligence": content = <ChangeIntelligenceTab deployData={deploymentEventsData} impactData={changeImpactData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} isLoading={deploymentEventsData.isLoading || changeImpactData.isLoading} aov={aov} overallConv={overallConv} funnelCounts={funnelCounts} />; break;
             case "SLO Tracker": content = <SLOTrackerTab apdexTrend={sloApdexTrendData} cwvTrend={sloCwvTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} cwv={cwv} isLoading={sloApdexTrendData.isLoading || sloCwvTrendData.isLoading} />; break;
             case "Session Replay Spotlight": content = <SessionReplaySpotlightTab data={sessionReplayData} isLoading={sessionReplayData.isLoading} />; break;
-            case "A/B Comparison": content = <ABComparisonTab segAData={abSegAData} segBData={abSegBData} segACwv={abSegACwv} segBCwv={abSegBCwv} dimension={abDimension} setDimension={setAbDimension} segA={abSegA} segB={abSegB} setSegA={setAbSegA} setSegB={setAbSegB} isLoading={abSegAData.isLoading || abSegBData.isLoading || abSegACwv.isLoading || abSegBCwv.isLoading} />; break;
+            case "A/B Comparison": content = <ABComparisonTab segAData={abSegAData} segBData={abSegBData} segACwv={abSegACwv} segBCwv={abSegBCwv} dimension={abDimension} setDimension={setAbDimension} segA={abSegA} segB={abSegB} setSegA={setAbSegA} setSegB={setAbSegB} isLoading={abSegAData.isLoading || abSegBData.isLoading || abSegACwv.isLoading || abSegBCwv.isLoading} aov={aov} overallConv={overallConv} />; break;
             case "Revenue Intelligence": content = <RevenueIntelligenceTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} quality={quality} qualityPrev={qualityPrev} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} />; break;
           }
           return <Tab key={tabId} title={tabId}>{content}</Tab>;
@@ -1688,19 +1717,19 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
       <div className="uj-table-tile" style={{ padding: 16 }}>
         <Flex gap={24} alignItems="center" flexWrap="wrap">
           <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 11, opacity: 0.5 }}>Satisfied</Text>
+            <Text style={{ fontSize: 13, opacity: 0.5 }}>Satisfied</Text>
             <Heading level={4} style={{ color: GREEN, margin: "4px 0" }}>{fmtCount(quality.satisfied)}</Heading>
-            <Text style={{ fontSize: 10, opacity: 0.4 }}>≤ {APDEX_T / 1000}s</Text>
+            <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_T / 1000}s</Text>
           </div>
           <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 11, opacity: 0.5 }}>Tolerating</Text>
+            <Text style={{ fontSize: 13, opacity: 0.5 }}>Tolerating</Text>
             <Heading level={4} style={{ color: YELLOW, margin: "4px 0" }}>{fmtCount(quality.tolerating)}</Heading>
-            <Text style={{ fontSize: 10, opacity: 0.4 }}>≤ {APDEX_4T / 1000}s</Text>
+            <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_4T / 1000}s</Text>
           </div>
           <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 11, opacity: 0.5 }}>Frustrated</Text>
+            <Text style={{ fontSize: 13, opacity: 0.5 }}>Frustrated</Text>
             <Heading level={4} style={{ color: RED, margin: "4px 0" }}>{fmtCount(quality.frustrated)}</Heading>
-            <Text style={{ fontSize: 10, opacity: 0.4 }}>&gt; {APDEX_4T / 1000}s</Text>
+            <Text style={{ fontSize: 12, opacity: 0.4 }}>&gt; {APDEX_4T / 1000}s</Text>
           </div>
           <div style={{ flex: 1, height: 10, borderRadius: 5, overflow: "hidden", display: "flex", minWidth: 200 }}>
             <div style={{ width: `${quality.total > 0 ? (quality.satisfied / quality.total) * 100 : 0}%`, background: GREEN, height: "100%" }} />
@@ -1721,8 +1750,8 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} />
         {compareMode && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
-            <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 10, opacity: 0.5 }}>Current period</Text></Flex>
-            <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, borderTop: "2px dashed rgba(255,255,255,0.3)" }} /><Text style={{ fontSize: 10, opacity: 0.5 }}>Previous period</Text></Flex>
+            <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
+            <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, borderTop: "2px dashed rgba(255,255,255,0.3)" }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Previous period</Text></Flex>
           </Flex>
         )}
       </div>
@@ -1804,10 +1833,10 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
 
           return (
             <div key={t.label} className="uj-trend-card">
-              <Text style={{ fontSize: 10, opacity: 0.5, textTransform: "uppercase", letterSpacing: 0.5 }}>{t.label}</Text>
+              <Text style={{ fontSize: 12, opacity: 0.5, textTransform: "uppercase", letterSpacing: 0.5 }}>{t.label}</Text>
               <Heading level={3} style={{ margin: "6px 0 2px", color }}>{t.format(t.current)}</Heading>
               <Flex gap={8} alignItems="center">
-                <Text style={{ fontSize: 11, opacity: 0.4 }}>was {t.format(t.prev)}</Text>
+                <Text style={{ fontSize: 13, opacity: 0.4 }}>was {t.format(t.prev)}</Text>
                 <Delta current={t.current} previous={t.prev} inverted={t.inverted} />
               </Flex>
               {/* Mini bar showing direction */}
@@ -1864,7 +1893,7 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
         <div className="uj-kpi-card" style={{ minWidth: 160 }}>
           <Text className="uj-kpi-label">Performance Health</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED }}>{healthScore}/100</Heading>
-          <Text style={{ fontSize: 10, opacity: 0.5 }}>Weighted: LCP 35%, CLS 25%, INP 25%, TTFB 15%</Text>
+          <Text style={{ fontSize: 12, opacity: 0.5 }}>Weighted: LCP 35%, CLS 25%, INP 25%, TTFB 15%</Text>
         </div>
         <div className="uj-kpi-card">
           <Text className="uj-kpi-label">Load Event End</Text>
@@ -1906,11 +1935,11 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
           ] as const).map((t) => (
             <div key={t.label} style={{ flex: "1 1 200px", padding: "8px 0" }}>
               <Strong style={{ fontSize: 13 }}>{t.label}</Strong>
-              <Text style={{ display: "block", fontSize: 11, opacity: 0.5, marginBottom: 4 }}>{t.desc}</Text>
+              <Text style={{ display: "block", fontSize: 13, opacity: 0.5, marginBottom: 4 }}>{t.desc}</Text>
               <Flex gap={8}>
-                <span style={{ fontSize: 10, color: GREEN, background: `${GREEN}15`, padding: "2px 6px", borderRadius: 4 }}>{t.good}</span>
-                <span style={{ fontSize: 10, color: YELLOW, background: `${YELLOW}15`, padding: "2px 6px", borderRadius: 4 }}>{t.ni}</span>
-                <span style={{ fontSize: 10, color: RED, background: `${RED}15`, padding: "2px 6px", borderRadius: 4 }}>{t.poor}</span>
+                <span style={{ fontSize: 12, color: GREEN, background: `${GREEN}15`, padding: "2px 6px", borderRadius: 4 }}>{t.good}</span>
+                <span style={{ fontSize: 12, color: YELLOW, background: `${YELLOW}15`, padding: "2px 6px", borderRadius: 4 }}>{t.ni}</span>
+                <span style={{ fontSize: 12, color: RED, background: `${RED}15`, padding: "2px 6px", borderRadius: 4 }}>{t.poor}</span>
               </Flex>
             </div>
           ))}
@@ -1923,7 +1952,7 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
 // ===========================================================================
 // TAB: Step Details
 // ===========================================================================
-function StepDetailsTab({ stepMap, isLoading, appEntityId, steps }: { stepMap: Map<string, any>; isLoading: boolean; appEntityId?: string; steps: StepDef[] }) {
+function StepDetailsTab({ stepMap, isLoading, appEntityId, steps, aov = 0, funnelCounts = [] }: { stepMap: Map<string, any>; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov?: number; funnelCounts?: number[] }) {
   if (isLoading) return <Loading />;
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
@@ -1940,6 +1969,8 @@ function StepDetailsTab({ stepMap, isLoading, appEntityId, steps }: { stepMap: M
         const fru = m ? Number(m.frustrated ?? 0) : 0;
         const apdex = calcApdex(sat, tol, total);
         const errRate = total > 0 ? (errors / total) * 100 : 0;
+        const dropOff = i > 0 && funnelCounts.length > i ? (funnelCounts[i - 1] - funnelCounts[i]) : 0;
+        const revenueAtRisk = aov > 0 && dropOff > 0 ? dropOff * aov : 0;
 
         return (
           <div key={i} className="uj-step-detail-card">
@@ -1952,7 +1983,7 @@ function StepDetailsTab({ stepMap, isLoading, appEntityId, steps }: { stepMap: M
               ) : (
                 <Heading level={5} style={{ margin: 0 }}>{step.label}</Heading>
               )}
-              <Text style={{ fontSize: 11, opacity: 0.5 }}>{step.identifier}</Text>
+              <Text style={{ fontSize: 13, opacity: 0.5 }}>{step.identifier}</Text>
               <div style={{ marginLeft: "auto" }}><ApdexGauge score={apdex} size={64} label="Apdex" /></div>
             </Flex>
             <Flex gap={16} flexWrap="wrap">
@@ -1963,11 +1994,12 @@ function StepDetailsTab({ stepMap, isLoading, appEntityId, steps }: { stepMap: M
               <div className="uj-metric-box"><Text className="uj-metric-label">Events</Text><Strong className="uj-metric-value" style={{ color: BLUE }}>{fmtCount(total)}</Strong></div>
               <div className="uj-metric-box"><Text className="uj-metric-label">Errors</Text><Strong className="uj-metric-value" style={{ color: errors > 0 ? RED : GREEN }}>{errors}</Strong></div>
               <div className="uj-metric-box"><Text className="uj-metric-label">Error Rate</Text><Strong className="uj-metric-value" style={{ color: errRate > 5 ? RED : errRate > 1 ? YELLOW : GREEN }}>{fmtPct(errRate)}</Strong></div>
+              {revenueAtRisk > 0 && <div className="uj-metric-box"><Text className="uj-metric-label">Revenue at Risk</Text><Strong className="uj-metric-value" style={{ color: RED }}>{fmtCurrency(revenueAtRisk)}</Strong><Text style={{ fontSize: 13, opacity: 0.4 }}>{fmtCount(dropOff)} drop-offs</Text></div>}
             </Flex>
             <Flex gap={12} alignItems="center" style={{ marginTop: 12 }}>
-              <Text style={{ fontSize: 10, color: GREEN }}>Satisfied: {sat}</Text>
-              <Text style={{ fontSize: 10, color: YELLOW }}>Tolerating: {tol}</Text>
-              <Text style={{ fontSize: 10, color: RED }}>Frustrated: {fru}</Text>
+              <Text style={{ fontSize: 12, color: GREEN }}>Satisfied: {sat}</Text>
+              <Text style={{ fontSize: 12, color: YELLOW }}>Tolerating: {tol}</Text>
+              <Text style={{ fontSize: 12, color: RED }}>Frustrated: {fru}</Text>
               <div style={{ flex: 1, height: 6, borderRadius: 3, overflow: "hidden", display: "flex" }}>
                 <div style={{ width: `${total > 0 ? (sat / total) * 100 : 0}%`, background: GREEN, height: "100%" }} />
                 <div style={{ width: `${total > 0 ? (tol / total) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
@@ -2130,18 +2162,18 @@ function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: bool
                         )}
                       </Flex>
                       <Flex gap={16} flexWrap="wrap" style={{ marginBottom: 8 }}>
-                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Occurrences</Text><Strong style={{ display: "block", color: severity }}>{fmtCount(occurrences)}</Strong></div>
-                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Affected Sessions</Text><Strong style={{ display: "block", color: ORANGE }}>{fmtCount(affected)}</Strong></div>
-                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>% of All Errors</Text><Strong style={{ display: "block" }}>{fmtPct(pctOfTotal)}</Strong></div>
-                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>First Seen</Text><Text style={{ display: "block", fontSize: 11 }}>{firstSeen}</Text></div>
-                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Last Seen</Text><Text style={{ display: "block", fontSize: 11 }}>{lastSeen}</Text></div>
+                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Occurrences</Text><Strong style={{ display: "block", color: severity }}>{fmtCount(occurrences)}</Strong></div>
+                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Affected Sessions</Text><Strong style={{ display: "block", color: ORANGE }}>{fmtCount(affected)}</Strong></div>
+                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>% of All Errors</Text><Strong style={{ display: "block" }}>{fmtPct(pctOfTotal)}</Strong></div>
+                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>First Seen</Text><Text style={{ display: "block", fontSize: 13 }}>{firstSeen}</Text></div>
+                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Last Seen</Text><Text style={{ display: "block", fontSize: 13 }}>{lastSeen}</Text></div>
                       </Flex>
                       {pages.length > 0 && (
                         <Flex gap={6} flexWrap="wrap">
                           {pages.slice(0, 5).map((p: string, pi: number) => (
-                            <span key={pi} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(69,137,255,0.1)", color: BLUE }}>{p ?? "unknown"}</span>
+                            <span key={pi} style={{ fontSize: 12, padding: "2px 6px", borderRadius: 4, background: "rgba(69,137,255,0.1)", color: BLUE }}>{p ?? "unknown"}</span>
                           ))}
-                          {pages.length > 5 && <span style={{ fontSize: 10, opacity: 0.4 }}>+{pages.length - 5} more</span>}
+                          {pages.length > 5 && <span style={{ fontSize: 12, opacity: 0.4 }}>+{pages.length - 5} more</span>}
                         </Flex>
                       )}
                       {/* Impact bar */}
@@ -2176,7 +2208,7 @@ function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: bool
                     }},
                     { id: "Occurrences", header: "Count", accessor: "Occurrences", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 50 ? RED : ORANGE }}>{fmtCount(value)}</Strong> },
                     { id: "Affected Sessions", header: "Sessions", accessor: "Affected Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-                    { id: "Pages", header: "Pages", accessor: "Pages", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
+                    { id: "Pages", header: "Pages", accessor: "Pages", cell: ({ value }: any) => <Text style={{ fontSize: 13, opacity: 0.6 }}>{value}</Text> },
                   ]}
                 />
               </div>
@@ -2249,14 +2281,14 @@ function ClickIssuesTab({ data, isLoading }: { data: any; isLoading: boolean }) 
                     <div className="uj-error-rank" style={{ background: `${color}22`, color, borderColor: `${color}44` }}>{i + 1}</div>
                     <div style={{ flex: 1 }}>
                       <Flex alignItems="center" gap={8} style={{ marginBottom: 6 }}>
-                        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${color}18`, color, fontWeight: 700, textTransform: "uppercase" }}>{isRage ? "Rage" : "Dead"}</span>
+                        <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: `${color}18`, color, fontWeight: 700, textTransform: "uppercase" }}>{isRage ? "Rage" : "Dead"}</span>
                         <Strong style={{ fontSize: 13, wordBreak: "break-word" }}>{target.length > 100 ? target.substring(0, 100) + "..." : target}</Strong>
                       </Flex>
                       <Flex gap={16} flexWrap="wrap">
-                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Occurrences</Text><Strong style={{ display: "block", color }}>{fmtCount(occ)}</Strong></div>
-                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Affected Sessions</Text><Strong style={{ display: "block", color: ORANGE }}>{fmtCount(affected)}</Strong></div>
-                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>% of Total</Text><Strong style={{ display: "block" }}>{fmtPct(pctOfTotal)}</Strong></div>
-                        <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Page</Text><Text style={{ display: "block", fontSize: 11, color: BLUE }}>{page}</Text></div>
+                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Occurrences</Text><Strong style={{ display: "block", color }}>{fmtCount(occ)}</Strong></div>
+                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Affected Sessions</Text><Strong style={{ display: "block", color: ORANGE }}>{fmtCount(affected)}</Strong></div>
+                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>% of Total</Text><Strong style={{ display: "block" }}>{fmtPct(pctOfTotal)}</Strong></div>
+                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Page</Text><Text style={{ display: "block", fontSize: 13, color: BLUE }}>{page}</Text></div>
                       </Flex>
                       <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
                         <div style={{ height: "100%", width: `${pctOfTotal}%`, background: color, borderRadius: 2 }} />
@@ -2283,7 +2315,7 @@ function ClickIssuesTab({ data, isLoading }: { data: any; isLoading: boolean }) 
               columns={[
                 { id: "Type", header: "Type", accessor: "Type", cell: ({ value }: any) => <Strong style={{ color: value === "Rage" ? RED : ORANGE }}>{value}</Strong> },
                 { id: "Element", header: "Element", accessor: "Element" },
-                { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Text style={{ fontSize: 11, color: BLUE }}>{value}</Text> },
+                { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Text style={{ fontSize: 13, color: BLUE }}>{value}</Text> },
                 { id: "Occurrences", header: "Count", accessor: "Occurrences", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
                 { id: "Affected Sessions", header: "Sessions", accessor: "Affected Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
               ]}
@@ -2345,7 +2377,7 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
         <div className="uj-kpi-card" style={{ minWidth: 180 }}>
           <Text className="uj-kpi-label">Budget Compliance</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: overallHealth >= 80 ? GREEN : overallHealth >= 50 ? YELLOW : RED }}>{overallHealth}%</Heading>
-          <Text style={{ fontSize: 10, opacity: 0.5 }}>{passingCount} of {budgetStatus.length} passing</Text>
+          <Text style={{ fontSize: 12, opacity: 0.5 }}>{passingCount} of {budgetStatus.length} passing</Text>
         </div>
         <div className="uj-kpi-card">
           <Text className="uj-kpi-label">Passing</Text>
@@ -2371,21 +2403,21 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
             <div key={b.metric} className="uj-budget-card">
               <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
                 <Strong style={{ fontSize: 13 }}>{b.metric}</Strong>
-                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: b.passing ? `${GREEN}18` : `${RED}18`, color: b.passing ? GREEN : RED, fontWeight: 700 }}>
+                <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: b.passing ? `${GREEN}18` : `${RED}18`, color: b.passing ? GREEN : RED, fontWeight: 700 }}>
                   {b.passing ? "PASS" : "FAIL"}
                 </span>
               </Flex>
               <Flex gap={16} style={{ marginBottom: 8 }}>
                 <div>
-                  <Text style={{ fontSize: 10, opacity: 0.5 }}>Actual</Text>
+                  <Text style={{ fontSize: 12, opacity: 0.5 }}>Actual</Text>
                   <Strong style={{ display: "block", color: b.passing ? GREEN : RED, fontSize: 16 }}>{b.format(b.actual)}</Strong>
                 </div>
                 <div>
-                  <Text style={{ fontSize: 10, opacity: 0.5 }}>Target</Text>
+                  <Text style={{ fontSize: 12, opacity: 0.5 }}>Target</Text>
                   <Text style={{ display: "block", fontSize: 14 }}>{b.inverted ? "≤ " : "≥ "}{b.format(b.target)}</Text>
                 </div>
                 <div>
-                  <Text style={{ fontSize: 10, opacity: 0.5 }}>Margin</Text>
+                  <Text style={{ fontSize: 12, opacity: 0.5 }}>Margin</Text>
                   <Text style={{ display: "block", fontSize: 14, color: b.passing ? GREEN : RED }}>
                     {b.inverted ? (b.margin <= 0 ? `${Math.abs(b.margin).toFixed(1)}% under` : `${b.margin.toFixed(1)}% over`) : (b.margin >= 0 ? `${b.margin.toFixed(1)}% above` : `${Math.abs(b.margin).toFixed(1)}% below`)}
                   </Text>
@@ -2453,21 +2485,21 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
 
                 return (
                   <Flex key={hour} alignItems="center" gap={8}>
-                    <Text style={{ fontSize: 10, width: 35, textAlign: "right", opacity: 0.5 }}>{String(hour).padStart(2, "0")}:00</Text>
+                    <Text style={{ fontSize: 12, width: 35, textAlign: "right", opacity: 0.5 }}>{String(hour).padStart(2, "0")}:00</Text>
                     <div style={{ flex: 1, height: 12, borderRadius: 3, background: "rgba(255,255,255,0.04)", overflow: "hidden", position: "relative" }}>
                       <div style={{ height: "100%", width: `${barWidth}%`, background: apdexClr(apdex), borderRadius: 3, opacity: 0.7, transition: "width 0.3s ease" }} />
                     </div>
-                    <Text style={{ fontSize: 10, minWidth: 45, textAlign: "right", color: BLUE }}>{fmtCount(actions)}</Text>
-                    <Text style={{ fontSize: 10, minWidth: 35, textAlign: "right", fontWeight: 700, color: apdexClr(apdex) }}>{apdex.toFixed(2)}</Text>
+                    <Text style={{ fontSize: 12, minWidth: 45, textAlign: "right", color: BLUE }}>{fmtCount(actions)}</Text>
+                    <Text style={{ fontSize: 12, minWidth: 35, textAlign: "right", fontWeight: 700, color: apdexClr(apdex) }}>{apdex.toFixed(2)}</Text>
                   </Flex>
                 );
               })}
             </Flex>
             <Flex gap={16} justifyContent="flex-end" style={{ marginTop: 8 }}>
-              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: GREEN }} /><Text style={{ fontSize: 9, opacity: 0.5 }}>≥0.85</Text></Flex>
-              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: YELLOW }} /><Text style={{ fontSize: 9, opacity: 0.5 }}>≥0.7</Text></Flex>
-              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: ORANGE }} /><Text style={{ fontSize: 9, opacity: 0.5 }}>≥0.5</Text></Flex>
-              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: RED }} /><Text style={{ fontSize: 9, opacity: 0.5 }}>&lt;0.5</Text></Flex>
+              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: GREEN }} /><Text style={{ fontSize: 13, opacity: 0.5 }}>≥0.85</Text></Flex>
+              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: YELLOW }} /><Text style={{ fontSize: 13, opacity: 0.5 }}>≥0.7</Text></Flex>
+              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: ORANGE }} /><Text style={{ fontSize: 13, opacity: 0.5 }}>≥0.5</Text></Flex>
+              <Flex gap={4} alignItems="center"><div style={{ width: 10, height: 10, borderRadius: 2, background: RED }} /><Text style={{ fontSize: 13, opacity: 0.5 }}>&lt;0.5</Text></Flex>
             </Flex>
           </div>
         </>
@@ -2558,12 +2590,12 @@ function GeoHeatmapTab({ data, isLoading, frontend }: { data: any; isLoading: bo
                 <div className="uj-geo-card" style={{ borderLeftColor: apdexClr(c.apdex), cursor: "pointer" }}>
                   <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 6 }}>
                     <Strong style={{ fontSize: 14 }}>{c.countryName !== c.name ? `${c.countryName} (${c.name})` : c.name} ↗</Strong>
-                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: `${apdexClr(c.apdex)}18`, color: apdexClr(c.apdex), fontWeight: 700 }}>{c.apdex.toFixed(2)}</span>
+                    <span style={{ fontSize: 12, padding: "2px 6px", borderRadius: 4, background: `${apdexClr(c.apdex)}18`, color: apdexClr(c.apdex), fontWeight: 700 }}>{c.apdex.toFixed(2)}</span>
                   </Flex>
                   <Flex gap={12} flexWrap="wrap" style={{ marginBottom: 6 }}>
-                    <div><Text style={{ fontSize: 9, opacity: 0.5 }}>Sessions</Text><Text style={{ display: "block", fontSize: 11, fontWeight: 700, color: BLUE }}>{fmtCount(c.sessions)}</Text></div>
-                    <div><Text style={{ fontSize: 9, opacity: 0.5 }}>Avg</Text><Text style={{ display: "block", fontSize: 11, fontWeight: 700, color: c.avgDur > 3000 ? RED : c.avgDur > 1000 ? YELLOW : GREEN }}>{fmt(c.avgDur)}</Text></div>
-                    <div><Text style={{ fontSize: 9, opacity: 0.5 }}>Err%</Text><Text style={{ display: "block", fontSize: 11, fontWeight: 700, color: c.errRate > 5 ? RED : c.errRate > 1 ? YELLOW : GREEN }}>{fmtPct(c.errRate)}</Text></div>
+                    <div><Text style={{ fontSize: 13, opacity: 0.5 }}>Sessions</Text><Text style={{ display: "block", fontSize: 13, fontWeight: 700, color: BLUE }}>{fmtCount(c.sessions)}</Text></div>
+                    <div><Text style={{ fontSize: 13, opacity: 0.5 }}>Avg</Text><Text style={{ display: "block", fontSize: 13, fontWeight: 700, color: c.avgDur > 3000 ? RED : c.avgDur > 1000 ? YELLOW : GREEN }}>{fmt(c.avgDur)}</Text></div>
+                    <div><Text style={{ fontSize: 13, opacity: 0.5 }}>Err%</Text><Text style={{ display: "block", fontSize: 13, fontWeight: 700, color: c.errRate > 5 ? RED : c.errRate > 1 ? YELLOW : GREEN }}>{fmtPct(c.errRate)}</Text></div>
                   </Flex>
                   {/* Mini satisfaction bar */}
                   <div style={{ height: 4, borderRadius: 2, overflow: "hidden", display: "flex" }}>
@@ -2572,7 +2604,7 @@ function GeoHeatmapTab({ data, isLoading, frontend }: { data: any; isLoading: bo
                     <div style={{ width: `${totalActions > 0 ? (c.fru / totalActions) * 100 : 0}%`, background: RED, height: "100%" }} />
                   </div>
                   {c.cities.length > 0 && (
-                    <Text style={{ fontSize: 9, opacity: 0.4, marginTop: 4 }}>{c.cities.slice(0, 3).join(", ")}{c.cities.length > 3 ? ` +${c.cities.length - 3}` : ""}</Text>
+                    <Text style={{ fontSize: 13, opacity: 0.4, marginTop: 4 }}>{c.cities.slice(0, 3).join(", ")}{c.cities.length > 3 ? ` +${c.cities.length - 3}` : ""}</Text>
                   )}
                 </div>
                 </a>
@@ -2831,7 +2863,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
       <Flex alignItems="center" justifyContent="space-between">
         <SectionHeader title="Map" />
         <Flex alignItems="center" gap={8}>
-          <Text style={{ fontSize: 11, opacity: 0.5 }}>View</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5 }}>View</Text>
           <Select value={mapView} onChange={(val) => { if (val) { setMapView(val as MapView); setHasUserChanged(true); setAnimKey(k => k + 1); } }}>
             <Select.Trigger style={{ minWidth: 120 }} />
             <Select.Content>
@@ -2917,46 +2949,46 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
 
           {/* Legend */}
           <Flex gap={12} flexWrap="wrap" alignItems="center" style={{ paddingLeft: 8 }}>
-            <Text style={{ fontSize: 11, opacity: 0.5 }}>Legend ({metricLabel[metric]}):</Text>
+            <Text style={{ fontSize: 13, opacity: 0.5 }}>Legend ({metricLabel[metric]}):</Text>
             {metric === "sessions" && <>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: "rgb(30, 90, 140)" }} /><Text style={{ fontSize: 10 }}>Low</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: "rgb(38, 108, 188)" }} /><Text style={{ fontSize: 10 }}>Medium</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: "rgb(55, 137, 255)" }} /><Text style={{ fontSize: 10 }}>High</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: "rgb(30, 90, 140)" }} /><Text style={{ fontSize: 12 }}>Low</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: "rgb(38, 108, 188)" }} /><Text style={{ fontSize: 12 }}>Medium</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: "rgb(55, 137, 255)" }} /><Text style={{ fontSize: 12 }}>High</Text></Flex>
             </>}
             {metric === "avgDur" && <>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>&lt;800ms</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: YELLOW }} /><Text style={{ fontSize: 10 }}>800-1500ms</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>1500-3000ms</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>&gt;3000ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 12 }}>&lt;800ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: YELLOW }} /><Text style={{ fontSize: 12 }}>800-1500ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 12 }}>1500-3000ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 12 }}>&gt;3000ms</Text></Flex>
             </>}
             {metric === "apdex" && <>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>&lt;0.5</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>0.5-0.7</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: YELLOW }} /><Text style={{ fontSize: 10 }}>0.7-0.85</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>&gt;0.85</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 12 }}>&lt;0.5</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 12 }}>0.5-0.7</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: YELLOW }} /><Text style={{ fontSize: 12 }}>0.7-0.85</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 12 }}>&gt;0.85</Text></Flex>
             </>}
             {metric === "errRate" && <>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>&lt;0.5%</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: YELLOW }} /><Text style={{ fontSize: 10 }}>0.5-2%</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>2-5%</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>&gt;5%</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 12 }}>&lt;0.5%</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: YELLOW }} /><Text style={{ fontSize: 12 }}>0.5-2%</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 12 }}>2-5%</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 12 }}>&gt;5%</Text></Flex>
             </>}
             {metric === "lcp" && <>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>Good ≤{CWV.lcp.good}ms</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>Needs Improvement</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>Poor &gt;{CWV.lcp.poor}ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 12 }}>Good ≤{CWV.lcp.good}ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 12 }}>Needs Improvement</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 12 }}>Poor &gt;{CWV.lcp.poor}ms</Text></Flex>
             </>}
             {metric === "cls" && <>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>Good ≤{CWV.cls.good}</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>Needs Improvement</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>Poor &gt;{CWV.cls.poor}</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 12 }}>Good ≤{CWV.cls.good}</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 12 }}>Needs Improvement</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 12 }}>Poor &gt;{CWV.cls.poor}</Text></Flex>
             </>}
             {metric === "inp" && <>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 10 }}>Good ≤{CWV.inp.good}ms</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 10 }}>Needs Improvement</Text></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 10 }}>Poor &gt;{CWV.inp.poor}ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: GREEN }} /><Text style={{ fontSize: 12 }}>Good ≤{CWV.inp.good}ms</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: ORANGE }} /><Text style={{ fontSize: 12 }}>Needs Improvement</Text></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 14, height: 14, borderRadius: 3, background: RED }} /><Text style={{ fontSize: 12 }}>Poor &gt;{CWV.inp.poor}ms</Text></Flex>
             </>}
-            <Text style={{ fontSize: 10, opacity: 0.3, marginLeft: 8 }}>({countries.length} countries with data)</Text>
+            <Text style={{ fontSize: 12, opacity: 0.3, marginLeft: 8 }}>({countries.length} countries with data)</Text>
           </Flex>
 
           {/* Ranked table */}
@@ -3246,7 +3278,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any
                   ) : (
                     <Strong style={{ fontSize: 13 }}>{src.name.length > 60 ? src.name.substring(0, 60) + "..." : src.name}</Strong>
                   )}
-                  <Text style={{ fontSize: 10, opacity: 0.4, marginLeft: "auto" }}>{fmtCount(src.total)} transitions</Text>
+                  <Text style={{ fontSize: 12, opacity: 0.4, marginLeft: "auto" }}>{fmtCount(src.total)} transitions</Text>
                 </Flex>
                 <Flex flexDirection="column" gap={4} style={{ paddingLeft: 20 }}>
                   {src.targets.slice(0, 5).map((t, ti) => {
@@ -3259,11 +3291,11 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any
                         <div style={{ flex: 1 }}>
                           <Flex alignItems="center" gap={6}>
                             {appEntityId ? (
-                              <a href={vitalsUrl(appEntityId, t.name)} target="_blank" rel="noopener noreferrer" style={{ color: isFunnel ? GREEN : CYAN, textDecoration: "none", fontSize: 11 }}>
+                              <a href={vitalsUrl(appEntityId, t.name)} target="_blank" rel="noopener noreferrer" style={{ color: isFunnel ? GREEN : CYAN, textDecoration: "none", fontSize: 13 }}>
                                 {t.name.length > 50 ? t.name.substring(0, 50) + "..." : t.name} ↗
                               </a>
                             ) : (
-                              <Text style={{ fontSize: 11 }}>{t.name.length > 50 ? t.name.substring(0, 50) + "..." : t.name}</Text>
+                              <Text style={{ fontSize: 13 }}>{t.name.length > 50 ? t.name.substring(0, 50) + "..." : t.name}</Text>
                             )}
                             {isFunnel && <span style={{ fontSize: 8, padding: "1px 4px", borderRadius: 3, background: `${GREEN}18`, color: GREEN }}>funnel</span>}
                           </Flex>
@@ -3271,13 +3303,13 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any
                             <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2, opacity: 0.7 }} />
                           </div>
                         </div>
-                        <Text style={{ fontSize: 10, fontWeight: 700, color, minWidth: 40, textAlign: "right" }}>{fmtCount(t.count)}</Text>
-                        <Text style={{ fontSize: 10, opacity: 0.4, minWidth: 35, textAlign: "right" }}>{fmtPct(pct)}</Text>
+                        <Text style={{ fontSize: 12, fontWeight: 700, color, minWidth: 40, textAlign: "right" }}>{fmtCount(t.count)}</Text>
+                        <Text style={{ fontSize: 12, opacity: 0.4, minWidth: 35, textAlign: "right" }}>{fmtPct(pct)}</Text>
                       </Flex>
                     );
                   })}
                   {src.targets.length > 5 && (
-                    <Text style={{ fontSize: 10, opacity: 0.4, paddingLeft: 22 }}>+{src.targets.length - 5} more destinations</Text>
+                    <Text style={{ fontSize: 12, opacity: 0.4, paddingLeft: 22 }}>+{src.targets.length - 5} more destinations</Text>
                   )}
                 </Flex>
               </div>
@@ -3420,12 +3452,12 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
           <div key={a.metric} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(a.severity) }}>
             <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 6 }}>
               <Strong style={{ fontSize: 13 }}>{a.metric}</Strong>
-              <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${severityColor(a.severity)}18`, color: severityColor(a.severity), fontWeight: 700, textTransform: "uppercase" }}>{a.severity}</span>
+              <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: `${severityColor(a.severity)}18`, color: severityColor(a.severity), fontWeight: 700, textTransform: "uppercase" }}>{a.severity}</span>
             </Flex>
             <Flex gap={16} style={{ marginBottom: 6 }}>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 15, color: a.isAnomaly ? severityColor(a.severity) : undefined }}>{a.format(a.current)}</Strong></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Baseline</Text><Text style={{ display: "block", fontSize: 13, opacity: 0.6 }}>{a.format(a.prev)}</Text></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Deviation</Text><Strong style={{ display: "block", color: a.isAnomaly ? severityColor(a.severity) : GREEN }}>{a.improving ? "▲" : "▼"} {(a.deviation * 100).toFixed(1)}%</Strong></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 15, color: a.isAnomaly ? severityColor(a.severity) : undefined }}>{a.format(a.current)}</Strong></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Baseline</Text><Text style={{ display: "block", fontSize: 13, opacity: 0.6 }}>{a.format(a.prev)}</Text></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Deviation</Text><Strong style={{ display: "block", color: a.isAnomaly ? severityColor(a.severity) : GREEN }}>{a.improving ? "▲" : "▼"} {(a.deviation * 100).toFixed(1)}%</Strong></div>
             </Flex>
             <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${Math.min(a.deviation * 100, 100)}%`, background: severityColor(a.severity), borderRadius: 2 }} />
@@ -3479,12 +3511,12 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
                 const color = bucket.includes(">10") || bucket.includes("5-10") ? RED : bucket.includes("3-5") ? ORANGE : bucket.includes("2-3") ? YELLOW : GREEN;
                 return (
                   <Flex key={i} alignItems="center" gap={8}>
-                    <Text style={{ fontSize: 10, width: 65, textAlign: "right", opacity: 0.6 }}>{bucket}</Text>
+                    <Text style={{ fontSize: 12, width: 65, textAlign: "right", opacity: 0.6 }}>{bucket}</Text>
                     <div style={{ flex: 1, height: 16, borderRadius: 4, background: "rgba(255,255,255,0.04)", overflow: "hidden" }}>
                       <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 4, opacity: 0.7 }} />
                     </div>
-                    <Text style={{ fontSize: 10, minWidth: 50, textAlign: "right", color: BLUE }}>{fmtCount(actions)}</Text>
-                    {errRate > 0 && <Text style={{ fontSize: 9, minWidth: 40, textAlign: "right", color: RED }}>{fmtPct(errRate)} err</Text>}
+                    <Text style={{ fontSize: 12, minWidth: 50, textAlign: "right", color: BLUE }}>{fmtCount(actions)}</Text>
+                    {errRate > 0 && <Text style={{ fontSize: 13, minWidth: 40, textAlign: "right", color: RED }}>{fmtPct(errRate)} err</Text>}
                   </Flex>
                 );
               })}
@@ -3505,7 +3537,7 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
                 <span>{severityEmoji(a.severity)}</span>
                 <div>
                   <Strong style={{ fontSize: 13, color: severityColor(a.severity) }}>{a.metric}: {(a.deviation * 100).toFixed(1)}% deviation ({a.severity})</Strong>
-                  <Text style={{ display: "block", fontSize: 11, opacity: 0.6 }}>
+                  <Text style={{ display: "block", fontSize: 13, opacity: 0.6 }}>
                     {a.improving
                       ? `Improving: ${a.format(a.prev)} → ${a.format(a.current)}. Positive change but significant.`
                       : `Regressing: ${a.format(a.prev)} → ${a.format(a.current)}. ${a.severity === "critical" ? "Immediate investigation recommended." : "Monitor closely."}`}
@@ -3598,9 +3630,9 @@ function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCou
               <Strong style={{ fontSize: 14 }}>{b.label}</Strong>
             </Flex>
             <Flex gap={16}>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Sessions</Text><Strong style={{ display: "block", color: BLUE }}>{fmtCount(b.sessions)}</Strong></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Conv Rate</Text><Strong style={{ display: "block", fontSize: 18, color: statusClr(b.convRate) }}>{fmtPct(b.convRate)}</Strong></div>
-              {aov > 0 && <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Revenue</Text><Strong style={{ display: "block", color: b.color }}>{fmtCurrency(b.converted * aov)}</Strong></div>}
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Sessions</Text><Strong style={{ display: "block", color: BLUE }}>{fmtCount(b.sessions)}</Strong></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Conv Rate</Text><Strong style={{ display: "block", fontSize: 18, color: statusClr(b.convRate) }}>{fmtPct(b.convRate)}</Strong></div>
+              {aov > 0 && <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Revenue</Text><Strong style={{ display: "block", color: b.color }}>{fmtCurrency(b.converted * aov)}</Strong></div>}
             </Flex>
             <div style={{ marginTop: 8, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${Math.min(b.convRate, 100)}%`, background: b.color, borderRadius: 3, opacity: 0.8 }} />
@@ -3867,7 +3899,7 @@ ${bottleneckHtml}
       {/* Overall Grade */}
       <Flex gap={24} alignItems="center" flexWrap="wrap">
         <div className="uj-grade-card">
-          <Text style={{ fontSize: 11, opacity: 0.5, textTransform: "uppercase", letterSpacing: 1 }}>Overall Grade</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5, textTransform: "uppercase", letterSpacing: 1 }}>Overall Grade</Text>
           <Heading level={1} style={{ fontSize: 64, margin: "8px 0", color: gradeColor, lineHeight: 1 }}>{letterGrade}</Heading>
           <Text style={{ fontSize: 12, opacity: 0.6 }}>{Math.round(overallGradeNum)}/100 weighted score</Text>
         </div>
@@ -3876,12 +3908,12 @@ ${bottleneckHtml}
             const color = m.score >= 75 ? GREEN : m.score >= 50 ? YELLOW : RED;
             return (
               <Flex key={m.label} alignItems="center" gap={8}>
-                <Text style={{ fontSize: 10, width: 80, textAlign: "right", opacity: 0.6 }}>{m.label}</Text>
+                <Text style={{ fontSize: 12, width: 80, textAlign: "right", opacity: 0.6 }}>{m.label}</Text>
                 <div style={{ flex: 1, height: 10, borderRadius: 5, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
                   <div style={{ height: "100%", width: `${m.score}%`, background: color, borderRadius: 5, transition: "width 0.4s ease" }} />
                 </div>
-                <Text style={{ fontSize: 10, minWidth: 30, fontWeight: 700, color }}>{m.score}</Text>
-                <Text style={{ fontSize: 9, opacity: 0.4, minWidth: 20 }}>{m.weight}%</Text>
+                <Text style={{ fontSize: 12, minWidth: 30, fontWeight: 700, color }}>{m.score}</Text>
+                <Text style={{ fontSize: 13, opacity: 0.4, minWidth: 20 }}>{m.weight}%</Text>
               </Flex>
             );
           })}
@@ -3895,7 +3927,7 @@ ${bottleneckHtml}
           <div key={h.label} className="uj-kpi-card" style={{ minWidth: 140 }}>
             <Text className="uj-kpi-label">{h.label}</Text>
             <Heading level={3} className="uj-kpi-value" style={{ color: h.good ? GREEN : RED }}>{h.value}</Heading>
-            <Text style={{ fontSize: 11, color: h.good ? GREEN : RED }}>{h.trend === "up" ? "▲" : h.trend === "down" ? "▼" : "●"} vs prev period</Text>
+            <Text style={{ fontSize: 13, color: h.good ? GREEN : RED }}>{h.trend === "up" ? "▲" : h.trend === "down" ? "▼" : "●"} vs prev period</Text>
           </div>
         ))}
       </Flex>
@@ -3907,10 +3939,10 @@ ${bottleneckHtml}
           {steps.map((step, i) => (
             <React.Fragment key={i}>
               <div style={{ textAlign: "center" }}>
-                <Text style={{ fontSize: 10, opacity: 0.5, display: "block" }}>{step.label}</Text>
+                <Text style={{ fontSize: 12, opacity: 0.5, display: "block" }}>{step.label}</Text>
                 <Strong style={{ fontSize: 16, color: BLUE }}>{fmtCount(funnelCounts[i])}</Strong>
                 {i > 0 && (
-                  <Text style={{ fontSize: 10, display: "block", color: funnelCounts[i - 1] > 0 ? statusClr((funnelCounts[i] / funnelCounts[i - 1]) * 100) : undefined }}>
+                  <Text style={{ fontSize: 12, display: "block", color: funnelCounts[i - 1] > 0 ? statusClr((funnelCounts[i] / funnelCounts[i - 1]) * 100) : undefined }}>
                     {funnelCounts[i - 1] > 0 ? fmtPct((funnelCounts[i] / funnelCounts[i - 1]) * 100) : "—"}
                   </Text>
                 )}
@@ -3928,7 +3960,7 @@ ${bottleneckHtml}
             <span style={{ fontSize: 18 }}>{worstStep.dropOff > 40 ? "🔴" : worstStep.dropOff > 20 ? "🟠" : "🟡"}</span>
             <div>
               <Strong style={{ fontSize: 13 }}>Biggest Bottleneck: {worstStep.from} → {worstStep.to}</Strong>
-              <Text style={{ display: "block", fontSize: 11, opacity: 0.6 }}>{fmtPct(worstStep.dropOff)} drop-off rate. {worstStep.dropOff > 40 ? "Critical friction point — requires immediate attention." : "Significant abandonment — consider UX optimization."}</Text>
+              <Text style={{ display: "block", fontSize: 13, opacity: 0.6 }}>{fmtPct(worstStep.dropOff)} drop-off rate. {worstStep.dropOff > 40 ? "Critical friction point — requires immediate attention." : "Significant abandonment — consider UX optimization."}</Text>
             </div>
           </Flex>
         </div>
@@ -3948,7 +3980,7 @@ ${bottleneckHtml}
             <Heading level={3} className="uj-kpi-value" style={{ color: cwvClr(v.value, v.metric) }}>
               {v.metric === "cls" ? v.value.toFixed(3) : fmt(v.value)}
             </Heading>
-            <Text style={{ fontSize: 10, color: cwvClr(v.value, v.metric) }}>{cwvLabel(v.value, v.metric)}</Text>
+            <Text style={{ fontSize: 12, color: cwvClr(v.value, v.metric) }}>{cwvLabel(v.value, v.metric)}</Text>
           </div>
         ))}
       </Flex>
@@ -3982,7 +4014,7 @@ ${bottleneckHtml}
 
       {/* Timestamp */}
       <div style={{ textAlign: "center", padding: "8px 0" }}>
-        <Text style={{ fontSize: 10, opacity: 0.3 }}>Report generated: {new Date().toLocaleString()} | Frontend: {frontend}</Text>
+        <Text style={{ fontSize: 12, opacity: 0.3 }}>Report generated: {new Date().toLocaleString()} | Frontend: {frontend}</Text>
       </div>
     </Flex>
   );
@@ -3991,8 +4023,10 @@ ${bottleneckHtml}
 // ===========================================================================
 // TAB: Segmentation
 // ===========================================================================
-function SegmentationTab({ devices, browsers, geos, isLoading }: { devices: any[]; browsers: any[]; geos: any[]; isLoading: boolean }) {
+function SegmentationTab({ devices, browsers, geos, isLoading, aov = 0, overallConv = 0 }: { devices: any[]; browsers: any[]; geos: any[]; isLoading: boolean; aov?: number; overallConv?: number }) {
   if (isLoading) return <Loading />;
+
+  const showRevenue = aov > 0 && overallConv > 0;
 
   const segCols = (nameHeader: string, nameField: string) => [
     { id: nameField, header: nameHeader, accessor: nameField },
@@ -4000,11 +4034,13 @@ function SegmentationTab({ devices, browsers, geos, isLoading }: { devices: any[
     { id: "Actions", header: "Actions", accessor: "Actions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
     { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
     { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
+    ...(showRevenue ? [{ id: "Est Revenue", header: "Est Revenue", accessor: "Est Revenue", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCurrency(value)}</Strong> }] : []),
   ];
 
   const mapSeg = (data: any[], nameKey: string) => data.map((d: any) => {
     const sat = Number(d.satisfied ?? 0); const tol = Number(d.tolerating ?? 0); const total = Number(d.actions ?? 0);
-    return { [nameKey]: d[nameKey] ?? "Unknown", Sessions: Number(d.sessions ?? 0), Actions: total, "Avg (ms)": Number(d.avg_duration_ms ?? 0), Apdex: calcApdex(sat, tol, total), Errors: Number(d.errors ?? 0) };
+    const sessions = Number(d.sessions ?? 0);
+    return { [nameKey]: d[nameKey] ?? "Unknown", Sessions: sessions, Actions: total, "Avg (ms)": Number(d.avg_duration_ms ?? 0), Apdex: calcApdex(sat, tol, total), Errors: Number(d.errors ?? 0), "Est Revenue": showRevenue ? sessions * (overallConv / 100) * aov : 0 };
   });
 
   return (
@@ -4067,7 +4103,7 @@ function ErrorsTab({ errors, funnelCounts, isLoading, steps, aov }: { errors: an
               <span className="uj-rec-icon">{d.pctLost > 40 ? "🔴" : d.pctLost > 20 ? "🟡" : "🟢"}</span>
               <div>
                 <Strong style={{ fontSize: 13 }}>{d.from} → {d.to}: {fmtPct(d.pctLost)} drop-off</Strong>
-                <Text style={{ fontSize: 11, opacity: 0.6, display: "block" }}>
+                <Text style={{ fontSize: 13, opacity: 0.6, display: "block" }}>
                   {d.pctLost > 40 ? "Critical: Major friction. Review UX, reduce form fields, optimize load time." : d.pctLost > 20 ? "Warning: Significant abandonment. Consider A/B testing or simplifying." : "Acceptable: Healthy conversion. Monitor for regressions."}
                 </Text>
               </div>
@@ -4144,31 +4180,31 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
             <div className="uj-revenue-card">
               <Text className="uj-metric-label">Current Revenue</Text>
               <Strong className="uj-metric-value" style={{ color: BLUE }}>{fmtCurrency(currRevenue)}</Strong>
-              <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(currConversions)} conversions × {fmtCurrency(aov)}</Text>
+              <Text style={{ fontSize: 13, opacity: 0.5 }}>{fmtCount(currConversions)} conversions × {fmtCurrency(aov)}</Text>
             </div>
             <div className="uj-revenue-card">
               <Text className="uj-metric-label">Projected Revenue (+{pctChange}%)</Text>
               <Strong className="uj-metric-value" style={{ color: projRevenue > currRevenue ? GREEN : RED }}>{fmtCurrency(projRevenue)}</Strong>
-              <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(projConversions)} conversions × {fmtCurrency(aov)}</Text>
+              <Text style={{ fontSize: 13, opacity: 0.5 }}>{fmtCount(projConversions)} conversions × {fmtCurrency(aov)}</Text>
             </div>
             <div className="uj-revenue-card">
               <Text className="uj-metric-label">Net Revenue Change</Text>
               <Strong className="uj-metric-value" style={{ color: revenueDelta >= 0 ? GREEN : RED }}>{revenueDelta >= 0 ? "+" : ""}{fmtCurrency(revenueDelta)}</Strong>
-              <Text style={{ fontSize: 11, opacity: 0.5 }}>{revenueDelta >= 0 ? "Gain" : "Loss"} from +{pctChange}% traffic</Text>
+              <Text style={{ fontSize: 13, opacity: 0.5 }}>{revenueDelta >= 0 ? "Gain" : "Loss"} from +{pctChange}% traffic</Text>
             </div>
             <div className={`uj-impact-card uj-impact-negative`}>
               <Text className="uj-metric-label">Conv Degradation Loss</Text>
               <Strong className="uj-metric-value" style={{ color: RED }}>{fmtCurrency(convLossRevenue)}</Strong>
-              <Text style={{ fontSize: 11, opacity: 0.5 }}>Revenue lost vs. ideal (no conv drop)</Text>
+              <Text style={{ fontSize: 13, opacity: 0.5 }}>Revenue lost vs. ideal (no conv drop)</Text>
             </div>
           </Flex>
 
           <div className="uj-table-tile" style={{ padding: 16 }}>
             <Flex gap={24} flexWrap="wrap" alignItems="center">
-              <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Ideal Revenue (no degradation)</Text><br /><Strong style={{ color: CYAN }}>{fmtCurrency(idealRevenue)}</Strong></div>
-              <div><Text style={{ fontSize: 11, opacity: 0.5 }}>→ Actual Projected</Text><br /><Strong style={{ color: projRevenue < idealRevenue ? YELLOW : GREEN }}>{fmtCurrency(projRevenue)}</Strong></div>
-              <div><Text style={{ fontSize: 11, opacity: 0.5 }}>= Perf Tax</Text><br /><Strong style={{ color: RED }}>{convLossRevenue > 0 ? "-" : ""}{fmtCurrency(convLossRevenue)}</Strong></div>
-              <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Perf Tax Rate</Text><br /><Strong style={{ color: RED }}>{idealRevenue > 0 ? fmtPct((convLossRevenue / idealRevenue) * 100) : "0.0%"}</Strong></div>
+              <div><Text style={{ fontSize: 13, opacity: 0.5 }}>Ideal Revenue (no degradation)</Text><br /><Strong style={{ color: CYAN }}>{fmtCurrency(idealRevenue)}</Strong></div>
+              <div><Text style={{ fontSize: 13, opacity: 0.5 }}>→ Actual Projected</Text><br /><Strong style={{ color: projRevenue < idealRevenue ? YELLOW : GREEN }}>{fmtCurrency(projRevenue)}</Strong></div>
+              <div><Text style={{ fontSize: 13, opacity: 0.5 }}>= Perf Tax</Text><br /><Strong style={{ color: RED }}>{convLossRevenue > 0 ? "-" : ""}{fmtCurrency(convLossRevenue)}</Strong></div>
+              <div><Text style={{ fontSize: 13, opacity: 0.5 }}>Perf Tax Rate</Text><br /><Strong style={{ color: RED }}>{idealRevenue > 0 ? fmtPct((convLossRevenue / idealRevenue) * 100) : "0.0%"}</Strong></div>
             </Flex>
           </div>
         </>
@@ -4202,7 +4238,7 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
       </div>
 
       <div className="uj-table-tile" style={{ padding: 24 }}>
-        <Text style={{ fontSize: 11, opacity: 0.5 }}>
+        <Text style={{ fontSize: 13, opacity: 0.5 }}>
           Projections: logarithmic contention model. At 2x: ~35% latency increase, ~8% conversion degradation per doubling. Apdex degrades ~0.08 per doubling.{aov > 0 ? ` Revenue projections use AOV of ${fmtCurrency(aov)}. "Perf Tax" is the revenue lost due to conversion degradation under load.` : " Set Average Order Value in Settings to enable revenue projections."}
         </Text>
       </div>
@@ -4283,22 +4319,22 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
         <div className="uj-revenue-card uj-revenue-hero">
           <Text className="uj-metric-label">Current Revenue</Text>
           <Strong className="uj-metric-value" style={{ color: BLUE, fontSize: 28 }}>{fmtCurrency(currRevenue)}</Strong>
-          <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(currConversions)} conversions × {fmtCurrency(aov)} AOV</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5 }}>{fmtCount(currConversions)} conversions × {fmtCurrency(aov)} AOV</Text>
         </div>
         <div className="uj-revenue-card">
           <Text className="uj-metric-label">Previous Period</Text>
           <Strong className="uj-metric-value" style={{ color: "rgba(128,128,128,0.7)" }}>{fmtCurrency(prevRevenue)}</Strong>
-          <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(prevConversions)} conversions</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5 }}>{fmtCount(prevConversions)} conversions</Text>
         </div>
         <div className={`uj-revenue-card ${revenueDelta >= 0 ? "uj-revenue-positive" : "uj-revenue-negative"}`}>
           <Text className="uj-metric-label">Revenue Change</Text>
           <Strong className="uj-metric-value" style={{ color: revenueDelta >= 0 ? GREEN : RED }}>{revenueDelta >= 0 ? "+" : ""}{fmtCurrency(revenueDelta)}</Strong>
-          <Text style={{ fontSize: 11, color: revenueDelta >= 0 ? GREEN : RED }}>{revenueDelta >= 0 ? "▲" : "▼"} {fmtPct(Math.abs(revenueDeltaPct))} vs prev</Text>
+          <Text style={{ fontSize: 13, color: revenueDelta >= 0 ? GREEN : RED }}>{revenueDelta >= 0 ? "▲" : "▼"} {fmtPct(Math.abs(revenueDeltaPct))} vs prev</Text>
         </div>
         <div className="uj-revenue-card">
           <Text className="uj-metric-label">Revenue per Session</Text>
           <Strong className="uj-metric-value" style={{ color: CYAN }}>{fmtCurrency(rps)}</Strong>
-          <Text style={{ fontSize: 11, color: rps >= rpsPrev ? GREEN : RED }}>{rps >= rpsPrev ? "▲" : "▼"} prev: {fmtCurrency(rpsPrev)}</Text>
+          <Text style={{ fontSize: 13, color: rps >= rpsPrev ? GREEN : RED }}>{rps >= rpsPrev ? "▲" : "▼"} prev: {fmtCurrency(rpsPrev)}</Text>
         </div>
       </Flex>
 
@@ -4308,22 +4344,22 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
         <div className="uj-impact-card uj-impact-negative">
           <Text className="uj-metric-label">Latency Tax</Text>
           <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(latencyRevLoss)}</Strong>
-          <Text style={{ fontSize: 11, opacity: 0.5 }}>Avg {fmt(avgDuration)} → {fmtPct(latencyPenaltyPct)} conv penalty</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5 }}>Avg {fmt(avgDuration)} → {fmtPct(latencyPenaltyPct)} conv penalty</Text>
         </div>
         <div className="uj-impact-card uj-impact-negative">
           <Text className="uj-metric-label">Frustration Tax</Text>
           <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(frustratedRevLoss)}</Strong>
-          <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtPct(fruPct)} frustrated sessions</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5 }}>{fmtPct(fruPct)} frustrated sessions</Text>
         </div>
         <div className="uj-impact-card uj-impact-negative">
           <Text className="uj-metric-label">Error Tax</Text>
           <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(errorRevLoss)}</Strong>
-          <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtPct(errRate)} error rate</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5 }}>{fmtPct(errRate)} error rate</Text>
         </div>
         <div className="uj-impact-card uj-impact-negative">
           <Text className="uj-metric-label">Total Perf Tax</Text>
           <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(latencyRevLoss + frustratedRevLoss + errorRevLoss)}</Strong>
-          <Text style={{ fontSize: 11, opacity: 0.5 }}>Revenue recoverable via perf</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5 }}>Revenue recoverable via perf</Text>
         </div>
       </Flex>
 
@@ -4361,7 +4397,7 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
               <span className="uj-rec-icon">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "💡"}</span>
               <div style={{ flex: 1 }}>
                 <Strong style={{ fontSize: 13 }}>{s.label}</Strong>
-                <Text style={{ fontSize: 11, opacity: 0.6, display: "block" }}>+{fmtPct(s.improvement)} conversion uplift potential</Text>
+                <Text style={{ fontSize: 13, opacity: 0.6, display: "block" }}>+{fmtPct(s.improvement)} conversion uplift potential</Text>
               </div>
               <Strong style={{ color: GREEN, fontSize: 16 }}>+{fmtCurrency(s.addedRevenue)}</Strong>
             </Flex>
@@ -4370,7 +4406,7 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
       </div>
 
       <div className="uj-table-tile" style={{ padding: 24 }}>
-        <Text style={{ fontSize: 11, opacity: 0.5 }}>
+        <Text style={{ fontSize: 13, opacity: 0.5 }}>
           Revenue Intelligence uses an AOV of {fmtCurrency(aov)}. Latency tax uses the industry benchmark of ~1% conversion loss per 100ms above 1s. Frustration/error taxes use conservative impact estimates. Funnel leakage estimates assume dropped users had equal downstream conversion probability. Change AOV in Settings (⚙) to recalculate.
         </Text>
       </div>
@@ -4547,25 +4583,25 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
       <div style={{ marginTop: 12, padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid " + BLUE }}>
         <Flex alignItems="center" gap={8} style={{ marginBottom: 8 }}>
           <Strong style={{ fontSize: 13 }}>{focusLabel}</Strong>
-          <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtCount(labelSessions)} sessions</Text>
-          <button onClick={() => setFocusLabel(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 10 }}>Clear</button>
+          <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtCount(labelSessions)} sessions</Text>
+          <button onClick={() => setFocusLabel(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 12 }}>Clear</button>
         </Flex>
         {labelInbound.length > 0 && (
           <div style={{ marginBottom: 6 }}>
-            <Text style={{ fontSize: 10, opacity: 0.5 }}>Inbound ({labelInbound.length}):</Text>
+            <Text style={{ fontSize: 12, opacity: 0.5 }}>Inbound ({labelInbound.length}):</Text>
             <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
               {labelInbound.slice(0, 8).map((l, i) => (
-                <a key={i} href={appEntityId ? vitalsUrl(appEntityId, l.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${l.label}` : l.label}>{truncLabel(l.label, 30)} <Strong style={{ color: CYAN }}>{fmtCount(l.value)}</Strong></a>
+                <a key={i} href={appEntityId ? vitalsUrl(appEntityId, l.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${l.label}` : l.label}>{truncLabel(l.label, 30)} <Strong style={{ color: CYAN }}>{fmtCount(l.value)}</Strong></a>
               ))}
             </Flex>
           </div>
         )}
         {labelOutbound.length > 0 && (
           <div>
-            <Text style={{ fontSize: 10, opacity: 0.5 }}>Outbound ({labelOutbound.length}):</Text>
+            <Text style={{ fontSize: 12, opacity: 0.5 }}>Outbound ({labelOutbound.length}):</Text>
             <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
               {labelOutbound.slice(0, 8).map((l, i) => (
-                <a key={i} href={appEntityId ? vitalsUrl(appEntityId, l.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${l.label}` : l.label}>{truncLabel(l.label, 30)} <Strong style={{ color: GREEN }}>{fmtCount(l.value)}</Strong></a>
+                <a key={i} href={appEntityId ? vitalsUrl(appEntityId, l.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${l.label}` : l.label}>{truncLabel(l.label, 30)} <Strong style={{ color: GREEN }}>{fmtCount(l.value)}</Strong></a>
               ))}
             </Flex>
           </div>
@@ -4601,7 +4637,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
       <Flex alignItems="center" justifyContent="space-between">
         <SectionHeader title="Sankey Flow Diagram" />
         <Flex alignItems="center" gap={8}>
-          <Text style={{ fontSize: 11, opacity: 0.5 }}>Chart Style</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5 }}>Chart Style</Text>
           <Select value={chartStyle} onChange={(val) => { if (val) onStyleChange(val as SankeyStyle); }}>
             <Select.Trigger style={{ minWidth: 170 }} />
             <Select.Content>
@@ -4710,27 +4746,27 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
         <div style={{ marginTop: 12, padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: `3px solid ${SANKEY_COLORS[focusNode.depth % SANKEY_COLORS.length]}` }}>
           <Flex alignItems="center" gap={8} style={{ marginBottom: 8 }}>
             <Strong style={{ fontSize: 13 }}>{focusNode.label}</Strong>
-            <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtCount(focusSessions)} sessions</Text>
-            <button onClick={() => setFocusNodeId(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 10 }}>Clear</button>
+            <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtCount(focusSessions)} sessions</Text>
+            <button onClick={() => setFocusNodeId(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 12 }}>Clear</button>
           </Flex>
           {focusInbound.length > 0 && (
             <div style={{ marginBottom: 6 }}>
-              <Text style={{ fontSize: 10, opacity: 0.5 }}>Inbound ({focusInbound.length}):</Text>
+              <Text style={{ fontSize: 12, opacity: 0.5 }}>Inbound ({focusInbound.length}):</Text>
               <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
                 {focusInbound.sort((a, b) => b.value - a.value).slice(0, 6).map((l, i) => {
                   const src = nodes.find(n => n.id === l.source)!;
-                  return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, src.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${src.label}` : src.label}>{truncLabel(src.label, 30)} <Strong style={{ color: CYAN }}>{fmtCount(l.value)}</Strong></a>;
+                  return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, src.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${src.label}` : src.label}>{truncLabel(src.label, 30)} <Strong style={{ color: CYAN }}>{fmtCount(l.value)}</Strong></a>;
                 })}
               </Flex>
             </div>
           )}
           {focusOutbound.length > 0 && (
             <div>
-              <Text style={{ fontSize: 10, opacity: 0.5 }}>Outbound ({focusOutbound.length}):</Text>
+              <Text style={{ fontSize: 12, opacity: 0.5 }}>Outbound ({focusOutbound.length}):</Text>
               <Flex gap={6} flexWrap="wrap" style={{ marginTop: 2 }}>
                 {focusOutbound.sort((a, b) => b.value - a.value).slice(0, 6).map((l, i) => {
                   const tgt = nodes.find(n => n.id === l.target)!;
-                  return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, tgt.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${tgt.label}` : tgt.label}>{truncLabel(tgt.label, 30)} <Strong style={{ color: GREEN }}>{fmtCount(l.value)}</Strong></a>;
+                  return <a key={i} href={appEntityId ? vitalsUrl(appEntityId, tgt.label) : '#'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "inherit", textDecoration: "none", cursor: appEntityId ? "pointer" : "default" }} onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(69,137,255,0.18)")} onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")} title={appEntityId ? `Open in Vitals: ${tgt.label}` : tgt.label}>{truncLabel(tgt.label, 30)} <Strong style={{ color: GREEN }}>{fmtCount(l.value)}</Strong></a>;
                 })}
               </Flex>
             </div>
@@ -5210,22 +5246,22 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
         <div className="uj-kpi-card" style={{ minWidth: 150 }}>
           <Text className="uj-kpi-label">Conversion Δ</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: convChange >= 0 ? GREEN : RED }}>{convChange >= 0 ? "▲" : "▼"} {Math.abs(convChange).toFixed(1)}%</Heading>
-          <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtPct(overallConvPrev)} → {fmtPct(overallConv)}</Text>
+          <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtPct(overallConvPrev)} → {fmtPct(overallConv)}</Text>
         </div>
         <div className="uj-kpi-card" style={{ minWidth: 150 }}>
           <Text className="uj-kpi-label">Apdex Δ</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: apdexChange >= 0 ? GREEN : RED }}>{apdexChange >= 0 ? "▲" : "▼"} {Math.abs(apdexChange).toFixed(1)}%</Heading>
-          <Text style={{ fontSize: 10, opacity: 0.5 }}>{overallApdexPrev.toFixed(2)} → {overallApdex.toFixed(2)}</Text>
+          <Text style={{ fontSize: 12, opacity: 0.5 }}>{overallApdexPrev.toFixed(2)} → {overallApdex.toFixed(2)}</Text>
         </div>
         <div className="uj-kpi-card" style={{ minWidth: 150 }}>
           <Text className="uj-kpi-label">Error Rate Δ</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: errorChange <= 0 ? GREEN : RED }}>{errorChange > 0 ? "▲" : "▼"} {Math.abs(errorChange).toFixed(1)}%</Heading>
-          <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtPct(errorRatePrev)} → {fmtPct(errorRate)}</Text>
+          <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtPct(errorRatePrev)} → {fmtPct(errorRate)}</Text>
         </div>
         <div className="uj-kpi-card" style={{ minWidth: 150 }}>
           <Text className="uj-kpi-label">Duration Δ</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: durationChange <= 0 ? GREEN : RED }}>{durationChange > 0 ? "▲" : "▼"} {Math.abs(durationChange).toFixed(1)}%</Heading>
-          <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmt(qualityPrev.avg)} → {fmt(quality.avg)}</Text>
+          <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmt(qualityPrev.avg)} → {fmt(quality.avg)}</Text>
         </div>
         <div className="uj-kpi-card" style={{ minWidth: 130 }}>
           <Text className="uj-kpi-label">Impact Hours</Text>
@@ -5244,7 +5280,7 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
             <div className="uj-kpi-card" style={{ minWidth: 150 }}>
               <Text className="uj-kpi-label">Revenue at Risk</Text>
               <Heading level={2} className="uj-kpi-value" style={{ color: revenueAtRisk > 0 ? RED : GREEN }}>{fmtCurrency(revenueAtRisk)}</Heading>
-              <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtCount(impactSessions)} sessions in impact hours</Text>
+              <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtCount(impactSessions)} sessions in impact hours</Text>
             </div>
           );
         })()}
@@ -5252,7 +5288,7 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
 
       {/* Hourly correlation timeline SVG */}
       <SectionHeader title="Hourly Correlation Timeline" />
-      <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4 }}>Conversion rate (green), avg duration (blue), error rate (red). Red-shaded hours = conversion dip + technical signal detected.</Text>
+      <Text style={{ fontSize: 13, opacity: 0.5, marginBottom: 4 }}>Conversion rate (green), avg duration (blue), error rate (red). Red-shaded hours = conversion dip + technical signal detected.</Text>
       <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
         <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`}>
           {/* Background for impact hours */}
@@ -5319,17 +5355,17 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
             <div key={i} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(s.severity), minWidth: 280 }}>
               <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 6 }}>
                 <Strong style={{ fontSize: 13 }}>{s.hour}:00 — {s.hour + 1}:00</Strong>
-                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${severityColor(s.severity)}18`, color: severityColor(s.severity), fontWeight: 700, textTransform: "uppercase" as const }}>{s.severity}</span>
+                <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: `${severityColor(s.severity)}18`, color: severityColor(s.severity), fontWeight: 700, textTransform: "uppercase" as const }}>{s.severity}</span>
               </Flex>
               <Flex gap={16} style={{ marginBottom: 6 }}>
-                <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Conversion</Text><Strong style={{ display: "block", fontSize: 14, color: RED }}>{s.convRate.toFixed(1)}%</Strong></div>
-                <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Avg Duration</Text><Strong style={{ display: "block", fontSize: 14, color: s.isLatencySpike ? RED : BLUE }}>{fmt(s.avgDuration)}</Strong></div>
-                <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Error Rate</Text><Strong style={{ display: "block", fontSize: 14, color: s.isErrorSurge ? RED : GREEN }}>{s.errorRate.toFixed(1)}%</Strong></div>
-                <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Confidence</Text><Strong style={{ display: "block", fontSize: 14, color: s.confidence > 60 ? ORANGE : BLUE }}>{s.confidence}%</Strong></div>
+                <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Conversion</Text><Strong style={{ display: "block", fontSize: 14, color: RED }}>{s.convRate.toFixed(1)}%</Strong></div>
+                <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Avg Duration</Text><Strong style={{ display: "block", fontSize: 14, color: s.isLatencySpike ? RED : BLUE }}>{fmt(s.avgDuration)}</Strong></div>
+                <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Error Rate</Text><Strong style={{ display: "block", fontSize: 14, color: s.isErrorSurge ? RED : GREEN }}>{s.errorRate.toFixed(1)}%</Strong></div>
+                <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Confidence</Text><Strong style={{ display: "block", fontSize: 14, color: s.confidence > 60 ? ORANGE : BLUE }}>{s.confidence}%</Strong></div>
               </Flex>
               <Flex gap={6} flexWrap="wrap">
                 {s.causes.map((c, ci) => (
-                  <span key={ci} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: "rgba(194,25,48,0.12)", color: RED, fontWeight: 600 }}>{c}</span>
+                  <span key={ci} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: "rgba(194,25,48,0.12)", color: RED, fontWeight: 600 }}>{c}</span>
                 ))}
               </Flex>
             </div>
@@ -5339,7 +5375,7 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
 
       {/* Funnel step degradation ranking */}
       <SectionHeader title="Step Degradation Ranking" />
-      <Text style={{ fontSize: 11, opacity: 0.5 }}>Steps ranked by P90 vs. Avg duration spread — higher degradation score = more tail latency, likely root cause contributor.</Text>
+      <Text style={{ fontSize: 13, opacity: 0.5 }}>Steps ranked by P90 vs. Avg duration spread — higher degradation score = more tail latency, likely root cause contributor.</Text>
       <div className="uj-table-tile">
         <DataTable
           sortable
@@ -5391,7 +5427,7 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
             { id: "Avg Duration", header: "Avg Dur", accessor: "Avg Duration", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
             { id: "P90 Duration", header: "P90 Dur", accessor: "P90 Duration", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 4000 ? RED : value > 2000 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
             { id: "Error Rate", header: "Err %", accessor: "Error Rate", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 5 ? RED : value > 2 ? YELLOW : GREEN }}>{fmtPct(value)}</Text> },
-            { id: "Severity", header: "Severity", accessor: "Severity", cell: ({ value }: any) => <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${severityColor(value)}18`, color: severityColor(value), fontWeight: 700, textTransform: "uppercase" as const }}>{value}</span> },
+            { id: "Severity", header: "Severity", accessor: "Severity", cell: ({ value }: any) => <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: `${severityColor(value)}18`, color: severityColor(value), fontWeight: 700, textTransform: "uppercase" as const }}>{value}</span> },
             { id: "Causes", header: "Root Causes", accessor: "Causes", cell: ({ value }: any) => <Text style={{ color: value !== "—" ? RED : "rgba(255,255,255,0.3)" }}>{value}</Text> },
           ]}
         />
@@ -5444,7 +5480,7 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
 // ===========================================================================
 // TAB: Predictive Forecasting
 // ===========================================================================
-function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, quality, overallApdex, overallConv, isLoading, steps }: { trendData: any; apdexTrendData: any; vitalsTrendData: any; quality: any; overallApdex: number; overallConv: number; isLoading: boolean; steps: StepDef[] }) {
+function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, quality, overallApdex, overallConv, isLoading, steps, aov = 0, funnelCounts = [] }: { trendData: any; apdexTrendData: any; vitalsTrendData: any; quality: any; overallApdex: number; overallConv: number; isLoading: boolean; steps: StepDef[]; aov?: number; funnelCounts?: number[] }) {
   if (isLoading) return <Loading />;
 
   const trendRecords = (trendData.data?.records ?? []) as any[];
@@ -5611,6 +5647,40 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
         </div>
       </Flex>
 
+      {/* Revenue Forecast */}
+      {aov > 0 && funnelCounts.length > 0 && (() => {
+        const lastIdx = funnelCounts.length - 1;
+        const currConversions = funnelCounts[lastIdx] ?? 0;
+        const currRevenue = currConversions * aov;
+        const projConvRate = Math.max(0, convReg.predict(convValues.length - 1 + FORECAST_DAYS));
+        const projSessions = funnelCounts[0] ?? 0;
+        const projConversions = Math.round(projSessions * (projConvRate / 100));
+        const projRevenue = projConversions * aov;
+        const revDelta = projRevenue - currRevenue;
+        return (
+          <>
+            <SectionHeader title="Revenue Forecast" />
+            <Flex gap={16} flexWrap="wrap">
+              <div className="uj-revenue-card">
+                <Text className="uj-metric-label">Current Revenue</Text>
+                <Strong className="uj-metric-value" style={{ color: BLUE }}>{fmtCurrency(currRevenue)}</Strong>
+                <Text style={{ fontSize: 13, opacity: 0.5 }}>{fmtCount(currConversions)} conv × {fmtCurrency(aov)}</Text>
+              </div>
+              <div className="uj-revenue-card">
+                <Text className="uj-metric-label">Projected Revenue (+{FORECAST_DAYS}d)</Text>
+                <Strong className="uj-metric-value" style={{ color: projRevenue >= currRevenue ? GREEN : RED }}>{fmtCurrency(projRevenue)}</Strong>
+                <Text style={{ fontSize: 13, opacity: 0.5 }}>Conv rate: {fmtPct(overallConv)} → {fmtPct(projConvRate)}</Text>
+              </div>
+              <div className="uj-revenue-card">
+                <Text className="uj-metric-label">Revenue Delta</Text>
+                <Strong className="uj-metric-value" style={{ color: revDelta >= 0 ? GREEN : RED }}>{revDelta >= 0 ? "+" : ""}{fmtCurrency(revDelta)}</Strong>
+                <Text style={{ fontSize: 13, opacity: 0.5 }}>Based on conv rate trend</Text>
+              </div>
+            </Flex>
+          </>
+        );
+      })()}
+
       {/* Forecast cards per metric */}
       <SectionHeader title="Metric Forecasts" />
       <Flex gap={12} flexWrap="wrap">
@@ -5618,13 +5688,13 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
           <div key={b.metric} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(b.severity), minWidth: 320, flex: 1 }}>
             <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
               <Strong style={{ fontSize: 14 }}>{b.metric}</Strong>
-              <span style={{ fontSize: 10, padding: "2px 10px", borderRadius: 4, background: `${severityColor(b.severity)}18`, color: severityColor(b.severity), fontWeight: 700, textTransform: "uppercase" as const }}>{severityLabel(b.severity)}</span>
+              <span style={{ fontSize: 12, padding: "2px 10px", borderRadius: 4, background: `${severityColor(b.severity)}18`, color: severityColor(b.severity), fontWeight: 700, textTransform: "uppercase" as const }}>{severityLabel(b.severity)}</span>
             </Flex>
             <Flex gap={20} style={{ marginBottom: 8 }}>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 16, color: b.color }}>{b.format(b.current)}</Strong></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Projected +7d</Text><Strong style={{ display: "block", fontSize: 16, color: b.projectedGood ? GREEN : RED }}>{b.format(b.projected7d)}</Strong></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Budget</Text><Strong style={{ display: "block", fontSize: 16, opacity: 0.6 }}>{b.direction === "above" ? "≥" : "≤"} {b.format(b.threshold)}</Strong></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 14, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.format(Math.abs(b.effectiveRate))}/day`}</Strong></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 16, color: b.color }}>{b.format(b.current)}</Strong></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Projected +7d</Text><Strong style={{ display: "block", fontSize: 16, color: b.projectedGood ? GREEN : RED }}>{b.format(b.projected7d)}</Strong></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Budget</Text><Strong style={{ display: "block", fontSize: 16, opacity: 0.6 }}>{b.direction === "above" ? "≥" : "≤"} {b.format(b.threshold)}</Strong></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 14, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.format(Math.abs(b.effectiveRate))}/day`}</Strong></div>
             </Flex>
             {b.daysToBreach != null && (
               <div style={{ padding: "6px 12px", background: `${severityColor(b.severity)}10`, borderRadius: 6, marginBottom: 6 }}>
@@ -5784,7 +5854,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
             { id: "Days to Breach", header: "Breach In", accessor: "Days to Breach", cell: ({ value }: any) => <Strong style={{ color: value === "Safe" ? GREEN : value === "NOW" ? RED : ORANGE }}>{value}</Strong> },
             { id: "Status", header: "Status", accessor: "Status", cell: ({ value }: any) => {
               const c = value === "HEALTHY" ? GREEN : value === "AT RISK" ? ORANGE : RED;
-              return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${c}18`, color: c, fontWeight: 700 }}>{value}</span>;
+              return <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: `${c}18`, color: c, fontWeight: 700 }}>{value}</span>;
             } },
           ]}
         />
@@ -5831,7 +5901,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
       </Flex>
 
       <div className="uj-table-tile" style={{ padding: 16 }}>
-        <Text style={{ fontSize: 11, opacity: 0.4 }}>
+        <Text style={{ fontSize: 13, opacity: 0.4 }}>
           Forecasts use linear regression on {n} data points from the selected timeframe. Accuracy improves with more data points. Projections assume current trends continue — external factors (deploys, traffic spikes) may alter trajectory.
         </Text>
       </div>
@@ -5942,9 +6012,9 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
       {/* Step filter */}
       <Flex gap={8} alignItems="center" flexWrap="wrap">
         <Strong style={{ fontSize: 12 }}>Filter by Step:</Strong>
-        <button onClick={() => setSelectedStep("all")} style={{ padding: "4px 12px", borderRadius: 4, border: `1px solid ${selectedStep === "all" ? BLUE : "rgba(255,255,255,0.15)"}`, background: selectedStep === "all" ? `${BLUE}20` : "transparent", color: selectedStep === "all" ? BLUE : "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>All Steps</button>
+        <button onClick={() => setSelectedStep("all")} style={{ padding: "4px 12px", borderRadius: 4, border: `1px solid ${selectedStep === "all" ? BLUE : "rgba(255,255,255,0.15)"}`, background: selectedStep === "all" ? `${BLUE}20` : "transparent", color: selectedStep === "all" ? BLUE : "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>All Steps</button>
         {steps.map((step) => (
-          <button key={step.label} onClick={() => setSelectedStep(step.label)} style={{ padding: "4px 12px", borderRadius: 4, border: `1px solid ${selectedStep === step.label ? BLUE : "rgba(255,255,255,0.15)"}`, background: selectedStep === step.label ? `${BLUE}20` : "transparent", color: selectedStep === step.label ? BLUE : "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>{step.label}</button>
+          <button key={step.label} onClick={() => setSelectedStep(step.label)} style={{ padding: "4px 12px", borderRadius: 4, border: `1px solid ${selectedStep === step.label ? BLUE : "rgba(255,255,255,0.15)"}`, background: selectedStep === step.label ? `${BLUE}20` : "transparent", color: selectedStep === step.label ? BLUE : "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{step.label}</button>
         ))}
       </Flex>
 
@@ -5955,26 +6025,26 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
           <div key={sc.step} className="uj-anomaly-card" style={{ borderLeftColor: BLUE, minWidth: 280, flex: 1 }}>
             <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
               <Strong style={{ fontSize: 13 }}>{sc.step}</Strong>
-              <Text style={{ fontSize: 10, opacity: 0.5 }}>{fmtCount(sc.totalResources)} resources</Text>
+              <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtCount(sc.totalResources)} resources</Text>
             </Flex>
             {sc.types.length === 0 ? (
-              <Text style={{ fontSize: 11, opacity: 0.4 }}>No resource data</Text>
+              <Text style={{ fontSize: 13, opacity: 0.4 }}>No resource data</Text>
             ) : (
               <Flex flexDirection="column" gap={4}>
                 {sc.types.slice(0, 6).map((t) => (
                   <Flex key={t.type} alignItems="center" gap={8}>
-                    <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: `${typeClr(t.type)}20`, color: typeClr(t.type), fontWeight: 600, minWidth: 50, textAlign: "center" }}>{t.type}</span>
+                    <span style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: `${typeClr(t.type)}20`, color: typeClr(t.type), fontWeight: 600, minWidth: 50, textAlign: "center" }}>{t.type}</span>
                     <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 3 }}>
                       <div style={{ height: "100%", width: `${Math.min((t.totalDur / Math.max(sc.totalTime, 1)) * 100, 100)}%`, background: typeClr(t.type), borderRadius: 3, opacity: 0.7 }} />
                     </div>
-                    <Text style={{ fontSize: 10, minWidth: 50, textAlign: "right" }}>{fmt(t.avgDur)}</Text>
-                    <Text style={{ fontSize: 9, opacity: 0.4, minWidth: 30 }}>{fmtCount(t.count)}</Text>
+                    <Text style={{ fontSize: 12, minWidth: 50, textAlign: "right" }}>{fmt(t.avgDur)}</Text>
+                    <Text style={{ fontSize: 13, opacity: 0.4, minWidth: 30 }}>{fmtCount(t.count)}</Text>
                   </Flex>
                 ))}
               </Flex>
             )}
             {sc.slowCount > 0 && (
-              <Text style={{ fontSize: 10, color: ORANGE, marginTop: 6 }}>{sc.slowCount} slow resource{sc.slowCount !== 1 ? "s" : ""} (&gt;1s)</Text>
+              <Text style={{ fontSize: 12, color: ORANGE, marginTop: 6 }}>{sc.slowCount} slow resource{sc.slowCount !== 1 ? "s" : ""} (&gt;1s)</Text>
             )}
           </div>
         ))}
@@ -5982,7 +6052,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
 
       {/* Visual waterfall chart */}
       <SectionHeader title="Top Resources by Total Time" />
-      <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4 }}>Bar = P50 (solid) → P90 (striped). Color = resource type. Ranked by cumulative load time impact.</Text>
+      <Text style={{ fontSize: 13, opacity: 0.5, marginBottom: 4 }}>Bar = P50 (solid) → P90 (striped). Color = resource type. Ranked by cumulative load time impact.</Text>
       <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
         <svg width="100%" viewBox={`0 0 720 ${Math.min(sortedResources.length, 20) * 28 + 30}`}>
           {/* Header */}
@@ -6032,9 +6102,9 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
             "Total (ms)": r.totalDur,
           }))}
           columns={[
-            { id: "Step", header: "Step", accessor: "Step", cell: ({ value }: any) => <Text style={{ fontSize: 11 }}>{value}</Text> },
-            { id: "Type", header: "Type", accessor: "Type", cell: ({ value }: any) => <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: `${typeClr(value)}20`, color: typeClr(value), fontWeight: 600 }}>{value}</span> },
-            { id: "Resource", header: "Resource", accessor: "Resource", cell: ({ value }: any) => <Text style={{ fontSize: 10, wordBreak: "break-all" as const }}>{value}</Text> },
+            { id: "Step", header: "Step", accessor: "Step", cell: ({ value }: any) => <Text style={{ fontSize: 13 }}>{value}</Text> },
+            { id: "Type", header: "Type", accessor: "Type", cell: ({ value }: any) => <span style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: `${typeClr(value)}20`, color: typeClr(value), fontWeight: 600 }}>{value}</span> },
+            { id: "Resource", header: "Resource", accessor: "Resource", cell: ({ value }: any) => <Text style={{ fontSize: 12, wordBreak: "break-all" as const }}>{value}</Text> },
             { id: "Count", header: "Count", accessor: "Count", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
             { id: "Avg (ms)", header: "Avg", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
             { id: "P50 (ms)", header: "P50", accessor: "P50 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
@@ -6237,7 +6307,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
 
       {/* Timeline chart */}
       <SectionHeader title="Performance Timeline with Deploy Markers" />
-      <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4 }}>Green = Apdex, blue dashed = avg duration (normalized). Red vertical lines = deployment events.</Text>
+      <Text style={{ fontSize: 13, opacity: 0.5, marginBottom: 4 }}>Green = Apdex, blue dashed = avg duration (normalized). Red vertical lines = deployment events.</Text>
       <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
         {totalHours > 0 ? (
           <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`}>
@@ -6311,7 +6381,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
       {deployAnalysis.length === 0 ? (
         <div className="uj-table-tile" style={{ padding: 24, textAlign: "center" }}>
           <Text style={{ color: BLUE, fontSize: 14 }}>No deployment events detected in the current timeframe.</Text>
-          <Text style={{ display: "block", fontSize: 11, opacity: 0.5, marginTop: 8 }}>Deployment events are detected from Dynatrace DAVIS events and custom deployment events. Ensure deployment instrumentation is configured.</Text>
+          <Text style={{ display: "block", fontSize: 13, opacity: 0.5, marginTop: 8 }}>Deployment events are detected from Dynatrace DAVIS events and custom deployment events. Ensure deployment instrumentation is configured.</Text>
         </div>
       ) : (
         <Flex gap={8} flexWrap="wrap" flexDirection="column">
@@ -6345,7 +6415,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
               {metaItems.length > 0 && (
                 <Flex gap={6} flexWrap="wrap" style={{ marginBottom: 8 }}>
                   {metaItems.map((m, mi) => (
-                    <span key={mi} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)" }}>{m}</span>
+                    <span key={mi} style={{ fontSize: 13, padding: "2px 8px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)" }}>{m}</span>
                   ))}
                 </Flex>
               )}
@@ -6404,7 +6474,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
                   {/* Sparkline — taller, full width */}
                   {sparkSlice.length > 1 && (
                     <div>
-                      <Text style={{ fontSize: 11, opacity: 0.4, marginBottom: 2, display: "block" }}>Apdex (green) &amp; Duration (blue) ±2h around deploy</Text>
+                      <Text style={{ fontSize: 13, opacity: 0.4, marginBottom: 2, display: "block" }}>Apdex (green) &amp; Duration (blue) ±2h around deploy</Text>
                       <svg width="100%" viewBox="0 0 400 80" style={{ maxHeight: 80 }}>
                         {/* Apdex area fill */}
                         <polygon
@@ -6456,15 +6526,15 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
             Service: d.service || "—",
           }))}
           columns={[
-            { id: "Timestamp", header: "Time", accessor: "Timestamp", cell: ({ value }: any) => <Text style={{ fontSize: 11 }}>{value}</Text> },
-            { id: "Hour", header: "Hour", accessor: "Hour", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
+            { id: "Timestamp", header: "Time", accessor: "Timestamp", cell: ({ value }: any) => <Text style={{ fontSize: 13 }}>{value}</Text> },
+            { id: "Hour", header: "Hour", accessor: "Hour", cell: ({ value }: any) => <Text style={{ fontSize: 13, opacity: 0.6 }}>{value}</Text> },
             { id: "Name", header: "Deployment", accessor: "Name", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
             { id: "Count", header: "Events", accessor: "Count", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ textAlign: "center", width: "100%", display: "block" }}>{value}</Text> },
-            { id: "Source", header: "Source", accessor: "Source", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
-            { id: "Version", header: "Version", accessor: "Version", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
-            { id: "Stage", header: "Stage", accessor: "Stage", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
-            { id: "Component", header: "Component", accessor: "Component", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
-            { id: "Service", header: "Service", accessor: "Service", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
+            { id: "Source", header: "Source", accessor: "Source", cell: ({ value }: any) => <Text style={{ fontSize: 13, opacity: 0.6 }}>{value}</Text> },
+            { id: "Version", header: "Version", accessor: "Version", cell: ({ value }: any) => <Text style={{ fontSize: 13, opacity: 0.6 }}>{value}</Text> },
+            { id: "Stage", header: "Stage", accessor: "Stage", cell: ({ value }: any) => <Text style={{ fontSize: 13, opacity: 0.6 }}>{value}</Text> },
+            { id: "Component", header: "Component", accessor: "Component", cell: ({ value }: any) => <Text style={{ fontSize: 13, opacity: 0.6 }}>{value}</Text> },
+            { id: "Service", header: "Service", accessor: "Service", cell: ({ value }: any) => <Text style={{ fontSize: 13, opacity: 0.6 }}>{value}</Text> },
           ]}
         />
       </div>
@@ -6578,7 +6648,7 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
   });
 
   function BurnDownChart({ data, budgetTotal, clr }: { data: number[]; budgetTotal: number; clr: string }) {
-    if (data.length < 2) return <Text style={{ fontSize: 11, opacity: 0.5 }}>Insufficient data</Text>;
+    if (data.length < 2) return <Text style={{ fontSize: 13, opacity: 0.5 }}>Insufficient data</Text>;
     const w = 220, h = 50, pad = 2;
     const points = data.map((v, i) => {
       const x = pad + (i / (data.length - 1)) * (w - pad * 2);
@@ -6604,20 +6674,20 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
           <div key={slo.name} className="uj-table-tile" style={{ padding: 16, flex: "1 1 320px", minWidth: 320, borderLeft: `3px solid ${slo.sClr}` }}>
             <Flex justifyContent="space-between" alignItems="center">
               <Strong style={{ fontSize: 14 }}>{slo.name}</Strong>
-              <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${slo.sClr}18`, color: slo.sClr, fontWeight: 700 }}>{slo.status}</span>
+              <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: `${slo.sClr}18`, color: slo.sClr, fontWeight: 700 }}>{slo.status}</span>
             </Flex>
             <Flex gap={24} style={{ marginTop: 12 }}>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 18, color: slo.color(slo.current) }}>{slo.format(slo.current)}</Strong></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Target</Text><Text style={{ display: "block", fontSize: 14 }}>{slo.direction === "above" ? "\u2265" : "\u2264"} {slo.format(slo.target)}</Text></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Compliance</Text><Strong style={{ display: "block", fontSize: 14, color: slo.compliancePct >= 95 ? GREEN : slo.compliancePct >= 80 ? YELLOW : RED }}>{slo.compliancePct.toFixed(1)}%</Strong></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 18, color: slo.color(slo.current) }}>{slo.format(slo.current)}</Strong></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Target</Text><Text style={{ display: "block", fontSize: 14 }}>{slo.direction === "above" ? "\u2265" : "\u2264"} {slo.format(slo.target)}</Text></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Compliance</Text><Strong style={{ display: "block", fontSize: 14, color: slo.compliancePct >= 95 ? GREEN : slo.compliancePct >= 80 ? YELLOW : RED }}>{slo.compliancePct.toFixed(1)}%</Strong></div>
             </Flex>
             <Flex gap={24} style={{ marginTop: 8 }}>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Budget Remaining</Text><Strong style={{ display: "block", fontSize: 14, color: slo.sClr }}>{slo.budgetRemaining}/{slo.budgetTotal} ({slo.budgetPct.toFixed(0)}%)</Strong></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Violations</Text><Text style={{ display: "block", fontSize: 14, color: slo.violations > 0 ? RED : GREEN }}>{slo.violations}/{slo.totalBuckets}</Text></div>
-              <div><Text style={{ fontSize: 10, opacity: 0.5 }}>Time to Exhaust</Text><Text style={{ display: "block", fontSize: 14 }}>{slo.hoursToExhaust != null ? `~${slo.hoursToExhaust}h` : slo.budgetPct <= 0 ? "Exhausted" : "Safe"}</Text></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Budget Remaining</Text><Strong style={{ display: "block", fontSize: 14, color: slo.sClr }}>{slo.budgetRemaining}/{slo.budgetTotal} ({slo.budgetPct.toFixed(0)}%)</Strong></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Violations</Text><Text style={{ display: "block", fontSize: 14, color: slo.violations > 0 ? RED : GREEN }}>{slo.violations}/{slo.totalBuckets}</Text></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Time to Exhaust</Text><Text style={{ display: "block", fontSize: 14 }}>{slo.hoursToExhaust != null ? `~${slo.hoursToExhaust}h` : slo.budgetPct <= 0 ? "Exhausted" : "Safe"}</Text></div>
             </Flex>
             <div style={{ marginTop: 12 }}>
-              <Text style={{ fontSize: 10, opacity: 0.5, marginBottom: 4, display: "block" }}>Error Budget Burn-Down</Text>
+              <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 4, display: "block" }}>Error Budget Burn-Down</Text>
               <BurnDownChart data={slo.burnDown} budgetTotal={slo.budgetTotal} clr={slo.sClr} />
             </div>
             <ProgressBar value={slo.budgetPct} style={{ height: 6, marginTop: 8 }} />
@@ -6642,7 +6712,7 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
           { id: "Violations", header: "Violations", accessor: "Violations", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 0 ? RED : GREEN }}>{value}</Text> },
           { id: "Burn Rate", header: "Burn Rate", accessor: "Burn Rate" },
           { id: "Time to Exhaust", header: "Exhaust In", accessor: "Time to Exhaust", cell: ({ value }: any) => <Strong style={{ color: value === "Safe" ? GREEN : value === "Exhausted" ? RED : ORANGE }}>{value}</Strong> },
-          { id: "Status", header: "Status", accessor: "Status", cell: ({ value }: any) => { const c = value === "HEALTHY" ? GREEN : value === "AT RISK" ? ORANGE : RED; return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: `${c}18`, color: c, fontWeight: 700 }}>{value}</span>; } },
+          { id: "Status", header: "Status", accessor: "Status", cell: ({ value }: any) => { const c = value === "HEALTHY" ? GREEN : value === "AT RISK" ? ORANGE : RED; return <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: `${c}18`, color: c, fontWeight: 700 }}>{value}</span>; } },
         ]} />
       </div>
     </Flex>
@@ -6676,7 +6746,7 @@ function SessionReplaySpotlightTab({ data, isLoading }: { data: any; isLoading: 
           { label: "Avg Impact Score", value: avgImpact.toFixed(1), color: impactColor(avgImpact) },
         ].map(c => (
           <div key={c.label} className="uj-table-tile" style={{ padding: 16, flex: "1 1 160px", minWidth: 160, textAlign: "center" }}>
-            <Text style={{ fontSize: 10, opacity: 0.5 }}>{c.label}</Text>
+            <Text style={{ fontSize: 12, opacity: 0.5 }}>{c.label}</Text>
             <Strong style={{ display: "block", fontSize: 22, color: c.color }}>{c.value}</Strong>
           </div>
         ))}
@@ -6701,17 +6771,17 @@ function SessionReplaySpotlightTab({ data, isLoading }: { data: any; isLoading: 
                     <div>
                       <Flex gap={8} alignItems="center">
                         <Strong style={{ fontSize: 13 }}>Impact: {score}</Strong>
-                        {s.has_crash && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: `${RED}20`, color: RED, fontWeight: 700 }}>CRASH</span>}
-                        {s.is_bounce && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: `${ORANGE}20`, color: ORANGE, fontWeight: 700 }}>BOUNCE</span>}
+                        {s.has_crash && <span style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: `${RED}20`, color: RED, fontWeight: 700 }}>CRASH</span>}
+                        {s.is_bounce && <span style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: `${ORANGE}20`, color: ORANGE, fontWeight: 700 }}>BOUNCE</span>}
                       </Flex>
-                      <Text style={{ fontSize: 11, opacity: 0.6 }}>
+                      <Text style={{ fontSize: 13, opacity: 0.6 }}>
                         {Number(s.dur_s ?? 0).toFixed(1)}s \u00b7 {s.err} error{Number(s.err) !== 1 ? "s" : ""} \u00b7 {s.navs} nav{Number(s.navs) !== 1 ? "s" : ""} \u00b7 {s.interactions} interaction{Number(s.interactions) !== 1 ? "s" : ""}
                       </Text>
-                      <Text style={{ fontSize: 10, opacity: 0.4 }}>{s.device} \u00b7 {s.browser_name} \u00b7 {s.country}{s.user_tag ? ` \u00b7 ${s.user_tag}` : ""}</Text>
+                      <Text style={{ fontSize: 12, opacity: 0.4 }}>{s.device} \u00b7 {s.browser_name} \u00b7 {s.country}{s.user_tag ? ` \u00b7 ${s.user_tag}` : ""}</Text>
                     </div>
                   </Flex>
                   <Link href={replayUrl} target="_blank" rel="noopener noreferrer">
-                    <Button variant="emphasized" style={{ fontSize: 11 }}>{"\u25B6"} Replay</Button>
+                    <Button variant="emphasized" style={{ fontSize: 13 }}>{"\u25B6"} Replay</Button>
                   </Link>
                 </Flex>
               </div>
@@ -6758,11 +6828,11 @@ const AB_PRESETS: { label: string; dimension: "device" | "browser" | "country" |
   { label: "US vs Non-US", dimension: "country", a: 'geo.country.iso_code == "US"', b: 'geo.country.iso_code != "US"' },
 ];
 
-function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setDimension, segA, segB, setSegA, setSegB, isLoading }: {
+function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setDimension, segA, segB, setSegA, setSegB, isLoading, aov = 0, overallConv = 0 }: {
   segAData: any; segBData: any; segACwv: any; segBCwv: any;
   dimension: "device" | "browser" | "country" | "custom"; setDimension: (d: "device" | "browser" | "country" | "custom") => void;
   segA: string; segB: string; setSegA: (s: string) => void; setSegB: (s: string) => void;
-  isLoading: boolean;
+  isLoading: boolean; aov?: number; overallConv?: number;
 }) {
   const [customA, setCustomA] = useState(segA);
   const [customB, setCustomB] = useState(segB);
@@ -6843,11 +6913,11 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
 
       <Flex gap={12} alignItems="flex-end" flexWrap="wrap">
         <div style={{ flex: 1, minWidth: 200 }}>
-          <Text style={{ fontSize: 11, opacity: 0.5, display: "block", marginBottom: 4 }}>Segment A Filter (DQL)</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5, display: "block", marginBottom: 4 }}>Segment A Filter (DQL)</Text>
           <TextInput value={customA} onChange={(v: string) => setCustomA(v)} placeholder='device.type == "desktop"' />
         </div>
         <div style={{ flex: 1, minWidth: 200 }}>
-          <Text style={{ fontSize: 11, opacity: 0.5, display: "block", marginBottom: 4 }}>Segment B Filter (DQL)</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5, display: "block", marginBottom: 4 }}>Segment B Filter (DQL)</Text>
           <TextInput value={customB} onChange={(v: string) => setCustomB(v)} placeholder='device.type == "mobile"' />
         </div>
         <Button onClick={applyCustom}>Apply</Button>
@@ -6863,8 +6933,8 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
           </Flex>
           <Flex justifyContent="space-between" style={{ padding: "0 4px" }}>
             <div style={{ flex: 1 }} />
-            <Text style={{ flex: 1, textAlign: "center", fontSize: 11, opacity: 0.6 }}>{segA}</Text>
-            <Text style={{ flex: 1, textAlign: "center", fontSize: 11, opacity: 0.6 }}>{segB}</Text>
+            <Text style={{ flex: 1, textAlign: "center", fontSize: 13, opacity: 0.6 }}>{segA}</Text>
+            <Text style={{ flex: 1, textAlign: "center", fontSize: 13, opacity: 0.6 }}>{segB}</Text>
             <div style={{ flex: 1 }} />
           </Flex>
 
@@ -6875,6 +6945,7 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
             <CmpRow label="Avg Duration" valA={a.avgDur} valB={b.avgDur} formatFn={v => fmt(Math.abs(v))} lowerBetter />
             <CmpRow label="P90 Duration" valA={a.p90Dur} valB={b.p90Dur} formatFn={v => fmt(Math.abs(v))} lowerBetter />
             <CmpRow label="Error Rate" valA={a.errRate} valB={b.errRate} formatFn={v => fmtPct(Math.abs(v))} lowerBetter />
+            {aov > 0 && overallConv > 0 && <CmpRow label="Est Revenue" valA={a.totalSessions * (overallConv / 100) * aov} valB={b.totalSessions * (overallConv / 100) * aov} formatFn={v => fmtCurrency(Math.abs(v))} />}
           </div>
 
           <div className="uj-table-tile" style={{ padding: 16 }}>
