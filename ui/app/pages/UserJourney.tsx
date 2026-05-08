@@ -4341,25 +4341,29 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
       {/* Performance Tax Summary */}
       <SectionHeader title="Performance Tax" />
       <Flex gap={16} flexWrap="wrap">
-        <div className="uj-impact-card uj-impact-negative">
+        <div className="uj-impact-card uj-impact-negative uj-tax-card-expanded">
           <Text className="uj-metric-label">Latency Tax</Text>
-          <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(latencyRevLoss)}</Strong>
+          <Strong style={{ color: RED, fontSize: 22, display: "block", margin: "6px 0" }}>{fmtCurrency(latencyRevLoss)}</Strong>
           <Text style={{ fontSize: 13, opacity: 0.5 }}>Avg {fmt(avgDuration)} → {fmtPct(latencyPenaltyPct)} conv penalty</Text>
+          <Text className="uj-tax-summary">Revenue lost due to slow page loads. Every 100ms of latency above 1s costs ~1% in conversion rate, compounding across all sessions.</Text>
         </div>
-        <div className="uj-impact-card uj-impact-negative">
+        <div className="uj-impact-card uj-impact-negative uj-tax-card-expanded">
           <Text className="uj-metric-label">Frustration Tax</Text>
-          <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(frustratedRevLoss)}</Strong>
+          <Strong style={{ color: RED, fontSize: 22, display: "block", margin: "6px 0" }}>{fmtCurrency(frustratedRevLoss)}</Strong>
           <Text style={{ fontSize: 13, opacity: 0.5 }}>{fmtPct(fruPct)} frustrated sessions</Text>
+          <Text className="uj-tax-summary">Revenue lost from sessions flagged as frustrated due to rage clicks, long waits, or poor responsiveness. ~50% of frustrated users abandon.</Text>
         </div>
-        <div className="uj-impact-card uj-impact-negative">
+        <div className="uj-impact-card uj-impact-negative uj-tax-card-expanded">
           <Text className="uj-metric-label">Error Tax</Text>
-          <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(errorRevLoss)}</Strong>
+          <Strong style={{ color: RED, fontSize: 22, display: "block", margin: "6px 0" }}>{fmtCurrency(errorRevLoss)}</Strong>
           <Text style={{ fontSize: 13, opacity: 0.5 }}>{fmtPct(errRate)} error rate</Text>
+          <Text className="uj-tax-summary">Revenue lost when users encounter JavaScript errors, failed requests, or broken flows. ~30% of error-affected sessions see reduced conversion.</Text>
         </div>
-        <div className="uj-impact-card uj-impact-negative">
+        <div className="uj-impact-card uj-impact-negative uj-tax-card-expanded">
           <Text className="uj-metric-label">Total Perf Tax</Text>
-          <Strong style={{ color: RED, fontSize: 18, display: "block", margin: "4px 0" }}>{fmtCurrency(latencyRevLoss + frustratedRevLoss + errorRevLoss)}</Strong>
+          <Strong style={{ color: RED, fontSize: 22, display: "block", margin: "6px 0" }}>{fmtCurrency(latencyRevLoss + frustratedRevLoss + errorRevLoss)}</Strong>
           <Text style={{ fontSize: 13, opacity: 0.5 }}>Revenue recoverable via perf</Text>
+          <Text className="uj-tax-summary">Combined revenue impact of all performance issues. This is the total opportunity cost that can be recovered by improving speed, stability, and user experience.</Text>
         </div>
       </Flex>
 
