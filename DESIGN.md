@@ -293,18 +293,27 @@ fetch user.events, from: now() - {timeframe}
 
 ### 12. Sankey
 
-**Purpose**: Multi-step flow visualization showing session progression through pages.
+**Purpose**: Multi-step flow visualization showing session progression through pages with funnel analytics, exit detection, health scoring, and revenue impact analysis.
 
 **Key Features**:
 - 5 rendering styles: Classic Sankey, Gradient Sankey, Directed Flow Graph, Alluvial/Columnar, State Machine
-- Click nodes for inbound/outbound flow detail
-- Links to Vitals app from flow detail popups
+- **Funnel highlighting**: Funnel pages rendered in gold with ★ markers and dashed borders across all chart styles
+- **Exit detection**: Pages where ≥30% of outbound traffic goes off-funnel are flagged in red (⛔) across all renderers
+- Click nodes for inbound/outbound flow detail with links to Vitals app
 - **Focus Mode** toggle button: when ON + a node is selected, completely hides all unrelated nodes and links (opacity 0) instead of dimming, providing a clean isolated view of a node's connections
+- **Core Web Vitals overlay**: Per-page CWV (LCP, CLS, INP) shown on node selection with color-coded health indicators
+- **Error overlay**: Per-page error counts shown on node selection
+- **Key Observations**: Auto-generated insights about completion rates, return rates, lost revenue, and performance issues
+- **Recommendations**: Prioritized (HIGH/MEDIUM/LOW) actionable suggestions based on data analysis
+- **Funnel Exit Analysis table**: Exit points with sessions, return rates, and estimated lost revenue
+- **Off-Funnel Destinations table**: Where users go after leaving the funnel, with session counts
+- **Page Health Scorecard table**: All pages ranked by composite health score (0-100) combining CWV and error data. Error counts are clickable links to **Dynatrace Error Inspector** pre-filtered by frontend and page name
+- **Path analysis**: Extended session paths analyzed for exits, returns, completions, and off-funnel navigation
 
 **Queries**:
 
 ```dql
--- sankeyQuery
+-- sankeyQuery: Session navigation paths (5-step windows)
 fetch user.events, from: now() - {timeframe}
 | filter frontend.name == "{frontend}"
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
@@ -315,6 +324,45 @@ fetch user.events, from: now() - {timeframe}
 | summarize sessions = count(), by: {s0, s1, s2, s3, s4}
 | sort sessions desc
 | limit 200
+```
+
+```dql
+-- sankeyCwvPerPageQuery: Core Web Vitals per page for health scoring
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| fieldsAdd
+    lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
+    cls_val = toDouble(web_vitals.cumulative_layout_shift),
+    inp_ms = toDouble(web_vitals.interaction_to_next_paint) / 1000000.0
+| summarize lcp = avg(lcp_ms), cls = avg(cls_val), inp = avg(inp_ms), pageViews = count(), by: {pageName}
+| sort pageViews desc
+| limit 50
+```
+
+```dql
+-- sankeyErrorsPerPageQuery: Error counts per page for exit correlation
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_error == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| summarize errorCount = count(), errorSessions = countDistinct(dt.rum.session.id), by: {pageName}
+| sort errorCount desc
+| limit 50
+```
+
+```dql
+-- sankeyExtendedPathsQuery: Full session paths for return/completion analysis
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| sort timestamp asc
+| summarize path = collectArray(pageName), by: {dt.rum.session.id}
+| fieldsAdd pathLen = arraySize(path)
+| filter pathLen >= 2
+| limit 500
 ```
 
 ---
