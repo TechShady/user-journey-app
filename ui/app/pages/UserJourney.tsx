@@ -4530,6 +4530,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
   const { nodes, links, maxDepth } = useMemo(() => buildSankey(records), [records]);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
 
   const totalSessions = records.reduce((a: number, r: any) => a + Number(r.sessions ?? r.d0 ?? 0), 0);
   const uniquePages = new Set(nodes.map(n => n.label)).size;
@@ -4637,6 +4638,22 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
       <Flex alignItems="center" justifyContent="space-between">
         <SectionHeader title="Sankey Flow Diagram" />
         <Flex alignItems="center" gap={8}>
+          <button
+            style={{
+              background: focusMode ? "rgba(69, 137, 255, 0.25)" : "rgba(99, 130, 191, 0.15)",
+              border: focusMode ? "1px solid rgba(69, 137, 255, 0.6)" : "1px solid rgba(99, 130, 191, 0.3)",
+              borderRadius: 6,
+              padding: "4px 10px",
+              fontSize: 12,
+              color: focusMode ? "#4589FF" : "rgba(128,128,128,0.8)",
+              cursor: "pointer",
+              fontWeight: focusMode ? 700 : 400,
+            }}
+            onClick={() => setFocusMode(!focusMode)}
+            title={focusMode ? "Focus Mode: ON — unrelated nodes hidden on click" : "Focus Mode: OFF — unrelated nodes dimmed on click"}
+          >
+            Focus: {focusMode ? "ON" : "OFF"}
+          </button>
           <Text style={{ fontSize: 13, opacity: 0.5 }}>Chart Style</Text>
           <Select value={chartStyle} onChange={(val) => { if (val) onStyleChange(val as SankeyStyle); }}>
             <Select.Trigger style={{ minWidth: 170 }} />
@@ -4699,7 +4716,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
           const curvature = (x1 - x0) * 0.4;
           const color = useGradient ? `url(#sankey-grad-${i})` : SANKEY_COLORS[srcNode.depth % SANKEY_COLORS.length];
           const isConnected = !hasFocus || connectedLinks.has(i);
-          const opacity = hasFocus ? (isConnected ? 0.7 : 0.06) : 0.35;
+          const opacity = hasFocus ? (isConnected ? 0.7 : (focusMode ? 0 : 0.06)) : 0.35;
           return (
             <path
               key={`link-${i}`}
@@ -4707,7 +4724,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
               fill="none"
               stroke={color}
               strokeWidth={Math.max(1, l.thickness * scaleY)}
-              strokeOpacity={useGradient ? (hasFocus ? (isConnected ? 0.8 : 0.08) : 0.5) : opacity}
+              strokeOpacity={useGradient ? (hasFocus ? (isConnected ? 0.8 : (focusMode ? 0 : 0.08)) : 0.5) : opacity}
               style={{ cursor: "pointer", transition: "stroke-opacity 0.2s" }}
               onClick={(e) => { e.stopPropagation(); setFocusNodeId(srcNode.id); }}
             >
@@ -4726,8 +4743,8 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange }: 
           const anchor = isLeft ? "end" : "start";
           const isFocused = n.id === focusNodeId;
           const isConnected = !hasFocus || connectedNodes.has(n.id);
-          const nodeOpacity = hasFocus ? (isFocused ? 1 : isConnected ? 0.85 : 0.15) : 0.85;
-          const labelOpacity = hasFocus ? (isConnected ? 0.9 : 0.15) : 0.7;
+          const nodeOpacity = hasFocus ? (isFocused ? 1 : isConnected ? 0.85 : (focusMode ? 0 : 0.15)) : 0.85;
+          const labelOpacity = hasFocus ? (isConnected ? 0.9 : (focusMode ? 0 : 0.15)) : 0.7;
           return (
             <g key={n.id} style={{ cursor: "pointer", transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); setFocusNodeId(isFocused ? null : n.id); }}>
               <rect x={x} y={y} width={NODE_W} height={h} rx={3} fill={color} opacity={nodeOpacity} stroke={isFocused ? "#fff" : "none"} strokeWidth={isFocused ? 2 : 0}>

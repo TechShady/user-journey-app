@@ -16,9 +16,12 @@ The User Journey App is a 26-tab frontend observability suite built as a Dynatra
 
 **Key Features**:
 - Colorized SVG funnel with step-by-step conversion percentages
+- **Cascade fade-in animation**: segments and labels stagger in with 120ms delay per step using CSS `@keyframes funnelSegmentIn` (opacity + translateY + scaleY)
+- **Count-up animation**: session numbers animate from 0 to target value with cubic ease-out (800ms duration via `useCountUp` hook + `CountUpText` SVG component)
 - Period-over-period comparison overlay (optional)
 - Per-step Apdex gauges and satisfaction breakdowns
 - KPI cards: Total Sessions, Conversions, Conversion Rate, Apdex, Error Rate, Avg Duration
+- **Revenue lost annotations** per funnel drop-off step when AOV is configured (shows estimated $ lost at each stage)
 
 **Queries**:
 
@@ -82,15 +85,12 @@ fetch user.events, from: now() - {timeframe}
 **Queries**:
 
 ```dql
--- cwvQuery: Timeseries CWV averages
-timeseries {
-  lcp = avg(dt.frontend.web.page.largest_contentful_paint),
-  cls = avg(dt.frontend.web.page.cumulative_layout_shift),
-  inp = avg(dt.frontend.web.page.interaction_to_next_paint),
-  ttfb = avg(dt.frontend.web.page.time_to_first_byte),
-  load_end = avg(dt.frontend.web.page.load_event_end)
-}, from: now() - {timeframe}, filter: {frontend.name == "{frontend}"}
-| fieldsAdd lcp_avg = arrayAvg(lcp), cls_avg = arrayAvg(cls), inp_avg = arrayAvg(inp), ttfb_avg = arrayAvg(ttfb)
+-- cwvQuery: Aggregate CWV averages from user events (NOT timeseries metrics — those return zeros)
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_page_summary == true
+| fieldsAdd lcp_ms = web_vitals.largest_contentful_paint, cls_val = web_vitals.cumulative_layout_shift, inp_ms = web_vitals.interaction_to_next_paint, ttfb_ms = web_vitals.time_to_first_byte
+| summarize lcp_avg = avg(lcp_ms), cls_avg = avg(cls_val), inp_avg = avg(inp_ms), ttfb_avg = avg(ttfb_ms)
 ```
 
 ```dql
@@ -116,6 +116,7 @@ fetch user.events, from: now() - {timeframe}
 - Duration percentiles (P50, P90, P99)
 - Error rate per step
 - Links to Dynatrace Vitals app
+- **Revenue at Risk** metric box per step: `dropOff × AOV` showing dollar value of users lost at each step (visible when AOV > 0)
 
 **Queries**: Reuses `stepMetricsQuery`.
 
@@ -298,7 +299,7 @@ fetch user.events, from: now() - {timeframe}
 - 5 rendering styles: Classic Sankey, Gradient Sankey, Directed Flow Graph, Alluvial/Columnar, State Machine
 - Click nodes for inbound/outbound flow detail
 - Links to Vitals app from flow detail popups
-- Focus mode with filtered connections
+- **Focus Mode** toggle button: when ON + a node is selected, completely hides all unrelated nodes and links (opacity 0) instead of dimming, providing a clean isolated view of a node's connections
 
 **Queries**:
 
@@ -394,6 +395,7 @@ fetch user.events, from: now() - {timeframe}
 - Device type breakdown (Desktop, Mobile, Tablet)
 - Browser breakdown with Apdex per browser
 - Geographic segment performance
+- **Estimated Revenue** column in all three tables: `sessions × convRate × AOV` showing revenue contribution per segment (visible when AOV > 0)
 
 **Queries**:
 
@@ -431,14 +433,14 @@ fetch user.events | filter frontend.name == "{frontend}" | filter {anyStepFilter
 **Purpose**: Simulated scenario modeling projecting impact of traffic increases, including revenue impact when AOV is configured.
 
 **Key Features**:
-- Traffic multiplier slider (1-10x)
+- Traffic percent-change slider (0% to +5000%) with sparse tick labels at key values
 - Projected Apdex degradation
 - Projected latency increase
 - Projected conversion impact
 - Visual before/after comparison
 - Revenue Impact section (when AOV > 0): current vs. projected revenue, net revenue change, conversion degradation loss, ideal vs. actual revenue comparison, and "Perf Tax" rate showing revenue lost to performance under load
 
-**Queries**: Reuses `sessionFlowQuery` + `stepMetricsQuery` — applies traffic multiplier client-side with logarithmic degradation model. Revenue calculations are client-side using AOV from global settings.
+**Queries**: Reuses `sessionFlowQuery` + `stepMetricsQuery` — applies traffic multiplier (`1 + pctChange/100`) client-side with logarithmic degradation model. Revenue calculations are client-side using AOV from global settings.
 
 ---
 
@@ -486,6 +488,7 @@ fetch user.events, from: now() - {timeframe}
 - Trend sparklines with forecast extension
 - Days-to-breach estimates for Apdex, conversion, error rate
 - Multi-metric forecasting (Apdex, conversion, error rate, duration, CWV)
+- **Revenue Forecast** section (when AOV > 0): current revenue, projected +7d revenue (based on conversion rate trend), and net revenue delta with color-coded gain/loss
 
 **Queries**:
 
@@ -649,6 +652,7 @@ fetch user.sessions, from: now() - {timeframe}
 - Custom DQL filter segments
 - Apdex, conversion, error rate, duration deltas
 - CWV comparison per segment
+- **Estimated Revenue** comparison row: `sessions × convRate × AOV` per segment showing revenue contribution delta (visible when AOV > 0)
 
 **Queries**:
 
@@ -751,3 +755,26 @@ fetch user.events, from: now() - {timeframe}
 - `topojson-client` — TopoJSON → GeoJSON conversion
 - `world-atlas` — World country boundaries
 - `us-atlas` — US state boundaries
+
+### Animations & Visual Polish
+
+- **Funnel cascade animation**: CSS `@keyframes funnelSegmentIn` (opacity 0→1, translateY -8→0, scaleY 0.85→1) and `@keyframes funnelLabelIn` (opacity 0→1, translateY -6→0). Staggered via inline `animationDelay: ${i * 120}ms` on segments and `${stagger + 60}ms` on labels.
+- **Count-up hook**: `useCountUp(target, duration=800, delay=0)` — animates number from 0 to target with cubic ease-out via `requestAnimationFrame`. Used by `CountUpText` SVG component with optional `suffix` prop.
+- **Focus Mode (Sankey)**: Toggle button turns unrelated node/link dimming into full hiding (opacity 0) for clean isolated view.
+- **Font sizes**: Minimum inline font size is 11px (bumped from 9px). CSS class fonts bumped proportionally.
+
+### Revenue Integration (AOV-Dependent)
+
+Revenue features appear across multiple tabs when `aov > 0` in global settings:
+
+| Tab | Revenue Feature |
+|-----|-----------------|
+| Funnel Overview | Revenue lost annotation per drop-off step |
+| Step Details | "Revenue at Risk" metric box: `dropOff × AOV` |
+| Segmentation | "Est Revenue" column: `sessions × convRate × AOV` |
+| Predictive Forecasting | Revenue Forecast section: current, projected +7d, delta |
+| A/B Comparison | "Est Revenue" comparison row per segment |
+| What-If Analysis | Full Revenue Impact section with Perf Tax |
+| Revenue Intelligence | Dedicated tab with all revenue analytics |
+
+All revenue calculations are client-side — no additional DQL queries needed beyond existing funnel/quality data.
