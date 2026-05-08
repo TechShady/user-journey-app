@@ -267,15 +267,21 @@ function stepMetricsQuery(days: number, frontend: string, steps: StepDef[]): str
 
 function cwvQuery(days: number, frontend: string): string {
   const period = periodClause(days);
-  return `timeseries {
-  lcp = avg(dt.frontend.web.page.largest_contentful_paint),
-  cls = avg(dt.frontend.web.page.cumulative_layout_shift),
-  inp = avg(dt.frontend.web.page.interaction_to_next_paint),
-  ttfb = avg(dt.frontend.web.navigation.time_to_first_byte),
-  load_end = avg(dt.frontend.web.navigation.load_event_end)
-}, ${period}, filter: {frontend.name == "${frontend}"}
-| fieldsAdd lcp_avg = arrayAvg(lcp), cls_avg = arrayAvg(cls), inp_avg = arrayAvg(inp), ttfb_avg = arrayAvg(ttfb), load_avg = arrayAvg(load_end)
-| fields lcp_avg, cls_avg, inp_avg, ttfb_avg, load_avg`;
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter characteristics.has_page_summary == true
+| fieldsAdd
+    lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
+    cls_val = toDouble(web_vitals.cumulative_layout_shift),
+    inp_ms = toDouble(web_vitals.interaction_to_next_paint) / 1000000.0,
+    ttfb_ms = toDouble(web_vitals.time_to_first_byte) / 1000000.0,
+    load_ms = toDouble(web_vitals.first_contentful_paint) / 1000000.0
+| summarize
+    lcp_avg = avg(lcp_ms),
+    cls_avg = avg(cls_val),
+    inp_avg = avg(inp_ms),
+    ttfb_avg = avg(ttfb_ms),
+    load_avg = avg(load_ms)`;
 }
 
 function cwvByPageQuery(days: number, frontend: string): string {
