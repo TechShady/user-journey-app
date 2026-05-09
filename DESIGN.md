@@ -293,7 +293,16 @@ fetch user.events, from: now() - {timeframe}
 
 ### 12. Sankey
 
-**Purpose**: Multi-step flow visualization showing session progression through pages with funnel analytics, exit detection, health scoring, and revenue impact analysis.
+**Purpose**: Multi-step flow visualization with 7 analysis sub-tabs for comprehensive session path analytics.
+
+**Sub-Tabs**:
+1. **Flow Chart** (default): Sankey visualization with 5 chart styles, funnel highlighting, exit detection, observations, recommendations, exit analysis, health scorecard, transitions
+2. **Conversion Paths**: Converted vs. abandoned path comparison — differentiating pages, path lengths, top transitions per group
+3. **Loop Analysis**: A→B→A back-and-forth cycle detection with error/LCP correlation per loop page
+4. **Page Timing**: Average and P90 duration per page, cross-referenced with health score and errors
+5. **Session Endpoints**: Terminal page detection (where sessions end), bounce rate, bounce pages
+6. **Revenue Paths** (AOV required): Top revenue-generating navigation paths, page touch rates for converting sessions
+7. **Path Trends**: Period-over-period path comparison — new/dropped pages, frequency shifts, transition changes
 
 **Key Features**:
 - 5 rendering styles: Classic Sankey, Gradient Sankey, Directed Flow Graph, Alluvial/Columnar, State Machine
@@ -311,7 +320,7 @@ fetch user.events, from: now() - {timeframe}
 - **Path analysis**: Extended session paths analyzed for exits, returns, completions, and off-funnel navigation
 - **Rich hover tooltips**: All chart styles show top 3 inbound/outbound connections with counts & percentages, self-reload detection (⟲ indicator when >5% of inbound is same-page), and error counts on hover
 
-**Queries**:
+**Queries** (7 total):
 
 ```dql
 -- sankeyQuery: Session navigation paths (5-step windows)
@@ -356,6 +365,31 @@ fetch user.events, from: now() - {timeframe}
 ```dql
 -- sankeyExtendedPathsQuery: Full session paths for return/completion analysis
 fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| sort timestamp asc
+| summarize path = collectArray(pageName), by: {dt.rum.session.id}
+| fieldsAdd pathLen = arraySize(path)
+| filter pathLen >= 2
+| limit 500
+```
+
+```dql
+-- sankeyPageDurationQuery: Avg duration per page for Page Timing sub-tab
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| summarize avgDuration = avg(dur_ms), p90Duration = percentile(dur_ms, 90), sessions = count(), by: {pageName}
+| sort sessions desc
+| limit 50
+```
+
+```dql
+-- sankeyPrevPathsQuery: Previous-period paths for Path Trends sub-tab
+fetch user.events, from: now() - {prevPeriod}, to: now() - {timeframe}
 | filter frontend.name == "{frontend}"
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
@@ -839,6 +873,7 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-05-08 | 4.47.9 | **Sankey — Sub-Tab Analytics Suite**: Reorganized into 7 sub-tabs (Flow Chart, Conversion Paths, Loop Analysis, Page Timing, Session Endpoints, Revenue Paths, Path Trends). Conversion vs. abandoned path differentiators, A→B→A loop detection with error/LCP correlation, avg/P90 page timing, terminal page & bounce analysis, revenue path ranking (AOV), period-over-period path trend detection. 2 new DQL queries (page duration, previous-period paths) |
 | 2026-05-08 | 4.47.7 | **Sankey — Rich Hover Tooltips**: All 4 renderers now show rich hover tooltips with top 3 inbound/outbound (count & %), self-reload detection (⟲), and error counts. `buildNodeTooltip()` for classic/gradient, `buildLabelTooltip()` for directed/alluvial/state machine |
 | 2026-05-08 | 4.47.6 | **Error Inspector linking fix**: Use `(Web) Page Name` filter field instead of `Page` |
 | 2026-05-08 | 4.47.3 | **Sankey — Funnel Analytics & Health Scoring**: Funnel page highlighting (gold/★/dashed borders across all 5 chart styles), exit detection (≥30% off-funnel = red/⛔), per-page CWV & error overlays on node selection, Key Observations & Recommendations engine, Funnel Exit Analysis table (return rates, lost revenue), Off-Funnel Destinations table, Page Health Scorecard (composite health score), Error Inspector linking from scorecard, 3 new DQL queries (CWV per page, errors per page, extended paths), What's New section added to Help |

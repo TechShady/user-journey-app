@@ -564,6 +564,37 @@ function sankeyExtendedPathsQuery(days: number, frontend: string): string {
 | limit 500`;
 }
 
+// NEW: Sankey avg duration per page — for Page Timing sub-tab
+function sankeyPageDurationQuery(days: number, frontend: string): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| summarize
+    avgDuration = avg(dur_ms),
+    p90Duration = percentile(dur_ms, 90),
+    sessions = count(),
+    by: {pageName}
+| sort sessions desc
+| limit 50`;
+}
+
+// NEW: Sankey previous-period paths — for Path Trends sub-tab
+function sankeyPrevPathsQuery(days: number, frontend: string): string {
+  const period = periodClause(days, true);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| sort timestamp asc
+| summarize path = collectArray(pageName), by: {dt.rum.session.id}
+| fieldsAdd pathLen = arraySize(path)
+| filter pathLen >= 2
+| limit 500`;
+}
+
 // NEW: Hourly distribution for performance budgets
 function hourlyDistributionQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
@@ -1223,6 +1254,18 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 8, 2026</Paragraph>
+            <Paragraph><Strong>Sankey — Sub-Tab Analytics Suite</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Reorganized into 7 sub-tabs: Flow Chart, Conversion Paths, Loop Analysis, Page Timing, Session Endpoints, Revenue Paths, Path Trends</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Conversion Paths: converted vs. abandoned path comparison with differentiator analysis</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Loop Analysis: A→B→A cycle detection with error/LCP correlation</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Page Timing: avg/P90 duration per page with health cross-reference</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Session Endpoints: terminal page detection, bounce rate, where sessions end</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Revenue Paths: top converting paths &amp; page touch rates (when AOV set)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Path Trends: period-over-period path shift detection — new/dropped pages, frequency changes</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• 2 new DQL queries: page duration, previous-period paths</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 8, 2026</Paragraph>
             <Paragraph><Strong>Sankey — Funnel Analytics &amp; Health Scoring</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• Funnel pages highlighted in gold (★) with dashed borders across all 5 chart styles</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• Exit detection: pages where ≥30% outbound traffic leaves the funnel flagged in red (⛔)</Paragraph>
@@ -1260,7 +1303,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights. Country cards are clickable and open <Strong>User Sessions</Strong> filtered to that location.</Paragraph>
         <Paragraph><Strong>Map</Strong>: Interactive choropleth map with World and US views, colorized by session count, average duration, Apdex, error rate, or estimated revenue (when AOV is set). Use the dropdown to switch between World (country-level) and US (state-level) views. Countries/states with data are clickable and link to <Strong>User Sessions</Strong>.</Paragraph>
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
-        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram showing user navigation paths across 5 chart styles (Classic, Gradient, Directed Flow, Alluvial, State Machine). Funnel pages are highlighted in gold with ★ markers and dashed borders across all chart styles, making it easy to see the defined funnel within the broader navigation flow. Click any node to see inbound/outbound connections, Core Web Vitals (LCP, CLS, INP) with color-coded health scores, error counts, and funnel exit analysis. Outbound links to off-funnel pages are flagged in red. Exit analysis shows how many users leave the funnel at each page, where they go, whether they return, and estimated lost revenue. Below the chart: <Strong>Key Observations</Strong> auto-generates insights about completion rates, return rates, lost revenue, and performance issues. <Strong>Recommendations</Strong> provides prioritized (HIGH/MEDIUM/LOW) actionable suggestions. <Strong>Funnel Exit Analysis</Strong> shows a detailed table of exit points with return rates and revenue impact. <Strong>Off-Funnel Destinations</Strong> reveals where users go after leaving the funnel. <Strong>Page Health Scorecard</Strong> ranks all pages by a composite health score combining CWV and error data — error counts are clickable links that open the <Strong>Dynatrace Error Inspector</Strong> pre-filtered by frontend and page name for instant drill-down. Hover over any node to see a rich tooltip with top 3 inbound/outbound connections (count &amp; percentage), self-reload detection (⟲), and error counts. Inbound/outbound links in popups open the <Strong>Vitals</Strong> app for detailed page analysis.</Paragraph>
+        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram with 7 analysis sub-tabs organized above the chart. <Strong>Flow Chart</Strong> (default): 5 chart styles (Classic, Gradient, Directed Flow, Alluvial, State Machine) with funnel highlighting, exit detection, observations, recommendations, exit analysis, health scorecard, and transitions. <Strong>Conversion Paths</Strong>: Compares converted vs. abandoned session paths — shows differentiating pages, path lengths, and top transitions for each group. <Strong>Loop Analysis</Strong>: Detects A→B→A back-and-forth navigation patterns indicating user confusion, with error/LCP correlation. <Strong>Page Timing</Strong>: Average and P90 duration per page with health scores — identifies slow funnel bottlenecks. <Strong>Session Endpoints</Strong>: Where sessions end (browser close), bounce rate, and terminal page analysis with error correlation. <Strong>Revenue Paths</Strong> (AOV required): Top revenue-generating navigation paths and page touch rates for converting sessions. <Strong>Path Trends</Strong>: Period-over-period comparison of navigation patterns — detects new/dropped pages, frequency shifts, and transition changes.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations. When AOV is set, shows Revenue at Risk from anomalous conversion drops.</Paragraph>
         <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device x browser cross-section. When AOV is set, adds revenue columns to device and browser tables and revenue totals to speed buckets.</Paragraph>
         <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. When AOV is set, revenue appears in key metrics, performance snapshot, and exports. Use <Strong>Export PDF</Strong> to open a print-ready report in a new tab (use browser Print → Save as PDF), or <Strong>Copy Text</Strong> to get a plain-text summary for Slack/Teams/email. Designed for quick status checks and executive presentations.</Paragraph>
@@ -1452,6 +1495,8 @@ export function UserJourney() {
   const sankeyCwvData = useDql({ query: sankeyCwvPerPageQuery(timeframeDays, frontend) });
   const sankeyErrorData = useDql({ query: sankeyErrorsPerPageQuery(timeframeDays, frontend) });
   const sankeyPathsData = useDql({ query: sankeyExtendedPathsQuery(timeframeDays, frontend) });
+  const sankeyDurationData = useDql({ query: sankeyPageDurationQuery(timeframeDays, frontend) });
+  const sankeyPrevPaths = useDql({ query: sankeyPrevPathsQuery(timeframeDays, frontend) });
   const appEntityData = useDql({ query: appEntityQuery(frontend) });
   const appEntityId = (appEntityData.data?.records?.[0] as any)?.['id'] ?? '';
   const hourlyDistributionData = useDql({ query: hourlyDistributionQuery(timeframeDays, frontend, steps) });
@@ -1709,7 +1754,7 @@ export function UserJourney() {
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />; break;
             case "Map": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} />; break;
             case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} />; break;
-            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} />; break;
+            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} aov={aov} />; break;
@@ -4599,7 +4644,7 @@ function buildSankey(records: any[]): { nodes: SankeyNode[]; links: SankeyLink[]
   return { nodes, links, maxDepth };
 }
 
-function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData, frontend }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any; frontend: string }) {
+function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData, frontend, durationData, prevPathsData }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any; frontend: string; durationData: any; prevPathsData: any }) {
   if (isLoading) return <Loading />;
 
   const records = (data.data?.records ?? []) as any[];
@@ -4607,6 +4652,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
+  const [sankeySubTab, setSankeySubTab] = useState<"flow" | "convPaths" | "loops" | "timing" | "endpoints" | "revPaths" | "pathTrends">("flow");
 
   const totalSessions = records.reduce((a: number, r: any) => a + Number(r.sessions ?? r.d0 ?? 0), 0);
   const uniquePages = new Set(nodes.map(n => n.label)).size;
@@ -4941,6 +4987,198 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
 
     return { observations: obs, recommendations: recs };
   }, [pathAnalysis, pageHealth, aov, nodes, cwvMap, steps]);
+
+  // ==== SUB-TAB ANALYTICS ====
+
+  // --- Duration map (Page Timing sub-tab) ---
+  const durationMap = useMemo(() => {
+    const m = new Map<string, { avgDuration: number; p90Duration: number; sessions: number }>();
+    for (const r of (durationData?.data?.records ?? []) as any[]) {
+      const pg = r.pageName ?? r.d0 ?? "";
+      m.set(pg, { avgDuration: Number(r.avgDuration ?? 0), p90Duration: Number(r.p90Duration ?? 0), sessions: Number(r.sessions ?? 0) });
+    }
+    return m;
+  }, [durationData]);
+
+  // --- Conversion Path Analysis (sub-tab 2) ---
+  const conversionPaths = useMemo(() => {
+    const paths = (pathsData?.data?.records ?? []) as any[];
+    const lastStep = steps[steps.length - 1]?.identifier ?? "";
+    const matchesStep = (page: string) => {
+      if (lastStep.endsWith("*")) return page.startsWith(lastStep.slice(0, -1));
+      return page === lastStep;
+    };
+    const converted: string[][] = [];
+    const abandoned: string[][] = [];
+    for (const r of paths) {
+      const p = r.path as string[] ?? [];
+      if (p.some(matchesStep)) converted.push(p);
+      else abandoned.push(p);
+    }
+    // Top page frequencies
+    const convPages = new Map<string, number>();
+    const abandPages = new Map<string, number>();
+    for (const p of converted) for (const pg of p) convPages.set(pg, (convPages.get(pg) ?? 0) + 1);
+    for (const p of abandoned) for (const pg of p) abandPages.set(pg, (abandPages.get(pg) ?? 0) + 1);
+    // Avg path length
+    const avgConvLen = converted.length > 0 ? converted.reduce((a, p) => a + p.length, 0) / converted.length : 0;
+    const avgAbandLen = abandoned.length > 0 ? abandoned.reduce((a, p) => a + p.length, 0) / abandoned.length : 0;
+    // Top transitions for each
+    const convTransitions = new Map<string, number>();
+    const abandTransitions = new Map<string, number>();
+    for (const p of converted) for (let i = 0; i < p.length - 1; i++) { const k = `${p[i]} → ${p[i + 1]}`; convTransitions.set(k, (convTransitions.get(k) ?? 0) + 1); }
+    for (const p of abandoned) for (let i = 0; i < p.length - 1; i++) { const k = `${p[i]} → ${p[i + 1]}`; abandTransitions.set(k, (abandTransitions.get(k) ?? 0) + 1); }
+    return {
+      converted, abandoned,
+      convRate: paths.length > 0 ? (converted.length / paths.length) * 100 : 0,
+      avgConvLen, avgAbandLen,
+      topConvPages: Array.from(convPages.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      topAbandPages: Array.from(abandPages.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      topConvTransitions: Array.from(convTransitions.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      topAbandTransitions: Array.from(abandTransitions.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      // Pages that appear significantly more in abandoned than converted
+      differentiators: (() => {
+        const all = new Set([...convPages.keys(), ...abandPages.keys()]);
+        const diffs: { page: string; convPct: number; abandPct: number; diff: number }[] = [];
+        for (const pg of all) {
+          const cPct = converted.length > 0 ? ((convPages.get(pg) ?? 0) / converted.length) * 100 : 0;
+          const aPct = abandoned.length > 0 ? ((abandPages.get(pg) ?? 0) / abandoned.length) * 100 : 0;
+          diffs.push({ page: pg, convPct: cPct, abandPct: aPct, diff: aPct - cPct });
+        }
+        return diffs.sort((a, b) => b.diff - a.diff).slice(0, 10);
+      })(),
+    };
+  }, [pathsData, steps]);
+
+  // --- Loop/Cycle Detection (sub-tab 3) ---
+  const loopAnalysis = useMemo(() => {
+    const paths = (pathsData?.data?.records ?? []) as any[];
+    const loopMap = new Map<string, { count: number; sessions: number }>();
+    let sessionsWithLoops = 0;
+    for (const r of paths) {
+      const p = r.path as string[] ?? [];
+      let hasLoop = false;
+      for (let i = 0; i < p.length - 2; i++) {
+        if (p[i] === p[i + 2] && p[i] !== p[i + 1]) {
+          const key = `${p[i]} ⇄ ${p[i + 1]}`;
+          const existing = loopMap.get(key);
+          if (existing) { existing.count++; existing.sessions++; } else loopMap.set(key, { count: 1, sessions: 1 });
+          hasLoop = true;
+        }
+      }
+      if (hasLoop) sessionsWithLoops++;
+    }
+    const loops = Array.from(loopMap.entries()).map(([pair, data]) => ({
+      pair, ...data,
+      pageA: pair.split(" ⇄ ")[0],
+      pageB: pair.split(" ⇄ ")[1],
+    })).sort((a, b) => b.count - a.count);
+    return { loops, sessionsWithLoops, totalSessions: paths.length, loopRate: paths.length > 0 ? (sessionsWithLoops / paths.length) * 100 : 0 };
+  }, [pathsData]);
+
+  // --- Session Endpoints (sub-tab 5) ---
+  const endpointAnalysis = useMemo(() => {
+    const paths = (pathsData?.data?.records ?? []) as any[];
+    const terminalPages = new Map<string, { count: number; avgPathLen: number; totalLen: number }>();
+    const bounceSessions: string[] = [];
+    for (const r of paths) {
+      const p = r.path as string[] ?? [];
+      if (p.length === 0) continue;
+      const lastPage = p[p.length - 1];
+      const existing = terminalPages.get(lastPage);
+      if (existing) { existing.count++; existing.totalLen += p.length; existing.avgPathLen = existing.totalLen / existing.count; }
+      else terminalPages.set(lastPage, { count: 1, avgPathLen: p.length, totalLen: p.length });
+      if (p.length <= 2) bounceSessions.push(lastPage);
+    }
+    const bouncePages = new Map<string, number>();
+    for (const pg of bounceSessions) bouncePages.set(pg, (bouncePages.get(pg) ?? 0) + 1);
+    const terminals = Array.from(terminalPages.entries()).map(([page, data]) => ({
+      page, count: data.count, avgPathLen: Math.round(data.avgPathLen * 10) / 10,
+      isFunnel: isFunnelPage(page),
+      errors: errorMap.get(page)?.errorCount ?? 0,
+      lcp: cwvMap.get(page)?.lcp ?? 0,
+    })).sort((a, b) => b.count - a.count);
+    return {
+      terminals,
+      bouncePages: Array.from(bouncePages.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      totalSessions: paths.length,
+      bounceRate: paths.length > 0 ? (bounceSessions.length / paths.length) * 100 : 0,
+    };
+  }, [pathsData, isFunnelPage, errorMap, cwvMap]);
+
+  // --- Revenue Paths (sub-tab 6) ---
+  const revenuePaths = useMemo(() => {
+    if (aov <= 0) return null;
+    const paths = (pathsData?.data?.records ?? []) as any[];
+    const lastStep = steps[steps.length - 1]?.identifier ?? "";
+    const matchesStep = (page: string) => lastStep.endsWith("*") ? page.startsWith(lastStep.slice(0, -1)) : page === lastStep;
+    const converted = paths.filter(r => (r.path as string[] ?? []).some(matchesStep));
+    // Top converting paths (stringify first 5 steps)
+    const pathCounts = new Map<string, number>();
+    for (const r of converted) {
+      const p = (r.path as string[] ?? []).slice(0, 6);
+      const key = p.join(" → ");
+      pathCounts.set(key, (pathCounts.get(key) ?? 0) + 1);
+    }
+    const topPaths = Array.from(pathCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([path, count]) => ({
+      path, count, revenue: count * aov, pctOfConversions: converted.length > 0 ? (count / converted.length) * 100 : 0,
+    }));
+    // Revenue by page (pages in converting paths)
+    const pageRev = new Map<string, { conversions: number }>();
+    for (const r of converted) {
+      const p = r.path as string[] ?? [];
+      const seen = new Set<string>();
+      for (const pg of p) { if (!seen.has(pg)) { seen.add(pg); const e = pageRev.get(pg); if (e) e.conversions++; else pageRev.set(pg, { conversions: 1 }); } }
+    }
+    const pageRevenue = Array.from(pageRev.entries()).map(([page, data]) => ({
+      page, conversions: data.conversions, revenue: data.conversions * aov,
+      touchRate: converted.length > 0 ? (data.conversions / converted.length) * 100 : 0,
+    })).sort((a, b) => b.conversions - a.conversions).slice(0, 15);
+    return { topPaths, pageRevenue, totalConversions: converted.length, totalRevenue: converted.length * aov };
+  }, [pathsData, steps, aov]);
+
+  // --- Path Trends (sub-tab 7) ---
+  const pathTrends = useMemo(() => {
+    const currPaths = (pathsData?.data?.records ?? []) as any[];
+    const prevPaths = (prevPathsData?.data?.records ?? []) as any[];
+    if (prevPaths.length === 0) return null;
+    // Page frequency comparison
+    const currFreq = new Map<string, number>();
+    const prevFreq = new Map<string, number>();
+    for (const r of currPaths) for (const pg of (r.path as string[] ?? [])) currFreq.set(pg, (currFreq.get(pg) ?? 0) + 1);
+    for (const r of prevPaths) for (const pg of (r.path as string[] ?? [])) prevFreq.set(pg, (prevFreq.get(pg) ?? 0) + 1);
+    // Normalize to percentages
+    const allPages = new Set([...currFreq.keys(), ...prevFreq.keys()]);
+    const trends: { page: string; currPct: number; prevPct: number; delta: number; currCount: number; prevCount: number }[] = [];
+    for (const pg of allPages) {
+      const cPct = currPaths.length > 0 ? ((currFreq.get(pg) ?? 0) / currPaths.length) * 100 : 0;
+      const pPct = prevPaths.length > 0 ? ((prevFreq.get(pg) ?? 0) / prevPaths.length) * 100 : 0;
+      trends.push({ page: pg, currPct: cPct, prevPct: pPct, delta: cPct - pPct, currCount: currFreq.get(pg) ?? 0, prevCount: prevFreq.get(pg) ?? 0 });
+    }
+    // Transition comparison
+    const currTrans = new Map<string, number>();
+    const prevTrans = new Map<string, number>();
+    for (const r of currPaths) { const p = r.path as string[] ?? []; for (let i = 0; i < p.length - 1; i++) currTrans.set(`${p[i]} → ${p[i + 1]}`, (currTrans.get(`${p[i]} → ${p[i + 1]}`) ?? 0) + 1); }
+    for (const r of prevPaths) { const p = r.path as string[] ?? []; for (let i = 0; i < p.length - 1; i++) prevTrans.set(`${p[i]} → ${p[i + 1]}`, (prevTrans.get(`${p[i]} → ${p[i + 1]}`) ?? 0) + 1); }
+    const transitionTrends: { transition: string; currCount: number; prevCount: number; delta: number }[] = [];
+    const allTrans = new Set([...currTrans.keys(), ...prevTrans.keys()]);
+    for (const t of allTrans) {
+      const c = currTrans.get(t) ?? 0;
+      const p = prevTrans.get(t) ?? 0;
+      transitionTrends.push({ transition: t, currCount: c, prevCount: p, delta: c - p });
+    }
+    // Avg path length comparison
+    const currAvgLen = currPaths.length > 0 ? currPaths.reduce((a: number, r: any) => a + (r.path as string[] ?? []).length, 0) / currPaths.length : 0;
+    const prevAvgLen = prevPaths.length > 0 ? prevPaths.reduce((a: number, r: any) => a + (r.path as string[] ?? []).length, 0) / prevPaths.length : 0;
+    return {
+      pageTrends: trends.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 15),
+      transitionTrends: transitionTrends.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 10),
+      currSessions: currPaths.length, prevSessions: prevPaths.length,
+      currAvgLen, prevAvgLen,
+      newPages: trends.filter(t => t.prevCount === 0 && t.currCount > 0).map(t => t.page),
+      droppedPages: trends.filter(t => t.currCount === 0 && t.prevCount > 0).map(t => t.page),
+    };
+  }, [pathsData, prevPathsData]);
 
   const renderLabelPopup = () => {
     if (!focusLabel) return null;
@@ -5632,169 +5870,258 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     }
   };
 
+  // ---- Sub-tab definitions ----
+  const SUB_TABS: { key: typeof sankeySubTab; label: string; icon: string; show?: boolean }[] = [
+    { key: "flow", label: "Flow Chart", icon: "📊" },
+    { key: "convPaths", label: "Conversion Paths", icon: "🔀" },
+    { key: "loops", label: "Loop Analysis", icon: "🔄" },
+    { key: "timing", label: "Page Timing", icon: "⏱" },
+    { key: "endpoints", label: "Session Endpoints", icon: "🛑" },
+    { key: "revPaths", label: "Revenue Paths", icon: "💰", show: aov > 0 },
+    { key: "pathTrends", label: "Path Trends", icon: "📈" },
+  ];
+
+  const subTabBar = (
+    <Flex gap={4} flexWrap="wrap" style={{ padding: "4px 0" }}>
+      {SUB_TABS.filter(t => t.show !== false).map(t => (
+        <button key={t.key} onClick={() => setSankeySubTab(t.key)} style={{
+          padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: sankeySubTab === t.key ? 700 : 400, cursor: "pointer",
+          background: sankeySubTab === t.key ? "rgba(69,137,255,0.15)" : "rgba(128,128,128,0.06)",
+          border: sankeySubTab === t.key ? "1px solid rgba(69,137,255,0.4)" : "1px solid rgba(128,128,128,0.15)",
+          color: sankeySubTab === t.key ? BLUE : "inherit", transition: "all 0.15s",
+        }}>{t.icon} {t.label}</button>
+      ))}
+    </Flex>
+  );
+
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {chartHeader}
-      {renderChart()}
+      {subTabBar}
 
-      {/* ---- Key Observations ---- */}
-      {observations.length > 0 && (
+      {/* ==== FLOW CHART sub-tab ==== */}
+      {sankeySubTab === "flow" && (
         <>
-          <SectionHeader title="Key Observations" />
-          <div className="uj-table-tile" style={{ padding: 16 }}>
-            <Flex flexDirection="column" gap={8}>
-              {observations.map((o, i) => (
-                <Flex key={i} gap={8} alignItems="flex-start" style={{ padding: "6px 10px", background: o.severity === "critical" ? "rgba(194,25,48,0.06)" : o.severity === "warning" ? "rgba(255,131,43,0.06)" : "rgba(128,128,128,0.04)", borderRadius: 6, borderLeft: `3px solid ${o.severity === "critical" ? RED : o.severity === "warning" ? ORANGE : GREEN}` }}>
-                  <Text style={{ fontSize: 14, flexShrink: 0 }}>{o.icon}</Text>
-                  <Text style={{ fontSize: 13 }}>{o.text}</Text>
+          {renderChart()}
+
+          {observations.length > 0 && (
+            <>
+              <SectionHeader title="Key Observations" />
+              <div className="uj-table-tile" style={{ padding: 16 }}>
+                <Flex flexDirection="column" gap={8}>
+                  {observations.map((o, i) => (
+                    <Flex key={i} gap={8} alignItems="flex-start" style={{ padding: "6px 10px", background: o.severity === "critical" ? "rgba(194,25,48,0.06)" : o.severity === "warning" ? "rgba(255,131,43,0.06)" : "rgba(128,128,128,0.04)", borderRadius: 6, borderLeft: `3px solid ${o.severity === "critical" ? RED : o.severity === "warning" ? ORANGE : GREEN}` }}>
+                      <Text style={{ fontSize: 14, flexShrink: 0 }}>{o.icon}</Text>
+                      <Text style={{ fontSize: 13 }}>{o.text}</Text>
+                    </Flex>
+                  ))}
                 </Flex>
-              ))}
-            </Flex>
-          </div>
-        </>
-      )}
-
-      {/* ---- Recommendations ---- */}
-      {recommendations.length > 0 && (
-        <>
-          <SectionHeader title="Recommendations" />
-          <div className="uj-table-tile" style={{ padding: 16 }}>
-            <Flex flexDirection="column" gap={6}>
-              {recommendations.map((r, i) => (
-                <Flex key={i} gap={8} alignItems="center" style={{ padding: "6px 10px", background: "rgba(128,128,128,0.04)", borderRadius: 6 }}>
-                  <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 3, fontWeight: 700, background: r.impact === "high" ? "rgba(194,25,48,0.12)" : r.impact === "medium" ? "rgba(255,131,43,0.12)" : "rgba(128,128,128,0.1)", color: r.impact === "high" ? RED : r.impact === "medium" ? ORANGE : "inherit" }}>{r.impact.toUpperCase()}</span>
-                  <Text style={{ fontSize: 13 }}>{r.text}</Text>
-                </Flex>
-              ))}
-            </Flex>
-          </div>
-        </>
-      )}
-
-      {/* ---- Funnel Exit Analysis ---- */}
-      {pathAnalysis.sortedExits.length > 0 && (
-        <>
-          <SectionHeader title="Funnel Exit Analysis" />
-          <Flex gap={16} flexWrap="wrap">
-            <div className="uj-kpi-card">
-              <Text className="uj-kpi-label">Sessions Analyzed</Text>
-              <Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(pathAnalysis.totalPaths)}</Heading>
-            </div>
-            <div className="uj-kpi-card">
-              <Text className="uj-kpi-label">Funnel Completions</Text>
-              <Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCount(pathAnalysis.funnelCompletions)}</Heading>
-            </div>
-            <div className="uj-kpi-card">
-              <Text className="uj-kpi-label">Funnel Exits</Text>
-              <Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCount(pathAnalysis.funnelExits)}</Heading>
-            </div>
-            <div className="uj-kpi-card">
-              <Text className="uj-kpi-label">Return After Exit</Text>
-              <Heading level={2} className="uj-kpi-value" style={{ color: pathAnalysis.funnelExits > 0 && (pathAnalysis.returnsAfterExit / pathAnalysis.funnelExits) < 0.3 ? RED : YELLOW }}>{fmtCount(pathAnalysis.returnsAfterExit)} ({fmtPct(pathAnalysis.funnelExits > 0 ? (pathAnalysis.returnsAfterExit / pathAnalysis.funnelExits) * 100 : 0)})</Heading>
-            </div>
-            {aov > 0 && (
-              <div className="uj-kpi-card">
-                <Text className="uj-kpi-label">Est. Lost Revenue</Text>
-                <Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCurrency((pathAnalysis.funnelExits - pathAnalysis.returnsAfterExit) * aov * 0.5)}</Heading>
               </div>
-            )}
-          </Flex>
-          <div className="uj-table-tile">
-            <DataTable
-              sortable
-              data={pathAnalysis.sortedExits.slice(0, 15).map(e => ({
-                "Exit Page": e.page.substring(0, 40),
-                Exits: e.exits,
-                Returns: e.returns,
-                "Return Rate": e.exits > 0 ? (e.returns / e.exits) * 100 : 0,
-                "Non-Returning": e.exits - e.returns,
-                "Lost Revenue": aov > 0 ? (e.exits - e.returns) * aov * 0.5 : 0,
-                "Top Destination": e.nextPagesList[0]?.[0]?.substring(0, 30) ?? "—",
-              }))}
-              columns={[
-                { id: "Exit Page", header: "Exit Page", accessor: "Exit Page", cell: ({ value }: any) => <Strong style={{ color: RED }}>{value}</Strong> },
-                { id: "Exits", header: "Exits", accessor: "Exits", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
-                { id: "Returns", header: "Returns", accessor: "Returns", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: GREEN }}>{fmtCount(value)}</Text> },
-                { id: "Return Rate", header: "Return %", accessor: "Return Rate", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: value < 20 ? RED : value < 50 ? YELLOW : GREEN, fontWeight: 600 }}>{fmtPct(value)}</span> },
-                { id: "Non-Returning", header: "Lost Users", accessor: "Non-Returning", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> },
-                ...(aov > 0 ? [{ id: "Lost Revenue", header: "Est. Lost Revenue", accessor: "Lost Revenue", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCurrency(value)}</Strong> }] : []),
-                { id: "Top Destination", header: "Where They Go", accessor: "Top Destination", cell: ({ value }: any) => <Text style={{ color: ORANGE }}>{value}</Text> },
-              ]}
-            />
-          </div>
+            </>
+          )}
+
+          {recommendations.length > 0 && (
+            <>
+              <SectionHeader title="Recommendations" />
+              <div className="uj-table-tile" style={{ padding: 16 }}>
+                <Flex flexDirection="column" gap={6}>
+                  {recommendations.map((r, i) => (
+                    <Flex key={i} gap={8} alignItems="center" style={{ padding: "6px 10px", background: "rgba(128,128,128,0.04)", borderRadius: 6 }}>
+                      <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 3, fontWeight: 700, background: r.impact === "high" ? "rgba(194,25,48,0.12)" : r.impact === "medium" ? "rgba(255,131,43,0.12)" : "rgba(128,128,128,0.1)", color: r.impact === "high" ? RED : r.impact === "medium" ? ORANGE : "inherit" }}>{r.impact.toUpperCase()}</span>
+                      <Text style={{ fontSize: 13 }}>{r.text}</Text>
+                    </Flex>
+                  ))}
+                </Flex>
+              </div>
+            </>
+          )}
+
+          {pathAnalysis.sortedExits.length > 0 && (
+            <>
+              <SectionHeader title="Funnel Exit Analysis" />
+              <Flex gap={16} flexWrap="wrap">
+                <div className="uj-kpi-card"><Text className="uj-kpi-label">Sessions Analyzed</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(pathAnalysis.totalPaths)}</Heading></div>
+                <div className="uj-kpi-card"><Text className="uj-kpi-label">Funnel Completions</Text><Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCount(pathAnalysis.funnelCompletions)}</Heading></div>
+                <div className="uj-kpi-card"><Text className="uj-kpi-label">Funnel Exits</Text><Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCount(pathAnalysis.funnelExits)}</Heading></div>
+                <div className="uj-kpi-card"><Text className="uj-kpi-label">Return After Exit</Text><Heading level={2} className="uj-kpi-value" style={{ color: pathAnalysis.funnelExits > 0 && (pathAnalysis.returnsAfterExit / pathAnalysis.funnelExits) < 0.3 ? RED : YELLOW }}>{fmtCount(pathAnalysis.returnsAfterExit)} ({fmtPct(pathAnalysis.funnelExits > 0 ? (pathAnalysis.returnsAfterExit / pathAnalysis.funnelExits) * 100 : 0)})</Heading></div>
+                {aov > 0 && <div className="uj-kpi-card"><Text className="uj-kpi-label">Est. Lost Revenue</Text><Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCurrency((pathAnalysis.funnelExits - pathAnalysis.returnsAfterExit) * aov * 0.5)}</Heading></div>}
+              </Flex>
+              <div className="uj-table-tile"><DataTable sortable data={pathAnalysis.sortedExits.slice(0, 15).map(e => ({ "Exit Page": e.page.substring(0, 40), Exits: e.exits, Returns: e.returns, "Return Rate": e.exits > 0 ? (e.returns / e.exits) * 100 : 0, "Non-Returning": e.exits - e.returns, "Lost Revenue": aov > 0 ? (e.exits - e.returns) * aov * 0.5 : 0, "Top Destination": e.nextPagesList[0]?.[0]?.substring(0, 30) ?? "—" }))} columns={[ { id: "Exit Page", header: "Exit Page", accessor: "Exit Page", cell: ({ value }: any) => <Strong style={{ color: RED }}>{value}</Strong> }, { id: "Exits", header: "Exits", accessor: "Exits", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> }, { id: "Returns", header: "Returns", accessor: "Returns", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: GREEN }}>{fmtCount(value)}</Text> }, { id: "Return Rate", header: "Return %", accessor: "Return Rate", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: value < 20 ? RED : value < 50 ? YELLOW : GREEN, fontWeight: 600 }}>{fmtPct(value)}</span> }, { id: "Non-Returning", header: "Lost Users", accessor: "Non-Returning", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> }, ...(aov > 0 ? [{ id: "Lost Revenue", header: "Est. Lost Revenue", accessor: "Lost Revenue", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCurrency(value)}</Strong> }] : []), { id: "Top Destination", header: "Where They Go", accessor: "Top Destination", cell: ({ value }: any) => <Text style={{ color: ORANGE }}>{value}</Text> } ]} /></div>
+            </>
+          )}
+
+          {pathAnalysis.sortedOffFunnel.length > 0 && (
+            <>
+              <SectionHeader title="Off-Funnel Destinations" />
+              <div className="uj-table-tile" style={{ padding: 16 }}>
+                <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 8, display: "block" }}>Pages users navigate to after leaving the defined funnel flow</Text>
+                <Flex gap={8} flexWrap="wrap">
+                  {pathAnalysis.sortedOffFunnel.map(([page, count], i) => (
+                    <a key={i} href={appEntityId ? vitalsUrl(appEntityId, page) : "#"} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, background: "rgba(255,131,43,0.08)", border: "1px solid rgba(255,131,43,0.2)", color: "inherit", textDecoration: "none" }}>
+                      {truncLabel(page, 30)} <Strong style={{ color: ORANGE }}>{fmtCount(count)}</Strong>
+                    </a>
+                  ))}
+                </Flex>
+              </div>
+            </>
+          )}
+
+          <SectionHeader title="Page Health Scorecard" />
+          <div className="uj-table-tile"><DataTable sortable data={pageHealth.slice(0, 20).map(p => ({ Page: p.label.substring(0, 40), Funnel: p.isFunnel ? "★ Yes" : "No", Health: p.healthScore, Sessions: p.sessions, "LCP (ms)": p.lcp > 0 ? Math.round(p.lcp) : null, CLS: p.cls > 0 ? p.cls : null, "INP (ms)": p.inp > 0 ? Math.round(p.inp) : null, Errors: `${p.errors}\t${p.label}`, Issues: p.issues.join(", ") || "None" }))} columns={[ { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Strong>{value}</Strong> }, { id: "Funnel", header: "Funnel", accessor: "Funnel", cell: ({ value }: any) => <Text style={{ color: value === "★ Yes" ? "#FFD700" : "inherit", fontWeight: value === "★ Yes" ? 700 : 400 }}>{value}</Text> }, { id: "Health", header: "Health", accessor: "Health", sortType: "number" as any, cell: ({ value }: any) => <span style={{ display: "inline-block", width: "100%", padding: "2px 8px", borderRadius: 4, background: value >= 70 ? "rgba(13,156,41,0.15)" : value >= 40 ? "rgba(184,134,11,0.15)" : "rgba(194,25,48,0.15)", color: value >= 70 ? GREEN : value >= 40 ? YELLOW : RED, fontWeight: 700, textAlign: "center" }}>{value}/100</span> }, { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> }, { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "lcp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> }, { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "cls"), fontWeight: 600 }}>{value.toFixed(3)}</span> : <Text style={{ opacity: 0.3 }}>—</Text> }, { id: "INP (ms)", header: "INP", accessor: "INP (ms)", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "inp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> }, { id: "Errors", header: "Errors", accessor: "Errors", cell: ({ value }: any) => { const [cnt, pg] = String(value).split("\t"); const n = Number(cnt); return n > 0 ? <a href={`${ENV_URL}/ui/apps/dynatrace.error.inspector/explorer?tf=now-2h%3Bnow&sort=affected_users%3Adescending&perspective=impact#filtering=${encodeURIComponent(`"Frontend" = "${frontend}" "(Web) Page Name" = "${pg}"`)}`} target="_blank" rel="noopener noreferrer" style={{ color: RED, fontWeight: 700, textDecoration: "none" }} onMouseEnter={(e: any) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e: any) => (e.currentTarget.style.textDecoration = "none")} title="Open in Error Inspector">{fmtCount(n)}</a> : <Text style={{ opacity: 0.3 }}>0</Text>; } }, { id: "Issues", header: "Issues", accessor: "Issues", cell: ({ value }: any) => <Text style={{ fontSize: 11, color: value === "None" ? GREEN : RED }}>{value}</Text> } ]} /></div>
+
+          <SectionHeader title="Top Transitions" />
+          <div className="uj-table-tile"><DataTable sortable data={links.slice(0, 30).map((l) => { const srcNode = nodes.find(n => n.id === l.source)!; const tgtNode = nodes.find(n => n.id === l.target)!; return { From: srcNode.label.substring(0, 40), To: tgtNode.label.substring(0, 40), Sessions: l.value, "% of Total": totalSessions > 0 ? (l.value / totalSessions) * 100 : 0 }; })} columns={[ { id: "From", header: "From", accessor: "From", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> }, { id: "To", header: "To", accessor: "To", cell: ({ value }: any) => <Text>{value}</Text> }, { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> }, { id: "% of Total", header: "% of Total", accessor: "% of Total", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtPct(value)}</Text> } ]} /></div>
         </>
       )}
 
-      {/* ---- Off-Funnel Destinations ---- */}
-      {pathAnalysis.sortedOffFunnel.length > 0 && (
+      {/* ==== CONVERSION PATHS sub-tab ==== */}
+      {sankeySubTab === "convPaths" && (
         <>
-          <SectionHeader title="Off-Funnel Destinations" />
+          <Flex gap={16} flexWrap="wrap">
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Sessions</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(conversionPaths.converted.length + conversionPaths.abandoned.length)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Converted</Text><Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCount(conversionPaths.converted.length)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Abandoned</Text><Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCount(conversionPaths.abandoned.length)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Conversion Rate</Text><Heading level={2} className="uj-kpi-value" style={{ color: conversionPaths.convRate >= 20 ? GREEN : conversionPaths.convRate >= 10 ? YELLOW : RED }}>{fmtPct(conversionPaths.convRate)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Avg Path (Conv)</Text><Heading level={2} className="uj-kpi-value">{conversionPaths.avgConvLen.toFixed(1)} pages</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Avg Path (Aband)</Text><Heading level={2} className="uj-kpi-value">{conversionPaths.avgAbandLen.toFixed(1)} pages</Heading></div>
+          </Flex>
+
+          <SectionHeader title="Path Differentiators — Pages that distinguish converted from abandoned" />
+          <div className="uj-table-tile"><DataTable sortable data={conversionPaths.differentiators.map(d => ({ Page: d.page.substring(0, 40), "Converted %": d.convPct, "Abandoned %": d.abandPct, "Diff (pp)": d.diff }))} columns={[ { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Strong>{value}</Strong> }, { id: "Converted %", header: "In Converted", accessor: "Converted %", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: GREEN, fontWeight: 600 }}>{fmtPct(value)}</span> }, { id: "Abandoned %", header: "In Abandoned", accessor: "Abandoned %", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: RED, fontWeight: 600 }}>{fmtPct(value)}</span> }, { id: "Diff (pp)", header: "Difference", accessor: "Diff (pp)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 0 ? RED : value < 0 ? GREEN : "inherit" }}>{value > 0 ? "+" : ""}{value.toFixed(1)}pp</Strong> } ]} /></div>
+
+          <Flex gap={20}>
+            <div style={{ flex: 1 }}>
+              <SectionHeader title="Top Converted Transitions" />
+              <div className="uj-table-tile"><DataTable sortable data={conversionPaths.topConvTransitions.map(([t, c]) => ({ Transition: t, Sessions: c }))} columns={[ { id: "Transition", header: "Transition", accessor: "Transition", cell: ({ value }: any) => <Text style={{ fontSize: 12 }}>{value}</Text> }, { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCount(value)}</Strong> } ]} /></div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <SectionHeader title="Top Abandoned Transitions" />
+              <div className="uj-table-tile"><DataTable sortable data={conversionPaths.topAbandTransitions.map(([t, c]) => ({ Transition: t, Sessions: c }))} columns={[ { id: "Transition", header: "Transition", accessor: "Transition", cell: ({ value }: any) => <Text style={{ fontSize: 12 }}>{value}</Text> }, { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> } ]} /></div>
+            </div>
+          </Flex>
+        </>
+      )}
+
+      {/* ==== LOOP ANALYSIS sub-tab ==== */}
+      {sankeySubTab === "loops" && (
+        <>
+          <Flex gap={16} flexWrap="wrap">
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Sessions with Loops</Text><Heading level={2} className="uj-kpi-value" style={{ color: loopAnalysis.loopRate > 20 ? RED : loopAnalysis.loopRate > 10 ? YELLOW : GREEN }}>{fmtCount(loopAnalysis.sessionsWithLoops)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Loop Rate</Text><Heading level={2} className="uj-kpi-value" style={{ color: loopAnalysis.loopRate > 20 ? RED : loopAnalysis.loopRate > 10 ? YELLOW : GREEN }}>{fmtPct(loopAnalysis.loopRate)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Unique Loop Pairs</Text><Heading level={2} className="uj-kpi-value">{loopAnalysis.loops.length}</Heading></div>
+          </Flex>
+          {loopAnalysis.loops.length > 0 ? (
+            <>
+              <SectionHeader title="Back-and-Forth Navigation Patterns (A → B → A)" />
+              <div className="uj-table-tile"><DataTable sortable data={loopAnalysis.loops.slice(0, 15).map(l => ({ Loop: l.pair, Occurrences: l.count, "Page A Errors": errorMap.get(l.pageA)?.errorCount ?? 0, "Page B Errors": errorMap.get(l.pageB)?.errorCount ?? 0, "Page A LCP": Math.round(cwvMap.get(l.pageA)?.lcp ?? 0), "Page B LCP": Math.round(cwvMap.get(l.pageB)?.lcp ?? 0) }))} columns={[ { id: "Loop", header: "Loop Pattern", accessor: "Loop", cell: ({ value }: any) => <Strong>{value}</Strong> }, { id: "Occurrences", header: "Count", accessor: "Occurrences", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 10 ? RED : YELLOW }}>{fmtCount(value)}</Strong> }, { id: "Page A Errors", header: "Page A Errors", accessor: "Page A Errors", sortType: "number" as any, cell: ({ value }: any) => value > 0 ? <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> : <Text style={{ opacity: 0.3 }}>0</Text> }, { id: "Page B Errors", header: "Page B Errors", accessor: "Page B Errors", sortType: "number" as any, cell: ({ value }: any) => value > 0 ? <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> : <Text style={{ opacity: 0.3 }}>0</Text> }, { id: "Page A LCP", header: "Page A LCP", accessor: "Page A LCP", sortType: "number" as any, cell: ({ value }: any) => value > 0 ? <span style={{ color: cwvClr(value, "lcp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> }, { id: "Page B LCP", header: "Page B LCP", accessor: "Page B LCP", sortType: "number" as any, cell: ({ value }: any) => value > 0 ? <span style={{ color: cwvClr(value, "lcp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> } ]} /></div>
+              <div className="uj-table-tile" style={{ padding: 16 }}>
+                <Text style={{ fontSize: 13, opacity: 0.7 }}>💡 Back-and-forth navigation often indicates user confusion, slow page loads causing retries, or errors forcing users to go back. Check the error and LCP columns — high errors or poor LCP on either page strongly correlates with looping behavior.</Text>
+              </div>
+            </>
+          ) : (
+            <div className="uj-table-tile" style={{ padding: 16 }}><Text style={{ opacity: 0.5 }}>No back-and-forth navigation loops detected in current data.</Text></div>
+          )}
+        </>
+      )}
+
+      {/* ==== PAGE TIMING sub-tab ==== */}
+      {sankeySubTab === "timing" && (
+        <>
+          <SectionHeader title="Average Duration per Page" />
+          <div className="uj-table-tile"><DataTable sortable data={Array.from(durationMap.entries()).sort((a, b) => b[1].sessions - a[1].sessions).slice(0, 20).map(([page, d]) => ({ Page: page.substring(0, 40), "Avg (ms)": Math.round(d.avgDuration), "P90 (ms)": Math.round(d.p90Duration), Sessions: d.sessions, Funnel: isFunnelPage(page) ? "★ Yes" : "No", "Health": pageHealth.find(p => p.label === page)?.healthScore ?? "—", Errors: errorMap.get(page)?.errorCount ?? 0 }))} columns={[ { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Strong>{value}</Strong> }, { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: value > 4000 ? RED : value > 2000 ? YELLOW : GREEN, fontWeight: 600 }}>{fmtCount(value)}ms</span> }, { id: "P90 (ms)", header: "P90 Duration", accessor: "P90 (ms)", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: value > 8000 ? RED : value > 4000 ? YELLOW : GREEN, fontWeight: 600 }}>{fmtCount(value)}ms</span> }, { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> }, { id: "Funnel", header: "Funnel", accessor: "Funnel", cell: ({ value }: any) => <Text style={{ color: value === "★ Yes" ? "#FFD700" : "inherit", fontWeight: value === "★ Yes" ? 700 : 400 }}>{value}</Text> }, { id: "Health", header: "Health", accessor: "Health", cell: ({ value }: any) => typeof value === "number" ? <span style={{ color: value >= 70 ? GREEN : value >= 40 ? YELLOW : RED, fontWeight: 600 }}>{value}/100</span> : <Text style={{ opacity: 0.3 }}>—</Text> }, { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => value > 0 ? <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> : <Text style={{ opacity: 0.3 }}>0</Text> } ]} /></div>
           <div className="uj-table-tile" style={{ padding: 16 }}>
-            <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 8, display: "block" }}>Pages users navigate to after leaving the defined funnel flow</Text>
-            <Flex gap={8} flexWrap="wrap">
-              {pathAnalysis.sortedOffFunnel.map(([page, count], i) => (
-                <a key={i} href={appEntityId ? vitalsUrl(appEntityId, page) : "#"} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, background: "rgba(255,131,43,0.08)", border: "1px solid rgba(255,131,43,0.2)", color: "inherit", textDecoration: "none" }}>
-                  {truncLabel(page, 30)} <Strong style={{ color: ORANGE }}>{fmtCount(count)}</Strong>
-                </a>
-              ))}
-            </Flex>
+            <Text style={{ fontSize: 13, opacity: 0.7 }}>💡 Slow pages in the funnel are conversion bottlenecks — users abandon slow pages before completing the next step. Pages with high P90 indicate inconsistent performance affecting a subset of users. Cross-reference with errors: slow + high errors = likely infrastructure issue.</Text>
           </div>
         </>
       )}
 
-      {/* ---- Page Health Scorecard ---- */}
-      <SectionHeader title="Page Health Scorecard" />
-      <div className="uj-table-tile">
-        <DataTable
-          sortable
-          data={pageHealth.slice(0, 20).map(p => ({
-            Page: p.label.substring(0, 40),
-            Funnel: p.isFunnel ? "★ Yes" : "No",
-            Health: p.healthScore,
-            Sessions: p.sessions,
-            "LCP (ms)": p.lcp > 0 ? Math.round(p.lcp) : null,
-            CLS: p.cls > 0 ? p.cls : null,
-            "INP (ms)": p.inp > 0 ? Math.round(p.inp) : null,
-            Errors: `${p.errors}\t${p.label}`,
-            Issues: p.issues.join(", ") || "None",
-          }))}
-          columns={[
-            { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Strong>{value}</Strong> },
-            { id: "Funnel", header: "Funnel", accessor: "Funnel", cell: ({ value }: any) => <Text style={{ color: value === "★ Yes" ? "#FFD700" : "inherit", fontWeight: value === "★ Yes" ? 700 : 400 }}>{value}</Text> },
-            { id: "Health", header: "Health", accessor: "Health", sortType: "number" as any, cell: ({ value }: any) => <span style={{ display: "inline-block", width: "100%", padding: "2px 8px", borderRadius: 4, background: value >= 70 ? "rgba(13,156,41,0.15)" : value >= 40 ? "rgba(184,134,11,0.15)" : "rgba(194,25,48,0.15)", color: value >= 70 ? GREEN : value >= 40 ? YELLOW : RED, fontWeight: 700, textAlign: "center" }}>{value}/100</span> },
-            { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-            { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "lcp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
-            { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "cls"), fontWeight: 600 }}>{value.toFixed(3)}</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
-            { id: "INP (ms)", header: "INP", accessor: "INP (ms)", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "inp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
-            { id: "Errors", header: "Errors", accessor: "Errors", cell: ({ value }: any) => { const [cnt, pg] = String(value).split("\t"); const n = Number(cnt); return n > 0 ? <a href={`${ENV_URL}/ui/apps/dynatrace.error.inspector/explorer?tf=now-2h%3Bnow&sort=affected_users%3Adescending&perspective=impact#filtering=${encodeURIComponent(`"Frontend" = "${frontend}" "(Web) Page Name" = "${pg}"`)}`} target="_blank" rel="noopener noreferrer" style={{ color: RED, fontWeight: 700, textDecoration: "none" }} onMouseEnter={(e: any) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e: any) => (e.currentTarget.style.textDecoration = "none")} title="Open in Error Inspector">{fmtCount(n)}</a> : <Text style={{ opacity: 0.3 }}>0</Text>; } },
-            { id: "Issues", header: "Issues", accessor: "Issues", cell: ({ value }: any) => <Text style={{ fontSize: 11, color: value === "None" ? GREEN : RED }}>{value}</Text> },
-          ]}
-        />
-      </div>
+      {/* ==== SESSION ENDPOINTS sub-tab ==== */}
+      {sankeySubTab === "endpoints" && (
+        <>
+          <Flex gap={16} flexWrap="wrap">
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Bounce Rate</Text><Heading level={2} className="uj-kpi-value" style={{ color: endpointAnalysis.bounceRate > 30 ? RED : endpointAnalysis.bounceRate > 15 ? YELLOW : GREEN }}>{fmtPct(endpointAnalysis.bounceRate)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Sessions</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(endpointAnalysis.totalSessions)}</Heading></div>
+          </Flex>
 
-      {/* Transition table */}
-      <SectionHeader title="Top Transitions" />
-      <div className="uj-table-tile">
-        <DataTable
-          sortable
-          data={links.slice(0, 30).map((l) => {
-            const srcNode = nodes.find(n => n.id === l.source)!;
-            const tgtNode = nodes.find(n => n.id === l.target)!;
-            return {
-              From: srcNode.label.substring(0, 40),
-              To: tgtNode.label.substring(0, 40),
-              Sessions: l.value,
-              "% of Total": totalSessions > 0 ? (l.value / totalSessions) * 100 : 0,
-            };
-          })}
-          columns={[
-            { id: "From", header: "From", accessor: "From", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
-            { id: "To", header: "To", accessor: "To", cell: ({ value }: any) => <Text>{value}</Text> },
-            { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
-            { id: "% of Total", header: "% of Total", accessor: "% of Total", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtPct(value)}</Text> },
-          ]}
-        />
-      </div>
+          <SectionHeader title="Where Sessions End — Pages where users close the browser" />
+          <div className="uj-table-tile"><DataTable sortable data={endpointAnalysis.terminals.slice(0, 15).map(t => ({ Page: t.page.substring(0, 40), "Sessions Ending": t.count, "% of Total": endpointAnalysis.totalSessions > 0 ? (t.count / endpointAnalysis.totalSessions) * 100 : 0, "Avg Path Len": t.avgPathLen, Funnel: t.isFunnel ? "★ Yes" : "No", Errors: t.errors, LCP: t.lcp > 0 ? Math.round(t.lcp) : null }))} columns={[ { id: "Page", header: "Terminal Page", accessor: "Page", cell: ({ value }: any) => <Strong>{value}</Strong> }, { id: "Sessions Ending", header: "Sessions Ending", accessor: "Sessions Ending", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> }, { id: "% of Total", header: "% of Total", accessor: "% of Total", sortType: "number" as any, cell: ({ value }: any) => <span style={{ fontWeight: 600 }}>{fmtPct(value)}</span> }, { id: "Avg Path Len", header: "Avg Path Len", accessor: "Avg Path Len", sortType: "number" as any, cell: ({ value }: any) => <Text>{value} pages</Text> }, { id: "Funnel", header: "Funnel", accessor: "Funnel", cell: ({ value }: any) => <Text style={{ color: value === "★ Yes" ? "#FFD700" : "inherit", fontWeight: value === "★ Yes" ? 700 : 400 }}>{value}</Text> }, { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => value > 0 ? <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> : <Text style={{ opacity: 0.3 }}>0</Text> }, { id: "LCP", header: "LCP", accessor: "LCP", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "lcp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> } ]} /></div>
+
+          {endpointAnalysis.bouncePages.length > 0 && (
+            <>
+              <SectionHeader title="Bounce Pages — Sessions ending after ≤2 pages" />
+              <div className="uj-table-tile" style={{ padding: 16 }}>
+                <Flex gap={8} flexWrap="wrap">
+                  {endpointAnalysis.bouncePages.map(([page, count], i) => (
+                    <span key={i} style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, background: "rgba(194,25,48,0.08)", border: "1px solid rgba(194,25,48,0.15)" }}>
+                      {truncLabel(page, 30)} <Strong style={{ color: RED }}>{fmtCount(count)}</Strong>
+                    </span>
+                  ))}
+                </Flex>
+              </div>
+            </>
+          )}
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Text style={{ fontSize: 13, opacity: 0.7 }}>💡 Terminal pages are where sessions end (user closes browser). If funnel pages appear here, users are giving up mid-flow. Short average path length on terminal pages suggests quick abandonment. High errors on terminal pages may be the root cause of session termination.</Text>
+          </div>
+        </>
+      )}
+
+      {/* ==== REVENUE PATHS sub-tab ==== */}
+      {sankeySubTab === "revPaths" && revenuePaths && (
+        <>
+          <Flex gap={16} flexWrap="wrap">
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Conversions</Text><Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCount(revenuePaths.totalConversions)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Revenue</Text><Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCurrency(revenuePaths.totalRevenue)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">AOV</Text><Heading level={2} className="uj-kpi-value">{fmtCurrency(aov)}</Heading></div>
+          </Flex>
+
+          <SectionHeader title="Top Revenue-Generating Paths" />
+          <div className="uj-table-tile"><DataTable sortable data={revenuePaths.topPaths.map(p => ({ Path: p.path.length > 80 ? p.path.substring(0, 80) + "…" : p.path, Conversions: p.count, Revenue: p.revenue, "% of Conv": p.pctOfConversions }))} columns={[ { id: "Path", header: "Navigation Path", accessor: "Path", cell: ({ value }: any) => <Text style={{ fontSize: 11 }}>{value}</Text> }, { id: "Conversions", header: "Conversions", accessor: "Conversions", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCount(value)}</Strong> }, { id: "Revenue", header: "Revenue", accessor: "Revenue", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCurrency(value)}</Strong> }, { id: "% of Conv", header: "% of Conv", accessor: "% of Conv", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtPct(value)}</Text> } ]} /></div>
+
+          <SectionHeader title="Revenue by Page — Pages touched during converting sessions" />
+          <div className="uj-table-tile"><DataTable sortable data={revenuePaths.pageRevenue.map(p => ({ Page: p.page.substring(0, 40), "Touch Rate": p.touchRate, Conversions: p.conversions, Revenue: p.revenue }))} columns={[ { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Strong>{value}</Strong> }, { id: "Touch Rate", header: "Touch Rate", accessor: "Touch Rate", sortType: "number" as any, cell: ({ value }: any) => <span style={{ fontWeight: 600, color: value >= 50 ? GREEN : YELLOW }}>{fmtPct(value)}</span> }, { id: "Conversions", header: "Conversions", accessor: "Conversions", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> }, { id: "Revenue", header: "Revenue", accessor: "Revenue", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCurrency(value)}</Strong> } ]} /></div>
+        </>
+      )}
+      {sankeySubTab === "revPaths" && !revenuePaths && (
+        <div className="uj-table-tile" style={{ padding: 16 }}><Text style={{ opacity: 0.5 }}>Set Average Order Value (AOV) in Settings to enable Revenue Paths analysis.</Text></div>
+      )}
+
+      {/* ==== PATH TRENDS sub-tab ==== */}
+      {sankeySubTab === "pathTrends" && (
+        <>
+          {pathTrends ? (
+            <>
+              <Flex gap={16} flexWrap="wrap">
+                <div className="uj-kpi-card"><Text className="uj-kpi-label">Current Sessions</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(pathTrends.currSessions)}</Heading></div>
+                <div className="uj-kpi-card"><Text className="uj-kpi-label">Previous Sessions</Text><Heading level={2} className="uj-kpi-value" style={{ color: "inherit" }}>{fmtCount(pathTrends.prevSessions)}</Heading></div>
+                <div className="uj-kpi-card"><Text className="uj-kpi-label">Avg Path (Current)</Text><Heading level={2} className="uj-kpi-value">{pathTrends.currAvgLen.toFixed(1)} pages</Heading></div>
+                <div className="uj-kpi-card"><Text className="uj-kpi-label">Avg Path (Previous)</Text><Heading level={2} className="uj-kpi-value">{pathTrends.prevAvgLen.toFixed(1)} pages</Heading></div>
+              </Flex>
+
+              {pathTrends.newPages.length > 0 && (
+                <div className="uj-table-tile" style={{ padding: 12 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 700, color: GREEN, marginBottom: 6, display: "block" }}>🆕 New Pages (not seen in previous period):</Text>
+                  <Flex gap={6} flexWrap="wrap">{pathTrends.newPages.slice(0, 10).map((pg, i) => <span key={i} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: "rgba(13,156,41,0.08)", border: "1px solid rgba(13,156,41,0.2)" }}>{pg}</span>)}</Flex>
+                </div>
+              )}
+              {pathTrends.droppedPages.length > 0 && (
+                <div className="uj-table-tile" style={{ padding: 12 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 700, color: RED, marginBottom: 6, display: "block" }}>❌ Dropped Pages (no longer visited):</Text>
+                  <Flex gap={6} flexWrap="wrap">{pathTrends.droppedPages.slice(0, 10).map((pg, i) => <span key={i} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: "rgba(194,25,48,0.08)", border: "1px solid rgba(194,25,48,0.2)" }}>{pg}</span>)}</Flex>
+                </div>
+              )}
+
+              <SectionHeader title="Page Frequency Changes — Biggest shifts in navigation patterns" />
+              <div className="uj-table-tile"><DataTable sortable data={pathTrends.pageTrends.map(t => ({ Page: t.page.substring(0, 40), "Current %": t.currPct, "Previous %": t.prevPct, "Change (pp)": t.delta, "Current Count": t.currCount, "Previous Count": t.prevCount }))} columns={[ { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Strong>{value}</Strong> }, { id: "Current %", header: "Current %", accessor: "Current %", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtPct(value)}</Text> }, { id: "Previous %", header: "Previous %", accessor: "Previous %", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ opacity: 0.5 }}>{fmtPct(value)}</Text> }, { id: "Change (pp)", header: "Change", accessor: "Change (pp)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: Math.abs(value) > 5 ? (value > 0 ? ORANGE : GREEN) : "inherit" }}>{value > 0 ? "▲" : value < 0 ? "▼" : "—"} {Math.abs(value).toFixed(1)}pp</Strong> }, { id: "Current Count", header: "Curr #", accessor: "Current Count", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> }, { id: "Previous Count", header: "Prev #", accessor: "Previous Count", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ opacity: 0.5 }}>{fmtCount(value)}</Text> } ]} /></div>
+
+              <SectionHeader title="Transition Changes — Biggest shifts in page-to-page navigation" />
+              <div className="uj-table-tile"><DataTable sortable data={pathTrends.transitionTrends.map(t => ({ Transition: t.transition.length > 60 ? t.transition.substring(0, 60) + "…" : t.transition, Current: t.currCount, Previous: t.prevCount, Change: t.delta }))} columns={[ { id: "Transition", header: "Transition", accessor: "Transition", cell: ({ value }: any) => <Text style={{ fontSize: 12 }}>{value}</Text> }, { id: "Current", header: "Current", accessor: "Current", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> }, { id: "Previous", header: "Previous", accessor: "Previous", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ opacity: 0.5 }}>{fmtCount(value)}</Text> }, { id: "Change", header: "Change", accessor: "Change", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: Math.abs(value) > 3 ? (value > 0 ? ORANGE : GREEN) : "inherit" }}>{value > 0 ? "+" : ""}{fmtCount(value)}</Strong> } ]} /></div>
+            </>
+          ) : (
+            <div className="uj-table-tile" style={{ padding: 16 }}><Text style={{ opacity: 0.5 }}>No previous period data available for comparison. Path trend analysis requires data from both current and previous periods.</Text></div>
+          )}
+        </>
+      )}
     </Flex>
   );
 }
