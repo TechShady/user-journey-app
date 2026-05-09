@@ -4,9 +4,9 @@ import { Route, Routes } from "react-router-dom";
 import { UserJourney } from "./pages/UserJourney";
 import { ObservabilityJourney } from "./pages/ObservabilityJourney";
 import { SettingsProvider } from "./SettingsContext";
+import { functions } from "@dynatrace-sdk/app-utils";
 
-const CURRENT_VERSION = "4.47.22";
-const REPO_API = "https://api.github.com/repos/TechShady/user-journey-app/contents/app.config.json";
+const CURRENT_VERSION = "4.47.23";
 const REPO_URL = "https://github.com/TechShady/user-journey-app";
 
 function isNewer(latest: string, current: string): boolean {
@@ -25,14 +25,11 @@ export const App = () => {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(REPO_API, { headers: { Accept: "application/vnd.github.v3+json" } });
-        if (!res.ok) return;
+        const res = await functions.call("check-version", {});
         const data = await res.json();
-        const raw = atob((data.content ?? "").replace(/\n/g, ""));
-        const cfg = JSON.parse(raw);
-        const latest = cfg.app?.version ?? "";
+        const latest = data.version ?? "";
         if (latest && isNewer(latest, CURRENT_VERSION)) setUpdate(latest);
-      } catch { /* CSP or network block — silently skip */ }
+      } catch { /* function call failed — silently skip */ }
     })();
   }, []);
 
