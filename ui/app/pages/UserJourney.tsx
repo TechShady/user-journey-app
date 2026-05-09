@@ -4671,7 +4671,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     const totalIn = inbound.reduce((s, x) => s + x.value, 0);
     const totalOut = outbound.reduce((s, x) => s + x.value, 0);
     const selfIn = inbound.find(x => x.label === node.label);
-    const selfReloadPct = selfIn && totalIn > 0 ? (selfIn.value / totalIn) * 100 : 0;
+    const selfReloadPct = selfIn && node.value > 0 ? (selfIn.value / node.value) * 100 : 0;
     const lines: string[] = [`${node.label}: ${fmtCount(node.value)} sessions`];
     if (isExit) lines[0] += " ⛔ Exit Point";
     else if (inFunnel) lines[0] += " ★ Funnel";
@@ -4710,7 +4710,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     const totalIn = inbound.reduce((s, x) => s + x.value, 0);
     const totalOut = outbound.reduce((s, x) => s + x.value, 0);
     const selfIn = inbound.find(x => x.label === label);
-    const selfReloadPct = selfIn && totalIn > 0 ? (selfIn.value / totalIn) * 100 : 0;
+    const selfReloadPct = selfIn && totalSessions > 0 ? (selfIn.value / totalSessions) * 100 : 0;
     const lines: string[] = [`${label}: ${fmtCount(totalSessions)} sessions`];
     if (isExit) lines[0] += " ⛔ Exit Point";
     else if (inFunnel) lines[0] += " ★ Funnel";
