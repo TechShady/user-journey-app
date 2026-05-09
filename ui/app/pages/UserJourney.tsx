@@ -86,7 +86,8 @@ const TAB_KEYS = [
   "Errors & Drop-offs", "What-If Analysis", "Root Cause Correlation", "Predictive Forecasting",
   "Resource Waterfall", "Change Intelligence",
   "SLO Tracker", "Session Replay Spotlight", "A/B Comparison",
-  "Revenue Intelligence",
+  "Revenue Intelligence", "Cohort Retention", "Session Engagement",
+  "Third-Party Impact", "Error Clustering",
 ] as const;
 type TabKey = typeof TAB_KEYS[number];
 const DEFAULT_TAB_VISIBILITY: Record<TabKey, boolean> = Object.fromEntries(TAB_KEYS.map(k => [k, true])) as Record<TabKey, boolean>;
@@ -1053,6 +1054,199 @@ function abSegmentCwvQuery(days: number, frontend: string, segmentFilter: string
 }
 
 // ---------------------------------------------------------------------------
+// Cohort Retention — new vs returning users, retention analysis
+// ---------------------------------------------------------------------------
+function cohortRetentionQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const convertedConds = steps.map((_, i) => `reached_step${i + 1} == true`).join(" and ");
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd day_bucket = formatTimestamp(start_time, format: "yyyy-MM-dd")
+| fieldsAdd deviceType = device.type
+| summarize
+    steps = collectDistinct(step_tag),
+    actions = count(),
+    avg_dur = avg(dur_ms),
+    errors = countIf(characteristics.has_error == true),
+    by: {dt.rum.session.id, day_bucket, deviceType}
+| fieldsAdd
+${iAnyLines}
+| fieldsAdd converted = if(${convertedConds}, true, else: false)
+| summarize
+    total_sessions = count(),
+    converted_sessions = countIf(converted == true),
+    avg_actions = avg(toDouble(actions)),
+    avg_duration = avg(avg_dur),
+    error_sessions = countIf(errors > 0),
+    by: {day_bucket, deviceType}
+| fieldsAdd conv_rate = if(total_sessions > 0, toDouble(converted_sessions) / toDouble(total_sessions) * 100.0, else: 0.0)
+| sort day_bucket asc`;
+}
+
+function cohortSessionCountQuery(days: number, frontend: string): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| fieldsAdd day_bucket = formatTimestamp(start_time, format: "yyyy-MM-dd")
+| summarize
+    unique_users = countDistinct(dt.rum.instance.id),
+    sessions = countDistinct(dt.rum.session.id),
+    actions = count(),
+    by: {day_bucket}
+| sort day_bucket asc`;
+}
+
+// ---------------------------------------------------------------------------
+// Session Engagement Score — composite engagement metric per session
+// ---------------------------------------------------------------------------
+function sessionEngagementQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const convertedConds = steps.map((_, i) => `reached_step${i + 1} == true`).join(" and ");
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd deviceType = device.type
+| fieldsAdd browserName = browser.name
+| summarize
+    steps = collectDistinct(step_tag),
+    actions = count(),
+    avg_dur = avg(dur_ms),
+    max_dur = max(dur_ms),
+    errors = countIf(characteristics.has_error == true),
+    funnel_depth = countDistinct(step_tag),
+    by: {dt.rum.session.id, deviceType, browserName}
+| fieldsAdd
+${iAnyLines}
+| fieldsAdd converted = if(${convertedConds}, true, else: false)
+| sort actions desc
+| limit 500`;
+}
+
+// ---------------------------------------------------------------------------
+// Funnel Velocity — time between funnel steps (for Sankey sub-tab)
+// ---------------------------------------------------------------------------
+function funnelVelocityQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const tagExpr = stepTagExpr(steps, steps.map((s) => s.label));
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| sort start_time asc
+| summarize
+    step_times = collectArray(record(step = step_tag, ts = start_time, dur = dur_ms)),
+    by: {dt.rum.session.id}
+| limit 500`;
+}
+
+// ---------------------------------------------------------------------------
+// Third-Party Impact — resource timing by domain
+// ---------------------------------------------------------------------------
+function thirdPartyImpactQuery(days: number, frontend: string): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter characteristics.has_request == true
+| fieldsAdd res_dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd domain = coalesce(url.host, "unknown")
+| fieldsAdd lp = lower(coalesce(url.path, ""))
+| fieldsAdd res_type = ${RES_TYPE_EXPR}
+| summarize
+    requests = count(),
+    avg_dur = avg(res_dur_ms),
+    p90_dur = percentile(res_dur_ms, 90),
+    total_dur = sum(res_dur_ms),
+    slow_count = countIf(res_dur_ms > 1000.0),
+    error_count = countIf(characteristics.has_error == true),
+    sessions = countDistinct(dt.rum.session.id),
+    by: {domain, res_type}
+| sort total_dur desc
+| limit 100`;
+}
+
+function thirdPartyCwvCorrelationQuery(days: number, frontend: string): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| fieldsAdd
+    lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
+    cls_val = toDouble(web_vitals.cumulative_layout_shift),
+    inp_ms = toDouble(web_vitals.interaction_to_next_paint) / 1000000.0
+| summarize
+    lcp_avg = avg(lcp_ms),
+    cls_avg = avg(cls_val),
+    inp_avg = avg(inp_ms),
+    page_views = count(),
+    by: {pageName}
+| sort page_views desc
+| limit 30`;
+}
+
+// ---------------------------------------------------------------------------
+// Error Clustering — group JS errors by similarity
+// ---------------------------------------------------------------------------
+function errorClusteringQuery(days: number, frontend: string): string {
+  const period = periodClause(days);
+  return `fetch user.events, samplingRatio: 1, ${period}
+| filter characteristics.has_error
+| filter isNotNull(error.type)
+| filter isNotNull(error.id)
+| fieldsAdd frontend_name = coalesce(
+    entityName(dt.rum.application.entity, type: "dt.entity.application"),
+    entityName(dt.rum.application.entity, type: "dt.entity.mobile_application")
+  )
+| filter frontend_name == "${frontend}"
+| filter error.type == "exception"
+| fieldsAdd errorName = error.display_name
+| fieldsAdd pageName = view.name
+| fieldsAdd errorMessage = error.message
+| summarize
+    occurrences = count(),
+    affected_sessions = countDistinct(dt.rum.session.id),
+    affected_users = countDistinct(dt.rum.instance.id),
+    first_seen = min(start_time),
+    last_seen = max(start_time),
+    pages = collectDistinct(pageName),
+    sample_message = takeAny(errorMessage),
+    by: {error.id, errorName}
+| sort occurrences desc
+| limit 50`;
+}
+
+function errorTrendQuery(days: number, frontend: string): string {
+  const period = periodClause(days);
+  return `fetch user.events, samplingRatio: 1, ${period}
+| filter characteristics.has_error
+| filter isNotNull(error.type)
+| fieldsAdd frontend_name = coalesce(
+    entityName(dt.rum.application.entity, type: "dt.entity.application"),
+    entityName(dt.rum.application.entity, type: "dt.entity.mobile_application")
+  )
+| filter frontend_name == "${frontend}"
+| filter error.type == "exception"
+| fieldsAdd errorName = error.display_name
+| fieldsAdd hour_bucket = formatTimestamp(start_time, format: "yyyy-MM-dd HH:00")
+| summarize
+    occurrences = count(),
+    unique_errors = countDistinct(errorName),
+    affected_sessions = countDistinct(dt.rum.session.id),
+    by: {hour_bucket}
+| sort hour_bucket asc`;
+}
+
+// ---------------------------------------------------------------------------
 // Shared Components
 // ---------------------------------------------------------------------------
 function ApdexGauge({ score, size = 80, label }: { score: number; size?: number; label?: string }) {
@@ -1593,6 +1787,16 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 9, 2026</Paragraph>
+            <Paragraph><Strong>4 New Tabs + Funnel Velocity Sub-Tab</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Cohort Retention</Strong>: Daily user cohorts with conversion retention curves, device breakdown, sessions/user metrics</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Session Engagement</Strong>: Per-session engagement scoring (actions × depth − errors). Histogram distribution, tier-based conversion rates, high-intent non-converter identification</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Third-Party Impact</Strong>: First-party vs. third-party resource analysis — request counts, payload size, avg duration. CWV correlation per page</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Error Clustering</Strong>: Group errors by type/pattern with occurrence counts, session impact, hourly trend chart, and sample messages</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Funnel Velocity</Strong> (Sankey sub-tab): Time-between-steps analysis with median/P90/avg per transition, journey time histogram, and bottleneck identification</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• 8 new DQL queries for cohort retention, session engagement, funnel velocity, third-party resources, CWV correlation, error clustering, and error trends</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 9, 2026</Paragraph>
             <Paragraph><Strong>Funnel &amp; Sankey — New Chart Styles</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• Funnel Overview: 5 visualization styles — Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• Horizontal Bar: left-aligned bars with red drop-off extensions showing where users are lost</Paragraph>
@@ -1643,7 +1847,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights. Country cards are clickable and open <Strong>User Sessions</Strong> filtered to that location.</Paragraph>
         <Paragraph><Strong>Map</Strong>: Interactive choropleth map with World and US views, colorized by session count, average duration, Apdex, error rate, or estimated revenue (when AOV is set). Use the dropdown to switch between World (country-level) and US (state-level) views. Countries/states with data are clickable and link to <Strong>User Sessions</Strong>.</Paragraph>
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
-        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram with 7 analysis sub-tabs organized above the chart. <Strong>Flow Chart</Strong> (default): 7 chart styles — Classic, Gradient, Directed Flow, Alluvial, State Machine, <Strong>Chord Diagram</Strong> (circular arc layout with clickable arcs for path highlighting, focus mode support, center label display), and <Strong>Transition Heatmap</Strong> (NxN grid with clickable row/column highlighting, selection summary, 52px cells). All styles support funnel highlighting, exit detection, and focus mode. <Strong>Conversion Paths</Strong>: Compares converted vs. abandoned session paths — shows differentiating pages, path lengths, and top transitions for each group. <Strong>Loop Analysis</Strong>: Detects A→B→A back-and-forth navigation patterns indicating user confusion, with error/LCP correlation. <Strong>Page Timing</Strong>: Average and P90 duration per page with health scores — identifies slow funnel bottlenecks. <Strong>Session Endpoints</Strong>: Where sessions end (browser close), bounce rate, and terminal page analysis with error correlation. <Strong>Revenue Paths</Strong> (AOV required): Top revenue-generating navigation paths and page touch rates for converting sessions. <Strong>Path Trends</Strong>: Period-over-period comparison of navigation patterns — detects new/dropped pages, frequency shifts, and transition changes. <Strong>Funnel Leakage</Strong>: Deep analysis of users who navigate away from the funnel — classifies sessions into recoverers (returned) vs lost users, compares their behavior, identifies exit step hotspots, maps off-funnel destinations, and correlates exit pages with CWV/errors for performance-driven optimization.</Paragraph>
+        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram with 9 analysis sub-tabs organized above the chart. <Strong>Flow Chart</Strong> (default): 7 chart styles — Classic, Gradient, Directed Flow, Alluvial, State Machine, <Strong>Chord Diagram</Strong> (circular arc layout with clickable arcs for path highlighting, focus mode support, center label display), and <Strong>Transition Heatmap</Strong> (NxN grid with clickable row/column highlighting, selection summary, 52px cells). All styles support funnel highlighting, exit detection, and focus mode. <Strong>Conversion Paths</Strong>: Compares converted vs. abandoned session paths — shows differentiating pages, path lengths, and top transitions for each group. <Strong>Loop Analysis</Strong>: Detects A→B→A back-and-forth navigation patterns indicating user confusion, with error/LCP correlation. <Strong>Page Timing</Strong>: Average and P90 duration per page with health scores — identifies slow funnel bottlenecks. <Strong>Session Endpoints</Strong>: Where sessions end (browser close), bounce rate, and terminal page analysis with error correlation. <Strong>Revenue Paths</Strong> (AOV required): Top revenue-generating navigation paths and page touch rates for converting sessions. <Strong>Path Trends</Strong>: Period-over-period comparison of navigation patterns — detects new/dropped pages, frequency shifts, and transition changes. <Strong>Funnel Leakage</Strong>: Deep analysis of users who navigate away from the funnel — classifies sessions into recoverers (returned) vs lost users, compares their behavior, identifies exit step hotspots, maps off-funnel destinations, and correlates exit pages with CWV/errors for performance-driven optimization. <Strong>Funnel Velocity</Strong>: Measures time between funnel step transitions — shows median, P90, and average per step pair, journey time distribution histogram, and identifies the slowest transitions causing friction.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations. When AOV is set, shows Revenue at Risk from anomalous conversion drops.</Paragraph>
         <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device x browser cross-section. When AOV is set, adds revenue columns to device and browser tables and revenue totals to speed buckets.</Paragraph>
         <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. When AOV is set, revenue appears in key metrics, performance snapshot, and exports. Use <Strong>Export PDF</Strong> to open a print-ready report in a new tab (use browser Print → Save as PDF), or <Strong>Copy Text</Strong> to get a plain-text summary for Slack/Teams/email. Designed for quick status checks and executive presentations.</Paragraph>
@@ -1658,9 +1862,13 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Session Replay Spotlight</Strong>: Surfaces the highest-impact session replays ranked by an impact score combining errors, crashes, bounces, and interaction density. Shows session duration, error count, device, browser, and country. Each session links directly to <Strong>Dynatrace Session Replay</Strong> for instant visual debugging. Quickly find the sessions that matter most without manually searching.</Paragraph>
         <Paragraph><Strong>A/B Comparison</Strong>: Compare two user segments side-by-side across all key metrics. Pre-built segments for Desktop vs. Mobile, Chrome vs. Firefox, and US vs. non-US — or enter custom DQL filter expressions. Shows Apdex, conversion, error rate, duration, and Core Web Vitals for each segment with delta indicators highlighting which segment performs better. Use to quantify platform-specific gaps and prioritize optimization efforts.</Paragraph>
         <Paragraph><Strong>Revenue Intelligence</Strong>: Comprehensive revenue analytics powered by the Average Order Value (AOV) set in Settings. Shows current vs. previous period revenue with change indicators, revenue per session, and three performance taxes: latency tax (revenue lost to slow pages), frustration tax (revenue lost to frustrated sessions), and error tax (revenue lost to errors). Includes a funnel leakage table showing estimated revenue lost at each drop-off step, and ranked optimization opportunities with projected revenue uplift for each improvement action. Requires AOV &gt; 0 in Settings.</Paragraph>
+        <Paragraph><Strong>Cohort Retention</Strong>: Daily user cohort analysis showing sessions, unique users, conversions, and conversion rate per day. Includes device-type breakdown (desktop vs. mobile vs. tablet conversion rates), sessions-per-user engagement metric, and daily trend chart with conversion rate overlay. When AOV is set, shows cohort revenue totals.</Paragraph>
+        <Paragraph><Strong>Session Engagement</Strong>: Assigns an engagement score (0-100) to each session based on actions taken (30%), funnel depth reached (40%), and error penalty (30%). Visualizes score distribution histogram with conversion overlay, shows conversion rate by engagement tier (high/medium/low), and surfaces high-intent non-converters — engaged users who didn't convert, representing the biggest optimization opportunity.</Paragraph>
+        <Paragraph><Strong>Third-Party Impact</Strong>: Analyzes first-party vs. third-party resource loading. Shows request counts, payload sizes, and average durations per domain. Identifies third-party domains that may be slowing down pages. Includes page-level CWV data for correlation analysis — helps determine if third-party scripts are degrading Core Web Vitals.</Paragraph>
+        <Paragraph><Strong>Error Clustering</Strong>: Groups JavaScript errors by type/pattern to help prioritize fixes. Shows occurrence count, affected sessions, and impact percentage per error cluster. Includes hourly error trend chart for detecting spikes, top clusters bar chart, and sample error messages for quick identification. Focus on high-impact clusters first.</Paragraph>
       </HelpSection>
       <HelpSection title="Tab Settings">
-        <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Tab Settings. Each of the 26 tabs can be toggled on or off individually. Drag to reorder. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
+        <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Tab Settings. Each of the 30 tabs can be toggled on or off individually. Drag to reorder. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
         <Paragraph><Strong>Average Order Value</Strong>: Set in Settings to enable revenue metrics across What-If Analysis, Revenue Intelligence, Errors &amp; Drop-offs, Conversion Attribution, Map, Root Cause Correlation, Trends, Executive Summary, Anomaly Detection, and Change Intelligence tabs. This value represents the average revenue per conversion (final funnel step completion). Set to 0 to hide revenue metrics.</Paragraph>
       </HelpSection>
       <HelpSection title="Apdex Score">
@@ -1690,6 +1898,11 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• Session Replay Spotlight surfaces the highest-impact sessions — start debugging with the sessions that affect the most users.</Paragraph>
         <Paragraph>• A/B Comparison quantifies platform gaps — use it to justify mobile optimization investments with data.</Paragraph>
         <Paragraph>• Revenue Intelligence translates performance metrics into dollar impact — use it to build ROI cases for performance optimization.</Paragraph>
+        <Paragraph>• Cohort Retention reveals daily user cohort patterns — look for days with unusually low conversion to correlate with releases or campaigns.</Paragraph>
+        <Paragraph>• Session Engagement highlights high-intent non-converters — these are users who engaged deeply but didn't convert, representing your biggest optimization opportunity.</Paragraph>
+        <Paragraph>• Third-Party Impact helps justify removing or lazy-loading slow third-party scripts — check which domains have the highest request count and duration.</Paragraph>
+        <Paragraph>• Error Clustering groups similar errors together — fix the top cluster first for maximum session impact reduction.</Paragraph>
+        <Paragraph>• Funnel Velocity (Sankey sub-tab) identifies the slowest step transitions — if P90 is much higher than median, a subset of users is struggling disproportionately.</Paragraph>
         <Paragraph>• Set Average Order Value in Settings to unlock revenue projections in What-If Analysis and Revenue Intelligence tabs.</Paragraph>
       </HelpSection>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16, marginTop: 8 }}>
@@ -1887,6 +2100,24 @@ export function UserJourney() {
   const abSegACwv = useDql({ query: abSegmentCwvQuery(timeframeDays, frontend, abSegA) });
   const abSegBCwv = useDql({ query: abSegmentCwvQuery(timeframeDays, frontend, abSegB) });
 
+  // NEW: Cohort Retention
+  const cohortRetentionData = useDql({ query: cohortRetentionQuery(timeframeDays, frontend, steps) });
+  const cohortSessionData = useDql({ query: cohortSessionCountQuery(timeframeDays, frontend) });
+
+  // NEW: Session Engagement Score
+  const sessionEngagementData = useDql({ query: sessionEngagementQuery(timeframeDays, frontend, steps) });
+
+  // NEW: Funnel Velocity (Sankey sub-tab)
+  const funnelVelocityData = useDql({ query: funnelVelocityQuery(timeframeDays, frontend, steps) });
+
+  // NEW: Third-Party Impact
+  const thirdPartyData = useDql({ query: thirdPartyImpactQuery(timeframeDays, frontend) });
+  const thirdPartyCwvData = useDql({ query: thirdPartyCwvCorrelationQuery(timeframeDays, frontend) });
+
+  // NEW: Error Clustering
+  const errorClusterData = useDql({ query: errorClusteringQuery(timeframeDays, frontend) });
+  const errorTrendData = useDql({ query: errorTrendQuery(timeframeDays, frontend) });
+
   // Parse funnel
   const parseFunnel = (result: any) => {
     const r = result?.data?.records?.[0] as any;
@@ -1959,7 +2190,7 @@ export function UserJourney() {
           </div>
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.32</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.33</Text>
         </Flex>
       </div>
       <Sheet title="User Journey — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -2116,7 +2347,7 @@ export function UserJourney() {
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />; break;
             case "Map": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} />; break;
             case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} />; break;
-            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} />; break;
+            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} aov={aov} />; break;
@@ -2131,6 +2362,10 @@ export function UserJourney() {
             case "Session Replay Spotlight": content = <SessionReplaySpotlightTab data={sessionReplayData} isLoading={sessionReplayData.isLoading} />; break;
             case "A/B Comparison": content = <ABComparisonTab segAData={abSegAData} segBData={abSegBData} segACwv={abSegACwv} segBCwv={abSegBCwv} dimension={abDimension} setDimension={setAbDimension} segA={abSegA} segB={abSegB} setSegA={setAbSegA} setSegB={setAbSegB} isLoading={abSegAData.isLoading || abSegBData.isLoading || abSegACwv.isLoading || abSegBCwv.isLoading} aov={aov} overallConv={overallConv} />; break;
             case "Revenue Intelligence": content = <RevenueIntelligenceTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} quality={quality} qualityPrev={qualityPrev} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} />; break;
+            case "Cohort Retention": content = <CohortRetentionTab retentionData={cohortRetentionData} sessionData={cohortSessionData} isLoading={cohortRetentionData.isLoading || cohortSessionData.isLoading} steps={steps} aov={aov} />; break;
+            case "Session Engagement": content = <SessionEngagementTab data={sessionEngagementData} isLoading={sessionEngagementData.isLoading} steps={steps} aov={aov} overallConv={overallConv} />; break;
+            case "Third-Party Impact": content = <ThirdPartyImpactTab data={thirdPartyData} cwvData={thirdPartyCwvData} isLoading={thirdPartyData.isLoading || thirdPartyCwvData.isLoading} frontend={frontend} />; break;
+            case "Error Clustering": content = <ErrorClusteringTab data={errorClusterData} trendData={errorTrendData} isLoading={errorClusterData.isLoading || errorTrendData.isLoading} frontend={frontend} />; break;
           }
           return <Tab key={tabId} title={tabId}>{content}</Tab>;
         })}
@@ -5042,7 +5277,7 @@ function buildSankey(records: any[]): { nodes: SankeyNode[]; links: SankeyLink[]
   return { nodes, links, maxDepth };
 }
 
-function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData, frontend, durationData, prevPathsData }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any; frontend: string; durationData: any; prevPathsData: any }) {
+function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData, frontend, durationData, prevPathsData, velocityData }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any; frontend: string; durationData: any; prevPathsData: any; velocityData: any }) {
   if (isLoading) return <Loading />;
 
   const records = (data.data?.records ?? []) as any[];
@@ -5050,7 +5285,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
-  const [sankeySubTab, setSankeySubTab] = useState<"flow" | "convPaths" | "loops" | "timing" | "endpoints" | "revPaths" | "pathTrends" | "leakage">("flow");
+  const [sankeySubTab, setSankeySubTab] = useState<"flow" | "convPaths" | "loops" | "timing" | "endpoints" | "revPaths" | "pathTrends" | "leakage" | "velocity">("flow");
 
   const totalSessions = records.reduce((a: number, r: any) => a + Number(r.sessions ?? r.d0 ?? 0), 0);
   const uniquePages = new Set(nodes.map(n => n.label)).size;
@@ -6752,6 +6987,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     { key: "revPaths", label: "Revenue Paths", icon: "💰", show: aov > 0 },
     { key: "pathTrends", label: "Path Trends", icon: "📈" },
     { key: "leakage", label: "Funnel Leakage", icon: "🔍" },
+    { key: "velocity", label: "Funnel Velocity", icon: "⚡" },
   ];
 
   const subTabBar = (
@@ -7154,6 +7390,130 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
           </div>
         </>
       )}
+
+      {/* ==== FUNNEL VELOCITY sub-tab ==== */}
+      {sankeySubTab === "velocity" && (() => {
+        const velRecords = (velocityData?.data?.records ?? []) as any[];
+        // Parse step_times arrays: each record has step_times = [timestamp1, timestamp2, ...]
+        type StepTiming = { sessionId: string; stepTimes: number[]; deltas: number[] };
+        const timings: StepTiming[] = [];
+        for (const r of velRecords) {
+          const st = (r.step_times ?? []) as any[];
+          const times = st.map((t: any) => new Date(String(t)).getTime()).filter((t: number) => !isNaN(t));
+          if (times.length < 2) continue;
+          const deltas: number[] = [];
+          for (let i = 1; i < times.length; i++) deltas.push(Math.max(0, (times[i] - times[i - 1]) / 1000)); // seconds
+          timings.push({ sessionId: String(r.sessionId ?? ""), stepTimes: times, deltas });
+        }
+        // Per-step-transition stats
+        const maxSteps = Math.max(0, ...timings.map(t => t.deltas.length));
+        const stepStats: { label: string; avg: number; median: number; p90: number; count: number }[] = [];
+        for (let i = 0; i < maxSteps; i++) {
+          const vals = timings.map(t => t.deltas[i]).filter((v): v is number => v !== undefined && v >= 0).sort((a, b) => a - b);
+          if (vals.length === 0) { stepStats.push({ label: `Step ${i + 1} → ${i + 2}`, avg: 0, median: 0, p90: 0, count: 0 }); continue; }
+          const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+          const median = vals[Math.floor(vals.length / 2)];
+          const p90 = vals[Math.floor(vals.length * 0.9)];
+          const fromLabel = steps[i]?.label ?? `Step ${i + 1}`;
+          const toLabel = steps[i + 1]?.label ?? `Step ${i + 2}`;
+          stepStats.push({ label: `${fromLabel} → ${toLabel}`, avg, median, p90, count: vals.length });
+        }
+        const totalAvg = timings.length > 0 ? timings.reduce((a, t) => a + t.deltas.reduce((s, d) => s + d, 0), 0) / timings.length : 0;
+        const slowest = stepStats.reduce((best, s) => s.median > best.median ? s : best, stepStats[0] ?? { label: "", avg: 0, median: 0, p90: 0, count: 0 });
+        const fastest = stepStats.reduce((best, s) => s.count > 0 && s.median < best.median ? s : best, stepStats[0] ?? { label: "", avg: 0, median: 0, p90: 0, count: 0 });
+        // Histogram of total journey time
+        const journeyTimes = timings.map(t => t.deltas.reduce((a, b) => a + b, 0)).sort((a, b) => a - b);
+        const bucketCount = 12;
+        const maxJT = journeyTimes.length > 0 ? journeyTimes[journeyTimes.length - 1] : 60;
+        const bucketSize = Math.max(1, Math.ceil(maxJT / bucketCount));
+        const histBuckets: { label: string; count: number }[] = [];
+        for (let b = 0; b < bucketCount; b++) {
+          const lo = b * bucketSize;
+          const hi = lo + bucketSize;
+          const cnt = journeyTimes.filter(t => t >= lo && t < hi).length;
+          histBuckets.push({ label: `${Math.round(lo)}s`, count: cnt });
+        }
+        const histMax = Math.max(1, ...histBuckets.map(b => b.count));
+        // SVG chart dimensions
+        const W = 720, H = 260, PAD = { top: 30, right: 20, bottom: 40, left: 60 };
+        const iW = W - PAD.left - PAD.right, iH = H - PAD.top - PAD.bottom;
+        const barMaxH = iH;
+
+        return (
+          <>
+            <SectionHeader title="Funnel Velocity — How fast do users progress through the funnel?" />
+            <Flex gap={16} flexWrap="wrap">
+              <div className="uj-kpi-card"><Text className="uj-kpi-label">Sessions Analyzed</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(timings.length)}</Heading></div>
+              <div className="uj-kpi-card"><Text className="uj-kpi-label">Avg Total Journey</Text><Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{totalAvg < 60 ? `${totalAvg.toFixed(1)}s` : `${(totalAvg / 60).toFixed(1)}m`}</Heading></div>
+              <div className="uj-kpi-card"><Text className="uj-kpi-label">Slowest Transition</Text><Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{slowest.label.substring(0, 25)}</Heading><Text style={{ fontSize: 11, opacity: 0.5 }}>Median: {slowest.median.toFixed(1)}s</Text></div>
+              <div className="uj-kpi-card"><Text className="uj-kpi-label">Fastest Transition</Text><Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fastest.label.substring(0, 25)}</Heading><Text style={{ fontSize: 11, opacity: 0.5 }}>Median: {fastest.median.toFixed(1)}s</Text></div>
+            </Flex>
+
+            {/* Step-by-step velocity chart */}
+            <SectionHeader title="Step Transition Times" />
+            <div className="uj-table-tile" style={{ padding: 16 }}>
+              <svg width="100%" viewBox={`0 0 ${W} ${Math.max(H, stepStats.length * 40 + 60)}`}>
+                {stepStats.map((s, i) => {
+                  const y = i * 40 + 30;
+                  const maxMedian = Math.max(1, ...stepStats.map(x => x.p90));
+                  const medW = Math.max(4, (s.median / maxMedian) * 450);
+                  const p90W = Math.max(4, (s.p90 / maxMedian) * 450);
+                  return (
+                    <g key={i}>
+                      <text x={140} y={y + 14} textAnchor="end" fill="rgba(255,255,255,0.7)" fontSize={11} fontWeight={600}>{s.label.length > 20 ? s.label.substring(0, 20) + "…" : s.label}</text>
+                      <rect x={150} y={y} width={p90W} height={24} rx={4} fill={BLUE} fillOpacity={0.15} stroke={BLUE} strokeWidth={0.5} strokeOpacity={0.3}><title>P90: {s.p90.toFixed(1)}s</title></rect>
+                      <rect x={150} y={y + 2} width={medW} height={20} rx={4} fill={s.median > 30 ? RED : s.median > 10 ? YELLOW : GREEN} fillOpacity={0.4}><title>Median: {s.median.toFixed(1)}s</title></rect>
+                      <text x={150 + p90W + 8} y={y + 10} fill="rgba(255,255,255,0.8)" fontSize={10} fontWeight={700}>Med: {s.median.toFixed(1)}s</text>
+                      <text x={150 + p90W + 8} y={y + 22} fill="rgba(255,255,255,0.4)" fontSize={9}>P90: {s.p90.toFixed(1)}s · Avg: {s.avg.toFixed(1)}s · n={fmtCount(s.count)}</text>
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+
+            {/* Journey time distribution histogram */}
+            <SectionHeader title="Journey Time Distribution" />
+            <div className="uj-table-tile" style={{ padding: 16 }}>
+              <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
+                <text x={PAD.left} y={PAD.top - 10} fill="rgba(255,255,255,0.4)" fontSize={10}>Sessions</text>
+                {histBuckets.map((b, i) => {
+                  const bW = iW / histBuckets.length - 4;
+                  const x = PAD.left + i * (iW / histBuckets.length) + 2;
+                  const bH = Math.max(1, (b.count / histMax) * barMaxH);
+                  const y = PAD.top + barMaxH - bH;
+                  return (
+                    <g key={i}>
+                      <rect x={x} y={y} width={bW} height={bH} rx={3} fill={PURPLE} fillOpacity={0.5} stroke={PURPLE} strokeWidth={0.5} strokeOpacity={0.3}><title>{b.label}: {b.count} sessions</title></rect>
+                      {b.count > 0 && <text x={x + bW / 2} y={y - 4} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={9} fontWeight={600}>{b.count}</text>}
+                      <text x={x + bW / 2} y={H - PAD.bottom + 14} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={9}>{b.label}</text>
+                    </g>
+                  );
+                })}
+                <text x={PAD.left + iW / 2} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={10}>Journey Duration</text>
+              </svg>
+            </div>
+
+            {/* DataTable with per-step details */}
+            <SectionHeader title="Step Velocity Details" />
+            <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={stepStats.map(s => ({
+              Transition: s.label, "Median (s)": Number(s.median.toFixed(1)), "Avg (s)": Number(s.avg.toFixed(1)),
+              "P90 (s)": Number(s.p90.toFixed(1)), Sessions: s.count,
+            }))} columns={[
+              { id: "Transition", header: "Transition", accessor: "Transition", cell: ({ value }: any) => <Strong>{value}</Strong> },
+              { id: "Median (s)", header: "Median", accessor: "Median (s)", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: value > 30 ? RED : value > 10 ? YELLOW : GREEN, fontWeight: 700 }}>{value}s</span> },
+              { id: "Avg (s)", header: "Average", accessor: "Avg (s)", sortType: "number" as any, cell: ({ value }: any) => <Strong>{value}s</Strong> },
+              { id: "P90 (s)", header: "P90", accessor: "P90 (s)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}s</Strong> },
+              { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+            ]} /></div>
+
+            <div className="uj-table-tile" style={{ padding: 16 }}>
+              <Text style={{ fontSize: 13, opacity: 0.7 }}>
+                ⚡ <Strong>Funnel Velocity</Strong> measures how quickly users move between funnel steps. Slower transitions often indicate friction, confusion, or external distractions. The P90 shows the experience of your slowest users — if the P90 is significantly higher than the median, a subset of users is struggling disproportionately.
+              </Text>
+            </div>
+          </>
+        );
+      })()}
     </Flex>
   );
 }
@@ -9027,6 +9387,543 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
           })()}
         </>
       )}
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Cohort Retention
+// ===========================================================================
+function CohortRetentionTab({ retentionData, sessionData, isLoading, steps, aov }: { retentionData: any; sessionData: any; isLoading: boolean; steps: StepDef[]; aov: number }) {
+  if (isLoading) return <Loading />;
+
+  const retRecords = (retentionData?.data?.records ?? []) as any[];
+  const sessRecords = (sessionData?.data?.records ?? []) as any[];
+
+  // Parse daily cohorts: day_bucket, deviceType, sessions, users, conversions
+  type CohortDay = { day: string; device: string; sessions: number; users: number; conversions: number; convRate: number };
+  const cohorts: CohortDay[] = retRecords.map((r: any) => {
+    const sessions = Number(r.sessions ?? 0);
+    const users = Number(r.users ?? 0);
+    const conversions = Number(r.conversions ?? 0);
+    return { day: String(r.day_bucket ?? "").substring(0, 10), device: String(r.deviceType ?? "Unknown"), sessions, users, conversions, convRate: sessions > 0 ? (conversions / sessions) * 100 : 0 };
+  }).filter((c: CohortDay) => c.day);
+
+  // Aggregate by day
+  const dayMap = new Map<string, { sessions: number; users: number; conversions: number }>();
+  for (const c of cohorts) {
+    const d = dayMap.get(c.day) ?? { sessions: 0, users: 0, conversions: 0 };
+    d.sessions += c.sessions;
+    d.users += c.users;
+    d.conversions += c.conversions;
+    dayMap.set(c.day, d);
+  }
+  const dailyData = Array.from(dayMap.entries()).map(([day, d]) => ({ day, ...d, convRate: d.sessions > 0 ? (d.conversions / d.sessions) * 100 : 0 })).sort((a, b) => a.day.localeCompare(b.day));
+
+  // Session count data (unique users + sessions per day)
+  const sessionCountData = sessRecords.map((r: any) => ({
+    day: String(r.day_bucket ?? "").substring(0, 10),
+    uniqueUsers: Number(r.unique_users ?? 0),
+    totalSessions: Number(r.total_sessions ?? 0),
+    sessionsPerUser: Number(r.unique_users ?? 0) > 0 ? Number(r.total_sessions ?? 0) / Number(r.unique_users ?? 0) : 0,
+  })).filter((d: any) => d.day).sort((a: any, b: any) => a.day.localeCompare(b.day));
+
+  // Device breakdown
+  const deviceMap = new Map<string, { sessions: number; conversions: number }>();
+  for (const c of cohorts) {
+    const d = deviceMap.get(c.device) ?? { sessions: 0, conversions: 0 };
+    d.sessions += c.sessions;
+    d.conversions += c.conversions;
+    deviceMap.set(c.device, d);
+  }
+  const devices = Array.from(deviceMap.entries()).map(([device, d]) => ({ device, ...d, convRate: d.sessions > 0 ? (d.conversions / d.sessions) * 100 : 0 })).sort((a, b) => b.sessions - a.sessions);
+
+  const totalUsers = sessionCountData.reduce((a: number, d: any) => a + d.uniqueUsers, 0);
+  const totalSessions = dailyData.reduce((a, d) => a + d.sessions, 0);
+  const totalConversions = dailyData.reduce((a, d) => a + d.conversions, 0);
+  const overallConvRate = totalSessions > 0 ? (totalConversions / totalSessions) * 100 : 0;
+  const avgSessionsPerUser = totalUsers > 0 ? totalSessions / totalUsers : 0;
+
+  // Chart: daily sessions + conversion rate overlay
+  const W = 720, H = 260, PAD = { top: 30, right: 60, bottom: 40, left: 60 };
+  const iW = W - PAD.left - PAD.right, iH = H - PAD.top - PAD.bottom;
+  const maxSess = Math.max(1, ...dailyData.map(d => d.sessions));
+  const maxConvR = Math.max(1, ...dailyData.map(d => d.convRate));
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Cohort Retention — Daily user cohorts and conversion retention" />
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Unique Users</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(totalUsers)}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Sessions</Text><Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{fmtCount(totalSessions)}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Sessions/User</Text><Heading level={2} className="uj-kpi-value" style={{ color: CYAN }}>{avgSessionsPerUser.toFixed(1)}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Conversions</Text><Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCount(totalConversions)}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Overall Conv Rate</Text><Heading level={2} className="uj-kpi-value" style={{ color: overallConvRate >= 5 ? GREEN : overallConvRate >= 2 ? YELLOW : RED }}>{fmtPct(overallConvRate)}</Heading></div>
+        {aov > 0 && <div className="uj-kpi-card"><Text className="uj-kpi-label">Cohort Revenue</Text><Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCurrency(totalConversions * aov)}</Heading></div>}
+      </Flex>
+
+      {/* Daily cohort chart */}
+      <SectionHeader title="Daily Sessions & Conversion Rate" />
+      <div className="uj-table-tile" style={{ padding: 16 }}>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
+          <text x={PAD.left} y={PAD.top - 10} fill="rgba(255,255,255,0.4)" fontSize={10}>Sessions</text>
+          <text x={W - PAD.right} y={PAD.top - 10} textAnchor="end" fill={GREEN} fontSize={10}>Conv %</text>
+          {dailyData.map((d, i) => {
+            const bW = Math.max(4, iW / dailyData.length - 2);
+            const x = PAD.left + i * (iW / dailyData.length);
+            const bH = Math.max(1, (d.sessions / maxSess) * iH);
+            const y = PAD.top + iH - bH;
+            return (
+              <g key={i}>
+                <rect x={x} y={y} width={bW} height={bH} rx={2} fill={BLUE} fillOpacity={0.4}><title>{d.day}: {fmtCount(d.sessions)} sessions, {fmtPct(d.convRate)} conv</title></rect>
+                {i % Math.max(1, Math.floor(dailyData.length / 8)) === 0 && <text x={x + bW / 2} y={H - PAD.bottom + 14} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={8}>{d.day.substring(5)}</text>}
+              </g>
+            );
+          })}
+          {/* Conversion rate line */}
+          {dailyData.length > 1 && (
+            <polyline fill="none" stroke={GREEN} strokeWidth={2} opacity={0.8} points={dailyData.map((d, i) => {
+              const x = PAD.left + i * (iW / dailyData.length) + (iW / dailyData.length) / 2;
+              const y = PAD.top + iH - (d.convRate / maxConvR) * iH;
+              return `${x},${y}`;
+            }).join(" ")} />
+          )}
+        </svg>
+      </div>
+
+      {/* Device breakdown */}
+      <SectionHeader title="Cohort by Device Type" />
+      <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={devices.map(d => ({
+        Device: d.device, Sessions: d.sessions, Conversions: d.conversions, "Conv Rate": d.convRate,
+      }))} columns={[
+        { id: "Device", header: "Device", accessor: "Device", cell: ({ value }: any) => <Strong>{value}</Strong> },
+        { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{fmtCount(value)}</Strong> },
+        { id: "Conversions", header: "Conversions", accessor: "Conversions", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCount(value)}</Strong> },
+        { id: "Conv Rate", header: "Conv %", accessor: "Conv Rate", sortType: "number" as any, cell: ({ value }: any) => <span style={{ display: "inline-block", width: "100%", padding: "2px 8px", borderRadius: 4, background: value >= 5 ? "rgba(13,156,41,0.15)" : value >= 2 ? "rgba(184,134,11,0.15)" : "rgba(194,25,48,0.15)", color: value >= 5 ? GREEN : value >= 2 ? YELLOW : RED, fontWeight: 700, textAlign: "center" }}>{fmtPct(value)}</span> },
+      ]} /></div>
+
+      {/* Daily detail table */}
+      <SectionHeader title="Daily Cohort Details" />
+      <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={dailyData.map(d => ({
+        Date: d.day, Sessions: d.sessions, Users: d.users, Conversions: d.conversions, "Conv Rate": d.convRate,
+      }))} columns={[
+        { id: "Date", header: "Date", accessor: "Date" },
+        { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{fmtCount(value)}</Strong> },
+        { id: "Users", header: "Users", accessor: "Users", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+        { id: "Conversions", header: "Conv", accessor: "Conversions", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCount(value)}</Strong> },
+        { id: "Conv Rate", header: "Conv %", accessor: "Conv Rate", sortType: "number" as any, cell: ({ value }: any) => <span style={{ display: "inline-block", width: "100%", padding: "2px 8px", borderRadius: 4, background: value >= 5 ? "rgba(13,156,41,0.15)" : value >= 2 ? "rgba(184,134,11,0.15)" : "rgba(194,25,48,0.15)", color: value >= 5 ? GREEN : value >= 2 ? YELLOW : RED, fontWeight: 700, textAlign: "center" }}>{fmtPct(value)}</span> },
+      ]} /></div>
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Session Engagement Score
+// ===========================================================================
+function SessionEngagementTab({ data, isLoading, steps, aov, overallConv }: { data: any; isLoading: boolean; steps: StepDef[]; aov: number; overallConv: number }) {
+  if (isLoading) return <Loading />;
+
+  const records = (data?.data?.records ?? []) as any[];
+  // Each record: sessionId, action_count, max_depth, error_count, converted (0/1)
+  type EngSession = { sessionId: string; actions: number; depth: number; errors: number; converted: boolean; score: number };
+  const sessions: EngSession[] = records.map((r: any) => {
+    const actions = Number(r.action_count ?? 0);
+    const depth = Number(r.max_depth ?? 0);
+    const errors = Number(r.error_count ?? 0);
+    const converted = Number(r.converted ?? 0) > 0;
+    // Engagement score: weighted formula — actions (30%), depth (40%), errors penalty (30%)
+    const maxActions = 20;
+    const maxDepth = steps.length > 0 ? steps.length : 5;
+    const actionScore = Math.min(1, actions / maxActions) * 30;
+    const depthScore = Math.min(1, depth / maxDepth) * 40;
+    const errorPenalty = Math.min(30, errors * 10);
+    const score = Math.max(0, Math.min(100, actionScore + depthScore + 30 - errorPenalty));
+    return { sessionId: String(r.sessionId ?? ""), actions, depth, errors, converted, score };
+  });
+
+  if (sessions.length === 0) return <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}><SectionHeader title="Session Engagement Score" /><div className="uj-table-tile" style={{ padding: 24 }}><Text>No session engagement data available.</Text></div></Flex>;
+
+  // Stats
+  const avgScore = sessions.reduce((a, s) => a + s.score, 0) / sessions.length;
+  const highEngagement = sessions.filter(s => s.score >= 70);
+  const medEngagement = sessions.filter(s => s.score >= 30 && s.score < 70);
+  const lowEngagement = sessions.filter(s => s.score < 30);
+  const highConvRate = highEngagement.length > 0 ? (highEngagement.filter(s => s.converted).length / highEngagement.length) * 100 : 0;
+  const medConvRate = medEngagement.length > 0 ? (medEngagement.filter(s => s.converted).length / medEngagement.length) * 100 : 0;
+  const lowConvRate = lowEngagement.length > 0 ? (lowEngagement.filter(s => s.converted).length / lowEngagement.length) * 100 : 0;
+  // High-intent non-converters: high engagement + no conversion
+  const highIntentNonConv = highEngagement.filter(s => !s.converted).sort((a, b) => b.score - a.score);
+  const totalConverted = sessions.filter(s => s.converted).length;
+  const totalConvRate = sessions.length > 0 ? (totalConverted / sessions.length) * 100 : 0;
+
+  // Histogram: score distribution
+  const buckets = Array.from({ length: 10 }, (_, i) => ({ lo: i * 10, hi: (i + 1) * 10, count: 0, converted: 0 }));
+  for (const s of sessions) {
+    const idx = Math.min(9, Math.floor(s.score / 10));
+    buckets[idx].count++;
+    if (s.converted) buckets[idx].converted++;
+  }
+  const histMax = Math.max(1, ...buckets.map(b => b.count));
+  const W = 720, H = 240, PAD = { top: 30, right: 20, bottom: 40, left: 60 };
+  const iW = W - PAD.left - PAD.right, iH = H - PAD.top - PAD.bottom;
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Session Engagement Score — Quantify user engagement per session" />
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Sessions Analyzed</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(sessions.length)}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Avg Score</Text><Heading level={2} className="uj-kpi-value" style={{ color: avgScore >= 50 ? GREEN : avgScore >= 25 ? YELLOW : RED }}>{avgScore.toFixed(1)}/100</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">High Engagement (≥70)</Text><Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCount(highEngagement.length)} ({fmtPct(sessions.length > 0 ? (highEngagement.length / sessions.length) * 100 : 0)})</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Low Engagement (&lt;30)</Text><Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCount(lowEngagement.length)} ({fmtPct(sessions.length > 0 ? (lowEngagement.length / sessions.length) * 100 : 0)})</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">High-Intent Non-Conv</Text><Heading level={2} className="uj-kpi-value" style={{ color: ORANGE }}>{fmtCount(highIntentNonConv.length)}</Heading></div>
+      </Flex>
+
+      {/* Score histogram */}
+      <SectionHeader title="Engagement Score Distribution" />
+      <div className="uj-table-tile" style={{ padding: 16 }}>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
+          <text x={PAD.left} y={PAD.top - 10} fill="rgba(255,255,255,0.4)" fontSize={10}>Sessions</text>
+          {buckets.map((b, i) => {
+            const bW = iW / 10 - 4;
+            const x = PAD.left + i * (iW / 10) + 2;
+            const bH = Math.max(1, (b.count / histMax) * iH);
+            const convH = b.count > 0 ? (b.converted / b.count) * bH : 0;
+            const y = PAD.top + iH - bH;
+            const color = b.lo >= 70 ? GREEN : b.lo >= 30 ? YELLOW : RED;
+            return (
+              <g key={i}>
+                <rect x={x} y={y} width={bW} height={bH} rx={3} fill={color} fillOpacity={0.2} stroke={color} strokeWidth={0.5} strokeOpacity={0.4}><title>{b.lo}-{b.hi}: {b.count} sessions</title></rect>
+                <rect x={x} y={y + bH - convH} width={bW} height={convH} rx={3} fill={GREEN} fillOpacity={0.5}><title>Converted: {b.converted}</title></rect>
+                {b.count > 0 && <text x={x + bW / 2} y={y - 4} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={9} fontWeight={600}>{b.count}</text>}
+                <text x={x + bW / 2} y={H - PAD.bottom + 14} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={9}>{b.lo}-{b.hi}</text>
+              </g>
+            );
+          })}
+          <text x={PAD.left + iW / 2} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={10}>Engagement Score</text>
+          <Flex gap={12} alignItems="center" style={{ position: "absolute", bottom: 4, right: 20 }}>
+          </Flex>
+        </svg>
+        <Flex gap={16} style={{ marginTop: 8 }}>
+          <Flex gap={4} alignItems="center"><span style={{ width: 10, height: 10, borderRadius: 2, background: GREEN, opacity: 0.5, display: "inline-block" }} /><Text style={{ fontSize: 11, opacity: 0.5 }}>Converted</Text></Flex>
+          <Flex gap={4} alignItems="center"><span style={{ width: 10, height: 10, borderRadius: 2, background: "rgba(128,128,128,0.3)", display: "inline-block" }} /><Text style={{ fontSize: 11, opacity: 0.5 }}>Non-converted</Text></Flex>
+        </Flex>
+      </div>
+
+      {/* Conv rate by engagement tier */}
+      <SectionHeader title="Conversion Rate by Engagement Tier" />
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200, textAlign: "center" }}>
+          <Text style={{ fontSize: 12, opacity: 0.5, display: "block" }}>🟢 High (≥70)</Text>
+          <Heading level={2} style={{ color: GREEN, margin: "8px 0" }}>{fmtPct(highConvRate)}</Heading>
+          <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(highEngagement.length)} sessions</Text>
+        </div>
+        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200, textAlign: "center" }}>
+          <Text style={{ fontSize: 12, opacity: 0.5, display: "block" }}>🟡 Medium (30-69)</Text>
+          <Heading level={2} style={{ color: YELLOW, margin: "8px 0" }}>{fmtPct(medConvRate)}</Heading>
+          <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(medEngagement.length)} sessions</Text>
+        </div>
+        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200, textAlign: "center" }}>
+          <Text style={{ fontSize: 12, opacity: 0.5, display: "block" }}>🔴 Low (&lt;30)</Text>
+          <Heading level={2} style={{ color: RED, margin: "8px 0" }}>{fmtPct(lowConvRate)}</Heading>
+          <Text style={{ fontSize: 11, opacity: 0.5 }}>{fmtCount(lowEngagement.length)} sessions</Text>
+        </div>
+      </Flex>
+
+      {/* High-intent non-converters table */}
+      {highIntentNonConv.length > 0 && (
+        <>
+          <SectionHeader title="High-Intent Non-Converters — Engaged users who didn't convert" />
+          <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={highIntentNonConv.slice(0, 50).map(s => ({
+            "Session ID": s.sessionId.substring(0, 20), Score: Number(s.score.toFixed(1)), Actions: s.actions, "Max Depth": s.depth, Errors: s.errors,
+          }))} columns={[
+            { id: "Session ID", header: "Session", accessor: "Session ID" },
+            { id: "Score", header: "Score", accessor: "Score", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{value}</Strong> },
+            { id: "Actions", header: "Actions", accessor: "Actions", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
+            { id: "Max Depth", header: "Max Depth", accessor: "Max Depth", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: PURPLE }}>{value}</Strong> },
+            { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => value > 0 ? <Strong style={{ color: RED }}>{value}</Strong> : <Text style={{ opacity: 0.3 }}>0</Text> },
+          ]} /></div>
+        </>
+      )}
+
+      {aov > 0 && highIntentNonConv.length > 0 && (
+        <div className="uj-table-tile" style={{ padding: 16 }}>
+          <Text style={{ fontSize: 13, opacity: 0.7 }}>
+            💰 <Strong>Revenue Opportunity:</Strong> {fmtCount(highIntentNonConv.length)} highly-engaged sessions didn't convert. If even {fmtPct(Math.min(50, highConvRate))} were recovered, that's ~{fmtCurrency(highIntentNonConv.length * (Math.min(50, highConvRate) / 100) * aov)} in additional revenue.
+          </Text>
+        </div>
+      )}
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Third-Party Impact
+// ===========================================================================
+function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any; cwvData: any; isLoading: boolean; frontend: string }) {
+  if (isLoading) return <Loading />;
+
+  const records = (data?.data?.records ?? []) as any[];
+  const cwvRecords = (cwvData?.data?.records ?? []) as any[];
+
+  // Parse resource records: domain, res_type, total_bytes, avg_duration, req_count
+  type ResEntry = { domain: string; resType: string; totalBytes: number; avgDuration: number; reqCount: number; isThirdParty: boolean };
+  const resources: ResEntry[] = records.map((r: any) => {
+    const domain = String(r.domain ?? "unknown");
+    // Heuristic: if domain doesn't contain the frontend app name, it's third-party
+    const frontendHost = frontend ? new URL(frontend.startsWith("http") ? frontend : `https://${frontend}`).hostname : "";
+    const isThirdParty = frontendHost ? !domain.includes(frontendHost.split(".").slice(-2).join(".")) : true;
+    return {
+      domain, resType: String(r.res_type ?? "other"),
+      totalBytes: Number(r.total_bytes ?? 0), avgDuration: Number(r.avg_duration ?? 0),
+      reqCount: Number(r.req_count ?? 0), isThirdParty,
+    };
+  });
+
+  // Aggregate by domain
+  const domainMap = new Map<string, { totalBytes: number; avgDuration: number; reqCount: number; resTypes: Set<string>; isThirdParty: boolean }>();
+  for (const r of resources) {
+    const d = domainMap.get(r.domain) ?? { totalBytes: 0, avgDuration: 0, reqCount: 0, resTypes: new Set(), isThirdParty: r.isThirdParty };
+    d.totalBytes += r.totalBytes;
+    d.avgDuration = d.reqCount > 0 ? ((d.avgDuration * d.reqCount) + (r.avgDuration * r.reqCount)) / (d.reqCount + r.reqCount) : r.avgDuration;
+    d.reqCount += r.reqCount;
+    d.resTypes.add(r.resType);
+    domainMap.set(r.domain, d);
+  }
+  const domains = Array.from(domainMap.entries()).map(([domain, d]) => ({
+    domain, ...d, resTypes: Array.from(d.resTypes).join(", "),
+  })).sort((a, b) => b.reqCount - a.reqCount);
+
+  const firstParty = domains.filter(d => !d.isThirdParty);
+  const thirdParty = domains.filter(d => d.isThirdParty);
+  const totalReqs = domains.reduce((a, d) => a + d.reqCount, 0);
+  const thirdPartyReqs = thirdParty.reduce((a, d) => a + d.reqCount, 0);
+  const thirdPartyBytes = thirdParty.reduce((a, d) => a + d.totalBytes, 0);
+  const firstPartyBytes = firstParty.reduce((a, d) => a + d.totalBytes, 0);
+  const thirdPartyPct = totalReqs > 0 ? (thirdPartyReqs / totalReqs) * 100 : 0;
+  const avgThirdPartyDur = thirdParty.length > 0 ? thirdParty.reduce((a, d) => a + d.avgDuration * d.reqCount, 0) / Math.max(1, thirdPartyReqs) : 0;
+  const avgFirstPartyDur = firstParty.length > 0 ? firstParty.reduce((a, d) => a + d.avgDuration * d.reqCount, 0) / Math.max(1, firstParty.reduce((a, d) => a + d.reqCount, 0)) : 0;
+
+  // CWV correlation
+  const cwvPages = cwvRecords.map((r: any) => ({
+    page: String(r.pageName ?? ""), lcp: Number(r.lcp ?? 0), cls: Number(r.cls ?? 0), inp: Number(r.inp ?? 0),
+  })).filter((p: any) => p.page);
+
+  // Bytes formatter
+  const fmtBytes = (b: number) => b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b >= 1024 ? `${(b / 1024).toFixed(1)} KB` : `${b} B`;
+
+  // Chart: top domains bar chart
+  const topDomains = domains.slice(0, 12);
+  const W = 720, H = Math.max(200, topDomains.length * 36 + 60);
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Third-Party Impact — How external resources affect performance" />
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Domains</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{domains.length}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">3rd-Party Domains</Text><Heading level={2} className="uj-kpi-value" style={{ color: ORANGE }}>{thirdParty.length}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">3rd-Party Request %</Text><Heading level={2} className="uj-kpi-value" style={{ color: thirdPartyPct > 60 ? RED : thirdPartyPct > 30 ? YELLOW : GREEN }}>{fmtPct(thirdPartyPct)}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">3rd-Party Payload</Text><Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{fmtBytes(thirdPartyBytes)}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Avg 3P Duration</Text><Heading level={2} className="uj-kpi-value" style={{ color: avgThirdPartyDur > 500 ? RED : avgThirdPartyDur > 200 ? YELLOW : GREEN }}>{Math.round(avgThirdPartyDur)}ms</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Avg 1P Duration</Text><Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{Math.round(avgFirstPartyDur)}ms</Heading></div>
+      </Flex>
+
+      {/* 1P vs 3P comparison */}
+      <SectionHeader title="First-Party vs. Third-Party Comparison" />
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, textAlign: "center" }}>
+          <Text style={{ fontSize: 12, opacity: 0.5, display: "block" }}>🏠 First-Party</Text>
+          <Heading level={2} style={{ color: GREEN, margin: "8px 0" }}>{fmtCount(firstParty.reduce((a, d) => a + d.reqCount, 0))} requests</Heading>
+          <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtBytes(firstPartyBytes)} · {Math.round(avgFirstPartyDur)}ms avg</Text>
+        </div>
+        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280, textAlign: "center" }}>
+          <Text style={{ fontSize: 12, opacity: 0.5, display: "block" }}>🌐 Third-Party</Text>
+          <Heading level={2} style={{ color: ORANGE, margin: "8px 0" }}>{fmtCount(thirdPartyReqs)} requests</Heading>
+          <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtBytes(thirdPartyBytes)} · {Math.round(avgThirdPartyDur)}ms avg</Text>
+        </div>
+      </Flex>
+
+      {/* Top domains chart */}
+      <SectionHeader title="Top Domains by Request Count" />
+      <div className="uj-table-tile" style={{ padding: 16 }}>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
+          {topDomains.map((d, i) => {
+            const y = i * 36 + 20;
+            const maxReqs = Math.max(1, topDomains[0]?.reqCount ?? 1);
+            const barW = Math.max(4, (d.reqCount / maxReqs) * 380);
+            const color = d.isThirdParty ? ORANGE : GREEN;
+            return (
+              <g key={i}>
+                <text x={200} y={y + 14} textAnchor="end" fill="rgba(255,255,255,0.7)" fontSize={11} fontWeight={600}>{d.domain.length > 30 ? d.domain.substring(0, 30) + "…" : d.domain}</text>
+                <rect x={210} y={y} width={barW} height={24} rx={4} fill={color} fillOpacity={0.35} stroke={color} strokeWidth={0.5} strokeOpacity={0.4}><title>{d.domain}: {fmtCount(d.reqCount)} reqs, {fmtBytes(d.totalBytes)}, {Math.round(d.avgDuration)}ms avg</title></rect>
+                <text x={210 + barW + 8} y={y + 10} fill="rgba(255,255,255,0.8)" fontSize={10} fontWeight={700}>{fmtCount(d.reqCount)}</text>
+                <text x={210 + barW + 8} y={y + 22} fill="rgba(255,255,255,0.4)" fontSize={9}>{fmtBytes(d.totalBytes)} · {Math.round(d.avgDuration)}ms</text>
+                <text x={202} y={y + 14} textAnchor="end" fill={color} fontSize={9}>{d.isThirdParty ? "3P" : "1P"}</text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* Full domain table */}
+      <SectionHeader title="All Domains" />
+      <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={domains.map(d => ({
+        Domain: d.domain, Type: d.isThirdParty ? "Third-Party" : "First-Party",
+        Requests: d.reqCount, "Payload": d.totalBytes, "Avg Duration (ms)": Math.round(d.avgDuration), "Resource Types": d.resTypes,
+      }))} columns={[
+        { id: "Domain", header: "Domain", accessor: "Domain", cell: ({ value }: any) => <Strong>{String(value).substring(0, 40)}</Strong> },
+        { id: "Type", header: "Type", accessor: "Type", cell: ({ value }: any) => <span style={{ padding: "2px 8px", borderRadius: 4, background: value === "Third-Party" ? "rgba(255,131,43,0.15)" : "rgba(13,156,41,0.15)", color: value === "Third-Party" ? ORANGE : GREEN, fontWeight: 700, fontSize: 11 }}>{value}</span> },
+        { id: "Requests", header: "Requests", accessor: "Requests", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{fmtCount(value)}</Strong> },
+        { id: "Payload", header: "Payload", accessor: "Payload", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtBytes(value)}</Text> },
+        { id: "Avg Duration (ms)", header: "Avg Duration", accessor: "Avg Duration (ms)", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: value > 500 ? RED : value > 200 ? YELLOW : GREEN, fontWeight: 600 }}>{fmtCount(value)}ms</span> },
+        { id: "Resource Types", header: "Types", accessor: "Resource Types", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
+      ]} /></div>
+
+      {/* CWV pages (if available) */}
+      {cwvPages.length > 0 && (
+        <>
+          <SectionHeader title="Page-Level CWV for Correlation" />
+          <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={cwvPages.slice(0, 20).map(p => ({
+            Page: p.page.substring(0, 40), "LCP (ms)": Math.round(p.lcp), CLS: Number(p.cls.toFixed(3)), "INP (ms)": Math.round(p.inp),
+          }))} columns={[
+            { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Strong>{value}</Strong> },
+            { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: value > CWV.lcp.poor ? RED : value > CWV.lcp.good ? YELLOW : GREEN, fontWeight: 600 }}>{fmtCount(value)}ms</span> },
+            { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: value > CWV.cls.poor ? RED : value > CWV.cls.good ? YELLOW : GREEN, fontWeight: 600 }}>{value}</span> },
+            { id: "INP (ms)", header: "INP", accessor: "INP (ms)", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: value > CWV.inp.poor ? RED : value > CWV.inp.good ? YELLOW : GREEN, fontWeight: 600 }}>{fmtCount(value)}ms</span> },
+          ]} /></div>
+        </>
+      )}
+    </Flex>
+  );
+}
+
+// ===========================================================================
+// TAB: Error Clustering
+// ===========================================================================
+function ErrorClusteringTab({ data, trendData, isLoading, frontend }: { data: any; trendData: any; isLoading: boolean; frontend: string }) {
+  if (isLoading) return <Loading />;
+
+  const records = (data?.data?.records ?? []) as any[];
+  const trendRecords = (trendData?.data?.records ?? []) as any[];
+
+  // Parse error clusters: error_id, errorName, occurrences, affected_sessions, sample_message
+  type ErrorCluster = { errorId: string; name: string; occurrences: number; sessions: number; sampleMessage: string };
+  const clusters: ErrorCluster[] = records.map((r: any) => ({
+    errorId: String(r.error_id ?? r["error.id"] ?? "unknown"),
+    name: String(r.errorName ?? r.error_name ?? "Unknown Error"),
+    occurrences: Number(r.occurrences ?? 0),
+    sessions: Number(r.affected_sessions ?? 0),
+    sampleMessage: String(r.sample_message ?? ""),
+  })).sort((a: ErrorCluster, b: ErrorCluster) => b.occurrences - a.occurrences);
+
+  // Parse hourly trend: hour_bucket, error_count
+  type HourTrend = { hour: string; count: number };
+  const hourly: HourTrend[] = trendRecords.map((r: any) => ({
+    hour: String(r.hour_bucket ?? ""),
+    count: Number(r.error_count ?? 0),
+  })).filter((h: HourTrend) => h.hour).sort((a: HourTrend, b: HourTrend) => a.hour.localeCompare(b.hour));
+
+  const totalErrors = clusters.reduce((a, c) => a + c.occurrences, 0);
+  const totalSessions = clusters.reduce((a, c) => a + c.sessions, 0);
+  const uniqueClusters = clusters.length;
+  const topCluster = clusters[0];
+  const topClusterPct = totalErrors > 0 && topCluster ? (topCluster.occurrences / totalErrors) * 100 : 0;
+
+  if (clusters.length === 0 && hourly.length === 0) return <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}><SectionHeader title="Error Clustering" /><div className="uj-table-tile" style={{ padding: 24 }}><Text>No error data available for this timeframe.</Text></div></Flex>;
+
+  // Error trend chart
+  const W = 720, H = 200, PAD = { top: 30, right: 20, bottom: 40, left: 60 };
+  const iW = W - PAD.left - PAD.right, iH = H - PAD.top - PAD.bottom;
+  const maxCount = Math.max(1, ...hourly.map(h => h.count));
+
+  // Top clusters bar chart
+  const topClusters = clusters.slice(0, 10);
+  const clusterChartH = Math.max(180, topClusters.length * 40 + 40);
+  const maxOcc = Math.max(1, topClusters[0]?.occurrences ?? 1);
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <SectionHeader title="Error Clustering — Group and analyze errors by pattern" />
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Errors</Text><Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCount(totalErrors)}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Unique Error Types</Text><Heading level={2} className="uj-kpi-value" style={{ color: ORANGE }}>{uniqueClusters}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">Sessions w/ Errors</Text><Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{fmtCount(totalSessions)}</Heading></div>
+        {topCluster && <div className="uj-kpi-card"><Text className="uj-kpi-label">Top Error ({fmtPct(topClusterPct)})</Text><Heading level={2} className="uj-kpi-value" style={{ color: RED, fontSize: 16 }}>{topCluster.name.substring(0, 30)}</Heading></div>}
+      </Flex>
+
+      {/* Error trend over time */}
+      {hourly.length > 1 && (
+        <>
+          <SectionHeader title="Error Trend Over Time" />
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
+              <text x={PAD.left} y={PAD.top - 10} fill="rgba(255,255,255,0.4)" fontSize={10}>Errors</text>
+              {/* Area fill */}
+              <path fill={RED} fillOpacity={0.1} stroke="none" d={`M${PAD.left},${PAD.top + iH} ${hourly.map((h, i) => {
+                const x = PAD.left + (i / Math.max(1, hourly.length - 1)) * iW;
+                const y = PAD.top + iH - (h.count / maxCount) * iH;
+                return `L${x},${y}`;
+              }).join(" ")} L${PAD.left + iW},${PAD.top + iH} Z`} />
+              {/* Line */}
+              <polyline fill="none" stroke={RED} strokeWidth={2} opacity={0.8} points={hourly.map((h, i) => {
+                const x = PAD.left + (i / Math.max(1, hourly.length - 1)) * iW;
+                const y = PAD.top + iH - (h.count / maxCount) * iH;
+                return `${x},${y}`;
+              }).join(" ")} />
+              {/* Dots */}
+              {hourly.map((h, i) => {
+                const x = PAD.left + (i / Math.max(1, hourly.length - 1)) * iW;
+                const y = PAD.top + iH - (h.count / maxCount) * iH;
+                return <circle key={i} cx={x} cy={y} r={2.5} fill={RED}><title>{h.hour}: {h.count} errors</title></circle>;
+              })}
+              {/* X-axis labels */}
+              {hourly.filter((_, i) => i % Math.max(1, Math.floor(hourly.length / 8)) === 0).map((h, i) => {
+                const idx = hourly.indexOf(h);
+                const x = PAD.left + (idx / Math.max(1, hourly.length - 1)) * iW;
+                return <text key={i} x={x} y={H - PAD.bottom + 14} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={8}>{h.hour.substring(11, 16)}</text>;
+              })}
+            </svg>
+          </div>
+        </>
+      )}
+
+      {/* Top error clusters chart */}
+      <SectionHeader title="Top Error Clusters" />
+      <div className="uj-table-tile" style={{ padding: 16 }}>
+        <svg width="100%" viewBox={`0 0 720 ${clusterChartH}`}>
+          {topClusters.map((c, i) => {
+            const y = i * 40 + 20;
+            const barW = Math.max(4, (c.occurrences / maxOcc) * 350);
+            return (
+              <g key={i}>
+                <text x={180} y={y + 14} textAnchor="end" fill="rgba(255,255,255,0.7)" fontSize={11} fontWeight={600}>{c.name.length > 26 ? c.name.substring(0, 26) + "…" : c.name}</text>
+                <rect x={190} y={y} width={barW} height={28} rx={4} fill={RED} fillOpacity={0.3} stroke={RED} strokeWidth={0.5} strokeOpacity={0.4}><title>{c.name}: {fmtCount(c.occurrences)} occurrences, {fmtCount(c.sessions)} sessions</title></rect>
+                <text x={190 + barW + 8} y={y + 12} fill="rgba(255,255,255,0.8)" fontSize={10} fontWeight={700}>{fmtCount(c.occurrences)}</text>
+                <text x={190 + barW + 8} y={y + 24} fill="rgba(255,255,255,0.4)" fontSize={9}>{fmtCount(c.sessions)} sessions</text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* Full error table */}
+      <SectionHeader title="Error Cluster Details" />
+      <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={clusters.map(c => ({
+        "Error Name": c.name, Occurrences: c.occurrences, Sessions: c.sessions,
+        "Impact %": totalErrors > 0 ? Number(((c.occurrences / totalErrors) * 100).toFixed(1)) : 0,
+        "Sample Message": c.sampleMessage.substring(0, 80),
+      }))} columns={[
+        { id: "Error Name", header: "Error Name", accessor: "Error Name", cell: ({ value }: any) => <Strong style={{ color: RED }}>{String(value).substring(0, 35)}</Strong> },
+        { id: "Occurrences", header: "Count", accessor: "Occurrences", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
+        { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: PURPLE }}>{fmtCount(value)}</Strong> },
+        { id: "Impact %", header: "Impact %", accessor: "Impact %", sortType: "number" as any, cell: ({ value }: any) => <span style={{ display: "inline-block", width: "100%", padding: "2px 8px", borderRadius: 4, background: value >= 20 ? "rgba(194,25,48,0.15)" : value >= 5 ? "rgba(184,134,11,0.15)" : "rgba(128,128,128,0.1)", color: value >= 20 ? RED : value >= 5 ? YELLOW : "inherit", fontWeight: 700, textAlign: "center" }}>{value}%</span> },
+        { id: "Sample Message", header: "Sample", accessor: "Sample Message", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
+      ]} /></div>
+
+      <div className="uj-table-tile" style={{ padding: 16 }}>
+        <Text style={{ fontSize: 13, opacity: 0.7 }}>
+          🐛 <Strong>Error Clustering</Strong> groups similar errors by type to help prioritize fixes. The "Impact %" shows how much of total error volume each cluster represents. Focus on clusters with high occurrence counts and high session impact first — these are the errors affecting the most users.
+        </Text>
+      </div>
     </Flex>
   );
 }

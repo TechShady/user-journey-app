@@ -2,7 +2,7 @@
 
 ## Overview
 
-The User Journey App is a 26-tab frontend observability suite built as a Dynatrace Platform App. It provides comprehensive Real User Monitoring (RUM) analysis including funnel tracking, Web Vitals, geographic heatmaps, predictive forecasting, and automated anomaly detection — all powered by DQL (Dynatrace Query Language).
+The User Journey App is a 30-tab frontend observability suite built as a Dynatrace Platform App. It provides comprehensive Real User Monitoring (RUM) analysis including funnel tracking, Web Vitals, geographic heatmaps, predictive forecasting, and automated anomaly detection — all powered by DQL (Dynatrace Query Language).
 
 **Architecture**: Single-page React app using Strato Design System components, `@dynatrace-sdk/react-hooks` (`useDql`) for data fetching, and SVG-based custom visualizations. All queries are parameterized by a user-selectable frontend application, funnel step definitions, and timeframe.
 
@@ -790,6 +790,126 @@ fetch user.events, from: now() - {timeframe}
 
 ---
 
+### 27. Cohort Retention
+
+**Purpose**: Daily user cohort analysis showing conversion retention curves, device breakdown, and sessions-per-user engagement.
+
+**Key Features**:
+- Daily cohort chart: sessions + conversion rate overlay
+- Device-type breakdown with per-device conversion rates
+- Sessions-per-user metric (returning user engagement)
+- Daily detail table with date, sessions, users, conversions, and conversion rate
+- Revenue totals when AOV is configured
+
+**Queries**:
+
+```dql
+-- cohortRetentionQuery: Sessions by day and device with conversion
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| fieldsAdd day_bucket = formatTimestamp(timestamp, "yyyy-MM-dd")
+| summarize sessions = count(), users = countDistinctExact(dt.rum.session.id), by: {day_bucket, device.type}
+-- + conversion detection via step filter
+```
+
+```dql
+-- cohortSessionCountQuery: Unique users and total sessions per day
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| summarize unique_users = countDistinctExact(dt.rum.session.id), total_sessions = count(), by: {day_bucket}
+```
+
+---
+
+### 28. Session Engagement
+
+**Purpose**: Assign engagement scores (0-100) to individual sessions and identify high-intent non-converters.
+
+**Key Features**:
+- Engagement score formula: actions (30%) + funnel depth (40%) - error penalty (30%)
+- Score distribution histogram with conversion overlay per bucket
+- Conversion rate by engagement tier: high (≥70), medium (30-69), low (<30)
+- High-intent non-converters table: users with high scores who didn't convert
+- Revenue opportunity estimate when AOV is configured
+
+**Queries**:
+
+```dql
+-- sessionEngagementQuery: Per-session actions, depth, errors, conversion
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| summarize action_count = count(), max_depth = max(step_index), error_count = countIf(characteristics.has_error),
+  converted = countIf(reached_last_step), by: {dt.rum.session.id}
+| limit 500
+```
+
+---
+
+### 29. Third-Party Impact
+
+**Purpose**: Analyze how third-party resources affect page performance and Core Web Vitals.
+
+**Key Features**:
+- First-party vs. third-party request count, payload, and duration comparison
+- Top domains chart ranked by request count with 1P/3P classification
+- Full domain table with resource types, payload, and avg duration
+- Page-level CWV data for correlation analysis
+- Domain classification heuristic based on frontend hostname
+
+**Queries**:
+
+```dql
+-- thirdPartyImpactQuery: Resource timing by domain and type
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| summarize total_bytes = sum(resource.size), avg_duration = avg(resource.duration),
+  req_count = count(), by: {domain, res_type}
+```
+
+```dql
+-- thirdPartyCwvCorrelationQuery: CWV per page for correlation
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| summarize lcp = avg(web_vitals.largest_contentful_paint),
+  cls = avg(web_vitals.cumulative_layout_shift),
+  inp = avg(web_vitals.interaction_to_next_paint), by: {pageName}
+```
+
+---
+
+### 30. Error Clustering
+
+**Purpose**: Group errors by type/pattern to prioritize fixes by impact.
+
+**Key Features**:
+- Error clusters with occurrence count, session impact, and impact percentage
+- Hourly error trend chart (area + line) for spike detection
+- Top clusters bar chart ranking errors by occurrence
+- Sample error messages for quick identification
+- Full detail table with sortable columns
+
+**Queries**:
+
+```dql
+-- errorClusteringQuery: Errors grouped by error.id and errorName
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_error == true
+| summarize occurrences = count(), affected_sessions = countDistinctExact(dt.rum.session.id),
+  sample_message = first(error.message), by: {error.id, errorName}
+| sort occurrences desc
+```
+
+```dql
+-- errorTrendQuery: Error occurrences by hour
+fetch user.events, from: now() - {timeframe}
+| filter frontend.name == "{frontend}"
+| filter characteristics.has_error == true
+| summarize error_count = count(), by: {hour_bucket}
+```
+
+---
+
 ## Architecture Notes
 
 ### Query Infrastructure
@@ -870,7 +990,7 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 ### Help System
 
-- **Help Sheet**: Slide-out panel (`<Sheet>`) with `HelpContent` component covering all 26 tabs, configuration, Apdex, CWV thresholds, and tips
+- **Help Sheet**: Slide-out panel (`<Sheet>`) with `HelpContent` component covering all 30 tabs, configuration, Apdex, CWV thresholds, and tips
 - **What's New section**: Changelog at the top of Help, newest entries first. Each entry has a date stamp, title, and bullet-pointed feature list. Styled with blue left-border accent cards. New changes are added at the top; older entries slide down — serves as an in-app audit log of feature changes
 
 ---
@@ -878,7 +998,8 @@ All revenue calculations are client-side — no additional DQL queries needed be
 ## Changelog
 
 | Date | Version | Changes |
-|------|---------|---------|
+|------|---------|---------||
+| 2026-05-09 | 4.47.33 | **4 New Tabs + Funnel Velocity Sub-Tab**: Cohort Retention (daily cohorts, device breakdown, conv rate curves), Session Engagement (0-100 score per session, tier conversion rates, high-intent non-converters), Third-Party Impact (1P vs 3P resource analysis, domain breakdown, CWV correlation), Error Clustering (error grouping by type, hourly trend, impact ranking). Sankey gets 9th sub-tab: Funnel Velocity (step transition times, median/P90/avg per pair, journey time histogram). 8 new DQL queries, tab count 26→30 |
 | 2026-05-10 | 4.47.18 | **Sankey — Funnel Leakage Sub-Tab**: New 8th sub-tab analyzing users who leave the funnel. Session classification (recoverers vs lost vs straight-through), exit step distribution with stacked bar chart, off-funnel destination mapping with recovery/conversion rates, behavioral comparison (path length, off-funnel pages, deepest step, top exit pages), CWV/error diagnostic signals with health scores, revenue impact estimation (AOV), auto-generated insights engine with severity levels |
 | 2026-05-09 | 4.47.15 | **Funnel & Sankey — New Chart Styles**: Funnel Overview gets 5 visualization styles (Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split) with style selector and Settings persistence. Sankey updated to 7 chart styles — removed Sunburst & Parallel Sets, added Chord Diagram (clickable arcs, focus mode, center label) and Transition Heatmap (52px cells, row/col highlighting, selection summary). Both Chord and Heatmap support selection + focus mode integration |
 | 2026-05-08 | 4.47.9 | **Sankey — Sub-Tab Analytics Suite**: Reorganized into 7 sub-tabs (Flow Chart, Conversion Paths, Loop Analysis, Page Timing, Session Endpoints, Revenue Paths, Path Trends). Conversion vs. abandoned path differentiators, A→B→A loop detection with error/LCP correlation, avg/P90 page timing, terminal page & bounce analysis, revenue path ranking (AOV), period-over-period path trend detection. 2 new DQL queries (page duration, previous-period paths) |
