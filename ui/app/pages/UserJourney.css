@@ -103,12 +103,22 @@
 
 .uj-funnel-segment {
   opacity: 0;
-  animation: funnelSegmentIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: funnelSegmentIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .uj-funnel-label {
   opacity: 0;
-  animation: funnelLabelIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: funnelLabelIn 0.75s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Sankey left-to-right wipe animation */
+@keyframes sankeyWipeIn {
+  from { clip-path: inset(0 100% 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+
+.uj-sankey-wipe {
+  animation: sankeyWipeIn 2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .uj-funnel-row {

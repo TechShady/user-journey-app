@@ -1155,7 +1155,7 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0 }: { ste
       ))}
       {/* Current period segments */}
       {steps.map((_, i) => (
-        <path key={i} d={segPath(widths, i)} fill={`url(#funnelStep${i})`} stroke={stepColors[i]} strokeWidth="1" strokeOpacity="0.5" className="uj-funnel-segment" style={{ animationDelay: `${i * 120}ms` }} />
+        <path key={i} d={segPath(widths, i)} fill={`url(#funnelStep${i})`} stroke={stepColors[i]} strokeWidth="1" strokeOpacity="0.5" className="uj-funnel-segment" style={{ animationDelay: `${i * 400}ms` }} />
       ))}
       {/* Labels */}
       {steps.map((step, i) => {
@@ -1169,7 +1169,7 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0 }: { ste
         const countDeltaPct = prevStep && prevStep.count > 0 ? (countDelta / prevStep.count) * 100 : 0;
 
         const stepUrl = appEntityId ? vitalsUrl(appEntityId, stepDefs[i]?.identifier ?? step.label) : undefined;
-        const stagger = i * 120;
+        const stagger = i * 400;
 
         return (
           <g key={i} className="uj-funnel-label" style={{ animationDelay: `${stagger + 60}ms` }}>
@@ -5374,7 +5374,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   // ---- Classic Sankey (original) ----
   const renderClassicSankey = (useGradient: boolean) => (
     <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
-      <svg width={W} height={H} style={{ display: "block", margin: "0 auto", cursor: hasFocus ? "pointer" : "default" }} onClick={() => setFocusNodeId(null)}>
+      <svg className="uj-sankey-wipe" width={W} height={H} style={{ display: "block", margin: "0 auto", cursor: hasFocus ? "pointer" : "default" }} onClick={() => setFocusNodeId(null)}>
         {useGradient && (
           <defs>
             {links.map((l, i) => {
@@ -5584,7 +5584,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
 
     return (
       <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
-        <svg width={gW} height={gH} style={{ display: "block", margin: "0 auto" }}>
+        <svg className="uj-sankey-wipe" width={gW} height={gH} style={{ display: "block", margin: "0 auto" }}>
           <defs>
             <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
               <polygon points="0 0, 8 3, 0 6" fill="rgba(255,255,255,0.5)" />
@@ -5678,7 +5678,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
 
     return (
       <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
-        <svg width={aW} height={aH} style={{ display: "block", margin: "0 auto" }}>
+        <svg className="uj-sankey-wipe" width={aW} height={aH} style={{ display: "block", margin: "0 auto" }}>
           {/* Column background panels */}
           {Array.from({ length: numCols }, (_, d) => {
             const cx = aPAD.left + d * aColW + aColW / 2;
@@ -5798,7 +5798,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
 
     return (
       <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
-        <svg width={smW} height={smH} style={{ display: "block", margin: "0 auto" }}>
+        <svg className="uj-sankey-wipe" width={smW} height={smH} style={{ display: "block", margin: "0 auto" }}>
           <defs>
             <marker id="sm-arrow" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
               <polygon points="0 0, 6 2, 0 4" fill="rgba(255,255,255,0.6)" />
