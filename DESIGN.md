@@ -305,9 +305,11 @@ fetch user.events, from: now() - {timeframe}
 5. **Session Endpoints**: Terminal page detection (where sessions end), bounce rate, bounce pages
 6. **Revenue Paths** (AOV required): Top revenue-generating navigation paths, page touch rates for converting sessions
 7. **Path Trends**: Period-over-period path comparison — new/dropped pages, frequency shifts, transition changes
+8. **Funnel Leakage**: Deep analysis of users leaving the funnel — session classification (recoverers vs lost), exit step distribution, off-funnel destinations, behavioral comparison, CWV/error diagnostic signals, revenue impact, auto-generated insights
 
 **Key Features**:
 - 7 rendering styles: Classic Sankey, Gradient Sankey, Directed Flow Graph, Alluvial/Columnar, State Machine, Chord Diagram, Transition Heatmap
+- 8 analytical sub-tabs including funnel leakage analysis
 - **Chord Diagram**: Circular arc layout with clickable arcs for path highlighting, focus mode support, center label with inbound/outbound detail
 - **Transition Heatmap**: NxN grid with clickable row/column highlighting, selection summary with totals, 52px cells
 - **Funnel highlighting**: Funnel pages rendered in gold with ★ markers and dashed borders across all chart styles
@@ -877,6 +879,7 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-05-10 | 4.47.18 | **Sankey — Funnel Leakage Sub-Tab**: New 8th sub-tab analyzing users who leave the funnel. Session classification (recoverers vs lost vs straight-through), exit step distribution with stacked bar chart, off-funnel destination mapping with recovery/conversion rates, behavioral comparison (path length, off-funnel pages, deepest step, top exit pages), CWV/error diagnostic signals with health scores, revenue impact estimation (AOV), auto-generated insights engine with severity levels |
 | 2026-05-09 | 4.47.15 | **Funnel & Sankey — New Chart Styles**: Funnel Overview gets 5 visualization styles (Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split) with style selector and Settings persistence. Sankey updated to 7 chart styles — removed Sunburst & Parallel Sets, added Chord Diagram (clickable arcs, focus mode, center label) and Transition Heatmap (52px cells, row/col highlighting, selection summary). Both Chord and Heatmap support selection + focus mode integration |
 | 2026-05-08 | 4.47.9 | **Sankey — Sub-Tab Analytics Suite**: Reorganized into 7 sub-tabs (Flow Chart, Conversion Paths, Loop Analysis, Page Timing, Session Endpoints, Revenue Paths, Path Trends). Conversion vs. abandoned path differentiators, A→B→A loop detection with error/LCP correlation, avg/P90 page timing, terminal page & bounce analysis, revenue path ranking (AOV), period-over-period path trend detection. 2 new DQL queries (page duration, previous-period paths) |
 | 2026-05-08 | 4.47.7 | **Sankey — Rich Hover Tooltips**: All 4 renderers now show rich hover tooltips with top 3 inbound/outbound (count & %), self-reload detection (⟲), and error counts. `buildNodeTooltip()` for classic/gradient, `buildLabelTooltip()` for directed/alluvial/state machine |

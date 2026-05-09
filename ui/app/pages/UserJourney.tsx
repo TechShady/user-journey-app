@@ -1643,7 +1643,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights. Country cards are clickable and open <Strong>User Sessions</Strong> filtered to that location.</Paragraph>
         <Paragraph><Strong>Map</Strong>: Interactive choropleth map with World and US views, colorized by session count, average duration, Apdex, error rate, or estimated revenue (when AOV is set). Use the dropdown to switch between World (country-level) and US (state-level) views. Countries/states with data are clickable and link to <Strong>User Sessions</Strong>.</Paragraph>
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
-        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram with 7 analysis sub-tabs organized above the chart. <Strong>Flow Chart</Strong> (default): 7 chart styles — Classic, Gradient, Directed Flow, Alluvial, State Machine, <Strong>Chord Diagram</Strong> (circular arc layout with clickable arcs for path highlighting, focus mode support, center label display), and <Strong>Transition Heatmap</Strong> (NxN grid with clickable row/column highlighting, selection summary, 52px cells). All styles support funnel highlighting, exit detection, and focus mode. <Strong>Conversion Paths</Strong>: Compares converted vs. abandoned session paths — shows differentiating pages, path lengths, and top transitions for each group. <Strong>Loop Analysis</Strong>: Detects A→B→A back-and-forth navigation patterns indicating user confusion, with error/LCP correlation. <Strong>Page Timing</Strong>: Average and P90 duration per page with health scores — identifies slow funnel bottlenecks. <Strong>Session Endpoints</Strong>: Where sessions end (browser close), bounce rate, and terminal page analysis with error correlation. <Strong>Revenue Paths</Strong> (AOV required): Top revenue-generating navigation paths and page touch rates for converting sessions. <Strong>Path Trends</Strong>: Period-over-period comparison of navigation patterns — detects new/dropped pages, frequency shifts, and transition changes.</Paragraph>
+        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram with 7 analysis sub-tabs organized above the chart. <Strong>Flow Chart</Strong> (default): 7 chart styles — Classic, Gradient, Directed Flow, Alluvial, State Machine, <Strong>Chord Diagram</Strong> (circular arc layout with clickable arcs for path highlighting, focus mode support, center label display), and <Strong>Transition Heatmap</Strong> (NxN grid with clickable row/column highlighting, selection summary, 52px cells). All styles support funnel highlighting, exit detection, and focus mode. <Strong>Conversion Paths</Strong>: Compares converted vs. abandoned session paths — shows differentiating pages, path lengths, and top transitions for each group. <Strong>Loop Analysis</Strong>: Detects A→B→A back-and-forth navigation patterns indicating user confusion, with error/LCP correlation. <Strong>Page Timing</Strong>: Average and P90 duration per page with health scores — identifies slow funnel bottlenecks. <Strong>Session Endpoints</Strong>: Where sessions end (browser close), bounce rate, and terminal page analysis with error correlation. <Strong>Revenue Paths</Strong> (AOV required): Top revenue-generating navigation paths and page touch rates for converting sessions. <Strong>Path Trends</Strong>: Period-over-period comparison of navigation patterns — detects new/dropped pages, frequency shifts, and transition changes. <Strong>Funnel Leakage</Strong>: Deep analysis of users who navigate away from the funnel — classifies sessions into recoverers (returned) vs lost users, compares their behavior, identifies exit step hotspots, maps off-funnel destinations, and correlates exit pages with CWV/errors for performance-driven optimization.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations. When AOV is set, shows Revenue at Risk from anomalous conversion drops.</Paragraph>
         <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device x browser cross-section. When AOV is set, adds revenue columns to device and browser tables and revenue totals to speed buckets.</Paragraph>
         <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. When AOV is set, revenue appears in key metrics, performance snapshot, and exports. Use <Strong>Export PDF</Strong> to open a print-ready report in a new tab (use browser Print → Save as PDF), or <Strong>Copy Text</Strong> to get a plain-text summary for Slack/Teams/email. Designed for quick status checks and executive presentations.</Paragraph>
@@ -5049,7 +5049,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
-  const [sankeySubTab, setSankeySubTab] = useState<"flow" | "convPaths" | "loops" | "timing" | "endpoints" | "revPaths" | "pathTrends">("flow");
+  const [sankeySubTab, setSankeySubTab] = useState<"flow" | "convPaths" | "loops" | "timing" | "endpoints" | "revPaths" | "pathTrends" | "leakage">("flow");
 
   const totalSessions = records.reduce((a: number, r: any) => a + Number(r.sessions ?? r.d0 ?? 0), 0);
   const uniquePages = new Set(nodes.map(n => n.label)).size;
@@ -5286,6 +5286,182 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
 
     return { totalPaths, funnelCompletions, funnelExits, returnsAfterExit, sortedExits, sortedOffFunnel };
   }, [pathsData, steps]);
+
+  // ---- Funnel Leakage Analysis (sub-tab 8) ----
+  const leakageAnalysis = useMemo(() => {
+    const pathRecords = (pathsData?.data?.records ?? []) as any[];
+    const lastStepId = steps[steps.length - 1]?.identifier ?? "";
+    const matchesLastStep = (page: string) => lastStepId.endsWith("*") ? page.startsWith(lastStepId.slice(0, -1)) : page === lastStepId;
+
+    // Classify each session
+    type SessionClass = {
+      path: string[];
+      completed: boolean;         // reached last funnel step
+      leftFunnel: boolean;        // went off-funnel at some point
+      returnedToFunnel: boolean;  // came back to funnel after leaving
+      exitStep: number;           // funnel step index where they left (-1 if never left)
+      exitPage: string;           // the funnel page they were on when leaving
+      offFunnelPages: string[];   // pages visited while off-funnel
+      offFunnelCount: number;     // total off-funnel page views
+      pathLength: number;
+      maxFunnelStep: number;      // deepest funnel step reached
+    };
+
+    const sessions: SessionClass[] = [];
+    const leavers: SessionClass[] = [];     // left funnel
+    const recoverers: SessionClass[] = [];  // left and returned
+    const lostUsers: SessionClass[] = [];   // left and never returned
+    const converters: SessionClass[] = [];  // completed funnel
+    const straightThrough: SessionClass[] = []; // completed without leaving
+
+    for (const r of pathRecords) {
+      const path: string[] = (r.path ?? []).map((p: any) => String(p));
+      if (path.length < 2) continue;
+
+      const s: SessionClass = {
+        path, completed: false, leftFunnel: false, returnedToFunnel: false,
+        exitStep: -1, exitPage: "", offFunnelPages: [], offFunnelCount: 0,
+        pathLength: path.length, maxFunnelStep: -1,
+      };
+
+      let wasInFunnel = false;
+      let isOffFunnel = false;
+
+      for (let i = 0; i < path.length; i++) {
+        const page = path[i];
+        const stepIdx = funnelStepIndex(page);
+        if (stepIdx >= 0) {
+          s.maxFunnelStep = Math.max(s.maxFunnelStep, stepIdx);
+          if (isOffFunnel) {
+            s.returnedToFunnel = true;
+            isOffFunnel = false;
+          }
+          wasInFunnel = true;
+          if (matchesLastStep(page)) s.completed = true;
+        } else if (wasInFunnel && !isOffFunnel) {
+          // First time leaving funnel
+          s.leftFunnel = true;
+          isOffFunnel = true;
+          s.exitStep = s.maxFunnelStep;
+          s.exitPage = path[i - 1] ?? "";
+          s.offFunnelPages.push(page);
+          s.offFunnelCount++;
+        } else if (isOffFunnel) {
+          s.offFunnelPages.push(page);
+          s.offFunnelCount++;
+        }
+      }
+
+      sessions.push(s);
+      if (s.completed) converters.push(s);
+      if (s.leftFunnel) {
+        leavers.push(s);
+        if (s.returnedToFunnel) recoverers.push(s);
+        else lostUsers.push(s);
+      }
+      if (s.completed && !s.leftFunnel) straightThrough.push(s);
+    }
+
+    // --- Exit step distribution: where do users leave the funnel ---
+    const exitStepCounts = new Map<number, { total: number; recovered: number; lost: number; converted: number }>();
+    for (const s of leavers) {
+      const e = exitStepCounts.get(s.exitStep) ?? { total: 0, recovered: 0, lost: 0, converted: 0 };
+      e.total++;
+      if (s.returnedToFunnel) e.recovered++;
+      else e.lost++;
+      if (s.completed) e.converted++;
+      exitStepCounts.set(s.exitStep, e);
+    }
+    const exitStepData = steps.map((step, i) => {
+      const d = exitStepCounts.get(i) ?? { total: 0, recovered: 0, lost: 0, converted: 0 };
+      return { step: step.label, index: i, ...d, recoveryRate: d.total > 0 ? (d.recovered / d.total) * 100 : 0, convRate: d.total > 0 ? (d.converted / d.total) * 100 : 0 };
+    });
+
+    // --- Off-funnel destinations: where do users go when they leave ---
+    const destMap = new Map<string, { count: number; fromRecoverers: number; fromLost: number; fromConverters: number }>();
+    for (const s of leavers) {
+      for (const pg of s.offFunnelPages) {
+        const d = destMap.get(pg) ?? { count: 0, fromRecoverers: 0, fromLost: 0, fromConverters: 0 };
+        d.count++;
+        if (s.returnedToFunnel) d.fromRecoverers++;
+        else d.fromLost++;
+        if (s.completed) d.fromConverters++;
+        destMap.set(pg, d);
+      }
+    }
+    const offFunnelDests = Array.from(destMap.entries())
+      .map(([page, d]) => ({ page, ...d, recoveryRate: d.count > 0 ? (d.fromRecoverers / d.count) * 100 : 0, convRate: d.count > 0 ? (d.fromConverters / d.count) * 100 : 0 }))
+      .sort((a, b) => b.count - a.count).slice(0, 15);
+
+    // --- Behavioral comparison: recoverers vs lost users ---
+    const avgPathLen = (arr: SessionClass[]) => arr.length > 0 ? arr.reduce((s, x) => s + x.pathLength, 0) / arr.length : 0;
+    const avgOffFunnel = (arr: SessionClass[]) => arr.length > 0 ? arr.reduce((s, x) => s + x.offFunnelCount, 0) / arr.length : 0;
+    const avgMaxStep = (arr: SessionClass[]) => arr.length > 0 ? arr.reduce((s, x) => s + x.maxFunnelStep, 0) / arr.length : 0;
+
+    // --- CWV & error comparison: exit pages of recoverers vs lost ---
+    const exitPageStats = (arr: SessionClass[]) => {
+      const pages = new Map<string, number>();
+      for (const s of arr) if (s.exitPage) pages.set(s.exitPage, (pages.get(s.exitPage) ?? 0) + 1);
+      return Array.from(pages.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    };
+
+    // --- Diagnostic signals: correlate leakage with performance ---
+    const leakageSignals: { page: string; exitCount: number; lcp: number; errors: number; healthScore: number }[] = [];
+    const exitPageTotals = new Map<string, number>();
+    for (const s of leavers) if (s.exitPage) exitPageTotals.set(s.exitPage, (exitPageTotals.get(s.exitPage) ?? 0) + 1);
+    for (const [page, count] of exitPageTotals) {
+      const cwv = cwvMap.get(page);
+      const err = errorMap.get(page);
+      const lcp = cwv?.lcp ?? 0;
+      const errors = err?.errorCount ?? 0;
+      let score = 100;
+      if (lcp > 4000) score -= 30; else if (lcp > 2500) score -= 15;
+      if (errors > 0) score -= Math.min(30, errors);
+      leakageSignals.push({ page, exitCount: count, lcp, errors, healthScore: Math.max(0, score) });
+    }
+    leakageSignals.sort((a, b) => b.exitCount - a.exitCount);
+
+    // --- Auto-generated insights ---
+    const insights: { icon: string; text: string; severity: "critical" | "warning" | "info" }[] = [];
+    const leakageRate = sessions.length > 0 ? (leavers.length / sessions.length) * 100 : 0;
+    const recoveryRate = leavers.length > 0 ? (recoverers.length / leavers.length) * 100 : 0;
+    const leakConvRate = leavers.length > 0 ? (leavers.filter(s => s.completed).length / leavers.length) * 100 : 0;
+    const straightConvRate = sessions.length > 0 ? (straightThrough.length / sessions.length) * 100 : 0;
+
+    if (leakageRate > 60) insights.push({ icon: "🚨", text: `${fmtPct(leakageRate)} of sessions leave the funnel at some point — significant leakage`, severity: "critical" });
+    else if (leakageRate > 30) insights.push({ icon: "⚠️", text: `${fmtPct(leakageRate)} funnel leakage rate — users are navigating off-path`, severity: "warning" });
+    else insights.push({ icon: "✅", text: `${fmtPct(leakageRate)} leakage rate — most users stay on the funnel`, severity: "info" });
+
+    if (recoveryRate > 50) insights.push({ icon: "🔄", text: `${fmtPct(recoveryRate)} of users who leave eventually return — the funnel has strong pull-back`, severity: "info" });
+    else if (recoveryRate > 20) insights.push({ icon: "⚠️", text: `Only ${fmtPct(recoveryRate)} of off-funnel users return — most who leave are lost`, severity: "warning" });
+    else if (leavers.length > 0) insights.push({ icon: "🚨", text: `Only ${fmtPct(recoveryRate)} recovery rate — almost all users who leave never come back`, severity: "critical" });
+
+    if (leakConvRate > 30) insights.push({ icon: "✅", text: `${fmtPct(leakConvRate)} of users who leave the funnel still end up converting`, severity: "info" });
+    else if (leakConvRate > 10) insights.push({ icon: "⚠️", text: `Only ${fmtPct(leakConvRate)} of off-funnel users eventually convert`, severity: "warning" });
+    else if (leavers.length > 0) insights.push({ icon: "🚨", text: `Only ${fmtPct(leakConvRate)} of users who leave the funnel convert — off-funnel is a dead end`, severity: "critical" });
+
+    // Performance-correlated insight
+    const worstExitPage = leakageSignals[0];
+    if (worstExitPage && worstExitPage.lcp > 2500) insights.push({ icon: "🐌", text: `Top exit page "${worstExitPage.page.substring(0, 30)}" has ${Math.round(worstExitPage.lcp)}ms LCP — slow performance may be driving users away`, severity: "warning" });
+    if (worstExitPage && worstExitPage.errors > 5) insights.push({ icon: "💥", text: `Top exit page "${worstExitPage.page.substring(0, 30)}" has ${worstExitPage.errors} errors — errors may be causing funnel abandonment`, severity: "critical" });
+
+    // Path length insight
+    const recAvgPath = avgPathLen(recoverers);
+    const lostAvgPath = avgPathLen(lostUsers);
+    if (recAvgPath > lostAvgPath * 1.3 && recoverers.length > 3) insights.push({ icon: "📏", text: `Recoverers have ${recAvgPath.toFixed(1)}-page avg paths vs ${lostAvgPath.toFixed(1)} for lost users — longer engagement correlates with return`, severity: "info" });
+
+    return {
+      sessions: sessions.length, leavers: leavers.length, recoverers: recoverers.length,
+      lostUsers: lostUsers.length, converters: converters.length, straightThrough: straightThrough.length,
+      leakageRate, recoveryRate, leakConvRate, straightConvRate,
+      exitStepData, offFunnelDests, leakageSignals: leakageSignals.slice(0, 10), insights,
+      recAvgPath: avgPathLen(recoverers), lostAvgPath: avgPathLen(lostUsers),
+      recAvgOffFunnel: avgOffFunnel(recoverers), lostAvgOffFunnel: avgOffFunnel(lostUsers),
+      recAvgMaxStep: avgMaxStep(recoverers), lostAvgMaxStep: avgMaxStep(lostUsers),
+      recExitPages: exitPageStats(recoverers), lostExitPages: exitPageStats(lostUsers),
+      recConvRate: recoverers.length > 0 ? (recoverers.filter(s => s.completed).length / recoverers.length) * 100 : 0,
+    };
+  }, [pathsData, steps, cwvMap, errorMap]);
 
   // ---- Page health: combine CWV + errors for each page ----
   const pageHealth = useMemo(() => {
@@ -6574,6 +6750,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     { key: "endpoints", label: "Session Endpoints", icon: "🛑" },
     { key: "revPaths", label: "Revenue Paths", icon: "💰", show: aov > 0 },
     { key: "pathTrends", label: "Path Trends", icon: "📈" },
+    { key: "leakage", label: "Funnel Leakage", icon: "🔍" },
   ];
 
   const subTabBar = (
@@ -6817,13 +6994,168 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
           )}
         </>
       )}
+
+      {/* ==== FUNNEL LEAKAGE sub-tab ==== */}
+      {sankeySubTab === "leakage" && (
+        <>
+          {/* Insights banner */}
+          {leakageAnalysis.insights.length > 0 && (
+            <div className="uj-table-tile" style={{ padding: 14 }}>
+              {leakageAnalysis.insights.map((ins, i) => (
+                <div key={i} style={{ padding: "4px 0", fontSize: 13, opacity: ins.severity === "info" ? 0.7 : 1, color: ins.severity === "critical" ? RED : ins.severity === "warning" ? YELLOW : "inherit" }}>
+                  {ins.icon} {ins.text}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* KPIs */}
+          <Flex gap={16} flexWrap="wrap">
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Sessions</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(leakageAnalysis.sessions)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Left Funnel</Text><Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCount(leakageAnalysis.leavers)} ({fmtPct(leakageAnalysis.leakageRate)})</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Returned</Text><Heading level={2} className="uj-kpi-value" style={{ color: leakageAnalysis.recoveryRate > 40 ? GREEN : leakageAnalysis.recoveryRate > 20 ? YELLOW : RED }}>{fmtCount(leakageAnalysis.recoverers)} ({fmtPct(leakageAnalysis.recoveryRate)})</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Lost (Never Returned)</Text><Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCount(leakageAnalysis.lostUsers)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Leaker Conv Rate</Text><Heading level={2} className="uj-kpi-value" style={{ color: leakageAnalysis.leakConvRate >= 20 ? GREEN : leakageAnalysis.leakConvRate >= 10 ? YELLOW : RED }}>{fmtPct(leakageAnalysis.leakConvRate)}</Heading></div>
+            <div className="uj-kpi-card"><Text className="uj-kpi-label">Straight-Through</Text><Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{fmtCount(leakageAnalysis.straightThrough)} ({fmtPct(leakageAnalysis.straightConvRate)})</Heading></div>
+          </Flex>
+
+          {/* Exit Step Distribution */}
+          <SectionHeader title="Where Users Leave the Funnel — Exit step distribution" />
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <svg width="100%" viewBox={`0 0 720 ${Math.max(180, leakageAnalysis.exitStepData.length * 36 + 40)}`}>
+              {leakageAnalysis.exitStepData.map((d, i) => {
+                const maxExits = Math.max(1, ...leakageAnalysis.exitStepData.map(x => x.total));
+                const y = i * 36 + 20;
+                const barW = Math.max(4, (d.total / maxExits) * 400);
+                const recW = d.total > 0 ? (d.recovered / d.total) * barW : 0;
+                const lostW = barW - recW;
+                return (
+                  <g key={i}>
+                    <text x={120} y={y + 14} textAnchor="end" fill="rgba(255,255,255,0.7)" fontSize={11} fontWeight={600}>Step {d.index + 1}: {d.step.substring(0, 16)}</text>
+                    {/* Lost portion */}
+                    <rect x={130} y={y} width={lostW} height={24} rx={4} fill={RED} fillOpacity={0.3} stroke={RED} strokeWidth={0.5} strokeOpacity={0.4}>
+                      <title>{`Lost: ${fmtCount(d.lost)} users`}</title>
+                    </rect>
+                    {/* Recovered portion */}
+                    <rect x={130 + lostW} y={y} width={recW} height={24} rx={4} fill={GREEN} fillOpacity={0.3} stroke={GREEN} strokeWidth={0.5} strokeOpacity={0.4}>
+                      <title>{`Recovered: ${fmtCount(d.recovered)} users`}</title>
+                    </rect>
+                    <text x={130 + barW + 8} y={y + 10} fill="rgba(255,255,255,0.8)" fontSize={10} fontWeight={700}>{fmtCount(d.total)}</text>
+                    <text x={130 + barW + 8} y={y + 22} fill="rgba(255,255,255,0.4)" fontSize={9}>{fmtPct(d.recoveryRate)} recovered · {fmtPct(d.convRate)} converted</text>
+                  </g>
+                );
+              })}
+              {/* Legend */}
+              <rect x={130} y={leakageAnalysis.exitStepData.length * 36 + 24} width={10} height={10} rx={2} fill={RED} fillOpacity={0.4} />
+              <text x={144} y={leakageAnalysis.exitStepData.length * 36 + 33} fill="rgba(255,255,255,0.5)" fontSize={9}>Lost</text>
+              <rect x={190} y={leakageAnalysis.exitStepData.length * 36 + 24} width={10} height={10} rx={2} fill={GREEN} fillOpacity={0.4} />
+              <text x={204} y={leakageAnalysis.exitStepData.length * 36 + 33} fill="rgba(255,255,255,0.5)" fontSize={9}>Recovered</text>
+            </svg>
+          </div>
+
+          {/* Behavioral Comparison: Recoverers vs Lost */}
+          <SectionHeader title="Behavioral Comparison — Recoverers vs. Lost Users" />
+          <Flex gap={16} flexWrap="wrap">
+            <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280 }}>
+              <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 8, display: "block" }}>🔄 Recoverers (left but returned)</Text>
+              <Flex flexDirection="column" gap={6}>
+                <Flex justifyContent="space-between"><Text style={{ fontSize: 12 }}>Count</Text><Strong style={{ color: GREEN }}>{fmtCount(leakageAnalysis.recoverers)}</Strong></Flex>
+                <Flex justifyContent="space-between"><Text style={{ fontSize: 12 }}>Conversion Rate</Text><Strong style={{ color: leakageAnalysis.recConvRate >= 20 ? GREEN : leakageAnalysis.recConvRate >= 10 ? YELLOW : RED }}>{fmtPct(leakageAnalysis.recConvRate)}</Strong></Flex>
+                <Flex justifyContent="space-between"><Text style={{ fontSize: 12 }}>Avg Path Length</Text><Strong>{leakageAnalysis.recAvgPath.toFixed(1)} pages</Strong></Flex>
+                <Flex justifyContent="space-between"><Text style={{ fontSize: 12 }}>Avg Off-Funnel Pages</Text><Strong>{leakageAnalysis.recAvgOffFunnel.toFixed(1)}</Strong></Flex>
+                <Flex justifyContent="space-between"><Text style={{ fontSize: 12 }}>Avg Deepest Step</Text><Strong>Step {(leakageAnalysis.recAvgMaxStep + 1).toFixed(1)}</Strong></Flex>
+                {leakageAnalysis.recExitPages.length > 0 && (
+                  <>
+                    <Text style={{ fontSize: 11, opacity: 0.4, marginTop: 4 }}>Top exit pages:</Text>
+                    {leakageAnalysis.recExitPages.map(([pg, ct], i) => (
+                      <Flex key={i} justifyContent="space-between"><Text style={{ fontSize: 11, opacity: 0.7 }}>{pg.substring(0, 28)}</Text><Text style={{ fontSize: 11 }}>{fmtCount(ct)}</Text></Flex>
+                    ))}
+                  </>
+                )}
+              </Flex>
+            </div>
+            <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 280 }}>
+              <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 8, display: "block" }}>❌ Lost Users (left, never returned)</Text>
+              <Flex flexDirection="column" gap={6}>
+                <Flex justifyContent="space-between"><Text style={{ fontSize: 12 }}>Count</Text><Strong style={{ color: RED }}>{fmtCount(leakageAnalysis.lostUsers)}</Strong></Flex>
+                <Flex justifyContent="space-between"><Text style={{ fontSize: 12 }}>Conversion Rate</Text><Strong style={{ color: RED }}>0.0%</Strong></Flex>
+                <Flex justifyContent="space-between"><Text style={{ fontSize: 12 }}>Avg Path Length</Text><Strong>{leakageAnalysis.lostAvgPath.toFixed(1)} pages</Strong></Flex>
+                <Flex justifyContent="space-between"><Text style={{ fontSize: 12 }}>Avg Off-Funnel Pages</Text><Strong>{leakageAnalysis.lostAvgOffFunnel.toFixed(1)}</Strong></Flex>
+                <Flex justifyContent="space-between"><Text style={{ fontSize: 12 }}>Avg Deepest Step</Text><Strong>Step {(leakageAnalysis.lostAvgMaxStep + 1).toFixed(1)}</Strong></Flex>
+                {leakageAnalysis.lostExitPages.length > 0 && (
+                  <>
+                    <Text style={{ fontSize: 11, opacity: 0.4, marginTop: 4 }}>Top exit pages:</Text>
+                    {leakageAnalysis.lostExitPages.map(([pg, ct], i) => (
+                      <Flex key={i} justifyContent="space-between"><Text style={{ fontSize: 11, opacity: 0.7 }}>{pg.substring(0, 28)}</Text><Text style={{ fontSize: 11 }}>{fmtCount(ct)}</Text></Flex>
+                    ))}
+                  </>
+                )}
+              </Flex>
+            </div>
+          </Flex>
+
+          {/* Off-Funnel Destinations */}
+          <SectionHeader title="Off-Funnel Destinations — Where users go when they leave" />
+          <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={leakageAnalysis.offFunnelDests.map(d => ({
+            Page: d.page.substring(0, 40), Visits: d.count,
+            "From Recoverers": d.fromRecoverers, "From Lost": d.fromLost,
+            "Recovery Rate": d.recoveryRate, "Conv Rate": d.convRate,
+          }))} columns={[
+            { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => <Strong>{value}</Strong> },
+            { id: "Visits", header: "Visits", accessor: "Visits", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{fmtCount(value)}</Strong> },
+            { id: "From Recoverers", header: "Recoverers", accessor: "From Recoverers", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: GREEN }}>{fmtCount(value)}</Text> },
+            { id: "From Lost", header: "Lost", accessor: "From Lost", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: RED }}>{fmtCount(value)}</Text> },
+            { id: "Recovery Rate", header: "Recovery %", accessor: "Recovery Rate", sortType: "number" as any, cell: ({ value }: any) => <span style={{ display: "inline-block", width: "100%", padding: "2px 8px", borderRadius: 4, background: value >= 50 ? "rgba(13,156,41,0.15)" : value >= 25 ? "rgba(184,134,11,0.15)" : "rgba(194,25,48,0.15)", color: value >= 50 ? GREEN : value >= 25 ? YELLOW : RED, fontWeight: 700, textAlign: "center" }}>{fmtPct(value)}</span> },
+            { id: "Conv Rate", header: "Conv %", accessor: "Conv Rate", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value >= 20 ? GREEN : value >= 10 ? YELLOW : RED }}>{fmtPct(value)}</Strong> },
+          ]} /></div>
+
+          {/* Diagnostic Signals — Performance correlation */}
+          <SectionHeader title="Leakage Diagnostic Signals — Is performance driving users away?" />
+          <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={leakageAnalysis.leakageSignals.map(s => ({
+            "Exit Page": s.page.substring(0, 40), "Exit Count": s.exitCount,
+            "LCP (ms)": s.lcp > 0 ? Math.round(s.lcp) : null,
+            Errors: s.errors, Health: s.healthScore,
+          }))} columns={[
+            { id: "Exit Page", header: "Exit Page", accessor: "Exit Page", cell: ({ value }: any) => <Strong>{value}</Strong> },
+            { id: "Exit Count", header: "Exits", accessor: "Exit Count", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> },
+            { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "lcp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
+            { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => value > 0 ? <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> : <Text style={{ opacity: 0.3 }}>0</Text> },
+            { id: "Health", header: "Health", accessor: "Health", sortType: "number" as any, cell: ({ value }: any) => <span style={{ display: "inline-block", width: "100%", padding: "2px 8px", borderRadius: 4, background: value >= 70 ? "rgba(13,156,41,0.15)" : value >= 40 ? "rgba(184,134,11,0.15)" : "rgba(194,25,48,0.15)", color: value >= 70 ? GREEN : value >= 40 ? YELLOW : RED, fontWeight: 700, textAlign: "center" }}>{value}/100</span> },
+          ]} /></div>
+
+          {aov > 0 && (
+            <>
+              <SectionHeader title="Revenue Impact of Funnel Leakage" />
+              <Flex gap={16} flexWrap="wrap">
+                <div className="uj-revenue-card">
+                  <Text className="uj-metric-label">Lost Users</Text>
+                  <Strong className="uj-metric-value" style={{ color: RED }}>{fmtCount(leakageAnalysis.lostUsers)}</Strong>
+                  <Text style={{ fontSize: 13, opacity: 0.5 }}>Never returned to funnel</Text>
+                </div>
+                <div className="uj-revenue-card">
+                  <Text className="uj-metric-label">Est. Revenue at Risk</Text>
+                  <Strong className="uj-metric-value" style={{ color: RED }}>{fmtCurrency(leakageAnalysis.lostUsers * aov * (leakageAnalysis.leakConvRate / 100))}</Strong>
+                  <Text style={{ fontSize: 13, opacity: 0.5 }}>If lost users converted at leaker rate ({fmtPct(leakageAnalysis.leakConvRate)})</Text>
+                </div>
+                <div className="uj-revenue-card">
+                  <Text className="uj-metric-label">Recovery Revenue Saved</Text>
+                  <Strong className="uj-metric-value" style={{ color: GREEN }}>{fmtCurrency(leakageAnalysis.recoverers * aov * (leakageAnalysis.recConvRate / 100))}</Strong>
+                  <Text style={{ fontSize: 13, opacity: 0.5 }}>Revenue from recoverers who converted</Text>
+                </div>
+              </Flex>
+            </>
+          )}
+
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Text style={{ fontSize: 13, opacity: 0.7 }}>
+              💡 <Strong>Funnel Leakage</Strong> tracks users who navigate away from the defined funnel steps. <Strong>Recoverers</Strong> are users who left but found their way back and may still convert. <Strong>Lost users</Strong> left and never returned. Compare their behavior — longer sessions and deeper funnel penetration before leaving correlate with higher recovery rates. Pages with poor LCP or high error counts on exit pages are strong candidates for performance optimization to reduce leakage.
+            </Text>
+          </div>
+        </>
+      )}
     </Flex>
   );
 }
-
-// ===========================================================================
-// TAB: Root Cause Correlation
-// ===========================================================================
 function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, isLoading, steps, aov, funnelCounts }: { hourlyData: any; stepDropData: any; quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; isLoading: boolean; steps: StepDef[]; aov: number; funnelCounts: number[] }) {
   if (isLoading) return <Loading />;
 
