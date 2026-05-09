@@ -5,7 +5,7 @@ import { UserJourney } from "./pages/UserJourney";
 import { ObservabilityJourney } from "./pages/ObservabilityJourney";
 import { SettingsProvider } from "./SettingsContext";
 
-const CURRENT_VERSION = "4.47.26";
+const CURRENT_VERSION = "4.47.27";
 const REPO_URL = "https://github.com/TechShady/user-journey-app";
 
 function isNewer(latest: string, current: string): boolean {
