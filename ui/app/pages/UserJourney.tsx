@@ -21,15 +21,27 @@ import type { StepDef } from "../SettingsContext";
 // ---------------------------------------------------------------------------
 const SANKEY_STYLE_STATE_KEY = "uj-sankey-style";
 const MAP_VIEW_STATE_KEY = "uj-map-view";
-type SankeyStyle = "classic" | "gradient" | "directed" | "alluvial" | "stateMachine";
+type SankeyStyle = "classic" | "gradient" | "directed" | "alluvial" | "stateMachine" | "chord" | "heatmap";
 const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "classic", label: "Classic Sankey" },
   { value: "gradient", label: "Gradient Sankey" },
   { value: "directed", label: "Directed Flow Graph" },
   { value: "alluvial", label: "Alluvial / Columnar" },
   { value: "stateMachine", label: "State Machine" },
+  { value: "chord", label: "Chord Diagram" },
+  { value: "heatmap", label: "Transition Heatmap" },
 ];
 const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
+type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split";
+const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
+  { value: "classic", label: "Classic Funnel" },
+  { value: "horizontal", label: "Horizontal Bar" },
+  { value: "cohort", label: "Stacked Cohort" },
+  { value: "elapsed", label: "Elapsed-Time Curve" },
+  { value: "split", label: "Comparison Split" },
+];
+const DEFAULT_FUNNEL_STYLE: FunnelStyle = "classic";
+const FUNNEL_STYLE_STATE_KEY = "uj-funnel-style";
 type MapViewSetting = "world" | "us";
 const MAP_VIEW_OPTIONS: { value: MapViewSetting; label: string }[] = [
   { value: "world", label: "World" },
@@ -1221,6 +1233,285 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0 }: { ste
 }
 
 // ---------------------------------------------------------------------------
+// Horizontal Bar Funnel (Waterfall)
+// ---------------------------------------------------------------------------
+function HorizontalBarFunnel({ steps, prevSteps, aov }: { steps: FunnelStep[]; prevSteps?: FunnelStep[]; aov: number }) {
+  const maxCount = Math.max(1, ...steps.map(s => s.count));
+  const W = 760, barH = 44, gap = 6, padL = 120, padR = 160;
+  const barArea = W - padL - padR;
+  const H = steps.length * (barH + gap) + 30;
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="uj-funnel-svg">
+      {steps.map((step, i) => {
+        const y = i * (barH + gap) + 10;
+        const w = Math.max(4, (step.count / maxCount) * barArea);
+        const prevW = prevSteps?.[i] ? Math.max(4, (prevSteps[i].count / maxCount) * barArea) : 0;
+        const dropW = i > 0 ? Math.max(0, (steps[i - 1].count / maxCount) * barArea - w) : 0;
+        const dropPct = i === 0 ? 0 : 100 - step.convFromPrev;
+        const color = i === 0 ? BLUE : dropPct > 50 ? RED : dropPct > 30 ? ORANGE : dropPct > 15 ? YELLOW : GREEN;
+        const stagger = i * 120;
+
+        return (
+          <g key={i} className="uj-funnel-segment" style={{ animationDelay: `${stagger}ms` }}>
+            {/* Step label */}
+            <text x={padL - 8} y={y + barH / 2 + 4} textAnchor="end" fill="rgba(255,255,255,0.85)" fontSize={12} fontWeight={600}>{step.label}</text>
+            {/* Previous period ghost bar */}
+            {prevSteps && prevW > 0 && (
+              <rect x={padL} y={y + 2} width={prevW} height={barH - 4} rx={4} fill="none" stroke="rgba(128,128,128,0.35)" strokeWidth={2} strokeDasharray="6 4" />
+            )}
+            {/* Drop-off extension (red area from prev bar to current) */}
+            {i > 0 && dropW > 0 && (
+              <rect x={padL + w} y={y + 4} width={dropW} height={barH - 8} rx={3} fill={RED} fillOpacity={0.12} stroke={RED} strokeWidth={0.5} strokeOpacity={0.3}>
+                <title>{`Drop-off: ${fmtCount(steps[i - 1].count - step.count)} sessions (${fmtPct(dropPct)})`}</title>
+              </rect>
+            )}
+            {/* Main bar */}
+            <rect x={padL} y={y} width={w} height={barH} rx={5} fill={color} fillOpacity={0.35} stroke={color} strokeWidth={1.5} strokeOpacity={0.6} />
+            {/* Count inside bar */}
+            <CountUpText value={step.count} delay={stagger + 100} x={padL + Math.min(w - 8, Math.max(60, w / 2))} y={y + barH / 2 + 4} textAnchor="end" fill="rgba(255,255,255,0.9)" fontSize={13} fontWeight={700} />
+            {/* Right side stats */}
+            <text x={W - padR + 8} y={y + 14} fill={statusClr(step.overallConv)} fontSize={11} fontWeight={600}>{fmtPct(step.overallConv)} overall</text>
+            {i > 0 && (
+              <text x={W - padR + 8} y={y + 30} fill={dropPct > 30 ? RED : YELLOW} fontSize={10}>{fmtPct(step.convFromPrev)} conv · {fmtPct(dropPct)} drop</text>
+            )}
+            {i > 0 && aov > 0 && step.count < steps[i - 1].count && (
+              <text x={W - padR + 8} y={y + 42} fill={RED} fontSize={9} opacity={0.6}>{fmtCurrency((steps[i - 1].count - step.count) * aov)} lost</text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stacked Cohort Funnel (Marimekko)
+// ---------------------------------------------------------------------------
+function StackedCohortFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number }) {
+  const W = 720, colW = 100, gap = 12, padL = 30, padT = 30, padB = 60;
+  const totalW = steps.length * (colW + gap);
+  const maxCount = Math.max(1, steps[0].count);
+  const colH = 340;
+  const H = padT + colH + padB;
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${Math.max(W, padL + totalW + 40)} ${H}`} className="uj-funnel-svg">
+      {steps.map((step, i) => {
+        const x = padL + i * (colW + gap);
+        const fullH = (step.count / maxCount) * colH;
+        const nextCount = i < steps.length - 1 ? steps[i + 1].count : 0;
+        const convertedH = i < steps.length - 1 ? (nextCount / maxCount) * colH : fullH;
+        const droppedH = fullH - convertedH;
+        const yBase = padT + colH - fullH;
+        const dropPct = i === 0 ? 0 : 100 - step.convFromPrev;
+        const color = i === 0 ? BLUE : dropPct > 50 ? RED : dropPct > 30 ? ORANGE : dropPct > 15 ? YELLOW : GREEN;
+        const stagger = i * 150;
+
+        return (
+          <g key={i} className="uj-funnel-segment" style={{ animationDelay: `${stagger}ms` }}>
+            {/* Converted portion (bottom) */}
+            <rect x={x} y={yBase + droppedH} width={colW} height={Math.max(2, convertedH)} rx={4} fill={GREEN} fillOpacity={0.35} stroke={GREEN} strokeWidth={1} strokeOpacity={0.5}>
+              <title>{`Converted to next step: ${fmtCount(nextCount)} sessions`}</title>
+            </rect>
+            {/* Dropped portion (top) */}
+            {droppedH > 1 && i < steps.length - 1 && (
+              <rect x={x} y={yBase} width={colW} height={droppedH} rx={4} fill={RED} fillOpacity={0.2} stroke={RED} strokeWidth={1} strokeOpacity={0.4}>
+                <title>{`Dropped off: ${fmtCount(step.count - nextCount)} sessions`}</title>
+              </rect>
+            )}
+            {/* Last step — full is converted */}
+            {i === steps.length - 1 && (
+              <rect x={x} y={yBase} width={colW} height={Math.max(2, fullH)} rx={4} fill={GREEN} fillOpacity={0.5} stroke={GREEN} strokeWidth={1.5} strokeOpacity={0.7}>
+                <title>{`Final conversion: ${fmtCount(step.count)} sessions`}</title>
+              </rect>
+            )}
+            {/* Connector line to next column */}
+            {i < steps.length - 1 && (
+              <line x1={x + colW} y1={yBase + droppedH + convertedH / 2} x2={x + colW + gap} y2={padT + colH - (nextCount / maxCount) * colH + ((nextCount / maxCount) * colH) / 2} stroke="rgba(128,128,128,0.2)" strokeWidth={1} strokeDasharray="3 3" />
+            )}
+            {/* Step label */}
+            <text x={x + colW / 2} y={padT + colH + 16} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={11} fontWeight={600}>{step.label}</text>
+            {/* Count */}
+            <CountUpText value={step.count} delay={stagger + 100} x={x + colW / 2} y={padT + colH + 32} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize={10} />
+            {/* Conv % inside */}
+            {fullH > 30 && (
+              <text x={x + colW / 2} y={yBase + fullH / 2 + 4} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize={12} fontWeight={700}>{fmtPct(step.overallConv)}</text>
+            )}
+            {/* Drop label between columns */}
+            {droppedH > 14 && i < steps.length - 1 && (
+              <text x={x + colW / 2} y={yBase + droppedH / 2 + 3} textAnchor="middle" fill={RED} fontSize={9} opacity={0.8}>-{fmtCount(step.count - nextCount)}</text>
+            )}
+          </g>
+        );
+      })}
+      {/* Legend */}
+      <rect x={padL} y={H - 16} width={10} height={10} rx={2} fill={GREEN} fillOpacity={0.4} />
+      <text x={padL + 14} y={H - 7} fill="rgba(255,255,255,0.5)" fontSize={9}>Converted</text>
+      <rect x={padL + 80} y={H - 16} width={10} height={10} rx={2} fill={RED} fillOpacity={0.3} />
+      <text x={padL + 94} y={H - 7} fill="rgba(255,255,255,0.5)" fontSize={9}>Dropped</text>
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Elapsed-Time Funnel (Survival Curve)
+// ---------------------------------------------------------------------------
+function ElapsedTimeFunnel({ steps, stepMap, stepDefs }: { steps: FunnelStep[]; stepMap: Map<string, any>; stepDefs: StepDef[] }) {
+  // Build cumulative timing data: X = time (cumulative avg duration through steps), Y = % remaining
+  const W = 720, H = 360, padL = 60, padR = 40, padT = 30, padB = 50;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  // For each step, get cumulative avg duration (ms) and % remaining
+  const points: { step: number; label: string; cumMs: number; pctRemaining: number; count: number; avgMs: number }[] = [];
+  let cumMs = 0;
+  for (let i = 0; i < steps.length; i++) {
+    const m = stepMap.get(stepDefs[i]?.label ?? steps[i].label);
+    const avgMs = m ? Number(m.avg_duration_ms ?? 0) : 0;
+    cumMs += avgMs;
+    points.push({ step: i, label: steps[i].label, cumMs, pctRemaining: steps[i].overallConv, count: steps[i].count, avgMs });
+  }
+
+  const maxTime = Math.max(1, points[points.length - 1]?.cumMs ?? 1);
+  const xScale = (ms: number) => padL + (ms / maxTime) * plotW;
+  const yScale = (pct: number) => padT + plotH - (pct / 100) * plotH;
+
+  // Build the path
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${xScale(p.cumMs)},${yScale(p.pctRemaining)}`).join(" ");
+  const areaPath = `M${xScale(0)},${yScale(100)} ${linePath} L${xScale(points[points.length - 1]?.cumMs ?? 0)},${yScale(0)} L${xScale(0)},${yScale(0)} Z`;
+
+  // Y-axis ticks
+  const yTicks = [0, 25, 50, 75, 100];
+  // X-axis ticks (time)
+  const xTicks = points.map(p => p.cumMs);
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="uj-funnel-svg">
+      {/* Grid */}
+      {yTicks.map(t => (
+        <g key={`yt-${t}`}>
+          <line x1={padL} y1={yScale(t)} x2={padL + plotW} y2={yScale(t)} stroke="rgba(128,128,128,0.1)" strokeWidth={1} />
+          <text x={padL - 8} y={yScale(t) + 4} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={10}>{t}%</text>
+        </g>
+      ))}
+      {/* Start point at 0,100% */}
+      <circle cx={xScale(0)} cy={yScale(100)} r={4} fill={BLUE} stroke="#fff" strokeWidth={1.5} />
+      {/* Area fill */}
+      <path d={areaPath} fill={BLUE} fillOpacity={0.08} />
+      {/* Line */}
+      <path d={`M${xScale(0)},${yScale(100)} ${linePath}`} fill="none" stroke={BLUE} strokeWidth={2.5} strokeLinejoin="round" />
+      {/* Step points with vertical drop lines */}
+      {points.map((p, i) => {
+        const x = xScale(p.cumMs);
+        const y = yScale(p.pctRemaining);
+        const prevY = i === 0 ? yScale(100) : yScale(points[i - 1].pctRemaining);
+        const dropPct = i === 0 ? 0 : 100 - p.pctRemaining - (100 - points[i - 1].pctRemaining);
+        const color = i === 0 ? BLUE : dropPct > 30 ? RED : dropPct > 15 ? ORANGE : GREEN;
+        return (
+          <g key={i}>
+            {/* Vertical drop line */}
+            {i > 0 && (
+              <line x1={x} y1={prevY} x2={x} y2={y} stroke={RED} strokeWidth={1} strokeDasharray="3 2" opacity={0.4} />
+            )}
+            {/* Point */}
+            <circle cx={x} cy={y} r={6} fill={color} stroke="#fff" strokeWidth={1.5}>
+              <title>{`${p.label}: ${fmtPct(p.pctRemaining)} remaining (${fmtCount(p.count)} sessions)\nCumulative time: ${fmt(p.cumMs)}\nStep duration: ${fmt(p.avgMs)}`}</title>
+            </circle>
+            {/* Label */}
+            <text x={x} y={y - 12} textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize={10} fontWeight={600}>{p.label}</text>
+            <text x={x} y={y + 18} textAnchor="middle" fill={color} fontSize={9} fontWeight={600}>{fmtPct(p.pctRemaining)}</text>
+            {/* X-axis label */}
+            <text x={x} y={H - padB + 16} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={9}>{fmt(p.cumMs)}</text>
+          </g>
+        );
+      })}
+      {/* Axis labels */}
+      <text x={padL + plotW / 2} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={10}>Cumulative Avg Response Time →</text>
+      <text x={12} y={padT + plotH / 2} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={10} transform={`rotate(-90,12,${padT + plotH / 2})`}>% Users Remaining</text>
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Comparison Split Funnel (Mirror / Side-by-Side)
+// ---------------------------------------------------------------------------
+function ComparisonSplitFunnel({ steps, prevSteps, aov }: { steps: FunnelStep[]; prevSteps: FunnelStep[]; aov: number }) {
+  const W = 720;
+  const stepH = 70;
+  const gap = 6;
+  const H = steps.length * (stepH + gap) + 30;
+  const cx = W / 2;
+  const maxBarW = 280;
+  const maxCount = Math.max(1, ...steps.map(s => s.count), ...prevSteps.map(s => s.count));
+
+  const segPath = (width: number, nextWidth: number, side: "left" | "right", y: number) => {
+    const sign = side === "left" ? -1 : 1;
+    const w = width;
+    const nw = nextWidth;
+    const tl = { x: cx, y };
+    const tr = { x: cx + sign * w, y };
+    const bl = { x: cx, y: y + stepH };
+    const br = { x: cx + sign * nw, y: y + stepH };
+    const cpY = (y + y + stepH) / 2;
+    if (side === "left") {
+      return `M ${tl.x} ${tl.y} C ${tl.x} ${cpY}, ${bl.x} ${cpY}, ${bl.x} ${bl.y} L ${br.x} ${br.y} C ${br.x} ${cpY}, ${tr.x} ${cpY}, ${tr.x} ${tr.y} Z`;
+    }
+    return `M ${tl.x} ${tl.y} C ${tl.x} ${cpY}, ${bl.x} ${cpY}, ${bl.x} ${bl.y} L ${br.x} ${br.y} C ${br.x} ${cpY}, ${tr.x} ${cpY}, ${tr.x} ${tr.y} Z`;
+  };
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="uj-funnel-svg">
+      {/* Center axis */}
+      <line x1={cx} y1={5} x2={cx} y2={H - 5} stroke="rgba(128,128,128,0.15)" strokeWidth={1} />
+      {/* Headers */}
+      <text x={cx - maxBarW / 2} y={10} textAnchor="middle" fill={BLUE} fontSize={11} fontWeight={700}>Current Period</text>
+      <text x={cx + maxBarW / 2} y={10} textAnchor="middle" fill="rgba(128,128,128,0.6)" fontSize={11} fontWeight={700}>Previous Period</text>
+      {steps.map((step, i) => {
+        const y = i * (stepH + gap) + 20;
+        const w = Math.max(6, (step.count / maxCount) * maxBarW);
+        const nw = i < steps.length - 1 ? Math.max(6, (steps[i + 1].count / maxCount) * maxBarW) : w * 0.7;
+        const pw = Math.max(6, (prevSteps[i].count / maxCount) * maxBarW);
+        const pnw = i < prevSteps.length - 1 ? Math.max(6, (prevSteps[i + 1].count / maxCount) * maxBarW) : pw * 0.7;
+        const dropPct = i === 0 ? 0 : 100 - step.convFromPrev;
+        const prevDropPct = i === 0 ? 0 : 100 - prevSteps[i].convFromPrev;
+        const color = i === 0 ? BLUE : dropPct > 50 ? RED : dropPct > 30 ? ORANGE : dropPct > 15 ? YELLOW : GREEN;
+        const prevColor = i === 0 ? "rgba(128,128,128,0.5)" : prevDropPct > 50 ? RED : prevDropPct > 30 ? ORANGE : prevDropPct > 15 ? YELLOW : GREEN;
+        const countDelta = step.count - prevSteps[i].count;
+        const deltaPct = prevSteps[i].count > 0 ? (countDelta / prevSteps[i].count) * 100 : 0;
+        const stagger = i * 200;
+
+        return (
+          <g key={i} className="uj-funnel-segment" style={{ animationDelay: `${stagger}ms` }}>
+            {/* Current (left side) */}
+            <path d={segPath(w, nw, "left", y)} fill={color} fillOpacity={0.3} stroke={color} strokeWidth={1} strokeOpacity={0.5} />
+            {/* Previous (right side) */}
+            <path d={segPath(pw, pnw, "right", y)} fill={prevColor} fillOpacity={0.15} stroke={prevColor} strokeWidth={1} strokeOpacity={0.3} />
+            {/* Step label (center) */}
+            <text x={cx} y={y + stepH / 2 - 6} textAnchor="middle" fill="rgba(255,255,255,0.9)" fontSize={12} fontWeight={700}>{step.label}</text>
+            {/* Delta indicator */}
+            {Math.abs(deltaPct) >= 0.1 && (
+              <text x={cx} y={y + stepH / 2 + 10} textAnchor="middle" fill={countDelta >= 0 ? GREEN : RED} fontSize={10} fontWeight={600}>
+                {countDelta >= 0 ? "▲" : "▼"} {Math.abs(deltaPct).toFixed(1)}%
+              </text>
+            )}
+            {/* Left count */}
+            <CountUpText value={step.count} delay={stagger + 100} x={cx - w / 2} y={y + stepH / 2 + 4} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={11} />
+            {/* Right count */}
+            <text x={cx + pw / 2} y={y + stepH / 2 + 4} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={11}>{fmtCount(prevSteps[i].count)}</text>
+          </g>
+        );
+      })}
+      {/* Legend */}
+      <rect x={10} y={H - 14} width={10} height={10} rx={2} fill={BLUE} fillOpacity={0.4} />
+      <text x={24} y={H - 5} fill="rgba(255,255,255,0.5)" fontSize={9}>Current</text>
+      <rect x={80} y={H - 14} width={10} height={10} rx={2} fill="rgba(128,128,128,0.4)" />
+      <text x={94} y={H - 5} fill="rgba(255,255,255,0.5)" fontSize={9}>Previous</text>
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Slider
 // ---------------------------------------------------------------------------
 function MultiplierSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
@@ -1253,16 +1544,17 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 8, 2026</Paragraph>
-            <Paragraph><Strong>Sankey — Sub-Tab Analytics Suite</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Reorganized into 7 sub-tabs: Flow Chart, Conversion Paths, Loop Analysis, Page Timing, Session Endpoints, Revenue Paths, Path Trends</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Conversion Paths: converted vs. abandoned path comparison with differentiator analysis</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Loop Analysis: A→B→A cycle detection with error/LCP correlation</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Page Timing: avg/P90 duration per page with health cross-reference</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Session Endpoints: terminal page detection, bounce rate, where sessions end</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Revenue Paths: top converting paths &amp; page touch rates (when AOV set)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Path Trends: period-over-period path shift detection — new/dropped pages, frequency changes</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• 2 new DQL queries: page duration, previous-period paths</Paragraph>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 9, 2026</Paragraph>
+            <Paragraph><Strong>Funnel &amp; Sankey — New Chart Styles</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Funnel Overview: 5 visualization styles — Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Horizontal Bar: left-aligned bars with red drop-off extensions showing where users are lost</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Stacked Cohort (Marimekko): columns split into converted vs. dropped segments at each step</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Elapsed-Time Curve: survival curve plotting % remaining vs. cumulative response time</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Comparison Split: mirror funnel — current vs. previous period side-by-side with delta indicators</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Funnel style persisted per user via Settings (default style configurable)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Sankey: 7 chart styles (removed Sunburst &amp; Parallel Sets, added Chord Diagram &amp; Transition Heatmap)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Chord Diagram: click arcs to select — highlights connected ribbons, focus mode hides unrelated, shows inbound/outbound detail</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Transition Heatmap: 52px cells, click to highlight row/column cross, selection summary with totals</Paragraph>
           </div>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 8, 2026</Paragraph>
@@ -1292,7 +1584,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph style={{ fontSize: 13, opacity: 0.6, marginTop: 8 }}>Steps are configurable via Settings (⚙). Min {MIN_STEPS}, max {MAX_STEPS} steps.</Paragraph>
       </HelpSection>
       <HelpSection title="Tabs">
-        <Paragraph><Strong>Funnel Overview</Strong>: KPIs, colorized funnel (color by drop-off severity), per-step Apdex, and step analysis table. Toggle <Strong>Compare</Strong> to overlay the previous period as dashed outlines and see ▲▼ deltas on each step.</Paragraph>
+        <Paragraph><Strong>Funnel Overview</Strong>: KPIs, conversion funnel visualization, per-step Apdex, and step analysis table. 5 chart styles: <Strong>Classic</Strong> (tapered SVG), <Strong>Horizontal Bar</Strong> (waterfall with drop-off extensions), <Strong>Stacked Cohort</Strong> (Marimekko columns split into converted/dropped), <Strong>Elapsed-Time Curve</Strong> (survival curve plotting user retention vs. cumulative response time), and <Strong>Comparison Split</Strong> (mirror funnel showing current vs. previous period side-by-side with delta indicators). Toggle <Strong>Compare</Strong> on Classic to overlay the previous period as dashed outlines. Default style configurable via Settings.</Paragraph>
         <Paragraph><Strong>Trends</Strong>: Period-over-period comparison of all key metrics. Shows current vs. previous period with delta arrows — green for improvement, red for regression. Inverted logic for duration/errors (lower = better). When AOV is set, adds a Revenue trend card showing current vs. previous period estimated revenue.</Paragraph>
         <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), page-level CWV breakdown, and performance health score.</Paragraph>
         <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99).</Paragraph>
@@ -1303,7 +1595,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights. Country cards are clickable and open <Strong>User Sessions</Strong> filtered to that location.</Paragraph>
         <Paragraph><Strong>Map</Strong>: Interactive choropleth map with World and US views, colorized by session count, average duration, Apdex, error rate, or estimated revenue (when AOV is set). Use the dropdown to switch between World (country-level) and US (state-level) views. Countries/states with data are clickable and link to <Strong>User Sessions</Strong>.</Paragraph>
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
-        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram with 7 analysis sub-tabs organized above the chart. <Strong>Flow Chart</Strong> (default): 5 chart styles (Classic, Gradient, Directed Flow, Alluvial, State Machine) with funnel highlighting, exit detection, observations, recommendations, exit analysis, health scorecard, and transitions. <Strong>Conversion Paths</Strong>: Compares converted vs. abandoned session paths — shows differentiating pages, path lengths, and top transitions for each group. <Strong>Loop Analysis</Strong>: Detects A→B→A back-and-forth navigation patterns indicating user confusion, with error/LCP correlation. <Strong>Page Timing</Strong>: Average and P90 duration per page with health scores — identifies slow funnel bottlenecks. <Strong>Session Endpoints</Strong>: Where sessions end (browser close), bounce rate, and terminal page analysis with error correlation. <Strong>Revenue Paths</Strong> (AOV required): Top revenue-generating navigation paths and page touch rates for converting sessions. <Strong>Path Trends</Strong>: Period-over-period comparison of navigation patterns — detects new/dropped pages, frequency shifts, and transition changes.</Paragraph>
+        <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram with 7 analysis sub-tabs organized above the chart. <Strong>Flow Chart</Strong> (default): 7 chart styles — Classic, Gradient, Directed Flow, Alluvial, State Machine, <Strong>Chord Diagram</Strong> (circular arc layout with clickable arcs for path highlighting, focus mode support, center label display), and <Strong>Transition Heatmap</Strong> (NxN grid with clickable row/column highlighting, selection summary, 52px cells). All styles support funnel highlighting, exit detection, and focus mode. <Strong>Conversion Paths</Strong>: Compares converted vs. abandoned session paths — shows differentiating pages, path lengths, and top transitions for each group. <Strong>Loop Analysis</Strong>: Detects A→B→A back-and-forth navigation patterns indicating user confusion, with error/LCP correlation. <Strong>Page Timing</Strong>: Average and P90 duration per page with health scores — identifies slow funnel bottlenecks. <Strong>Session Endpoints</Strong>: Where sessions end (browser close), bounce rate, and terminal page analysis with error correlation. <Strong>Revenue Paths</Strong> (AOV required): Top revenue-generating navigation paths and page touch rates for converting sessions. <Strong>Path Trends</Strong>: Period-over-period comparison of navigation patterns — detects new/dropped pages, frequency shifts, and transition changes.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations. When AOV is set, shows Revenue at Risk from anomalous conversion drops.</Paragraph>
         <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device x browser cross-section. When AOV is set, adds revenue columns to device and browser tables and revenue totals to speed buckets.</Paragraph>
         <Paragraph><Strong>Executive Summary</Strong>: Report-card style overview for stakeholders. Weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alert, CWV snapshot, and full performance table. When AOV is set, revenue appears in key metrics, performance snapshot, and exports. Use <Strong>Export PDF</Strong> to open a print-ready report in a new tab (use browser Print → Save as PDF), or <Strong>Copy Text</Strong> to get a plain-text summary for Slack/Teams/email. Designed for quick status checks and executive presentations.</Paragraph>
@@ -1374,11 +1666,13 @@ export function UserJourney() {
   const [draggedTabIdx, setDraggedTabIdx] = useState<number | null>(null);
   const { frontend, steps, saveFrontend, saveSteps, aov, saveAov } = useSettings();
   const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
+  const [funnelStyle, setFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
 
   // Persist tab visibility per user
   const savedState = useUserAppState({ key: TAB_STATE_KEY });
   const savedTabOrder = useUserAppState({ key: TAB_ORDER_STATE_KEY });
   const savedSankeyStyle = useUserAppState({ key: SANKEY_STYLE_STATE_KEY });
+  const savedFunnelStyle = useUserAppState({ key: FUNNEL_STYLE_STATE_KEY });
   const savedMapView = useUserAppState({ key: MAP_VIEW_STATE_KEY });
   const { execute: saveState } = useSetUserAppState();
 
@@ -1412,6 +1706,13 @@ export function UserJourney() {
       if (SANKEY_STYLE_OPTIONS.some(o => o.value === val)) setSankeyStyle(val as SankeyStyle);
     }
   }, [savedSankeyStyle.data]);
+
+  useEffect(() => {
+    if (savedFunnelStyle.data?.value) {
+      const val = savedFunnelStyle.data.value as string;
+      if (FUNNEL_STYLE_OPTIONS.some(o => o.value === val)) setFunnelStyle(val as FunnelStyle);
+    }
+  }, [savedFunnelStyle.data]);
 
   const [mapViewDefault, setMapViewDefault] = useState<MapViewSetting>(DEFAULT_MAP_VIEW);
   useEffect(() => {
@@ -1699,6 +2000,18 @@ export function UserJourney() {
             </Select>
           </div>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
+          {/* Default Funnel Chart Style */}
+          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Default Funnel Chart Style</Paragraph>
+          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Choose the default visualization style for the Funnel Overview tab. Can also be changed inline.</Paragraph>
+          <div style={{ marginBottom: 20 }}>
+            <Select value={funnelStyle} onChange={(val) => { if (val) { setFunnelStyle(val as FunnelStyle); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: val as string } }); } }}>
+              <Select.Trigger style={{ minWidth: 200 }} />
+              <Select.Content>
+                {FUNNEL_STYLE_OPTIONS.map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
+              </Select.Content>
+            </Select>
+          </div>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
           {/* Default Map View */}
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Default Map View</Paragraph>
           <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Choose the default map view for the Map tab. Can also be changed inline.</Paragraph>
@@ -1743,7 +2056,7 @@ export function UserJourney() {
         {tabOrder.filter(t => isTabVisible(t)).map(tabId => {
           let content: React.ReactNode = null;
           switch (tabId) {
-            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} />; break;
+            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
@@ -1780,7 +2093,7 @@ export function UserJourney() {
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
-function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, quality, compareMode, setCompareMode, isLoading, appEntityId, steps, aov }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov: number }) {
+function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, quality, compareMode, setCompareMode, isLoading, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void }) {
   if (isLoading) return <Loading />;
 
   const makeFunnelSteps = (counts: number[]): FunnelStep[] => steps.map((step, i) => {
@@ -1856,16 +2169,29 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         </Flex>
       </div>
 
-      {/* Funnel with compare toggle */}
-      <Flex alignItems="center" justifyContent="space-between">
+      {/* Funnel with compare toggle + style selector */}
+      <Flex alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={12}>
         <SectionHeader title="Conversion Funnel" />
-        <button onClick={() => setCompareMode(!compareMode)} className={`uj-compare-toggle ${compareMode ? "active" : ""}`}>
-          {compareMode ? "\u27F5 Hide Compare" : "Compare \u27F6"}
-        </button>
+        <Flex alignItems="center" gap={12}>
+          <Text style={{ fontSize: 13, opacity: 0.5 }}>Style</Text>
+          <Select value={funnelStyle} onChange={(val) => { if (val) onFunnelStyleChange(val as FunnelStyle); }}>
+            <Select.Trigger style={{ minWidth: 170 }} />
+            <Select.Content>
+              {FUNNEL_STYLE_OPTIONS.map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
+            </Select.Content>
+          </Select>
+          <button onClick={() => setCompareMode(!compareMode)} className={`uj-compare-toggle ${compareMode ? "active" : ""}`}>
+            {compareMode ? "\u27F5 Hide Compare" : "Compare \u27F6"}
+          </button>
+        </Flex>
       </Flex>
       <div className="uj-funnel-container">
-        <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} />
-        {compareMode && (
+        {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} />}
+        {funnelStyle === "horizontal" && <HorizontalBarFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
+        {funnelStyle === "cohort" && <StackedCohortFunnel steps={funnelSteps} aov={aov} />}
+        {funnelStyle === "elapsed" && <ElapsedTimeFunnel steps={funnelSteps} stepMap={stepMap} stepDefs={steps} />}
+        {funnelStyle === "split" && <ComparisonSplitFunnel steps={funnelSteps} prevSteps={makeFunnelSteps(funnelCountsPrev)} aov={aov} />}
+        {compareMode && funnelStyle === "classic" && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, borderTop: "2px dashed rgba(255,255,255,0.3)" }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Previous period</Text></Flex>
@@ -5858,6 +6184,271 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     );
   };
 
+  // ---- Chord Diagram ----
+  const renderChordDiagram = () => {
+    // Build unique labels and a matrix of transitions between them
+    const labelSet = new Set<string>();
+    for (const n of nodes) labelSet.add(n.label);
+    const labels = Array.from(labelSet);
+    const idx = new Map<string, number>();
+    labels.forEach((l, i) => idx.set(l, i));
+    const N = labels.length;
+    const matrix: number[][] = Array.from({ length: N }, () => new Array(N).fill(0));
+    for (const l of links) {
+      const srcNode = nodes.find(n => n.id === l.source);
+      const tgtNode = nodes.find(n => n.id === l.target);
+      if (srcNode && tgtNode) {
+        const si = idx.get(srcNode.label);
+        const ti = idx.get(tgtNode.label);
+        if (si !== undefined && ti !== undefined) matrix[si][ti] += l.value;
+      }
+    }
+    // Total per label
+    const totals = labels.map((_, i) => {
+      let s = 0;
+      for (let j = 0; j < N; j++) { s += matrix[i][j] + matrix[j][i]; }
+      return s;
+    });
+    const grandTotal = totals.reduce((a, b) => a + b, 0) || 1;
+    // Layout arcs around a circle
+    const cW = 700, cH = 700;
+    const cx = cW / 2, cy = cH / 2, outerR = 280, innerR = 260, ribbonR = 240;
+    const gapAngle = 0.02;
+    const totalGap = gapAngle * N;
+    const availAngle = Math.PI * 2 - totalGap;
+    const arcs: { start: number; end: number; label: string; total: number; color: string }[] = [];
+    let angle = 0;
+    for (let i = 0; i < N; i++) {
+      const span = (totals[i] / grandTotal) * availAngle;
+      arcs.push({ start: angle, end: angle + span, label: labels[i], total: totals[i], color: SANKEY_COLORS[i % SANKEY_COLORS.length] });
+      angle += span + gapAngle;
+    }
+    const arcPath = (startA: number, endA: number, r: number) => {
+      const x1 = cx + Math.cos(startA) * r, y1 = cy + Math.sin(startA) * r;
+      const x2 = cx + Math.cos(endA) * r, y2 = cy + Math.sin(endA) * r;
+      const large = endA - startA > Math.PI ? 1 : 0;
+      return `M${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2}`;
+    };
+    const ribbons: { srcIdx: number; tgtIdx: number; srcStart: number; srcEnd: number; tgtStart: number; tgtEnd: number; value: number }[] = [];
+    const arcCursor = arcs.map(a => a.start);
+    const arcCursorTgt = arcs.map(a => a.start);
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) {
+        const val = matrix[i][j];
+        if (val <= 0) continue;
+        const srcSpan = (val / grandTotal) * availAngle;
+        const tgtSpan = (val / grandTotal) * availAngle;
+        ribbons.push({ srcIdx: i, tgtIdx: j, srcStart: arcCursor[i], srcEnd: arcCursor[i] + srcSpan, tgtStart: arcCursorTgt[j], tgtEnd: arcCursorTgt[j] + tgtSpan, value: val });
+        arcCursor[i] += srcSpan;
+        arcCursorTgt[j] += tgtSpan;
+      }
+    }
+    const ribbonPath = (r: typeof ribbons[0]) => {
+      const sx1 = cx + Math.cos(r.srcStart) * ribbonR, sy1 = cy + Math.sin(r.srcStart) * ribbonR;
+      const sx2 = cx + Math.cos(r.srcEnd) * ribbonR, sy2 = cy + Math.sin(r.srcEnd) * ribbonR;
+      const tx1 = cx + Math.cos(r.tgtStart) * ribbonR, ty1 = cy + Math.sin(r.tgtStart) * ribbonR;
+      const tx2 = cx + Math.cos(r.tgtEnd) * ribbonR, ty2 = cy + Math.sin(r.tgtEnd) * ribbonR;
+      const srcLarge = r.srcEnd - r.srcStart > Math.PI ? 1 : 0;
+      const tgtLarge = r.tgtEnd - r.tgtStart > Math.PI ? 1 : 0;
+      return `M${sx1},${sy1} A${ribbonR},${ribbonR} 0 ${srcLarge} 1 ${sx2},${sy2} Q${cx},${cy} ${tx1},${ty1} A${ribbonR},${ribbonR} 0 ${tgtLarge} 1 ${tx2},${ty2} Q${cx},${cy} ${sx1},${sy1} Z`;
+    };
+
+    // Selection: use focusLabel to match chord arcs by label
+    const selectedChordIdx = focusLabel ? idx.get(focusLabel) ?? -1 : -1;
+    const hasChordFocus = selectedChordIdx >= 0;
+    const isChordConnected = (arcIdx: number) => {
+      if (!hasChordFocus) return true;
+      if (arcIdx === selectedChordIdx) return true;
+      return matrix[selectedChordIdx][arcIdx] > 0 || matrix[arcIdx][selectedChordIdx] > 0;
+    };
+
+    // Click handler for arcs - set focusNodeId to match the label
+    const handleChordClick = (label: string) => {
+      if (focusLabel === label) { setFocusNodeId(null); setFocusLabel(null); }
+      else {
+        const node = nodes.find(n => n.label === label);
+        if (node) { setFocusNodeId(node.id); setFocusLabel(label); }
+        else setFocusLabel(label);
+      }
+    };
+
+    return (
+      <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }} onClick={() => { setFocusNodeId(null); setFocusLabel(null); }}>
+        <svg className="uj-sankey-wipe" width={cW} height={cH} style={{ display: "block", margin: "0 auto" }}>
+          {/* Ribbons */}
+          {ribbons.map((r, i) => {
+            const isConnected = !hasChordFocus || r.srcIdx === selectedChordIdx || r.tgtIdx === selectedChordIdx;
+            const opacity = hasChordFocus ? (isConnected ? 0.55 : (focusMode ? 0 : 0.04)) : 0.35;
+            return (
+              <path key={`ribbon-${i}`} d={ribbonPath(r)} fill={arcs[r.srcIdx].color} fillOpacity={opacity} stroke={arcs[r.srcIdx].color} strokeWidth={isConnected && hasChordFocus ? 1 : 0.5} strokeOpacity={hasChordFocus ? (isConnected ? 0.8 : (focusMode ? 0 : 0.1)) : 0.5} style={{ cursor: "pointer", transition: "fill-opacity 0.2s, stroke-opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); handleChordClick(labels[r.srcIdx]); }}>
+                <title>{`${labels[r.srcIdx]} → ${labels[r.tgtIdx]}: ${fmtCount(r.value)} sessions`}</title>
+              </path>
+            );
+          })}
+          {/* Outer arcs */}
+          {arcs.map((a, i) => {
+            const inFunnel = isFunnelPage(a.label);
+            const isExit = exitNodeIds.has(nodes.find(n => n.label === a.label)?.id ?? "");
+            const color = isExit ? RED : inFunnel ? "#FFD700" : a.color;
+            const mid = (a.start + a.end) / 2;
+            const lx = cx + Math.cos(mid) * (outerR + 18);
+            const ly = cy + Math.sin(mid) * (outerR + 18);
+            const anchor = mid > Math.PI / 2 && mid < Math.PI * 1.5 ? "end" : "start";
+            const rot = (mid * 180 / Math.PI) + (anchor === "end" ? 180 : 0);
+            const isSelected = selectedChordIdx === i;
+            const connected = isChordConnected(i);
+            const arcOpacity = hasChordFocus ? (isSelected ? 1 : connected ? 0.7 : (focusMode ? 0 : 0.15)) : 0.85;
+            const labelFill = hasChordFocus ? (connected ? "rgba(255,255,255,0.9)" : (focusMode ? "rgba(255,255,255,0)" : "rgba(255,255,255,0.15)")) : "rgba(255,255,255,0.7)";
+            return (
+              <g key={`arc-${i}`} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleChordClick(a.label); }}>
+                {inFunnel && <path d={arcPath(a.start, a.end, outerR + 4)} fill="none" stroke="#FFD700" strokeWidth={3} strokeDasharray="4 2" opacity={arcOpacity * 0.6} />}
+                {isSelected && <path d={arcPath(a.start, a.end, outerR + 2)} fill="none" stroke="#fff" strokeWidth={outerR - innerR + 4} strokeLinecap="butt" opacity={0.3} />}
+                <path d={arcPath(a.start, a.end, outerR)} fill="none" stroke={color} strokeWidth={outerR - innerR} strokeLinecap="butt" opacity={arcOpacity} style={{ transition: "opacity 0.2s" }}>
+                  <title>{`${a.label}: ${fmtCount(a.total)} connections${inFunnel ? " ★ Funnel" : ""}${isExit ? " ⛔ Exit" : ""}${isSelected ? " (selected)" : ""}`}</title>
+                </path>
+                {a.end - a.start > 0.12 && (
+                  <text x={lx} y={ly} textAnchor={anchor} fill={labelFill} fontSize={9} fontWeight={isSelected || inFunnel ? 700 : 400} style={{ transition: "fill 0.2s" }} transform={`rotate(${rot},${lx},${ly})`}>
+                    {isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(a.label, 18)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+          {/* Selected label in center */}
+          {hasChordFocus && (
+            <>
+              <text x={cx} y={cy - 8} textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize={12} fontWeight={700}>{truncLabel(labels[selectedChordIdx], 24)}</text>
+              <text x={cx} y={cy + 10} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize={10}>{fmtCount(arcs[selectedChordIdx].total)} connections</text>
+            </>
+          )}
+        </svg>
+      </div>
+    );
+  };
+
+  // ---- Transition Heatmap ----
+  const renderTransitionHeatmap = () => {
+    // Build from→to matrix using unique labels
+    const labelSet = new Set<string>();
+    for (const n of nodes) labelSet.add(n.label);
+    const labels = Array.from(labelSet).sort((a, b) => {
+      const va = nodes.find(n => n.label === a)?.value ?? 0;
+      const vb = nodes.find(n => n.label === b)?.value ?? 0;
+      return vb - va;
+    });
+    const topLabels = labels.slice(0, 15);
+    const idxMap = new Map<string, number>();
+    topLabels.forEach((l, i) => idxMap.set(l, i));
+    const NL = topLabels.length;
+    const matrix: number[][] = Array.from({ length: NL }, () => new Array(NL).fill(0));
+    let maxVal = 0;
+    for (const l of links) {
+      const srcNode = nodes.find(n => n.id === l.source);
+      const tgtNode = nodes.find(n => n.id === l.target);
+      if (srcNode && tgtNode) {
+        const si = idxMap.get(srcNode.label);
+        const ti = idxMap.get(tgtNode.label);
+        if (si !== undefined && ti !== undefined) {
+          matrix[si][ti] += l.value;
+          if (matrix[si][ti] > maxVal) maxVal = matrix[si][ti];
+        }
+      }
+    }
+    if (maxVal === 0) maxVal = 1;
+    const hmPad = { top: 160, left: 180, right: 30, bottom: 40 };
+    const cellSize = 52;
+    const hmW = hmPad.left + NL * cellSize + hmPad.right;
+    const hmH = hmPad.top + NL * cellSize + hmPad.bottom;
+    const heatColor = (v: number) => {
+      if (v === 0) return "rgba(128,128,128,0.06)";
+      const t = v / maxVal;
+      if (t < 0.33) return `rgba(69,137,255,${0.2 + t * 1.5})`;
+      if (t < 0.66) return `rgba(255,200,0,${0.3 + (t - 0.33) * 1.5})`;
+      return `rgba(194,25,48,${0.4 + (t - 0.66) * 1.5})`;
+    };
+
+    // Selection: highlight row/col by focusLabel
+    const hmSelectedIdx = focusLabel ? (idxMap.get(focusLabel) ?? -1) : -1;
+    const hasHmFocus = hmSelectedIdx >= 0;
+    const handleHmRowClick = (label: string) => {
+      if (focusLabel === label) { setFocusNodeId(null); setFocusLabel(null); }
+      else {
+        const node = nodes.find(n => n.label === label);
+        if (node) { setFocusNodeId(node.id); setFocusLabel(label); }
+        else setFocusLabel(label);
+      }
+    };
+
+    return (
+      <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }} onClick={() => { setFocusNodeId(null); setFocusLabel(null); }}>
+        <svg className="uj-sankey-wipe" width={hmW} height={hmH} style={{ display: "block", margin: "0 auto" }}>
+          {/* Row highlight strip */}
+          {hasHmFocus && (
+            <rect x={hmPad.left} y={hmPad.top + hmSelectedIdx * cellSize - 1} width={NL * cellSize} height={cellSize + 1} rx={2} fill="rgba(69,137,255,0.08)" stroke="rgba(69,137,255,0.3)" strokeWidth={1} />
+          )}
+          {/* Column highlight strip */}
+          {hasHmFocus && (
+            <rect x={hmPad.left + hmSelectedIdx * cellSize - 1} y={hmPad.top} width={cellSize + 1} height={NL * cellSize} rx={2} fill="rgba(69,137,255,0.08)" stroke="rgba(69,137,255,0.3)" strokeWidth={1} />
+          )}
+          {/* Column labels (top, rotated) */}
+          {topLabels.map((label, i) => {
+            const inFunnel = isFunnelPage(label);
+            const isSelected = hasHmFocus && i === hmSelectedIdx;
+            return (
+              <text key={`col-${i}`} x={hmPad.left + i * cellSize + cellSize / 2} y={hmPad.top - 8} textAnchor="start" fill={isSelected ? "#4589FF" : inFunnel ? "#FFD700" : "rgba(255,255,255,0.6)"} fontSize={11} fontWeight={isSelected || inFunnel ? 700 : 400} style={{ cursor: "pointer" }} transform={`rotate(-45,${hmPad.left + i * cellSize + cellSize / 2},${hmPad.top - 8})`} onClick={(e) => { e.stopPropagation(); handleHmRowClick(label); }}>
+                {inFunnel ? "★ " : ""}{truncLabel(label, 24)}
+              </text>
+            );
+          })}
+          {/* Row labels (left) */}
+          {topLabels.map((label, i) => {
+            const inFunnel = isFunnelPage(label);
+            const isSelected = hasHmFocus && i === hmSelectedIdx;
+            return (
+              <text key={`row-${i}`} x={hmPad.left - 8} y={hmPad.top + i * cellSize + cellSize / 2 + 4} textAnchor="end" fill={isSelected ? "#4589FF" : inFunnel ? "#FFD700" : "rgba(255,255,255,0.6)"} fontSize={11} fontWeight={isSelected || inFunnel ? 700 : 400} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleHmRowClick(label); }}>
+                {inFunnel ? "★ " : ""}{truncLabel(label, 24)}
+              </text>
+            );
+          })}
+          {/* Cells */}
+          {topLabels.map((_, ri) => topLabels.map((_, ci) => {
+            const val = matrix[ri][ci];
+            const isFocusedCell = hasHmFocus && (ri === hmSelectedIdx || ci === hmSelectedIdx);
+            const cellOpacity = hasHmFocus ? (isFocusedCell ? 1 : (focusMode ? 0.05 : 0.3)) : 1;
+            return (
+              <g key={`cell-${ri}-${ci}`} style={{ cursor: "pointer", transition: "opacity 0.2s" }} opacity={cellOpacity} onClick={(e) => { e.stopPropagation(); handleHmRowClick(topLabels[ri]); }}>
+                <rect x={hmPad.left + ci * cellSize} y={hmPad.top + ri * cellSize} width={cellSize - 1} height={cellSize - 1} rx={3} fill={heatColor(val)} stroke={isFocusedCell && val > 0 ? "rgba(69,137,255,0.5)" : "rgba(128,128,128,0.1)"} strokeWidth={isFocusedCell && val > 0 ? 1.5 : 0.5}>
+                  <title>{`${topLabels[ri]} → ${topLabels[ci]}: ${fmtCount(val)} sessions`}</title>
+                </rect>
+                {val > 0 && cellSize > 20 && (
+                  <text x={hmPad.left + ci * cellSize + cellSize / 2 - 0.5} y={hmPad.top + ri * cellSize + cellSize / 2 + 4} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize={11} fontWeight={600}>{val >= 1000 ? fmtCount(val) : val}</text>
+                )}
+              </g>
+            );
+          }))}
+          {/* Axis labels */}
+          <text x={hmPad.left + (NL * cellSize) / 2} y={14} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={12} fontWeight={600}>To Page →</text>
+          <text x={14} y={hmPad.top + (NL * cellSize) / 2} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={12} fontWeight={600} transform={`rotate(-90,14,${hmPad.top + (NL * cellSize) / 2})`}>From Page →</text>
+          {/* Legend */}
+          <text x={hmPad.left} y={hmH - 8} fill="rgba(255,255,255,0.3)" fontSize={10}>Low</text>
+          <rect x={hmPad.left + 28} y={hmH - 18} width={24} height={12} rx={3} fill="rgba(69,137,255,0.5)" />
+          <rect x={hmPad.left + 56} y={hmH - 18} width={24} height={12} rx={3} fill="rgba(255,200,0,0.6)" />
+          <rect x={hmPad.left + 84} y={hmH - 18} width={24} height={12} rx={3} fill="rgba(194,25,48,0.7)" />
+          <text x={hmPad.left + 114} y={hmH - 8} fill="rgba(255,255,255,0.3)" fontSize={10}>High</text>
+          {/* Selection summary */}
+          {hasHmFocus && (
+            <>
+              <text x={hmPad.left + 160} y={hmH - 8} fill="rgba(69,137,255,0.7)" fontSize={10} fontWeight={600}>Selected: {truncLabel(topLabels[hmSelectedIdx], 20)}</text>
+              <text x={hmPad.left + 160} y={hmH + 6} fill="rgba(255,255,255,0.4)" fontSize={9}>
+                Outbound: {fmtCount(matrix[hmSelectedIdx].reduce((a, b) => a + b, 0))} | Inbound: {fmtCount(matrix.reduce((a, row) => a + row[hmSelectedIdx], 0))}
+              </text>
+            </>
+          )}
+        </svg>
+      </div>
+    );
+  };
+
   // ---- Render selected chart ----
   const renderChart = () => {
     switch (chartStyle) {
@@ -5865,6 +6456,8 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
       case "directed": return renderDirectedFlowGraph();
       case "alluvial": return renderAlluvial();
       case "stateMachine": return renderStateMachine();
+      case "chord": return renderChordDiagram();
+      case "heatmap": return renderTransitionHeatmap();
       case "classic":
       default: return renderClassicSankey(false);
     }

@@ -16,6 +16,8 @@ The User Journey App is a 26-tab frontend observability suite built as a Dynatra
 
 **Key Features**:
 - Colorized SVG funnel with step-by-step conversion percentages
+- **5 visualization styles**: Classic (tapered SVG), Horizontal Bar (waterfall with drop-off extensions), Stacked Cohort (Marimekko columns split into converted/dropped), Elapsed-Time Curve (survival curve plotting % remaining vs. cumulative response time), Comparison Split (mirror funnel — current vs. previous period side-by-side with delta indicators)
+- Default funnel style configurable via Settings and persisted per user
 - **Cascade fade-in animation**: segments and labels stagger in with 120ms delay per step using CSS `@keyframes funnelSegmentIn` (opacity + translateY + scaleY)
 - **Count-up animation**: session numbers animate from 0 to target value with cubic ease-out (800ms duration via `useCountUp` hook + `CountUpText` SVG component)
 - Period-over-period comparison overlay (optional)
@@ -296,7 +298,7 @@ fetch user.events, from: now() - {timeframe}
 **Purpose**: Multi-step flow visualization with 7 analysis sub-tabs for comprehensive session path analytics.
 
 **Sub-Tabs**:
-1. **Flow Chart** (default): Sankey visualization with 5 chart styles, funnel highlighting, exit detection, observations, recommendations, exit analysis, health scorecard, transitions
+1. **Flow Chart** (default): Sankey visualization with 7 chart styles (Classic, Gradient, Directed Flow, Alluvial, State Machine, Chord Diagram, Transition Heatmap), funnel highlighting, exit detection, observations, recommendations, exit analysis, health scorecard, transitions
 2. **Conversion Paths**: Converted vs. abandoned path comparison — differentiating pages, path lengths, top transitions per group
 3. **Loop Analysis**: A→B→A back-and-forth cycle detection with error/LCP correlation per loop page
 4. **Page Timing**: Average and P90 duration per page, cross-referenced with health score and errors
@@ -305,7 +307,9 @@ fetch user.events, from: now() - {timeframe}
 7. **Path Trends**: Period-over-period path comparison — new/dropped pages, frequency shifts, transition changes
 
 **Key Features**:
-- 5 rendering styles: Classic Sankey, Gradient Sankey, Directed Flow Graph, Alluvial/Columnar, State Machine
+- 7 rendering styles: Classic Sankey, Gradient Sankey, Directed Flow Graph, Alluvial/Columnar, State Machine, Chord Diagram, Transition Heatmap
+- **Chord Diagram**: Circular arc layout with clickable arcs for path highlighting, focus mode support, center label with inbound/outbound detail
+- **Transition Heatmap**: NxN grid with clickable row/column highlighting, selection summary with totals, 52px cells
 - **Funnel highlighting**: Funnel pages rendered in gold with ★ markers and dashed borders across all chart styles
 - **Exit detection**: Pages where ≥30% of outbound traffic goes off-funnel are flagged in red (⛔) across all renderers
 - Click nodes for inbound/outbound flow detail with links to Vitals app
@@ -873,6 +877,7 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-05-09 | 4.47.15 | **Funnel & Sankey — New Chart Styles**: Funnel Overview gets 5 visualization styles (Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split) with style selector and Settings persistence. Sankey updated to 7 chart styles — removed Sunburst & Parallel Sets, added Chord Diagram (clickable arcs, focus mode, center label) and Transition Heatmap (52px cells, row/col highlighting, selection summary). Both Chord and Heatmap support selection + focus mode integration |
 | 2026-05-08 | 4.47.9 | **Sankey — Sub-Tab Analytics Suite**: Reorganized into 7 sub-tabs (Flow Chart, Conversion Paths, Loop Analysis, Page Timing, Session Endpoints, Revenue Paths, Path Trends). Conversion vs. abandoned path differentiators, A→B→A loop detection with error/LCP correlation, avg/P90 page timing, terminal page & bounce analysis, revenue path ranking (AOV), period-over-period path trend detection. 2 new DQL queries (page duration, previous-period paths) |
 | 2026-05-08 | 4.47.7 | **Sankey — Rich Hover Tooltips**: All 4 renderers now show rich hover tooltips with top 3 inbound/outbound (count & %), self-reload detection (⟲), and error counts. `buildNodeTooltip()` for classic/gradient, `buildLabelTooltip()` for directed/alluvial/state machine |
 | 2026-05-08 | 4.47.6 | **Error Inspector linking fix**: Use `(Web) Page Name` filter field instead of `Page` |
