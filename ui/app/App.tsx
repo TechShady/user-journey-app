@@ -5,8 +5,9 @@ import { UserJourney } from "./pages/UserJourney";
 import { ObservabilityJourney } from "./pages/ObservabilityJourney";
 import { SettingsProvider } from "./SettingsContext";
 
-const CURRENT_VERSION = "4.47.29";
+const CURRENT_VERSION = "4.47.31";
 const REPO_URL = "https://github.com/TechShady/user-journey-app";
+const RAW_CONFIG_URL = "https://raw.githubusercontent.com/TechShady/user-journey-app/master/app.config.json";
 
 function isNewer(latest: string, current: string): boolean {
   const l = latest.split(".").map(Number);
@@ -24,12 +25,12 @@ export const App = () => {
   useEffect(() => {
     (async () => {
       try {
-        const { functions } = await import("@dynatrace-sdk/app-utils");
-        const res = await functions.call("check-version", {});
-        const data = await res.json();
-        const latest = data.version ?? "";
+        const res = await fetch(RAW_CONFIG_URL);
+        if (!res.ok) return;
+        const cfg = await res.json();
+        const latest = cfg?.app?.version ?? "";
         if (latest && isNewer(latest, CURRENT_VERSION)) setUpdate(latest);
-      } catch { /* dynamic import or function call failed — silently skip */ }
+      } catch { /* CSP or network block — silently skip */ }
     })();
   }, []);
 
