@@ -4611,6 +4611,7 @@ function ErrorsTab({ errors, funnelCounts, isLoading, steps, aov }: { errors: an
 // ===========================================================================
 function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov }: { funnelCounts: number[]; stepMap: Map<string, any>; overallApdex: number; isLoading: boolean; steps: StepDef[]; aov: number }) {
   const [pctChange, setPctChange] = useState(100);
+  const [wiFunnelStyle, setWiFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
   if (isLoading) return <Loading />;
 
   const mult = 1 + pctChange / 100;
@@ -4640,6 +4641,13 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
     count: projFunnel[i],
     convFromPrev: i === 0 ? 100 : projFunnel[i - 1] > 0 ? (projFunnel[i] / projFunnel[i - 1]) * 100 : 0,
     overallConv: projFunnel[0] > 0 ? (projFunnel[i] / projFunnel[0]) * 100 : 0,
+  }));
+
+  const currSteps: FunnelStep[] = steps.map((step, i) => ({
+    label: step.label,
+    count: funnelCounts[i],
+    convFromPrev: i === 0 ? 100 : funnelCounts[i - 1] > 0 ? (funnelCounts[i] / funnelCounts[i - 1]) * 100 : 0,
+    overallConv: funnelCounts[0] > 0 ? (funnelCounts[i] / funnelCounts[0]) * 100 : 0,
   }));
 
   return (
@@ -4701,8 +4709,23 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
         </>
       )}
 
-      <SectionHeader title="Projected Funnel" />
-      <div className="uj-funnel-container"><FunnelChart steps={projSteps} stepDefs={steps} /></div>
+      <Flex justifyContent="space-between" alignItems="center">
+        <SectionHeader title="Projected Funnel" />
+        <select value={wiFunnelStyle} onChange={(e) => setWiFunnelStyle(e.target.value as FunnelStyle)} style={{ background: "rgba(128,128,128,0.15)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, padding: "4px 10px", color: "inherit", fontSize: 12 }}>
+          {FUNNEL_STYLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </Flex>
+      <div className="uj-funnel-container">
+        {wiFunnelStyle === "classic" && <FunnelChart steps={projSteps} stepDefs={steps} />}
+        {wiFunnelStyle === "horizontal" && <HorizontalBarFunnel steps={projSteps} prevSteps={currSteps} aov={aov} />}
+        {wiFunnelStyle === "cohort" && <StackedCohortFunnel steps={projSteps} prevSteps={currSteps} aov={aov} />}
+        {wiFunnelStyle === "elapsed" && <ElapsedTimeFunnel steps={projSteps} prevSteps={currSteps} stepMap={stepMap} stepDefs={steps} />}
+        {wiFunnelStyle === "split" && <ComparisonSplitFunnel steps={projSteps} prevSteps={currSteps} aov={aov} />}
+      </div>
+      <Flex gap={12} justifyContent="center" style={{ marginTop: 4 }}>
+        <Flex gap={6} alignItems="center"><div style={{ width: 14, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 11, opacity: 0.5 }}>Projected (+{pctChange}%)</Text></Flex>
+        {wiFunnelStyle !== "classic" && <Flex gap={6} alignItems="center"><div style={{ width: 14, height: 3, borderTop: "2px dashed rgba(128,128,128,0.4)" }} /><Text style={{ fontSize: 11, opacity: 0.5 }}>Current baseline</Text></Flex>}
+      </Flex>
 
       <SectionHeader title="Projected Metrics by Step" />
       <div className="uj-table-tile">
