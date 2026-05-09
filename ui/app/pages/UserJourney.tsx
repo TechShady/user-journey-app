@@ -5225,6 +5225,16 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     return m;
   }, [errorData]);
 
+  // ---- Duration per page map ----
+  const durationMap = useMemo(() => {
+    const m = new Map<string, { avgDuration: number; p90Duration: number; sessions: number }>();
+    for (const r of (durationData?.data?.records ?? []) as any[]) {
+      const pg = r.pageName ?? r.d0 ?? "";
+      m.set(pg, { avgDuration: Number(r.avgDuration ?? 0), p90Duration: Number(r.p90Duration ?? 0), sessions: Number(r.sessions ?? 0) });
+    }
+    return m;
+  }, [durationData]);
+
   // ---- Extended path analysis: funnel exits, returns, lost revenue ----
   const pathAnalysis = useMemo(() => {
     const pathRecords = (pathsData?.data?.records ?? []) as any[];
@@ -5406,18 +5416,18 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     };
 
     // --- Diagnostic signals: correlate leakage with performance ---
-    const leakageSignals: { page: string; exitCount: number; lcp: number; errors: number; healthScore: number }[] = [];
+    const leakageSignals: { page: string; exitCount: number; avgLoad: number; errors: number; healthScore: number }[] = [];
     const exitPageTotals = new Map<string, number>();
     for (const s of leavers) if (s.exitPage) exitPageTotals.set(s.exitPage, (exitPageTotals.get(s.exitPage) ?? 0) + 1);
     for (const [page, count] of exitPageTotals) {
-      const cwv = cwvMap.get(page);
+      const dur = durationMap.get(page);
       const err = errorMap.get(page);
-      const lcp = cwv?.lcp ?? 0;
+      const avgLoad = dur?.avgDuration ?? 0;
       const errors = err?.errorCount ?? 0;
       let score = 100;
-      if (lcp > 4000) score -= 30; else if (lcp > 2500) score -= 15;
+      if (avgLoad > 4000) score -= 30; else if (avgLoad > 2000) score -= 15;
       if (errors > 0) score -= Math.min(30, errors);
-      leakageSignals.push({ page, exitCount: count, lcp, errors, healthScore: Math.max(0, score) });
+      leakageSignals.push({ page, exitCount: count, avgLoad, errors, healthScore: Math.max(0, score) });
     }
     leakageSignals.sort((a, b) => b.exitCount - a.exitCount);
 
@@ -5442,7 +5452,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
 
     // Performance-correlated insight
     const worstExitPage = leakageSignals[0];
-    if (worstExitPage && worstExitPage.lcp > 2500) insights.push({ icon: "🐌", text: `Top exit page "${worstExitPage.page.substring(0, 30)}" has ${Math.round(worstExitPage.lcp)}ms LCP — slow performance may be driving users away`, severity: "warning" });
+    if (worstExitPage && worstExitPage.avgLoad > 2000) insights.push({ icon: "🐌", text: `Top exit page "${worstExitPage.page.substring(0, 30)}" has ${Math.round(worstExitPage.avgLoad)}ms avg load — slow performance may be driving users away`, severity: "warning" });
     if (worstExitPage && worstExitPage.errors > 5) insights.push({ icon: "💥", text: `Top exit page "${worstExitPage.page.substring(0, 30)}" has ${worstExitPage.errors} errors — errors may be causing funnel abandonment`, severity: "critical" });
 
     // Path length insight
@@ -5461,7 +5471,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
       recExitPages: exitPageStats(recoverers), lostExitPages: exitPageStats(lostUsers),
       recConvRate: recoverers.length > 0 ? (recoverers.filter(s => s.completed).length / recoverers.length) * 100 : 0,
     };
-  }, [pathsData, steps, cwvMap, errorMap]);
+  }, [pathsData, steps, durationMap, errorMap]);
 
   // ---- Page health: combine CWV + errors for each page ----
   const pageHealth = useMemo(() => {
@@ -5578,16 +5588,6 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   }, [pathAnalysis, pageHealth, aov, nodes, cwvMap, steps]);
 
   // ==== SUB-TAB ANALYTICS ====
-
-  // --- Duration map (Page Timing sub-tab) ---
-  const durationMap = useMemo(() => {
-    const m = new Map<string, { avgDuration: number; p90Duration: number; sessions: number }>();
-    for (const r of (durationData?.data?.records ?? []) as any[]) {
-      const pg = r.pageName ?? r.d0 ?? "";
-      m.set(pg, { avgDuration: Number(r.avgDuration ?? 0), p90Duration: Number(r.p90Duration ?? 0), sessions: Number(r.sessions ?? 0) });
-    }
-    return m;
-  }, [durationData]);
 
   // --- Conversion Path Analysis (sub-tab 2) ---
   const conversionPaths = useMemo(() => {
@@ -7113,12 +7113,12 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
           <SectionHeader title="Leakage Diagnostic Signals — Is performance driving users away?" />
           <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={leakageAnalysis.leakageSignals.map(s => ({
             "Exit Page": s.page.substring(0, 40), "Exit Count": s.exitCount,
-            "LCP (ms)": s.lcp > 0 ? Math.round(s.lcp) : null,
+            "Avg Load (ms)": s.avgLoad > 0 ? Math.round(s.avgLoad) : null,
             Errors: s.errors, Health: s.healthScore,
           }))} columns={[
             { id: "Exit Page", header: "Exit Page", accessor: "Exit Page", cell: ({ value }: any) => <Strong>{value}</Strong> },
             { id: "Exit Count", header: "Exits", accessor: "Exit Count", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> },
-            { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: cwvClr(value, "lcp"), fontWeight: 600 }}>{value}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
+            { id: "Avg Load (ms)", header: "Avg Load", accessor: "Avg Load (ms)", sortType: "number" as any, cell: ({ value }: any) => value != null ? <span style={{ color: value > 4000 ? RED : value > 2000 ? YELLOW : GREEN, fontWeight: 600 }}>{fmtCount(value)}ms</span> : <Text style={{ opacity: 0.3 }}>—</Text> },
             { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => value > 0 ? <Strong style={{ color: RED }}>{fmtCount(value)}</Strong> : <Text style={{ opacity: 0.3 }}>0</Text> },
             { id: "Health", header: "Health", accessor: "Health", sortType: "number" as any, cell: ({ value }: any) => <span style={{ display: "inline-block", width: "100%", padding: "2px 8px", borderRadius: 4, background: value >= 70 ? "rgba(13,156,41,0.15)" : value >= 40 ? "rgba(184,134,11,0.15)" : "rgba(194,25,48,0.15)", color: value >= 70 ? GREEN : value >= 40 ? YELLOW : RED, fontWeight: 700, textAlign: "center" }}>{value}/100</span> },
           ]} /></div>
