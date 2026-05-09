@@ -1288,10 +1288,11 @@ function HorizontalBarFunnel({ steps, prevSteps, aov }: { steps: FunnelStep[]; p
 // ---------------------------------------------------------------------------
 // Stacked Cohort Funnel (Marimekko)
 // ---------------------------------------------------------------------------
-function StackedCohortFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number }) {
+function StackedCohortFunnel({ steps, prevSteps, aov }: { steps: FunnelStep[]; prevSteps?: FunnelStep[]; aov: number }) {
   const W = 720, colW = 100, gap = 12, padL = 30, padT = 30, padB = 60;
   const totalW = steps.length * (colW + gap);
-  const maxCount = Math.max(1, steps[0].count);
+  const allCounts = [...steps.map(s => s.count), ...(prevSteps ?? []).map(s => s.count)];
+  const maxCount = Math.max(1, ...allCounts);
   const colH = 340;
   const H = padT + colH + padB;
 
@@ -1326,6 +1327,12 @@ function StackedCohortFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number 
                 <title>{`Final conversion: ${fmtCount(step.count)} sessions`}</title>
               </rect>
             )}
+            {/* Previous period ghost column */}
+            {prevSteps?.[i] && (() => {
+              const pFullH = (prevSteps[i].count / maxCount) * colH;
+              const pYBase = padT + colH - pFullH;
+              return <rect x={x - 3} y={pYBase} width={colW + 6} height={Math.max(2, pFullH)} rx={5} fill="none" stroke="rgba(128,128,128,0.4)" strokeWidth={2} strokeDasharray="6 4" />;
+            })()}
             {/* Connector line to next column */}
             {i < steps.length - 1 && (
               <line x1={x + colW} y1={yBase + droppedH + convertedH / 2} x2={x + colW + gap} y2={padT + colH - (nextCount / maxCount) * colH + ((nextCount / maxCount) * colH) / 2} stroke="rgba(128,128,128,0.2)" strokeWidth={1} strokeDasharray="3 3" />
@@ -1350,6 +1357,12 @@ function StackedCohortFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number 
       <text x={padL + 14} y={H - 7} fill="rgba(255,255,255,0.5)" fontSize={9}>Converted</text>
       <rect x={padL + 80} y={H - 16} width={10} height={10} rx={2} fill={RED} fillOpacity={0.3} />
       <text x={padL + 94} y={H - 7} fill="rgba(255,255,255,0.5)" fontSize={9}>Dropped</text>
+      {prevSteps && (
+        <g>
+          <rect x={padL + 160} y={H - 16} width={14} height={10} rx={2} fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth={2} strokeDasharray="4 3" />
+          <text x={padL + 178} y={H - 7} fill="rgba(255,255,255,0.5)" fontSize={9}>Previous period</text>
+        </g>
+      )}
     </svg>
   );
 }
@@ -1357,7 +1370,7 @@ function StackedCohortFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number 
 // ---------------------------------------------------------------------------
 // Elapsed-Time Funnel (Survival Curve)
 // ---------------------------------------------------------------------------
-function ElapsedTimeFunnel({ steps, stepMap, stepDefs }: { steps: FunnelStep[]; stepMap: Map<string, any>; stepDefs: StepDef[] }) {
+function ElapsedTimeFunnel({ steps, prevSteps, stepMap, stepDefs }: { steps: FunnelStep[]; prevSteps?: FunnelStep[]; stepMap: Map<string, any>; stepDefs: StepDef[] }) {
   // Build cumulative timing data: X = time (cumulative avg duration through steps), Y = % remaining
   const W = 720, H = 360, padL = 60, padR = 40, padT = 30, padB = 50;
   const plotW = W - padL - padR;
@@ -1373,7 +1386,20 @@ function ElapsedTimeFunnel({ steps, stepMap, stepDefs }: { steps: FunnelStep[]; 
     points.push({ step: i, label: steps[i].label, cumMs, pctRemaining: steps[i].overallConv, count: steps[i].count, avgMs });
   }
 
-  const maxTime = Math.max(1, points[points.length - 1]?.cumMs ?? 1);
+  // Previous period curve (reuses same X positions for direct comparison)
+  const prevPoints: typeof points = [];
+  if (prevSteps) {
+    let pCum = 0;
+    for (let i = 0; i < prevSteps.length; i++) {
+      const m = stepMap.get(stepDefs[i]?.label ?? prevSteps[i].label);
+      const avgMs = m ? Number(m.avg_duration_ms ?? 0) : 0;
+      pCum += avgMs;
+      prevPoints.push({ step: i, label: prevSteps[i].label, cumMs: pCum, pctRemaining: prevSteps[i].overallConv, count: prevSteps[i].count, avgMs });
+    }
+  }
+
+  const allMs = [...points.map(p => p.cumMs), ...prevPoints.map(p => p.cumMs)];
+  const maxTime = Math.max(1, ...allMs);
   const xScale = (ms: number) => padL + (ms / maxTime) * plotW;
   const yScale = (pct: number) => padT + plotH - (pct / 100) * plotH;
 
@@ -1397,6 +1423,20 @@ function ElapsedTimeFunnel({ steps, stepMap, stepDefs }: { steps: FunnelStep[]; 
       ))}
       {/* Start point at 0,100% */}
       <circle cx={xScale(0)} cy={yScale(100)} r={4} fill={BLUE} stroke="#fff" strokeWidth={1.5} />
+      {/* Previous period curve */}
+      {prevPoints.length > 0 && (() => {
+        const pLine = prevPoints.map((p, i) => `${i === 0 ? "M" : "L"}${xScale(p.cumMs)},${yScale(p.pctRemaining)}`).join(" ");
+        return (
+          <g>
+            <path d={`M${xScale(0)},${yScale(100)} ${pLine}`} fill="none" stroke="rgba(128,128,128,0.4)" strokeWidth={2} strokeDasharray="8 4" strokeLinejoin="round" />
+            {prevPoints.map((p, i) => (
+              <circle key={`prev-${i}`} cx={xScale(p.cumMs)} cy={yScale(p.pctRemaining)} r={4} fill="none" stroke="rgba(128,128,128,0.4)" strokeWidth={1.5}>
+                <title>{`Previous — ${p.label}: ${fmtPct(p.pctRemaining)} remaining (${fmtCount(p.count)} sessions)`}</title>
+              </circle>
+            ))}
+          </g>
+        );
+      })()}
       {/* Area fill */}
       <path d={areaPath} fill={BLUE} fillOpacity={0.08} />
       {/* Line */}
@@ -1429,6 +1469,14 @@ function ElapsedTimeFunnel({ steps, stepMap, stepDefs }: { steps: FunnelStep[]; 
       {/* Axis labels */}
       <text x={padL + plotW / 2} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={10}>Cumulative Avg Response Time →</text>
       <text x={12} y={padT + plotH / 2} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={10} transform={`rotate(-90,12,${padT + plotH / 2})`}>% Users Remaining</text>
+      {prevPoints.length > 0 && (
+        <g>
+          <line x1={padL + plotW - 120} y1={padT + 8} x2={padL + plotW - 100} y2={padT + 8} stroke={BLUE} strokeWidth={2.5} />
+          <text x={padL + plotW - 96} y={padT + 12} fill="rgba(255,255,255,0.5)" fontSize={9}>Current</text>
+          <line x1={padL + plotW - 120} y1={padT + 22} x2={padL + plotW - 100} y2={padT + 22} stroke="rgba(128,128,128,0.4)" strokeWidth={2} strokeDasharray="6 3" />
+          <text x={padL + plotW - 96} y={padT + 26} fill="rgba(255,255,255,0.5)" fontSize={9}>Previous</text>
+        </g>
+      )}
     </svg>
   );
 }
@@ -2188,10 +2236,10 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
       <div className="uj-funnel-container">
         {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} />}
         {funnelStyle === "horizontal" && <HorizontalBarFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
-        {funnelStyle === "cohort" && <StackedCohortFunnel steps={funnelSteps} aov={aov} />}
-        {funnelStyle === "elapsed" && <ElapsedTimeFunnel steps={funnelSteps} stepMap={stepMap} stepDefs={steps} />}
+        {funnelStyle === "cohort" && <StackedCohortFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
+        {funnelStyle === "elapsed" && <ElapsedTimeFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} stepMap={stepMap} stepDefs={steps} />}
         {funnelStyle === "split" && <ComparisonSplitFunnel steps={funnelSteps} prevSteps={makeFunnelSteps(funnelCountsPrev)} aov={aov} />}
-        {compareMode && funnelStyle === "classic" && (
+        {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, borderTop: "2px dashed rgba(255,255,255,0.3)" }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Previous period</Text></Flex>
@@ -5022,6 +5070,22 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value) : [];
   const labelSessions = focusLabel ? nodes.filter(n => n.label === focusLabel).reduce((a, n) => Math.max(a, n.value), 0) : 0;
 
+  // Set of labels connected to the focused label (for directed/alluvial/stateMachine focus mode)
+  const connectedLabelSet = useMemo(() => {
+    if (!focusLabel) return new Set<string>();
+    const cl = new Set<string>([focusLabel]);
+    for (const l of links) {
+      const src = nodes.find(n => n.id === l.source);
+      const tgt = nodes.find(n => n.id === l.target);
+      if (src && tgt) {
+        if (src.label === focusLabel) cl.add(tgt.label);
+        if (tgt.label === focusLabel) cl.add(src.label);
+      }
+    }
+    return cl;
+  }, [focusLabel, links, nodes]);
+  const hasLabelFocus = focusLabel !== null;
+
   const handleLabelClick = (label: string) => {
     setFocusLabel(prev => prev === label ? null : label);
   };
@@ -5934,10 +5998,12 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             const y2 = to.y - offsetY;
             const midX = (x1 + x2) / 2;
             const midY = (y1 + y2) / 2 - 10;
+            const edgeConnected = !hasLabelFocus || connectedLabelSet.has(e.from) && connectedLabelSet.has(e.to) && (e.from === focusLabel || e.to === focusLabel);
+            const edgeOpacity = hasLabelFocus ? (edgeConnected ? 0.5 : (focusMode ? 0 : 0.06)) : 0.4;
             return (
-              <g key={`edge-${i}`}>
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={SANKEY_COLORS[i % SANKEY_COLORS.length]} strokeWidth={thickness} strokeOpacity={0.4} markerEnd="url(#arrowhead)" />
-                <text x={midX} y={midY} textAnchor="middle" fill="rgba(255,255,255,0.6)" fontSize={9} fontWeight={600}>{fmtCount(e.value)}</text>
+              <g key={`edge-${i}`} style={{ transition: "opacity 0.2s" }}>
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={SANKEY_COLORS[i % SANKEY_COLORS.length]} strokeWidth={thickness} strokeOpacity={edgeOpacity} markerEnd="url(#arrowhead)" />
+                {(!hasLabelFocus || edgeConnected) && <text x={midX} y={midY} textAnchor="middle" fill="rgba(255,255,255,0.6)" fontSize={9} fontWeight={600}>{fmtCount(e.value)}</text>}
               </g>
             );
           })}
@@ -5949,14 +6015,17 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             const isExit = exitLabels.has(n.label);
             const color = isExit ? RED : inFunnel ? "#FFD700" : SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
             const isFocused = focusLabel === n.label;
+            const isConnected = !hasLabelFocus || connectedLabelSet.has(n.label);
+            const nodeOpacity = hasLabelFocus ? (isFocused ? 1 : isConnected ? 0.85 : (focusMode ? 0 : 0.15)) : 0.8;
+            const labelVis = hasLabelFocus ? (isConnected ? 1 : (focusMode ? 0 : 0.15)) : 1;
             return (
-              <g key={`node-${i}`} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
-                {inFunnel && !isExit && <circle cx={pos.x} cy={pos.y} r={nodeRadius + 4} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
-                <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={color} fillOpacity={isFocused ? 1 : 0.8} stroke={isFocused ? "#fff" : color} strokeWidth={isFocused ? 3 : 2}>
+              <g key={`node-${i}`} style={{ cursor: "pointer", transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
+                {inFunnel && !isExit && <circle cx={pos.x} cy={pos.y} r={nodeRadius + 4} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={nodeOpacity * 0.6} />}
+                <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={color} fillOpacity={nodeOpacity} stroke={isFocused ? "#fff" : color} strokeWidth={isFocused ? 3 : 2}>
                   <title>{buildLabelTooltip(n.label)}</title>
                 </circle>
-                <text x={pos.x} y={pos.y - 3} textAnchor="middle" fill="white" fontSize={8} fontWeight={600}>{isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(n.label, 14)}</text>
-                <text x={pos.x} y={pos.y + 10} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={8}>{fmtCount(n.totalValue)}</text>
+                <text x={pos.x} y={pos.y - 3} textAnchor="middle" fill="white" fontSize={8} fontWeight={600} opacity={labelVis}>{isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(n.label, 14)}</text>
+                <text x={pos.x} y={pos.y + 10} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={8} opacity={labelVis}>{fmtCount(n.totalValue)}</text>
               </g>
             );
           })}
@@ -6028,9 +6097,11 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             const cp = (x1 - x0) * 0.45;
             const maxVal = links.length > 0 ? Math.max(...links.map(ll => ll.value)) : 1;
             const thickness = Math.max(1, Math.min(4, (l.value / maxVal) * 4));
-            const color = "rgba(180,180,200,0.4)";
+            const edgeConnected = !hasLabelFocus || (connectedLabelSet.has(src.label) && connectedLabelSet.has(tgt.label) && (src.label === focusLabel || tgt.label === focusLabel));
+            const edgeOpacity = hasLabelFocus ? (edgeConnected ? 0.5 : (focusMode ? 0 : 0.06)) : 0.4;
+            const color = `rgba(180,180,200,${edgeOpacity})`;
             return (
-              <path key={`al-${i}`} d={`M${x0},${y0} C${x0 + cp},${y0} ${x1 - cp},${y1} ${x1},${y1}`} fill="none" stroke={color} strokeWidth={thickness} markerEnd="url(#alluvial-arrow)" />
+              <path key={`al-${i}`} d={`M${x0},${y0} C${x0 + cp},${y0} ${x1 - cp},${y1} ${x1},${y1}`} fill="none" stroke={color} strokeWidth={thickness} markerEnd="url(#alluvial-arrow)" style={{ transition: "stroke 0.2s" }} />
             );
           })}
           {/* Arrow marker */}
@@ -6045,13 +6116,16 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             const isExit = exitLabels.has(n.label);
             const color = isExit ? RED : inFunnel ? "#FFD700" : SANKEY_COLORS[n.depth % SANKEY_COLORS.length];
             const isFocused = focusLabel === n.label;
+            const isConnected = !hasLabelFocus || connectedLabelSet.has(n.label);
+            const nodeOpacity = hasLabelFocus ? (isFocused ? 1 : isConnected ? 0.85 : (focusMode ? 0 : 0.15)) : 0.9;
+            const labelVis = hasLabelFocus ? (isConnected ? 1 : (focusMode ? 0 : 0.15)) : 1;
             return (
-              <g key={id} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
-                {inFunnel && !isExit && <rect x={n.x - 3} y={n.y - 3} width={n.w + 6} height={n.h + 6} rx={7} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
-                <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={5} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : (isExit ? RED : inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1}>
+              <g key={id} style={{ cursor: "pointer", transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
+                {inFunnel && !isExit && <rect x={n.x - 3} y={n.y - 3} width={n.w + 6} height={n.h + 6} rx={7} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={nodeOpacity * 0.6} />}
+                <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={5} fill={color} fillOpacity={nodeOpacity} stroke={isFocused ? "#fff" : (isExit ? RED : inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1}>
                   <title>{buildLabelTooltip(n.label)}</title>
                 </rect>
-                <text x={n.cx} y={n.y + n.h / 2 + 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={600}>
+                <text x={n.cx} y={n.y + n.h / 2 + 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={600} opacity={labelVis}>
                   {isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(n.label, 16)} — {fmtCount(n.value)}
                 </text>
               </g>
@@ -6151,11 +6225,13 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             const midY = (y1 + y2) / 2 - (dx / dist) * 18;
             const maxVal = topEdges[0]?.value ?? 1;
             const thickness = Math.max(1.5, (e.value / maxVal) * 5);
-            const color = "rgba(200,200,220,0.5)";
+            const edgeConnected = !hasLabelFocus || (connectedLabelSet.has(e.from) && connectedLabelSet.has(e.to) && (e.from === focusLabel || e.to === focusLabel));
+            const edgeOpacity = hasLabelFocus ? (edgeConnected ? 0.6 : (focusMode ? 0 : 0.06)) : 0.5;
+            const color = `rgba(200,200,220,${edgeOpacity})`;
             return (
-              <g key={`sme-${i}`}>
+              <g key={`sme-${i}`} style={{ transition: "opacity 0.2s" }}>
                 <path d={`M${x1},${y1} Q${midX},${midY} ${x2},${y2}`} fill="none" stroke={color} strokeWidth={thickness} markerEnd="url(#sm-arrow)" />
-                <text x={midX} y={midY - 2} textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize={9} fontWeight={700}>{fmtCount(e.value)}</text>
+                {(!hasLabelFocus || edgeConnected) && <text x={midX} y={midY - 2} textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize={9} fontWeight={700}>{fmtCount(e.value)}</text>}
               </g>
             );
           })}
@@ -6167,14 +6243,17 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
             const inFunnel = isFunnelPage(n.label);
             const color = isExit ? RED : inFunnel ? "#FFD700" : SANKEY_COLORS[i % SANKEY_COLORS.length];
             const isFocused = focusLabel === n.label;
+            const isConnected = !hasLabelFocus || connectedLabelSet.has(n.label);
+            const nodeOpacity = hasLabelFocus ? (isFocused ? 1 : isConnected ? 0.85 : (focusMode ? 0 : 0.15)) : 0.9;
+            const labelVis = hasLabelFocus ? (isConnected ? 1 : (focusMode ? 0 : 0.15)) : 1;
             return (
-              <g key={`smn-${i}`} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
-                {inFunnel && <rect x={pos.x - nodeRectW / 2 - 3} y={pos.y - nodeRectH / 2 - 3} width={nodeRectW + 6} height={nodeRectH + 6} rx={8} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={0.5} />}
-                <rect x={pos.x - nodeRectW / 2} y={pos.y - nodeRectH / 2} width={nodeRectW} height={nodeRectH} rx={6} fill={color} fillOpacity={isFocused ? 1 : 0.9} stroke={isFocused ? "#fff" : (inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1}>
+              <g key={`smn-${i}`} style={{ cursor: "pointer", transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); handleLabelClick(n.label); }}>
+                {inFunnel && <rect x={pos.x - nodeRectW / 2 - 3} y={pos.y - nodeRectH / 2 - 3} width={nodeRectW + 6} height={nodeRectH + 6} rx={8} fill="none" stroke="#FFD700" strokeWidth={2} strokeDasharray="4 2" opacity={nodeOpacity * 0.6} />}
+                <rect x={pos.x - nodeRectW / 2} y={pos.y - nodeRectH / 2} width={nodeRectW} height={nodeRectH} rx={6} fill={color} fillOpacity={nodeOpacity} stroke={isFocused ? "#fff" : (inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1}>
                   <title>{buildLabelTooltip(n.label)}</title>
                 </rect>
-                <text x={pos.x} y={pos.y - 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={700}>{isExit ? "Exit" : (inFunnel ? "★ " : "") + truncLabel(n.label, 14)}</text>
-                <text x={pos.x} y={pos.y + 12} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize={9}>{fmtCount(n.value)} sessions</text>
+                <text x={pos.x} y={pos.y - 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={700} opacity={labelVis}>{isExit ? "Exit" : (inFunnel ? "★ " : "") + truncLabel(n.label, 14)}</text>
+                <text x={pos.x} y={pos.y + 12} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize={9} opacity={labelVis}>{fmtCount(n.value)} sessions</text>
               </g>
             );
           })}
