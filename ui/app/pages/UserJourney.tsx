@@ -1944,6 +1944,7 @@ export function UserJourney() {
           </div>
         </Flex>
         <Flex alignItems="center" gap={12}>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace" }}>v4.47.26</Text>
           <Strong style={{ fontSize: 12 }}>Timeframe</Strong>
           <div style={{ minWidth: 280 }}>
             <TimeframeSelector

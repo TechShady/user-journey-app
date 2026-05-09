@@ -4,9 +4,8 @@ import { Route, Routes } from "react-router-dom";
 import { UserJourney } from "./pages/UserJourney";
 import { ObservabilityJourney } from "./pages/ObservabilityJourney";
 import { SettingsProvider } from "./SettingsContext";
-import { functions } from "@dynatrace-sdk/app-utils";
 
-const CURRENT_VERSION = "4.47.23";
+const CURRENT_VERSION = "4.47.26";
 const REPO_URL = "https://github.com/TechShady/user-journey-app";
 
 function isNewer(latest: string, current: string): boolean {
@@ -25,11 +24,12 @@ export const App = () => {
   useEffect(() => {
     (async () => {
       try {
+        const { functions } = await import("@dynatrace-sdk/app-utils");
         const res = await functions.call("check-version", {});
         const data = await res.json();
         const latest = data.version ?? "";
         if (latest && isNewer(latest, CURRENT_VERSION)) setUpdate(latest);
-      } catch { /* function call failed — silently skip */ }
+      } catch { /* dynamic import or function call failed — silently skip */ }
     })();
   }, []);
 
