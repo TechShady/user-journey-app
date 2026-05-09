@@ -1211,7 +1211,7 @@ function errorClusteringQuery(days: number, frontend: string): string {
 | filter error.type == "exception"
 | fieldsAdd errorName = error.display_name
 | fieldsAdd pageName = view.name
-| fieldsAdd errorMessage = error.message
+| fieldsAdd errorMessage = coalesce(error.message, error.display_name, "")
 | summarize
     occurrences = count(),
     affected_sessions = countDistinct(dt.rum.session.id),
@@ -2190,7 +2190,7 @@ export function UserJourney() {
           </div>
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.33</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.34</Text>
         </Flex>
       </div>
       <Sheet title="User Journey — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -7394,16 +7394,23 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
       {/* ==== FUNNEL VELOCITY sub-tab ==== */}
       {sankeySubTab === "velocity" && (() => {
         const velRecords = (velocityData?.data?.records ?? []) as any[];
-        // Parse step_times arrays: each record has step_times = [timestamp1, timestamp2, ...]
+        // Parse step_times arrays: each record has step_times = [{step, ts, dur}, ...]
         type StepTiming = { sessionId: string; stepTimes: number[]; deltas: number[] };
         const timings: StepTiming[] = [];
         for (const r of velRecords) {
           const st = (r.step_times ?? []) as any[];
-          const times = st.map((t: any) => new Date(String(t)).getTime()).filter((t: number) => !isNaN(t));
+          // Each element is a record object {step, ts, dur} — extract ts and sort
+          const times = st
+            .map((t: any) => {
+              if (t && typeof t === 'object' && t.ts) return new Date(String(t.ts)).getTime();
+              return new Date(String(t)).getTime();
+            })
+            .filter((t: number) => !isNaN(t))
+            .sort((a: number, b: number) => a - b);
           if (times.length < 2) continue;
           const deltas: number[] = [];
           for (let i = 1; i < times.length; i++) deltas.push(Math.max(0, (times[i] - times[i - 1]) / 1000)); // seconds
-          timings.push({ sessionId: String(r.sessionId ?? ""), stepTimes: times, deltas });
+          timings.push({ sessionId: String(r["dt.rum.session.id"] ?? ""), stepTimes: times, deltas });
         }
         // Per-step-transition stats
         const maxSteps = Math.max(0, ...timings.map(t => t.deltas.length));
@@ -9403,9 +9410,9 @@ function CohortRetentionTab({ retentionData, sessionData, isLoading, steps, aov 
   // Parse daily cohorts: day_bucket, deviceType, sessions, users, conversions
   type CohortDay = { day: string; device: string; sessions: number; users: number; conversions: number; convRate: number };
   const cohorts: CohortDay[] = retRecords.map((r: any) => {
-    const sessions = Number(r.sessions ?? 0);
-    const users = Number(r.users ?? 0);
-    const conversions = Number(r.conversions ?? 0);
+    const sessions = Number(r.total_sessions ?? 0);
+    const users = Number(r.total_sessions ?? 0);
+    const conversions = Number(r.converted_sessions ?? 0);
     return { day: String(r.day_bucket ?? "").substring(0, 10), device: String(r.deviceType ?? "Unknown"), sessions, users, conversions, convRate: sessions > 0 ? (conversions / sessions) * 100 : 0 };
   }).filter((c: CohortDay) => c.day);
 
@@ -9424,8 +9431,8 @@ function CohortRetentionTab({ retentionData, sessionData, isLoading, steps, aov 
   const sessionCountData = sessRecords.map((r: any) => ({
     day: String(r.day_bucket ?? "").substring(0, 10),
     uniqueUsers: Number(r.unique_users ?? 0),
-    totalSessions: Number(r.total_sessions ?? 0),
-    sessionsPerUser: Number(r.unique_users ?? 0) > 0 ? Number(r.total_sessions ?? 0) / Number(r.unique_users ?? 0) : 0,
+    totalSessions: Number(r.sessions ?? 0),
+    sessionsPerUser: Number(r.unique_users ?? 0) > 0 ? Number(r.sessions ?? 0) / Number(r.unique_users ?? 0) : 0,
   })).filter((d: any) => d.day).sort((a: any, b: any) => a.day.localeCompare(b.day));
 
   // Device breakdown
@@ -9527,10 +9534,10 @@ function SessionEngagementTab({ data, isLoading, steps, aov, overallConv }: { da
   // Each record: sessionId, action_count, max_depth, error_count, converted (0/1)
   type EngSession = { sessionId: string; actions: number; depth: number; errors: number; converted: boolean; score: number };
   const sessions: EngSession[] = records.map((r: any) => {
-    const actions = Number(r.action_count ?? 0);
-    const depth = Number(r.max_depth ?? 0);
-    const errors = Number(r.error_count ?? 0);
-    const converted = Number(r.converted ?? 0) > 0;
+    const actions = Number(r.actions ?? 0);
+    const depth = Number(r.funnel_depth ?? 0);
+    const errors = Number(r.errors ?? 0);
+    const converted = r.converted === true || r.converted === "true" || Number(r.converted ?? 0) > 0;
     // Engagement score: weighted formula — actions (30%), depth (40%), errors penalty (30%)
     const maxActions = 20;
     const maxDepth = steps.length > 0 ? steps.length : 5;
@@ -9538,7 +9545,7 @@ function SessionEngagementTab({ data, isLoading, steps, aov, overallConv }: { da
     const depthScore = Math.min(1, depth / maxDepth) * 40;
     const errorPenalty = Math.min(30, errors * 10);
     const score = Math.max(0, Math.min(100, actionScore + depthScore + 30 - errorPenalty));
-    return { sessionId: String(r.sessionId ?? ""), actions, depth, errors, converted, score };
+    return { sessionId: String(r["dt.rum.session.id"] ?? ""), actions, depth, errors, converted, score };
   });
 
   if (sessions.length === 0) return <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}><SectionHeader title="Session Engagement Score" /><div className="uj-table-tile" style={{ padding: 24 }}><Text>No session engagement data available.</Text></div></Flex>;
@@ -9670,12 +9677,18 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any
   const resources: ResEntry[] = records.map((r: any) => {
     const domain = String(r.domain ?? "unknown");
     // Heuristic: if domain doesn't contain the frontend app name, it's third-party
-    const frontendHost = frontend ? new URL(frontend.startsWith("http") ? frontend : `https://${frontend}`).hostname : "";
-    const isThirdParty = frontendHost ? !domain.includes(frontendHost.split(".").slice(-2).join(".")) : true;
+    const fWords = frontend.toLowerCase().split(/[\s-]+/).filter((w: string) => w.length > 3);
+    let isThirdParty = true;
+    try {
+      const frontendHost = new URL(frontend.startsWith("http") ? frontend : `https://${frontend}`).hostname;
+      isThirdParty = !domain.includes(frontendHost.split(".").slice(-2).join("."));
+    } catch {
+      isThirdParty = fWords.length > 0 ? !fWords.some((w: string) => domain.toLowerCase().includes(w)) : true;
+    }
     return {
       domain, resType: String(r.res_type ?? "other"),
-      totalBytes: Number(r.total_bytes ?? 0), avgDuration: Number(r.avg_duration ?? 0),
-      reqCount: Number(r.req_count ?? 0), isThirdParty,
+      totalBytes: Number(r.total_dur ?? 0), avgDuration: Number(r.avg_dur ?? 0),
+      reqCount: Number(r.requests ?? 0), isThirdParty,
     };
   });
 
@@ -9705,11 +9718,11 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any
 
   // CWV correlation
   const cwvPages = cwvRecords.map((r: any) => ({
-    page: String(r.pageName ?? ""), lcp: Number(r.lcp ?? 0), cls: Number(r.cls ?? 0), inp: Number(r.inp ?? 0),
+    page: String(r.pageName ?? ""), lcp: Number(r.lcp_avg ?? 0), cls: Number(r.cls_avg ?? 0), inp: Number(r.inp_avg ?? 0),
   })).filter((p: any) => p.page);
 
-  // Bytes formatter
-  const fmtBytes = (b: number) => b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b >= 1024 ? `${(b / 1024).toFixed(1)} KB` : `${b} B`;
+  // Duration formatter (totalBytes holds total_dur in ms)
+  const fmtBytes = (b: number) => b >= 60000 ? `${(b / 60000).toFixed(1)} min` : b >= 1000 ? `${(b / 1000).toFixed(1)}s` : `${Math.round(b)}ms`;
 
   // Chart: top domains bar chart
   const topDomains = domains.slice(0, 12);
@@ -9722,7 +9735,7 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any
         <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Domains</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{domains.length}</Heading></div>
         <div className="uj-kpi-card"><Text className="uj-kpi-label">3rd-Party Domains</Text><Heading level={2} className="uj-kpi-value" style={{ color: ORANGE }}>{thirdParty.length}</Heading></div>
         <div className="uj-kpi-card"><Text className="uj-kpi-label">3rd-Party Request %</Text><Heading level={2} className="uj-kpi-value" style={{ color: thirdPartyPct > 60 ? RED : thirdPartyPct > 30 ? YELLOW : GREEN }}>{fmtPct(thirdPartyPct)}</Heading></div>
-        <div className="uj-kpi-card"><Text className="uj-kpi-label">3rd-Party Payload</Text><Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{fmtBytes(thirdPartyBytes)}</Heading></div>
+        <div className="uj-kpi-card"><Text className="uj-kpi-label">3rd-Party Load Time</Text><Heading level={2} className="uj-kpi-value" style={{ color: PURPLE }}>{fmtBytes(thirdPartyBytes)}</Heading></div>
         <div className="uj-kpi-card"><Text className="uj-kpi-label">Avg 3P Duration</Text><Heading level={2} className="uj-kpi-value" style={{ color: avgThirdPartyDur > 500 ? RED : avgThirdPartyDur > 200 ? YELLOW : GREEN }}>{Math.round(avgThirdPartyDur)}ms</Heading></div>
         <div className="uj-kpi-card"><Text className="uj-kpi-label">Avg 1P Duration</Text><Heading level={2} className="uj-kpi-value" style={{ color: GREEN }}>{Math.round(avgFirstPartyDur)}ms</Heading></div>
       </Flex>
@@ -9768,12 +9781,12 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any
       <SectionHeader title="All Domains" />
       <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={domains.map(d => ({
         Domain: d.domain, Type: d.isThirdParty ? "Third-Party" : "First-Party",
-        Requests: d.reqCount, "Payload": d.totalBytes, "Avg Duration (ms)": Math.round(d.avgDuration), "Resource Types": d.resTypes,
+        Requests: d.reqCount, "Total Dur": d.totalBytes, "Avg Duration (ms)": Math.round(d.avgDuration), "Resource Types": d.resTypes,
       }))} columns={[
         { id: "Domain", header: "Domain", accessor: "Domain", cell: ({ value }: any) => <Strong>{String(value).substring(0, 40)}</Strong> },
         { id: "Type", header: "Type", accessor: "Type", cell: ({ value }: any) => <span style={{ padding: "2px 8px", borderRadius: 4, background: value === "Third-Party" ? "rgba(255,131,43,0.15)" : "rgba(13,156,41,0.15)", color: value === "Third-Party" ? ORANGE : GREEN, fontWeight: 700, fontSize: 11 }}>{value}</span> },
         { id: "Requests", header: "Requests", accessor: "Requests", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{fmtCount(value)}</Strong> },
-        { id: "Payload", header: "Payload", accessor: "Payload", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtBytes(value)}</Text> },
+        { id: "Total Dur", header: "Total Dur", accessor: "Total Dur", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtBytes(value)}</Text> },
         { id: "Avg Duration (ms)", header: "Avg Duration", accessor: "Avg Duration (ms)", sortType: "number" as any, cell: ({ value }: any) => <span style={{ color: value > 500 ? RED : value > 200 ? YELLOW : GREEN, fontWeight: 600 }}>{fmtCount(value)}ms</span> },
         { id: "Resource Types", header: "Types", accessor: "Resource Types", cell: ({ value }: any) => <Text style={{ fontSize: 11, opacity: 0.6 }}>{value}</Text> },
       ]} /></div>
@@ -9819,7 +9832,7 @@ function ErrorClusteringTab({ data, trendData, isLoading, frontend }: { data: an
   type HourTrend = { hour: string; count: number };
   const hourly: HourTrend[] = trendRecords.map((r: any) => ({
     hour: String(r.hour_bucket ?? ""),
-    count: Number(r.error_count ?? 0),
+    count: Number(r.occurrences ?? 0),
   })).filter((h: HourTrend) => h.hour).sort((a: HourTrend, b: HourTrend) => a.hour.localeCompare(b.hour));
 
   const totalErrors = clusters.reduce((a, c) => a + c.occurrences, 0);
