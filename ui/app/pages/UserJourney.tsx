@@ -2653,11 +2653,11 @@ function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: bool
                         )}
                       </Flex>
                       <Flex gap={16} flexWrap="wrap" style={{ marginBottom: 8 }}>
-                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Occurrences</Text><Strong style={{ display: "block", color: severity }}>{fmtCount(occurrences)}</Strong></div>
-                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Affected Sessions</Text><Strong style={{ display: "block", color: ORANGE }}>{fmtCount(affected)}</Strong></div>
-                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>% of All Errors</Text><Strong style={{ display: "block" }}>{fmtPct(pctOfTotal)}</Strong></div>
-                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>First Seen</Text><Text style={{ display: "block", fontSize: 13 }}>{firstSeen}</Text></div>
-                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Last Seen</Text><Text style={{ display: "block", fontSize: 13 }}>{lastSeen}</Text></div>
+                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Occurrences</Text><Strong style={{ display: "block", fontSize: 32, color: severity }}>{fmtCount(occurrences)}</Strong></div>
+                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Affected Sessions</Text><Strong style={{ display: "block", fontSize: 32, color: ORANGE }}>{fmtCount(affected)}</Strong></div>
+                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>% of All Errors</Text><Strong style={{ display: "block", fontSize: 32 }}>{fmtPct(pctOfTotal)}</Strong></div>
+                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>First Seen</Text><Text style={{ display: "block", fontSize: 26 }}>{firstSeen}</Text></div>
+                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Last Seen</Text><Text style={{ display: "block", fontSize: 26 }}>{lastSeen}</Text></div>
                       </Flex>
                       {pages.length > 0 && (
                         <Flex gap={6} flexWrap="wrap">
@@ -2776,10 +2776,10 @@ function ClickIssuesTab({ data, isLoading }: { data: any; isLoading: boolean }) 
                         <Strong style={{ fontSize: 13, wordBreak: "break-word" }}>{target.length > 100 ? target.substring(0, 100) + "..." : target}</Strong>
                       </Flex>
                       <Flex gap={16} flexWrap="wrap">
-                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Occurrences</Text><Strong style={{ display: "block", color }}>{fmtCount(occ)}</Strong></div>
-                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Affected Sessions</Text><Strong style={{ display: "block", color: ORANGE }}>{fmtCount(affected)}</Strong></div>
-                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>% of Total</Text><Strong style={{ display: "block" }}>{fmtPct(pctOfTotal)}</Strong></div>
-                        <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Page</Text><Text style={{ display: "block", fontSize: 13, color: BLUE }}>{page}</Text></div>
+                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Occurrences</Text><Strong style={{ display: "block", fontSize: 32, color }}>{fmtCount(occ)}</Strong></div>
+                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Affected Sessions</Text><Strong style={{ display: "block", fontSize: 32, color: ORANGE }}>{fmtCount(affected)}</Strong></div>
+                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>% of Total</Text><Strong style={{ display: "block", fontSize: 32 }}>{fmtPct(pctOfTotal)}</Strong></div>
+                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Page</Text><Text style={{ display: "block", fontSize: 26, color: BLUE }}>{page}</Text></div>
                       </Flex>
                       <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
                         <div style={{ height: "100%", width: `${pctOfTotal}%`, background: color, borderRadius: 2 }} />
@@ -2900,16 +2900,16 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
               </Flex>
               <Flex gap={16} style={{ marginBottom: 8 }}>
                 <div>
-                  <Text style={{ fontSize: 12, opacity: 0.5 }}>Actual</Text>
-                  <Strong style={{ display: "block", color: b.passing ? GREEN : RED, fontSize: 16 }}>{b.format(b.actual)}</Strong>
+                  <Text style={{ fontSize: 24, opacity: 0.5 }}>Actual</Text>
+                  <Strong style={{ display: "block", color: b.passing ? GREEN : RED, fontSize: 32 }}>{b.format(b.actual)}</Strong>
                 </div>
                 <div>
-                  <Text style={{ fontSize: 12, opacity: 0.5 }}>Target</Text>
-                  <Text style={{ display: "block", fontSize: 14 }}>{b.inverted ? "≤ " : "≥ "}{b.format(b.target)}</Text>
+                  <Text style={{ fontSize: 24, opacity: 0.5 }}>Target</Text>
+                  <Text style={{ display: "block", fontSize: 28 }}>{b.inverted ? "≤ " : "≥ "}{b.format(b.target)}</Text>
                 </div>
                 <div>
-                  <Text style={{ fontSize: 12, opacity: 0.5 }}>Margin</Text>
-                  <Text style={{ display: "block", fontSize: 14, color: b.passing ? GREEN : RED }}>
+                  <Text style={{ fontSize: 24, opacity: 0.5 }}>Margin</Text>
+                  <Text style={{ display: "block", fontSize: 28, color: b.passing ? GREEN : RED }}>
                     {b.inverted ? (b.margin <= 0 ? `${Math.abs(b.margin).toFixed(1)}% under` : `${b.margin.toFixed(1)}% over`) : (b.margin >= 0 ? `${b.margin.toFixed(1)}% above` : `${Math.abs(b.margin).toFixed(1)}% below`)}
                   </Text>
                 </div>
@@ -4430,15 +4430,15 @@ ${bottleneckHtml}
           {steps.map((step, i) => (
             <React.Fragment key={i}>
               <div style={{ textAlign: "center" }}>
-                <Text style={{ fontSize: 12, opacity: 0.5, display: "block" }}>{step.label}</Text>
-                <Strong style={{ fontSize: 16, color: BLUE }}>{fmtCount(funnelCounts[i])}</Strong>
+                <Text style={{ fontSize: 24, opacity: 0.5, display: "block" }}>{step.label}</Text>
+                <Strong style={{ fontSize: 32, color: BLUE }}>{fmtCount(funnelCounts[i])}</Strong>
                 {i > 0 && (
-                  <Text style={{ fontSize: 12, display: "block", color: funnelCounts[i - 1] > 0 ? statusClr((funnelCounts[i] / funnelCounts[i - 1]) * 100) : undefined }}>
+                  <Text style={{ fontSize: 24, display: "block", color: funnelCounts[i - 1] > 0 ? statusClr((funnelCounts[i] / funnelCounts[i - 1]) * 100) : undefined }}>
                     {funnelCounts[i - 1] > 0 ? fmtPct((funnelCounts[i] / funnelCounts[i - 1]) * 100) : "—"}
                   </Text>
                 )}
               </div>
-              {i < steps.length - 1 && <span style={{ fontSize: 16, opacity: 0.3 }}>→</span>}
+              {i < steps.length - 1 && <span style={{ fontSize: 32, opacity: 0.3 }}>→</span>}
             </React.Fragment>
           ))}
         </Flex>
@@ -4568,10 +4568,10 @@ function ErrorsTab({ errors, funnelCounts, isLoading, steps, aov }: { errors: an
       <Flex gap={16} flexWrap="wrap">
         {dropOffs.map((d, i) => (
           <div key={i} className="uj-dropoff-card">
-            <Flex alignItems="center" gap={8}><Text style={{ fontSize: 12 }}>{d.from}</Text><span style={{ color: RED, fontSize: 16 }}>→</span><Text style={{ fontSize: 12 }}>{d.to}</Text></Flex>
+            <Flex alignItems="center" gap={8}><Text style={{ fontSize: 24 }}>{d.from}</Text><span style={{ color: RED, fontSize: 32 }}>→</span><Text style={{ fontSize: 24 }}>{d.to}</Text></Flex>
             <Heading level={3} style={{ color: RED, margin: "8px 0 4px" }}>{fmtCount(d.lost)} lost</Heading>
-            <Text style={{ fontSize: 12, opacity: 0.6 }}>{fmtPct(d.pctLost)} abandonment</Text>
-            {aov > 0 && d.lostRevenue > 0 && <Text style={{ fontSize: 12, color: RED, fontWeight: 600, marginTop: 4 }}>~{fmtCurrency(d.lostRevenue)} revenue at risk</Text>}
+            <Text style={{ fontSize: 24, opacity: 0.6 }}>{fmtPct(d.pctLost)} abandonment</Text>
+            {aov > 0 && d.lostRevenue > 0 && <Text style={{ fontSize: 24, color: RED, fontWeight: 600, marginTop: 4 }}>~{fmtCurrency(d.lostRevenue)} revenue at risk</Text>}
             <div className="uj-dropoff-bar"><div className="uj-dropoff-bar-fill" style={{ width: `${100 - d.pctLost}%` }} /></div>
           </div>
         ))}
@@ -4664,11 +4664,11 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
       <Flex gap={16} flexWrap="wrap">
         <div className={`uj-impact-card ${projApdex < overallApdex ? "uj-impact-negative" : "uj-impact-positive"}`}>
           <Text className="uj-metric-label">Apdex Impact</Text>
-          <Strong style={{ color: projApdex < overallApdex ? RED : GREEN, fontSize: 16 }}>{overallApdex.toFixed(2)} → {projApdex.toFixed(2)}</Strong>
+          <Strong style={{ color: projApdex < overallApdex ? RED : GREEN, fontSize: 32 }}>{overallApdex.toFixed(2)} → {projApdex.toFixed(2)}</Strong>
         </div>
         <div className={`uj-impact-card ${projConv < currConvRate ? "uj-impact-negative" : "uj-impact-positive"}`}>
           <Text className="uj-metric-label">Conversion Impact</Text>
-          <Strong style={{ color: RED, fontSize: 16 }}>{fmtPct(currConvRate)} → {fmtPct(projConv)}</Strong>
+          <Strong style={{ color: RED, fontSize: 32 }}>{fmtPct(currConvRate)} → {fmtPct(projConv)}</Strong>
         </div>
       </Flex>
 
@@ -4901,8 +4901,8 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
       </div>
       <div className="uj-table-tile" style={{ padding: 12 }}>
         <Flex justifyContent="space-between" alignItems="center">
-          <Text style={{ fontSize: 12, fontWeight: 600 }}>Total Funnel Leakage</Text>
-          <Strong style={{ color: RED, fontSize: 16 }}>{fmtCurrency(totalLeakedRevenue)}</Strong>
+          <Text style={{ fontSize: 24, fontWeight: 600 }}>Total Funnel Leakage</Text>
+          <Strong style={{ color: RED, fontSize: 32 }}>{fmtCurrency(totalLeakedRevenue)}</Strong>
         </Flex>
       </div>
 
@@ -4917,7 +4917,7 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
                 <Strong style={{ fontSize: 13 }}>{s.label}</Strong>
                 <Text style={{ fontSize: 13, opacity: 0.6, display: "block" }}>+{fmtPct(s.improvement)} conversion uplift potential</Text>
               </div>
-              <Strong style={{ color: GREEN, fontSize: 16 }}>+{fmtCurrency(s.addedRevenue)}</Strong>
+              <Strong style={{ color: GREEN, fontSize: 32 }}>+{fmtCurrency(s.addedRevenue)}</Strong>
             </Flex>
           </div>
         ))}
@@ -7709,10 +7709,10 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
               <span style={{ fontSize: 12, padding: "2px 10px", borderRadius: 4, background: `${severityColor(b.severity)}18`, color: severityColor(b.severity), fontWeight: 700, textTransform: "uppercase" as const }}>{severityLabel(b.severity)}</span>
             </Flex>
             <Flex gap={20} style={{ marginBottom: 8 }}>
-              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 16, color: b.color }}>{b.format(b.current)}</Strong></div>
-              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Projected +7d</Text><Strong style={{ display: "block", fontSize: 16, color: b.projectedGood ? GREEN : RED }}>{b.format(b.projected7d)}</Strong></div>
-              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Budget</Text><Strong style={{ display: "block", fontSize: 16, opacity: 0.6 }}>{b.direction === "above" ? "≥" : "≤"} {b.format(b.threshold)}</Strong></div>
-              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 14, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.format(Math.abs(b.effectiveRate))}/day`}</Strong></div>
+              <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 32, color: b.color }}>{b.format(b.current)}</Strong></div>
+              <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Projected +7d</Text><Strong style={{ display: "block", fontSize: 32, color: b.projectedGood ? GREEN : RED }}>{b.format(b.projected7d)}</Strong></div>
+              <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Budget</Text><Strong style={{ display: "block", fontSize: 32, opacity: 0.6 }}>{b.direction === "above" ? "≥" : "≤"} {b.format(b.threshold)}</Strong></div>
+              <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 28, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.format(Math.abs(b.effectiveRate))}/day`}</Strong></div>
             </Flex>
             {b.daysToBreach != null && (
               <div style={{ padding: "6px 12px", background: `${severityColor(b.severity)}10`, borderRadius: 6, marginBottom: 6 }}>
@@ -8444,38 +8444,38 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
                   {/* Metrics row */}
                   <Flex gap={32} flexWrap="wrap">
                     <div>
-                      <Text style={{ fontSize: 13, opacity: 0.5 }}>Apdex</Text>
+                      <Text style={{ fontSize: 26, opacity: 0.5 }}>Apdex</Text>
                       <Flex gap={6} alignItems="baseline">
-                        <Text style={{ fontSize: 16, opacity: 0.6 }}>{d.before.apdex.toFixed(2)}</Text>
-                        <Text style={{ fontSize: 14, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 22, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.after.apdex.toFixed(2)}</Strong>
-                        <Text style={{ fontSize: 13, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.apdexDelta >= 0 ? "▲" : "▼"}{Math.abs(d.apdexDelta).toFixed(2)}</Text>
+                        <Text style={{ fontSize: 32, opacity: 0.6 }}>{d.before.apdex.toFixed(2)}</Text>
+                        <Text style={{ fontSize: 28, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 44, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.after.apdex.toFixed(2)}</Strong>
+                        <Text style={{ fontSize: 26, color: d.apdexDelta >= 0 ? GREEN : RED }}>{d.apdexDelta >= 0 ? "▲" : "▼"}{Math.abs(d.apdexDelta).toFixed(2)}</Text>
                       </Flex>
                     </div>
                     <div>
-                      <Text style={{ fontSize: 13, opacity: 0.5 }}>Avg Duration</Text>
+                      <Text style={{ fontSize: 26, opacity: 0.5 }}>Avg Duration</Text>
                       <Flex gap={6} alignItems="baseline">
-                        <Text style={{ fontSize: 16, opacity: 0.6 }}>{fmt(d.before.avgDur)}</Text>
-                        <Text style={{ fontSize: 14, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 22, color: d.durDelta <= 0 ? GREEN : RED }}>{fmt(d.after.avgDur)}</Strong>
-                        <Text style={{ fontSize: 13, color: d.durDelta <= 0 ? GREEN : RED }}>{d.durDelta > 0 ? "▲" : "▼"}{Math.abs(d.durDelta).toFixed(1)}%</Text>
+                        <Text style={{ fontSize: 32, opacity: 0.6 }}>{fmt(d.before.avgDur)}</Text>
+                        <Text style={{ fontSize: 28, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 44, color: d.durDelta <= 0 ? GREEN : RED }}>{fmt(d.after.avgDur)}</Strong>
+                        <Text style={{ fontSize: 26, color: d.durDelta <= 0 ? GREEN : RED }}>{d.durDelta > 0 ? "▲" : "▼"}{Math.abs(d.durDelta).toFixed(1)}%</Text>
                       </Flex>
                     </div>
                     <div>
-                      <Text style={{ fontSize: 13, opacity: 0.5 }}>Error Rate</Text>
+                      <Text style={{ fontSize: 26, opacity: 0.5 }}>Error Rate</Text>
                       <Flex gap={6} alignItems="baseline">
-                        <Text style={{ fontSize: 16, opacity: 0.6 }}>{fmtPct(d.before.errorRate)}</Text>
-                        <Text style={{ fontSize: 14, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 22, color: d.errorDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.errorRate)}</Strong>
-                        <Text style={{ fontSize: 13, color: d.errorDelta <= 0 ? GREEN : RED }}>{d.errorDelta > 0 ? "▲" : "▼"}{Math.abs(d.errorDelta).toFixed(1)}pp</Text>
+                        <Text style={{ fontSize: 32, opacity: 0.6 }}>{fmtPct(d.before.errorRate)}</Text>
+                        <Text style={{ fontSize: 28, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 44, color: d.errorDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.errorRate)}</Strong>
+                        <Text style={{ fontSize: 26, color: d.errorDelta <= 0 ? GREEN : RED }}>{d.errorDelta > 0 ? "▲" : "▼"}{Math.abs(d.errorDelta).toFixed(1)}pp</Text>
                       </Flex>
                     </div>
                     <div>
-                      <Text style={{ fontSize: 13, opacity: 0.5 }}>Frustrated %</Text>
+                      <Text style={{ fontSize: 26, opacity: 0.5 }}>Frustrated %</Text>
                       <Flex gap={6} alignItems="baseline">
-                        <Text style={{ fontSize: 16, opacity: 0.6 }}>{fmtPct(d.before.fruPct)}</Text>
-                        <Text style={{ fontSize: 14, opacity: 0.4 }}>→</Text>
-                        <Strong style={{ fontSize: 22, color: d.fruDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.fruPct)}</Strong>
+                        <Text style={{ fontSize: 32, opacity: 0.6 }}>{fmtPct(d.before.fruPct)}</Text>
+                        <Text style={{ fontSize: 28, opacity: 0.4 }}>→</Text>
+                        <Strong style={{ fontSize: 44, color: d.fruDelta <= 0 ? GREEN : RED }}>{fmtPct(d.after.fruPct)}</Strong>
                       </Flex>
                     </div>
                     {aov > 0 && d.apdexDelta < 0 && (() => {

@@ -5,7 +5,7 @@ import { UserJourney } from "./pages/UserJourney";
 import { ObservabilityJourney } from "./pages/ObservabilityJourney";
 import { SettingsProvider } from "./SettingsContext";
 
-const CURRENT_VERSION = "4.47.20";
+const CURRENT_VERSION = "4.47.22";
 const REPO_API = "https://api.github.com/repos/TechShady/user-journey-app/contents/app.config.json";
 const REPO_URL = "https://github.com/TechShady/user-journey-app";
 
