@@ -3,7 +3,7 @@
   "environmentUrl": "https://guu84124.apps.dynatrace.com",
   "app": {
     "name": "User Journey",
-    "version": "4.47.40",
+    "version": "4.47.41",
     "description": "User Journey — 30-tab frontend observability suite",
     "id": "my.user.journey.app",
     "scopes": [
