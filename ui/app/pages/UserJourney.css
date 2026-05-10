@@ -692,7 +692,7 @@
 .uj-ai-stream-word {
   display: inline;
   opacity: 0;
-  animation: uj-ai-typewriter 0.15s ease forwards;
+  animation: uj-ai-typewriter 0.3s ease forwards;
 }
 
 /* Flow cards */

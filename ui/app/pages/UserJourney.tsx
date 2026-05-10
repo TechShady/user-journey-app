@@ -1792,6 +1792,16 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 10, 2026</Paragraph>
+            <Paragraph><Strong>AI Insights — Intelligent Analysis Engine</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>AI Insights button</Strong> in the header bar (between timeframe selector and help icon) — single toggle for all tabs</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Collapsible panel with <Strong>Summary</Strong>, color-coded <Strong>Insights</Strong> (good/warning/critical/info), and prioritized <Strong>Recommendations</Strong> (high/medium/low impact)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Typewriter streaming animation</Strong>: text appears word-by-word like an AI chatbot response</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• 25+ analysis functions with industry-standard benchmarks: conversion rate (2-5% avg), Apdex thresholds, Google CWV targets, error rate benchmarks, SLO compliance, and more</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Tab-specific analysis: each tab evaluates its own data — Funnel Overview analyzes conversion & drop-offs, Web Vitals checks CWV against Google thresholds, Anomaly Detection flags significant deviations, etc.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• All analysis runs client-side using heuristic benchmarks — no external AI API calls, zero latency</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 9, 2026</Paragraph>
             <Paragraph><Strong>4 New Tabs + Funnel Velocity Sub-Tab</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Cohort Retention</Strong>: Daily user cohorts with conversion retention curves, device breakdown, sessions/user metrics</Paragraph>
@@ -1910,6 +1920,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• Error Clustering groups similar errors together — fix the top cluster first for maximum session impact reduction.</Paragraph>
         <Paragraph>• Funnel Velocity (Sankey sub-tab) identifies the slowest step transitions — if P90 is much higher than median, a subset of users is struggling disproportionately.</Paragraph>
         <Paragraph>• Set Average Order Value in Settings to unlock revenue projections in What-If Analysis and Revenue Intelligence tabs.</Paragraph>
+        <Paragraph>• Click <Strong>AI Insights</Strong> (✦) in the header bar to get instant, data-driven analysis for whichever tab you're viewing — Summary, Insights, and Recommendations powered by industry benchmarks.</Paragraph>
       </HelpSection>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16, marginTop: 8 }}>
         <Paragraph><span style={{ color: "rgba(128,128,128,0.8)" }}>Source code &amp; issue tracker: </span><Link href="https://github.com/TechShady/user-journey-app" target="_blank" rel="noopener noreferrer">github.com/TechShady/user-journey-app</Link></Paragraph>
@@ -1931,6 +1942,7 @@ export function UserJourney() {
   const [tabVisibility, setTabVisibility] = useState<Record<TabKey, boolean>>(DEFAULT_TAB_VISIBILITY);
   const [tabOrder, setTabOrder] = useState<TabKey[]>([...DEFAULT_TAB_ORDER]);
   const [draggedTabIdx, setDraggedTabIdx] = useState<number | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
   const { frontend, steps, saveFrontend, saveSteps, aov, saveAov } = useSettings();
   const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
   const [funnelStyle, setFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
@@ -2194,6 +2206,7 @@ export function UserJourney() {
               }}
             />
           </div>
+          <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
           <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.35</Text>
@@ -2338,6 +2351,7 @@ export function UserJourney() {
       </Sheet>
 
       {/* Tabs — rendered in user-defined tabOrder */}
+      <AIInsightsContext.Provider value={{ open: aiOpen, close: () => setAiOpen(false) }}>
       <Tabs defaultIndex={0}>
         {tabOrder.filter(t => isTabVisible(t)).map(tabId => {
           let content: React.ReactNode = null;
@@ -2376,6 +2390,7 @@ export function UserJourney() {
           return <Tab key={tabId} title={tabId}>{content}</Tab>;
         })}
       </Tabs>
+      </AIInsightsContext.Provider>
     </div>
   );
 }
@@ -2391,8 +2406,13 @@ type AIInsightsData = { summary: string; insights: InsightItem[]; recommendation
 function SparkleIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 2L13.09 8.26L18 6L14.74 10.91L21 12L14.74 13.09L18 18L13.09 15.74L12 22L10.91 15.74L6 18L9.26 13.09L3 12L9.26 10.91L6 6L10.91 8.26L12 2Z" fill="url(#sparkle-grad)" />
-      <defs><linearGradient id="sparkle-grad" x1="3" y1="2" x2="21" y2="22"><stop stopColor="#c084fc" /><stop offset="1" stopColor="#818cf8" /></linearGradient></defs>
+      {/* Large sparkle (bottom-right) */}
+      <path d="M14 4L15.2 9.6L20 12L15.2 14.4L14 20L12.8 14.4L8 12L12.8 9.6Z" fill="url(#sparkle-grad)" />
+      {/* Medium sparkle (top-left) */}
+      <path d="M7 2L7.7 4.8L10 6L7.7 7.2L7 10L6.3 7.2L4 6L6.3 4.8Z" fill="url(#sparkle-grad)" />
+      {/* Small sparkle (left-middle) */}
+      <path d="M5 13L5.5 14.8L7 16L5.5 17.2L5 19L4.5 17.2L3 16L4.5 14.8Z" fill="url(#sparkle-grad)" />
+      <defs><linearGradient id="sparkle-grad" x1="3" y1="2" x2="20" y2="20"><stop stopColor="#c084fc" /><stop offset="1" stopColor="#818cf8" /></linearGradient></defs>
     </svg>
   );
 }
@@ -2414,7 +2434,7 @@ function StreamText({ text, baseDelay, style }: { text: string; baseDelay: numbe
     <Text style={style}>
       {words.map((w, i) => {
         if (/^\s+$/.test(w)) return w;
-        const delay = baseDelay + wordIndex * 30;
+        const delay = baseDelay + wordIndex * 60;
         wordIndex++;
         return <span key={i} className="uj-ai-stream-word" style={{ animationDelay: `${delay}ms` }}>{w}</span>;
       })}
@@ -2425,10 +2445,10 @@ function StreamText({ text, baseDelay, style }: { text: string; baseDelay: numbe
 function AIInsightsPanel({ data, onClose }: { data: AIInsightsData; onClose: () => void }) {
   // Calculate cumulative word offsets so each section streams after the previous
   const summaryWords = data.summary.split(/\s+/).length;
-  const summaryDuration = summaryWords * 30;
-  let insightOffset = summaryDuration + 200;
+  const summaryDuration = summaryWords * 60;
+  let insightOffset = summaryDuration + 400;
   const insightDurations: number[] = data.insights.map(ins => {
-    const d = ins.text.split(/\s+/).length * 30;
+    const d = ins.text.split(/\s+/).length * 60;
     return d;
   });
 
@@ -2442,18 +2462,18 @@ function AIInsightsPanel({ data, onClose }: { data: AIInsightsData; onClose: () 
       <div className="uj-ai-panel-body">
         {/* Summary */}
         <div style={{ marginBottom: 16, padding: "10px 14px", borderRadius: 8, background: "rgba(165,110,255,0.06)", border: "1px solid rgba(165,110,255,0.12)" }}>
-          <StreamText text={data.summary} baseDelay={100} style={{ fontSize: 13, lineHeight: "1.5" }} />
+          <StreamText text={data.summary} baseDelay={200} style={{ fontSize: 13, lineHeight: "1.5" }} />
         </div>
 
         {/* Insights */}
         {data.insights.length > 0 && (
           <div style={{ marginBottom: 16 }}>
-            <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.15s ease forwards", animationDelay: `${insightOffset - 100}ms` }}>Insights</div>
+            <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${insightOffset - 200}ms` }}>Insights</div>
             {data.insights.map((ins, i) => {
               const myOffset = insightOffset;
-              insightOffset += insightDurations[i] + 120;
+              insightOffset += insightDurations[i] + 240;
               return (
-                <div key={i} className={`uj-ai-insight-row ${ins.severity}`} style={{ opacity: 0, animation: "uj-ai-typewriter 0.15s ease forwards", animationDelay: `${myOffset - 50}ms` }}>
+                <div key={i} className={`uj-ai-insight-row ${ins.severity}`} style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${myOffset - 100}ms` }}>
                   <Text style={{ fontSize: 14, flexShrink: 0 }}>{ins.icon}</Text>
                   <StreamText text={ins.text} baseDelay={myOffset} style={{ fontSize: 13 }} />
                 </div>
@@ -2465,13 +2485,13 @@ function AIInsightsPanel({ data, onClose }: { data: AIInsightsData; onClose: () 
         {/* Recommendations */}
         {data.recommendations.length > 0 && (
           <div>
-            <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.15s ease forwards", animationDelay: `${insightOffset}ms` }}>Recommendations</div>
+            <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${insightOffset}ms` }}>Recommendations</div>
             {data.recommendations.map((rec, i) => {
-              const myOffset = insightOffset + 150 + i * 400;
+              const myOffset = insightOffset + 300 + i * 800;
               return (
-                <div key={i} className="uj-ai-recommendation" style={{ opacity: 0, animation: "uj-ai-typewriter 0.15s ease forwards", animationDelay: `${myOffset}ms` }}>
+                <div key={i} className="uj-ai-recommendation" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${myOffset}ms` }}>
                   <span className={`uj-ai-rec-badge ${rec.impact}`}>{rec.impact}</span>
-                  <StreamText text={rec.text} baseDelay={myOffset + 50} style={{ fontSize: 13 }} />
+                  <StreamText text={rec.text} baseDelay={myOffset + 100} style={{ fontSize: 13 }} />
                 </div>
               );
             })}
@@ -2482,13 +2502,15 @@ function AIInsightsPanel({ data, onClose }: { data: AIInsightsData; onClose: () 
   );
 }
 
-/** Hook: manages AI Insights toggle state and renders both button + panel */
-function useAIInsights(analysisFn: () => AIInsightsData): { button: React.ReactNode; panel: React.ReactNode } {
-  const [open, setOpen] = useState(false);
+/** Context: shares AI Insights open/close state from header to all tabs */
+const AIInsightsContext = React.createContext({ open: false, close: () => {} });
+
+/** Hook: reads AI open state from context, returns panel only */
+function useAIInsights(analysisFn: () => AIInsightsData): { panel: React.ReactNode } {
+  const { open, close } = React.useContext(AIInsightsContext);
   const data = useMemo(() => open ? analysisFn() : null, [open, analysisFn]);
   return {
-    button: <AIInsightsButton active={open} onClick={() => setOpen(v => !v)} />,
-    panel: open && data ? <AIInsightsPanel data={data} onClose={() => setOpen(false)} /> : null,
+    panel: open && data ? <AIInsightsPanel data={data} onClose={close} /> : null,
   };
 }
 
@@ -3070,11 +3092,10 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
   const prevFunnelSteps = compareMode ? makeFunnelSteps(funnelCountsPrev) : undefined;
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
 
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov]));
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       {/* KPI row */}
       <Flex gap={16} flexWrap="wrap">
@@ -3223,11 +3244,10 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
     { label: "Frustrated", current: quality.frustrated, prev: qualityPrev.frustrated, inverted: true, format: fmtCount },
   ];
 
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeTrends(quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov), [quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeTrends(quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov), [quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov]));
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Period-over-Period Comparison" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Comparing current period with the equivalent previous period. Green ▲ = improving, Red ▼ = regressing.</Text>
@@ -3286,7 +3306,7 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
 // TAB: Web Vitals
 // ===========================================================================
 function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; cwvByPage: any; isLoading: boolean; appEntityId?: string }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWebVitals(v), [v]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWebVitals(v), [v]));
   if (isLoading) return <Loading />;
 
   const pages = (cwvByPage.data?.records ?? []) as any[];
@@ -3298,7 +3318,6 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <Flex gap={16} flexWrap="wrap" alignItems="center">
         <div className="uj-kpi-card" style={{ minWidth: 160 }}>
@@ -3364,11 +3383,10 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
 // TAB: Step Details
 // ===========================================================================
 function StepDetailsTab({ stepMap, isLoading, appEntityId, steps, aov = 0, funnelCounts = [] }: { stepMap: Map<string, any>; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov?: number; funnelCounts?: number[] }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeStepDetails(stepMap, steps, funnelCounts), [stepMap, steps, funnelCounts]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeStepDetails(stepMap, steps, funnelCounts), [stepMap, steps, funnelCounts]));
   if (isLoading) return <Loading />;
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       {steps.map((step, i) => {
         const m = stepMap.get(step.label);
@@ -3431,14 +3449,13 @@ function StepDetailsTab({ stepMap, isLoading, appEntityId, steps, aov = 0, funne
 // TAB: Worst Sessions (Session Replay Links) — NEW
 // ===========================================================================
 function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWorstSessions(data), [data]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWorstSessions(data), [data]));
   if (isLoading) return <Loading />;
 
   const sessions = (data.data?.records ?? []) as any[];
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Worst-Performing Sessions" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Sessions ranked by frustrated actions, errors, and slowness. Click Replay to open in Dynatrace Session Replay.</Text>
@@ -3520,7 +3537,7 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
 // TAB: Exceptions (Error Drilldown)
 // ===========================================================================
 function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: boolean; frontend: string }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeExceptions(data), [data]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeExceptions(data), [data]));
   if (isLoading) return <Loading />;
 
   const errors = (data.data?.records ?? []) as any[];
@@ -3529,7 +3546,6 @@ function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: bool
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Exception Drilldown" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Exceptions grouped by error name. Ranked by occurrence count to help prioritize fixes.</Text>
@@ -3644,7 +3660,7 @@ function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: bool
 // TAB: Click Issues (Rage / Dead Clicks) — NEW
 // ===========================================================================
 function ClickIssuesTab({ data, isLoading }: { data: any; isLoading: boolean }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeClickIssues(data), [data]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeClickIssues(data), [data]));
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -3656,7 +3672,6 @@ function ClickIssuesTab({ data, isLoading }: { data: any; isLoading: boolean }) 
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Rage & Dead Click Detection" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Rage clicks signal user frustration (rapid repeated clicks). Dead clicks indicate non-responsive UI elements. Both hurt conversion.</Text>
@@ -3763,7 +3778,7 @@ const PERF_BUDGETS = [
 ];
 
 function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoading }: { quality: any; overallApdex: number; overallConv: number; hourlyData: any; isLoading: boolean }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzePerfBudgets(quality, overallApdex, overallConv), [quality, overallApdex, overallConv]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzePerfBudgets(quality, overallApdex, overallConv), [quality, overallApdex, overallConv]));
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -3793,7 +3808,6 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Performance Budget Tracking" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Track actual metrics against defined performance budgets. Green = within budget, Red = over budget.</Text>
@@ -3938,7 +3952,7 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
 // TAB: Geo Heatmap — NEW
 // ===========================================================================
 function GeoHeatmapTab({ data, isLoading, frontend }: { data: any; isLoading: boolean; frontend: string }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGeoHeatmap(data), [data]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGeoHeatmap(data), [data]));
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -3980,7 +3994,6 @@ function GeoHeatmapTab({ data, isLoading, frontend }: { data: any; isLoading: bo
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Geographic Performance Heatmap" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Performance by country with Apdex color-coding. Identifies regions with poor user experience for targeted CDN or infrastructure optimization.</Text>
@@ -4160,7 +4173,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
   const [hasUserChanged, setHasUserChanged] = useState(false);
   // Sync with saved default if user hasn't manually changed yet
   useEffect(() => { if (!hasUserChanged) setMapView(defaultView); }, [defaultView, hasUserChanged]);
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGeoHeatmap(data), [data]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGeoHeatmap(data), [data]));
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -4289,7 +4302,6 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <style>{animCSS}</style>
       <Flex alignItems="center" justifyContent="space-between">
@@ -4649,7 +4661,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
 // TAB: Navigation Paths — NEW
 // ===========================================================================
 function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any; isLoading: boolean; appEntityId: string; steps: StepDef[] }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("Navigation Paths"), []));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("Navigation Paths"), []));
   if (isLoading) return <Loading />;
 
   const paths = (data.data?.records ?? []) as any[];
@@ -4674,7 +4686,6 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Navigation Paths Analysis" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Actual user navigation flows. Reveals unexpected paths, loops, and exit points outside the intended funnel.</Text>
@@ -4790,7 +4801,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any
 // TAB: Anomaly Detection — NEW
 // ===========================================================================
 function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev, stepMap, durationDist, isLoading, steps, aov }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; durationDist: any; isLoading: boolean; steps: StepDef[]; aov: number }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeAnomalyDetection(quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev), [quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeAnomalyDetection(quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev), [quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev]));
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -4847,7 +4858,6 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Anomaly Detection" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Flags metrics deviating significantly from baseline (previous period). Anomaly threshold varies per metric type.</Text>
@@ -4994,7 +5004,7 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
 // TAB: Conversion Attribution — NEW
 // ===========================================================================
 function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCounts }: { data: any; isLoading: boolean; overallConv: number; aov: number; funnelCounts: number[] }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeConversionAttribution(data, overallConv, aov, funnelCounts), [data, overallConv, aov, funnelCounts]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeConversionAttribution(data, overallConv, aov, funnelCounts), [data, overallConv, aov, funnelCounts]));
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -5055,7 +5065,6 @@ function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCou
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Conversion Attribution Analysis" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Identifies which factors (speed, device, browser, errors) most influence conversion success. Overall conversion: <Strong style={{ color: statusClr(overallConv) }}>{fmtPct(overallConv)}</Strong></Text>
@@ -5150,7 +5159,7 @@ function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCou
 // ===========================================================================
 function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps, aov }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[]; aov: number }) {
   const [copied, setCopied] = useState(false);
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov]));
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -5326,7 +5335,6 @@ ${bottleneckHtml}
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       {/* Export buttons */}
       <Flex justifyContent="flex-end" gap={8}>
@@ -5468,7 +5476,7 @@ ${bottleneckHtml}
 // TAB: Segmentation
 // ===========================================================================
 function SegmentationTab({ devices, browsers, geos, isLoading, aov = 0, overallConv = 0 }: { devices: any[]; browsers: any[]; geos: any[]; isLoading: boolean; aov?: number; overallConv?: number }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSegmentation(devices, browsers, geos), [devices, browsers, geos]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSegmentation(devices, browsers, geos), [devices, browsers, geos]));
   if (isLoading) return <Loading />;
 
   const showRevenue = aov > 0 && overallConv > 0;
@@ -5490,7 +5498,6 @@ function SegmentationTab({ devices, browsers, geos, isLoading, aov = 0, overallC
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="By Device Type" />
       <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={mapSeg(devices, "deviceType")} columns={segCols("Device", "deviceType")} /></div>
@@ -5506,7 +5513,7 @@ function SegmentationTab({ devices, browsers, geos, isLoading, aov = 0, overallC
 // TAB: Errors & Drop-offs
 // ===========================================================================
 function ErrorsTab({ errors, funnelCounts, isLoading, steps, aov }: { errors: any[]; funnelCounts: number[]; isLoading: boolean; steps: StepDef[]; aov: number }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeErrorsDropoffs(errors, funnelCounts, steps), [errors, funnelCounts, steps]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeErrorsDropoffs(errors, funnelCounts, steps), [errors, funnelCounts, steps]));
   if (isLoading) return <Loading />;
 
   const lastIdx = steps.length - 1;
@@ -5521,7 +5528,6 @@ function ErrorsTab({ errors, funnelCounts, isLoading, steps, aov }: { errors: an
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Biggest Drop-offs" />
       <Flex gap={16} flexWrap="wrap">
@@ -5571,7 +5577,7 @@ function ErrorsTab({ errors, funnelCounts, isLoading, steps, aov }: { errors: an
 function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov }: { funnelCounts: number[]; stepMap: Map<string, any>; overallApdex: number; isLoading: boolean; steps: StepDef[]; aov: number }) {
   const [pctChange, setPctChange] = useState(100);
   const [wiFunnelStyle, setWiFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("What-If Analysis"), []));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("What-If Analysis"), []));
   if (isLoading) return <Loading />;
 
   const mult = 1 + pctChange / 100;
@@ -5612,7 +5618,6 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <MultiplierSlider value={pctChange} onChange={setPctChange} />
 
@@ -5726,7 +5731,7 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
 // TAB: Revenue Intelligence
 // ===========================================================================
 function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overallConv, overallConvPrev, overallApdex, quality, qualityPrev, isLoading, steps, aov }: { funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; overallConv: number; overallConvPrev: number; overallApdex: number; quality: any; qualityPrev: any; isLoading: boolean; steps: StepDef[]; aov: number }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("Revenue Intelligence"), []));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("Revenue Intelligence"), []));
   if (isLoading) return <Loading />;
 
   if (aov <= 0) {
@@ -5791,7 +5796,6 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       {/* Top-line revenue KPIs */}
       <Flex gap={16} flexWrap="wrap">
@@ -6013,7 +6017,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     const map: Record<string, string> = { flow: "Flow Chart", convPaths: "Conversion Paths", loops: "Loop Analysis", timing: "Page Timing", endpoints: "Session Endpoints", revPaths: "Revenue Paths", pathTrends: "Path Trends", leakage: "Funnel Leakage", velocity: "Funnel Velocity" };
     return map[sankeySubTab] ?? "Flow Chart";
   }, [sankeySubTab]);
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSankeySubTab(sankeySubTabLabel), [sankeySubTabLabel]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSankeySubTab(sankeySubTabLabel), [sankeySubTabLabel]));
 
   if (isLoading) return <Loading />;
 
@@ -7741,7 +7745,6 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       {chartHeader}
       {subTabBar}
@@ -8273,7 +8276,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   );
 }
 function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, isLoading, steps, aov, funnelCounts }: { hourlyData: any; stepDropData: any; quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; isLoading: boolean; steps: StepDef[]; aov: number; funnelCounts: number[] }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeRootCauseCorrelation(hourlyData, quality, overallApdex, overallConv), [hourlyData, quality, overallApdex, overallConv]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeRootCauseCorrelation(hourlyData, quality, overallApdex, overallConv), [hourlyData, quality, overallApdex, overallConv]));
   if (isLoading) return <Loading />;
 
   const hourlyRecords = (hourlyData.data?.records ?? []) as any[];
@@ -8373,7 +8376,6 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Root Cause Correlation" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Correlates conversion drops with latency spikes, error surges, and P90 outliers on an hourly timeline. Identifies the technical driver behind every drop.</Text>
@@ -8618,7 +8620,7 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
 // TAB: Predictive Forecasting
 // ===========================================================================
 function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, quality, overallApdex, overallConv, isLoading, steps, aov = 0, funnelCounts = [] }: { trendData: any; apdexTrendData: any; vitalsTrendData: any; quality: any; overallApdex: number; overallConv: number; isLoading: boolean; steps: StepDef[]; aov?: number; funnelCounts?: number[] }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzePredictiveForecasting(quality, overallApdex, overallConv), [quality, overallApdex, overallConv]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzePredictiveForecasting(quality, overallApdex, overallConv), [quality, overallApdex, overallConv]));
   if (isLoading) return <Loading />;
 
   const trendRecords = (trendData.data?.records ?? []) as any[];
@@ -8758,7 +8760,6 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Predictive Forecasting" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Projects key metrics forward {FORECAST_DAYS} days using linear regression on the selected timeframe. Flags metrics trending toward budget breach.</Text>
@@ -9054,7 +9055,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
 // ===========================================================================
 function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: { waterfallData: any; byStepData: any; isLoading: boolean; steps: StepDef[] }) {
   const [selectedStep, setSelectedStep] = useState<string>("all");
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeResourceWaterfall(waterfallData, byStepData), [waterfallData, byStepData]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeResourceWaterfall(waterfallData, byStepData), [waterfallData, byStepData]));
   if (isLoading) return <Loading />;
 
   const allResources = (waterfallData.data?.records ?? []) as any[];
@@ -9123,7 +9124,6 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Resource Waterfall" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Aggregated resource timing per funnel step. Identifies third-party scripts, XHR calls, images, and other resources dragging down page performance.</Text>
@@ -9291,7 +9291,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
 // TAB: Change Intelligence
 // ===========================================================================
 function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, overallApdex, overallApdexPrev, isLoading, aov, overallConv, funnelCounts }: { deployData: any; impactData: any; quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; isLoading: boolean; aov: number; overallConv: number; funnelCounts: number[] }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeChangeIntelligence(deployData, quality, qualityPrev, overallApdex, overallApdexPrev), [deployData, quality, qualityPrev, overallApdex, overallApdexPrev]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeChangeIntelligence(deployData, quality, qualityPrev, overallApdex, overallApdexPrev), [deployData, quality, qualityPrev, overallApdex, overallApdexPrev]));
   if (isLoading) return <Loading />;
 
   const deployRecords = (deployData.data?.records ?? []) as any[];
@@ -9409,7 +9409,6 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16, paddingRight: 8 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Change Intelligence" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Overlays deployment events on performance timeline. Compares before/after metrics in a 2-hour window around each deploy to detect regressions or improvements.</Text>
@@ -9731,7 +9730,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
 // SLO TRACKER TAB
 // ===========================================================================
 function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallConv, cwv, isLoading }: { apdexTrend: any; cwvTrend: any; quality: any; overallApdex: number; overallConv: number; cwv: any; isLoading: boolean }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSLOTracker(quality, overallApdex, overallConv, cwv), [quality, overallApdex, overallConv, cwv]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSLOTracker(quality, overallApdex, overallConv, cwv), [quality, overallApdex, overallConv, cwv]));
   if (isLoading) return <Loading />;
 
   const apdexRecords = (apdexTrend.data?.records ?? []) as any[];
@@ -9815,7 +9814,6 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
 
   return (
     <Flex flexDirection="column" gap={16} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Service Level Objectives" />
       <Flex gap={12} flexWrap="wrap">
@@ -9872,7 +9870,7 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
 // SESSION REPLAY SPOTLIGHT TAB
 // ===========================================================================
 function SessionReplaySpotlightTab({ data, isLoading }: { data: any; isLoading: boolean }) {
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("Session Replay Spotlight"), []));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("Session Replay Spotlight"), []));
   if (isLoading) return <Loading />;
 
   const sessions = (data.data?.records ?? []) as any[];
@@ -9886,7 +9884,6 @@ function SessionReplaySpotlightTab({ data, isLoading }: { data: any; isLoading: 
 
   return (
     <Flex flexDirection="column" gap={16} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="High-Impact Session Replays" />
       <Flex gap={12} flexWrap="wrap">
@@ -9988,7 +9985,7 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
 }) {
   const [customA, setCustomA] = useState(segA);
   const [customB, setCustomB] = useState(segB);
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("A/B Comparison"), []));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("A/B Comparison"), []));
 
   const applyPreset = (preset: typeof AB_PRESETS[number]) => {
     setDimension(preset.dimension);
@@ -10050,7 +10047,6 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
 
   return (
     <Flex flexDirection="column" gap={16} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="A/B Segment Comparison" />
 
@@ -10186,7 +10182,7 @@ function CohortRetentionTab({ retentionData, sessionData, isLoading, steps, aov 
     const overallConvRate = totalSessions > 0 ? (totalConversions / totalSessions) * 100 : 0;
     return { dailyData, avgSessionsPerUser, overallConvRate };
   }, [retentionData, sessionData]);
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeCohortRetention(analysisData.dailyData, analysisData.avgSessionsPerUser, analysisData.overallConvRate), [analysisData]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeCohortRetention(analysisData.dailyData, analysisData.avgSessionsPerUser, analysisData.overallConvRate), [analysisData]));
   if (isLoading) return <Loading />;
 
   const retRecords = (retentionData?.data?.records ?? []) as any[];
@@ -10244,7 +10240,6 @@ function CohortRetentionTab({ retentionData, sessionData, isLoading, steps, aov 
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Cohort Retention — Daily user cohorts and conversion retention" />
       <Flex gap={16} flexWrap="wrap">
@@ -10332,7 +10327,7 @@ function SessionEngagementTab({ data, isLoading, steps, aov, overallConv }: { da
     const lConv = low.length > 0 ? (low.filter(s => s.converted).length / low.length) * 100 : 0;
     return { avg, highPct, lowPct, hConv, lConv };
   }, [data, steps]);
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSessionEngagement(engStats.avg, engStats.highPct, engStats.lowPct, engStats.hConv, engStats.lConv), [engStats]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSessionEngagement(engStats.avg, engStats.highPct, engStats.lowPct, engStats.hConv, engStats.lConv), [engStats]));
   if (isLoading) return <Loading />;
 
   const records = (data?.data?.records ?? []) as any[];
@@ -10381,7 +10376,6 @@ function SessionEngagementTab({ data, isLoading, steps, aov, overallConv }: { da
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Session Engagement Score — Quantify user engagement per session" />
       <Flex gap={16} flexWrap="wrap">
@@ -10494,7 +10488,7 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any
     tpCount = Array.from(domReqs.keys()).filter(d => anyMatch ? !isFirstParty(d) : d !== topDomain).length;
     return { thirdPartyPct: totalReqs > 0 ? (tpReqs / totalReqs) * 100 : 0, avg3P: tpDurN > 0 ? tpDurSum / tpDurN : 0, avg1P: fpDurN > 0 ? fpDurSum / fpDurN : 0, tpCount };
   }, [data, frontend]);
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeThirdPartyImpact(tpStats.thirdPartyPct, tpStats.avg3P, tpStats.avg1P, tpStats.tpCount), [tpStats]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeThirdPartyImpact(tpStats.thirdPartyPct, tpStats.avg3P, tpStats.avg1P, tpStats.tpCount), [tpStats]));
   if (isLoading) return <Loading />;
 
   const records = (data?.data?.records ?? []) as any[];
@@ -10578,7 +10572,6 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Third-Party Impact — How external resources affect performance" />
       <Flex gap={16} flexWrap="wrap">
@@ -10672,7 +10665,7 @@ function ErrorClusteringTab({ data, trendData, isLoading, frontend }: { data: an
     const totalErrors = clusters.reduce((a: number, c: any) => a + c.occurrences, 0);
     return { clusters, totalErrors };
   }, [data]);
-  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeErrorClustering(ecStats.clusters, ecStats.totalErrors), [ecStats]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeErrorClustering(ecStats.clusters, ecStats.totalErrors), [ecStats]));
   if (isLoading) return <Loading />;
 
   const records = (data?.data?.records ?? []) as any[];
@@ -10715,7 +10708,6 @@ function ErrorClusteringTab({ data, trendData, isLoading, frontend }: { data: an
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      <Flex justifyContent="flex-end">{aiButton}</Flex>
       {aiPanel}
       <SectionHeader title="Error Clustering — Group and analyze errors by pattern" />
       <Flex gap={16} flexWrap="wrap">

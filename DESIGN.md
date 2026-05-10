@@ -988,6 +988,20 @@ Revenue features appear across multiple tabs when `aov > 0` in global settings:
 
 All revenue calculations are client-side — no additional DQL queries needed beyond existing funnel/quality data.
 
+### AI Insights Engine
+
+- **Header button**: Single `AIInsightsButton` in the top header bar between timeframe selector and help icon. Uses `AIInsightsContext` (React context) to share open/close state with all tab components.
+- **Three-sparkle icon**: SVG with 3 four-pointed diamond sparkles (large, medium, small) using purple gradient fill.
+- **Panel**: `AIInsightsPanel` renders inside each tab via `useAIInsights(analysisFn)` hook, which reads open state from context and returns `{ panel }`. Panel includes Summary, color-coded Insights (good/warning/critical/info with left-border accents), and prioritized Recommendations (high/medium/low impact badges).
+- **Typewriter animation**: `StreamText` component splits text into words, each rendered as a `<span>` with staggered `animationDelay` (60ms per word). CSS `@keyframes uj-ai-typewriter` (opacity 0→1, translateY 4→0, 0.3s duration). Section headers and insight rows also fade in sequentially with cumulative offsets.
+- **Analysis functions**: 25+ tab-specific analysis functions using industry benchmarks:
+  - Conversion: 2-5% industry average
+  - Apdex: ≥0.85 excellent, ≥0.7 good, ≥0.5 fair, <0.5 poor
+  - CWV: Google thresholds (LCP ≤2.5s, CLS ≤0.1, INP ≤200ms, TTFB ≤800ms)
+  - Error rate: <1% healthy, >5% critical
+  - SLO compliance, cohort retention, engagement scoring, 3P impact, error clustering
+- **Architecture**: All analysis runs client-side — pure heuristic functions, no external AI API calls. Each tab's analysis function receives computed data from the tab and returns `AIInsightsData { summary, insights[], recommendations[] }`.
+
 ### Help System
 
 - **Help Sheet**: Slide-out panel (`<Sheet>`) with `HelpContent` component covering all 30 tabs, configuration, Apdex, CWV thresholds, and tips
@@ -999,6 +1013,7 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------||
+| 2026-05-10 | 4.47.39 | **AI Insights Engine**: Header-level AI Insights button (3-sparkle icon) between timeframe selector and help icon. Collapsible panel per tab with Summary, color-coded Insights (good/warning/critical/info), and prioritized Recommendations (high/medium/low). Typewriter streaming animation (60ms/word, 0.3s fade). 25+ tab-specific analysis functions with industry benchmarks (conversion 2-5%, Apdex thresholds, Google CWV targets, error rate <1%). React context (`AIInsightsContext`) shares state from header to all 30 tab components via `useAIInsights` hook. All analysis client-side — zero external API calls |
 | 2026-05-09 | 4.47.33 | **4 New Tabs + Funnel Velocity Sub-Tab**: Cohort Retention (daily cohorts, device breakdown, conv rate curves), Session Engagement (0-100 score per session, tier conversion rates, high-intent non-converters), Third-Party Impact (1P vs 3P resource analysis, domain breakdown, CWV correlation), Error Clustering (error grouping by type, hourly trend, impact ranking). Sankey gets 9th sub-tab: Funnel Velocity (step transition times, median/P90/avg per pair, journey time histogram). 8 new DQL queries, tab count 26→30 |
 | 2026-05-10 | 4.47.18 | **Sankey — Funnel Leakage Sub-Tab**: New 8th sub-tab analyzing users who leave the funnel. Session classification (recoverers vs lost vs straight-through), exit step distribution with stacked bar chart, off-funnel destination mapping with recovery/conversion rates, behavioral comparison (path length, off-funnel pages, deepest step, top exit pages), CWV/error diagnostic signals with health scores, revenue impact estimation (AOV), auto-generated insights engine with severity levels |
 | 2026-05-09 | 4.47.15 | **Funnel & Sankey — New Chart Styles**: Funnel Overview gets 5 visualization styles (Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split) with style selector and Settings persistence. Sankey updated to 7 chart styles — removed Sunburst & Parallel Sets, added Chord Diagram (clickable arcs, focus mode, center label) and Transition Heatmap (52px cells, row/col highlighting, selection summary). Both Chord and Heatmap support selection + focus mode integration |
