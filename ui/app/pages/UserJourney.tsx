@@ -2406,7 +2406,32 @@ function AIInsightsButton({ active, onClick }: { active: boolean; onClick: () =>
   );
 }
 
+/** Renders text word-by-word with a staggered streaming animation */
+function StreamText({ text, baseDelay, style }: { text: string; baseDelay: number; style?: React.CSSProperties }) {
+  const words = text.split(/(\s+)/);
+  let wordIndex = 0;
+  return (
+    <Text style={style}>
+      {words.map((w, i) => {
+        if (/^\s+$/.test(w)) return w;
+        const delay = baseDelay + wordIndex * 30;
+        wordIndex++;
+        return <span key={i} className="uj-ai-stream-word" style={{ animationDelay: `${delay}ms` }}>{w}</span>;
+      })}
+    </Text>
+  );
+}
+
 function AIInsightsPanel({ data, onClose }: { data: AIInsightsData; onClose: () => void }) {
+  // Calculate cumulative word offsets so each section streams after the previous
+  const summaryWords = data.summary.split(/\s+/).length;
+  const summaryDuration = summaryWords * 30;
+  let insightOffset = summaryDuration + 200;
+  const insightDurations: number[] = data.insights.map(ins => {
+    const d = ins.text.split(/\s+/).length * 30;
+    return d;
+  });
+
   return (
     <div className="uj-ai-panel">
       <div className="uj-ai-panel-header">
@@ -2417,32 +2442,39 @@ function AIInsightsPanel({ data, onClose }: { data: AIInsightsData; onClose: () 
       <div className="uj-ai-panel-body">
         {/* Summary */}
         <div style={{ marginBottom: 16, padding: "10px 14px", borderRadius: 8, background: "rgba(165,110,255,0.06)", border: "1px solid rgba(165,110,255,0.12)" }}>
-          <Text style={{ fontSize: 13, lineHeight: "1.5" }}>{data.summary}</Text>
+          <StreamText text={data.summary} baseDelay={100} style={{ fontSize: 13, lineHeight: "1.5" }} />
         </div>
 
         {/* Insights */}
         {data.insights.length > 0 && (
           <div style={{ marginBottom: 16 }}>
-            <div className="uj-ai-section-title">Insights</div>
-            {data.insights.map((ins, i) => (
-              <div key={i} className={`uj-ai-insight-row ${ins.severity}`}>
-                <Text style={{ fontSize: 14, flexShrink: 0 }}>{ins.icon}</Text>
-                <Text style={{ fontSize: 13 }}>{ins.text}</Text>
-              </div>
-            ))}
+            <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.15s ease forwards", animationDelay: `${insightOffset - 100}ms` }}>Insights</div>
+            {data.insights.map((ins, i) => {
+              const myOffset = insightOffset;
+              insightOffset += insightDurations[i] + 120;
+              return (
+                <div key={i} className={`uj-ai-insight-row ${ins.severity}`} style={{ opacity: 0, animation: "uj-ai-typewriter 0.15s ease forwards", animationDelay: `${myOffset - 50}ms` }}>
+                  <Text style={{ fontSize: 14, flexShrink: 0 }}>{ins.icon}</Text>
+                  <StreamText text={ins.text} baseDelay={myOffset} style={{ fontSize: 13 }} />
+                </div>
+              );
+            })}
           </div>
         )}
 
         {/* Recommendations */}
         {data.recommendations.length > 0 && (
           <div>
-            <div className="uj-ai-section-title">Recommendations</div>
-            {data.recommendations.map((rec, i) => (
-              <div key={i} className="uj-ai-recommendation">
-                <span className={`uj-ai-rec-badge ${rec.impact}`}>{rec.impact}</span>
-                <Text style={{ fontSize: 13 }}>{rec.text}</Text>
-              </div>
-            ))}
+            <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.15s ease forwards", animationDelay: `${insightOffset}ms` }}>Recommendations</div>
+            {data.recommendations.map((rec, i) => {
+              const myOffset = insightOffset + 150 + i * 400;
+              return (
+                <div key={i} className="uj-ai-recommendation" style={{ opacity: 0, animation: "uj-ai-typewriter 0.15s ease forwards", animationDelay: `${myOffset}ms` }}>
+                  <span className={`uj-ai-rec-badge ${rec.impact}`}>{rec.impact}</span>
+                  <StreamText text={rec.text} baseDelay={myOffset + 50} style={{ fontSize: 13 }} />
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
