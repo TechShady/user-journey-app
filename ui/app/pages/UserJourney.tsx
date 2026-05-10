@@ -2381,6 +2381,641 @@ export function UserJourney() {
 }
 
 // ===========================================================================
+// AI INSIGHTS — Sparkle Button, Panel & Analysis Engine
+// ===========================================================================
+type InsightSeverity = "good" | "warning" | "critical" | "info";
+type InsightItem = { severity: InsightSeverity; icon: string; text: string };
+type RecommendationItem = { impact: "high" | "medium" | "low"; text: string };
+type AIInsightsData = { summary: string; insights: InsightItem[]; recommendations: RecommendationItem[] };
+
+function SparkleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2L13.09 8.26L18 6L14.74 10.91L21 12L14.74 13.09L18 18L13.09 15.74L12 22L10.91 15.74L6 18L9.26 13.09L3 12L9.26 10.91L6 6L10.91 8.26L12 2Z" fill="url(#sparkle-grad)" />
+      <defs><linearGradient id="sparkle-grad" x1="3" y1="2" x2="21" y2="22"><stop stopColor="#c084fc" /><stop offset="1" stopColor="#818cf8" /></linearGradient></defs>
+    </svg>
+  );
+}
+
+function AIInsightsButton({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <button className={`uj-ai-btn${active ? " active" : ""}`} onClick={onClick}>
+      <SparkleIcon />
+      AI Insights
+    </button>
+  );
+}
+
+function AIInsightsPanel({ data, onClose }: { data: AIInsightsData; onClose: () => void }) {
+  return (
+    <div className="uj-ai-panel">
+      <div className="uj-ai-panel-header">
+        <SparkleIcon />
+        <Strong style={{ flex: 1 }}>AI Insights</Strong>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 16, opacity: 0.5, padding: "2px 6px" }}>✕</button>
+      </div>
+      <div className="uj-ai-panel-body">
+        {/* Summary */}
+        <div style={{ marginBottom: 16, padding: "10px 14px", borderRadius: 8, background: "rgba(165,110,255,0.06)", border: "1px solid rgba(165,110,255,0.12)" }}>
+          <Text style={{ fontSize: 13, lineHeight: "1.5" }}>{data.summary}</Text>
+        </div>
+
+        {/* Insights */}
+        {data.insights.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div className="uj-ai-section-title">Insights</div>
+            {data.insights.map((ins, i) => (
+              <div key={i} className={`uj-ai-insight-row ${ins.severity}`}>
+                <Text style={{ fontSize: 14, flexShrink: 0 }}>{ins.icon}</Text>
+                <Text style={{ fontSize: 13 }}>{ins.text}</Text>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Recommendations */}
+        {data.recommendations.length > 0 && (
+          <div>
+            <div className="uj-ai-section-title">Recommendations</div>
+            {data.recommendations.map((rec, i) => (
+              <div key={i} className="uj-ai-recommendation">
+                <span className={`uj-ai-rec-badge ${rec.impact}`}>{rec.impact}</span>
+                <Text style={{ fontSize: 13 }}>{rec.text}</Text>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Hook: manages AI Insights toggle state and renders both button + panel */
+function useAIInsights(analysisFn: () => AIInsightsData): { button: React.ReactNode; panel: React.ReactNode } {
+  const [open, setOpen] = useState(false);
+  const data = useMemo(() => open ? analysisFn() : null, [open, analysisFn]);
+  return {
+    button: <AIInsightsButton active={open} onClick={() => setOpen(v => !v)} />,
+    panel: open && data ? <AIInsightsPanel data={data} onClose={() => setOpen(false)} /> : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Per-tab analysis functions — industry-standard benchmarks
+// ---------------------------------------------------------------------------
+function analyzeFunnelOverview(overallConv: number, overallApdex: number, quality: any, funnelCounts: number[], steps: StepDef[], stepMap: Map<string, any>, aov: number): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+  const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
+
+  // Conversion
+  if (overallConv >= 5) insights.push({ severity: "good", icon: "✅", text: `Conversion rate of ${fmtPct(overallConv)} is above the industry average of 2-5%.` });
+  else if (overallConv >= 2) insights.push({ severity: "info", icon: "📊", text: `Conversion rate of ${fmtPct(overallConv)} is within the industry average range (2-5%).` });
+  else if (overallConv > 0) { insights.push({ severity: "warning", icon: "⚠️", text: `Conversion rate of ${fmtPct(overallConv)} is below the industry average of 2-5%.` }); recs.push({ impact: "high", text: "Investigate the highest drop-off steps in the funnel and optimize page load times and UX for those pages." }); }
+
+  // Apdex
+  if (overallApdex >= 0.85) insights.push({ severity: "good", icon: "✅", text: `Apdex of ${overallApdex.toFixed(2)} is Excellent (≥0.85). Users are satisfied with performance.` });
+  else if (overallApdex >= 0.7) insights.push({ severity: "info", icon: "📊", text: `Apdex of ${overallApdex.toFixed(2)} is Good (0.70-0.85). Minor performance improvements could help.` });
+  else if (overallApdex >= 0.5) { insights.push({ severity: "warning", icon: "⚠️", text: `Apdex of ${overallApdex.toFixed(2)} is Fair (0.50-0.70). Users are experiencing noticeable performance issues.` }); recs.push({ impact: "high", text: "Prioritize server-side and frontend performance optimization. Target reducing P90 response times below 3 seconds." }); }
+  else { insights.push({ severity: "critical", icon: "🔴", text: `Apdex of ${overallApdex.toFixed(2)} is Poor (<0.50). Performance is unacceptable for most users.` }); recs.push({ impact: "high", text: "Critical: Immediate performance intervention needed. Profile backend services, optimize database queries, and reduce page weight." }); }
+
+  // Error rate
+  if (errorRate > 5) { insights.push({ severity: "critical", icon: "🔴", text: `Error rate of ${fmtPct(errorRate)} exceeds the 5% threshold. Industry standard is <1%.` }); recs.push({ impact: "high", text: "Investigate top JavaScript exceptions. High error rates directly correlate with conversion loss — each 1% increase in errors can reduce conversion by 0.5-1%." }); }
+  else if (errorRate > 1) { insights.push({ severity: "warning", icon: "⚠️", text: `Error rate of ${fmtPct(errorRate)} is above the recommended <1% threshold.` }); recs.push({ impact: "medium", text: "Review the Exceptions tab to identify and fix the most frequent errors affecting user experience." }); }
+  else insights.push({ severity: "good", icon: "✅", text: `Error rate of ${fmtPct(errorRate)} is within the healthy range (<1%).` });
+
+  // Step drop-offs
+  let worstDrop = 0, worstStep = "";
+  for (let i = 1; i < funnelCounts.length; i++) {
+    const prev = funnelCounts[i - 1];
+    const drop = prev > 0 ? ((prev - funnelCounts[i]) / prev) * 100 : 0;
+    if (drop > worstDrop) { worstDrop = drop; worstStep = steps[i]?.label ?? `Step ${i + 1}`; }
+  }
+  if (worstDrop > 50) { insights.push({ severity: "critical", icon: "🔴", text: `Worst drop-off: ${fmtPct(worstDrop)} at "${worstStep}". More than half of users abandon at this step.` }); recs.push({ impact: "high", text: `Focus UX improvements on "${worstStep}". Consider simplifying the page, reducing form fields, or adding trust signals.` }); }
+  else if (worstDrop > 30) { insights.push({ severity: "warning", icon: "⚠️", text: `Notable drop-off of ${fmtPct(worstDrop)} at "${worstStep}".` }); recs.push({ impact: "medium", text: `Analyze user behavior at "${worstStep}" with session replay to identify friction points.` }); }
+
+  // Revenue opportunity
+  if (aov > 0 && overallConv < 5 && funnelCounts[0] > 0) {
+    const potentialGain = funnelCounts[0] * 0.01 * aov;
+    recs.push({ impact: "medium", text: `Revenue opportunity: A 1% conversion improvement would generate ~${fmtCurrency(potentialGain)} in additional revenue.` });
+  }
+
+  // Avg duration
+  if (quality.avg > 3000) { insights.push({ severity: "critical", icon: "🔴", text: `Average action duration of ${fmt(quality.avg)} exceeds 3s. Google recommends pages load within 2.5s.` }); recs.push({ impact: "high", text: "Optimize critical rendering path: defer non-essential JavaScript, compress images, use CDN caching." }); }
+  else if (quality.avg > 1000) insights.push({ severity: "info", icon: "📊", text: `Average action duration of ${fmt(quality.avg)} is acceptable but has room for improvement.` });
+  else insights.push({ severity: "good", icon: "✅", text: `Average action duration of ${fmt(quality.avg)} is fast, meeting the <1s best practice.` });
+
+  const summary = `Funnel processes ${fmtCount(quality.sessions)} sessions with ${fmtPct(overallConv)} overall conversion and ${overallApdex.toFixed(2)} Apdex. ${errorRate > 1 ? `Error rate of ${fmtPct(errorRate)} needs attention.` : "Error rate is healthy."} ${worstDrop > 30 ? `Biggest friction point is at "${worstStep}" with ${fmtPct(worstDrop)} drop-off.` : "Funnel flow is relatively smooth."}`;
+
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeTrends(quality: any, qualityPrev: any, overallApdex: number, overallApdexPrev: number, overallConv: number, overallConvPrev: number, funnelCounts: number[], funnelCountsPrev: number[], aov: number): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  const sessionDelta = qualityPrev.sessions > 0 ? ((quality.sessions - qualityPrev.sessions) / qualityPrev.sessions) * 100 : 0;
+  const convDelta = overallConvPrev > 0 ? ((overallConv - overallConvPrev) / overallConvPrev) * 100 : 0;
+  const apdexDelta = overallApdexPrev > 0 ? ((overallApdex - overallApdexPrev) / overallApdexPrev) * 100 : 0;
+  const errRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
+  const errRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
+
+  if (sessionDelta > 10) insights.push({ severity: "good", icon: "📈", text: `Traffic increased ${Math.abs(sessionDelta).toFixed(1)}% period-over-period. Growing user base.` });
+  else if (sessionDelta < -10) { insights.push({ severity: "warning", icon: "📉", text: `Traffic decreased ${Math.abs(sessionDelta).toFixed(1)}% period-over-period.` }); recs.push({ impact: "medium", text: "Investigate traffic sources. Check for SEO ranking changes, campaign pauses, or external factors." }); }
+
+  if (convDelta > 5) insights.push({ severity: "good", icon: "✅", text: `Conversion improved ${Math.abs(convDelta).toFixed(1)}% vs. previous period.` });
+  else if (convDelta < -5) { insights.push({ severity: "warning", icon: "⚠️", text: `Conversion declined ${Math.abs(convDelta).toFixed(1)}% vs. previous period.` }); recs.push({ impact: "high", text: "Review recent deployments, A/B tests, or UX changes that may have caused conversion regression." }); }
+
+  if (apdexDelta < -10) { insights.push({ severity: "critical", icon: "🔴", text: `Apdex degraded ${Math.abs(apdexDelta).toFixed(1)}% — user satisfaction is declining.` }); recs.push({ impact: "high", text: "Check Change Intelligence tab for recent deployments. Profile backend services for new performance regressions." }); }
+  else if (apdexDelta > 5) insights.push({ severity: "good", icon: "✅", text: `Apdex improved ${Math.abs(apdexDelta).toFixed(1)}% — performance optimizations are working.` });
+
+  if (errRate > errRatePrev * 1.3 && errRate > 1) { insights.push({ severity: "critical", icon: "🔴", text: `Error rate increased from ${fmtPct(errRatePrev)} to ${fmtPct(errRate)}.` }); recs.push({ impact: "high", text: "Check Error Clustering tab for new error patterns introduced in the current period." }); }
+
+  const summary = `Period-over-period: Sessions ${sessionDelta >= 0 ? "up" : "down"} ${Math.abs(sessionDelta).toFixed(1)}%, conversion ${convDelta >= 0 ? "up" : "down"} ${Math.abs(convDelta).toFixed(1)}%, Apdex ${apdexDelta >= 0 ? "up" : "down"} ${Math.abs(apdexDelta).toFixed(1)}%. ${convDelta < -5 || apdexDelta < -10 ? "Regression detected — investigate recent changes." : "Metrics are trending stable or positive."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeWebVitals(cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  // LCP (Google threshold: ≤2500 good, ≤4000 needs improvement, >4000 poor)
+  if (cwv.lcp <= 2500) insights.push({ severity: "good", icon: "✅", text: `LCP of ${fmt(cwv.lcp)} meets Google's "Good" threshold (≤2.5s).` });
+  else if (cwv.lcp <= 4000) { insights.push({ severity: "warning", icon: "⚠️", text: `LCP of ${fmt(cwv.lcp)} is in "Needs Improvement" range (2.5-4s). Google penalizes this in search rankings.` }); recs.push({ impact: "high", text: "Optimize LCP: preload hero images, inline critical CSS, defer non-essential scripts, use responsive images with proper sizing." }); }
+  else { insights.push({ severity: "critical", icon: "🔴", text: `LCP of ${fmt(cwv.lcp)} is "Poor" (>4s). This significantly impacts SEO and user experience.` }); recs.push({ impact: "high", text: "Critical LCP: Audit largest visible element. Consider lazy-loading below-fold content, optimizing server TTFB, and using a CDN." }); }
+
+  // CLS
+  if (cwv.cls <= 0.1) insights.push({ severity: "good", icon: "✅", text: `CLS of ${cwv.cls.toFixed(3)} is "Good" (≤0.1). Layout is stable.` });
+  else if (cwv.cls <= 0.25) { insights.push({ severity: "warning", icon: "⚠️", text: `CLS of ${cwv.cls.toFixed(3)} is in "Needs Improvement" range (0.1-0.25).` }); recs.push({ impact: "medium", text: "Reduce CLS: Set explicit width/height on images and ads, use CSS contain for dynamic content, avoid inserting content above the fold." }); }
+  else { insights.push({ severity: "critical", icon: "🔴", text: `CLS of ${cwv.cls.toFixed(3)} is "Poor" (>0.25). Significant layout shifts are frustrating users.` }); recs.push({ impact: "high", text: "Critical CLS: Reserve space for ads/embeds, use font-display:swap with size-adjust, audit dynamically injected DOM elements." }); }
+
+  // INP
+  if (cwv.inp <= 200) insights.push({ severity: "good", icon: "✅", text: `INP of ${fmt(cwv.inp)} is "Good" (≤200ms). Interactions feel responsive.` });
+  else if (cwv.inp <= 500) { insights.push({ severity: "warning", icon: "⚠️", text: `INP of ${fmt(cwv.inp)} is in "Needs Improvement" range (200-500ms).` }); recs.push({ impact: "medium", text: "Improve INP: Break up long tasks with yield-to-main patterns, reduce third-party script blocking, optimize event handlers." }); }
+  else { insights.push({ severity: "critical", icon: "🔴", text: `INP of ${fmt(cwv.inp)} is "Poor" (>500ms). Users perceive the UI as unresponsive.` }); recs.push({ impact: "high", text: "Critical INP: Profile main-thread blocking with Chrome DevTools. Move heavy computation to Web Workers, debounce input handlers." }); }
+
+  // TTFB
+  if (cwv.ttfb <= 800) insights.push({ severity: "good", icon: "✅", text: `TTFB of ${fmt(cwv.ttfb)} is within the recommended ≤800ms.` });
+  else if (cwv.ttfb <= 1800) { insights.push({ severity: "warning", icon: "⚠️", text: `TTFB of ${fmt(cwv.ttfb)} exceeds 800ms. Server response time impacts all downstream metrics.` }); recs.push({ impact: "medium", text: "Reduce TTFB: Optimize server-side rendering, implement caching (CDN, Redis), reduce database query time, consider edge computing." }); }
+  else { insights.push({ severity: "critical", icon: "🔴", text: `TTFB of ${fmt(cwv.ttfb)} is significantly slow (>1.8s). This bottlenecks every other web vital.` }); recs.push({ impact: "high", text: "Critical TTFB: Audit server infrastructure. Check for cold starts, slow database queries, missing cache layers, or high server load." }); }
+
+  const goodCount = insights.filter(i => i.severity === "good").length;
+  const summary = `Core Web Vitals: ${goodCount}/4 metrics meet Google's "Good" thresholds. ${goodCount === 4 ? "All vitals are healthy — great user experience and SEO standing." : goodCount >= 2 ? "Some vitals need attention to improve search rankings and user satisfaction." : "Multiple vitals are underperforming — this impacts both SEO rankings and user conversion rates."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeStepDetails(stepMap: Map<string, any>, steps: StepDef[], funnelCounts: number[]): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+  let slowSteps = 0, poorApdexSteps = 0;
+
+  for (let i = 0; i < steps.length; i++) {
+    const m = stepMap.get(steps[i].label);
+    if (!m) continue;
+    const apdex = calcApdex(Number(m.satisfied ?? 0), Number(m.tolerating ?? 0), Number(m.total_actions ?? 0));
+    const p90 = Number(m.p90 ?? 0);
+    if (apdex < 0.5) { poorApdexSteps++; insights.push({ severity: "critical", icon: "🔴", text: `"${steps[i].label}" has Poor Apdex (${apdex.toFixed(2)}). Most users are frustrated at this step.` }); }
+    if (p90 > 5000) { slowSteps++; insights.push({ severity: "warning", icon: "⏱", text: `"${steps[i].label}" P90 is ${fmt(p90)}. 10% of users wait over 5 seconds.` }); }
+  }
+
+  if (poorApdexSteps === 0 && slowSteps === 0) insights.push({ severity: "good", icon: "✅", text: "All funnel steps have acceptable Apdex scores and response times." });
+  if (poorApdexSteps > 0) recs.push({ impact: "high", text: `${poorApdexSteps} step(s) have Poor Apdex. Focus performance optimization on these steps first — they're the biggest user satisfaction bottlenecks.` });
+  if (slowSteps > 0) recs.push({ impact: "medium", text: `${slowSteps} step(s) have P90 > 5s. Consider server-side caching, lazy loading, or code splitting for these pages.` });
+
+  const summary = `Step analysis: ${steps.length} funnel steps evaluated. ${poorApdexSteps > 0 ? `${poorApdexSteps} step(s) with Poor Apdex need urgent attention.` : "All steps have acceptable user satisfaction."} ${slowSteps > 0 ? `${slowSteps} step(s) have slow P90 response times.` : ""}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeWorstSessions(data: any): AIInsightsData {
+  const records = (data?.data?.records ?? []) as any[];
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (records.length === 0) return { summary: "No worst-session data available.", insights: [], recommendations: [] };
+
+  const avgErrors = records.reduce((a: number, r: any) => a + Number(r.error_count ?? r.errors ?? 0), 0) / records.length;
+  const avgDuration = records.reduce((a: number, r: any) => a + Number(r.duration ?? r.session_duration ?? 0), 0) / records.length;
+
+  if (avgErrors > 5) { insights.push({ severity: "critical", icon: "🔴", text: `Worst sessions average ${avgErrors.toFixed(1)} errors per session. These users are having a terrible experience.` }); recs.push({ impact: "high", text: "Review the top worst sessions with Session Replay to identify common error patterns and fix the root cause." }); }
+  else insights.push({ severity: "info", icon: "📊", text: `Worst sessions average ${avgErrors.toFixed(1)} errors per session.` });
+
+  insights.push({ severity: "info", icon: "⏱", text: `Top ${records.length} worst sessions identified for review. Use Session Replay links to investigate individual user journeys.` });
+  recs.push({ impact: "medium", text: "Set up automated alerting for sessions exceeding error or duration thresholds to catch regressions early." });
+
+  const summary = `${records.length} worst sessions identified with an average of ${avgErrors.toFixed(1)} errors. Review these sessions with Replay to uncover UX pain points.`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeExceptions(data: any): AIInsightsData {
+  const records = (data?.data?.records ?? []) as any[];
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (records.length === 0) return { summary: "No JavaScript exceptions detected — excellent error hygiene.", insights: [{ severity: "good", icon: "✅", text: "No JS exceptions in the current timeframe." }], recommendations: [] };
+
+  const totalErrors = records.reduce((a: number, r: any) => a + Number(r.occurrences ?? r.count ?? 0), 0);
+  const topError = records[0];
+  const topPct = totalErrors > 0 ? (Number(topError?.occurrences ?? topError?.count ?? 0) / totalErrors) * 100 : 0;
+
+  insights.push({ severity: totalErrors > 100 ? "critical" : "warning", icon: totalErrors > 100 ? "🔴" : "⚠️", text: `${fmtCount(totalErrors)} JavaScript exceptions across ${records.length} unique error types.` });
+  if (topPct > 50) { insights.push({ severity: "critical", icon: "🎯", text: `Top error accounts for ${fmtPct(topPct)} of all exceptions. Fixing this one error would dramatically reduce error volume.` }); recs.push({ impact: "high", text: `Fix the top error "${String(topError?.errorName ?? topError?.error_name ?? "").substring(0, 50)}" — it represents over half of all exceptions.` }); }
+  recs.push({ impact: "medium", text: "Implement error boundaries in React components to prevent cascading failures. Add source maps for better error diagnostics." });
+
+  const summary = `${fmtCount(totalErrors)} JS exceptions across ${records.length} error types. ${topPct > 50 ? "A single error type dominates — fixing it would cut error volume in half." : "Errors are distributed across multiple types."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeClickIssues(data: any): AIInsightsData {
+  const records = (data?.data?.records ?? []) as any[];
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (records.length === 0) return { summary: "No rage clicks or dead clicks detected.", insights: [{ severity: "good", icon: "✅", text: "No click issues found. UI elements are responding well." }], recommendations: [] };
+
+  const totalRage = records.reduce((a: number, r: any) => a + Number(r.rage_clicks ?? 0), 0);
+  const totalDead = records.reduce((a: number, r: any) => a + Number(r.dead_clicks ?? 0), 0);
+
+  if (totalRage > 0) { insights.push({ severity: "critical", icon: "😤", text: `${fmtCount(totalRage)} rage clicks detected. Users are repeatedly clicking elements that aren't responding fast enough.` }); recs.push({ impact: "high", text: "Investigate rage-click targets. Common causes: slow API responses behind buttons, missing loading indicators, or unresponsive UI elements." }); }
+  if (totalDead > 0) { insights.push({ severity: "warning", icon: "👻", text: `${fmtCount(totalDead)} dead clicks detected. Users are clicking non-interactive elements they expect to be clickable.` }); recs.push({ impact: "medium", text: "Review dead-click elements. Add proper cursor styling to interactive elements and make non-clickable elements visually distinct." }); }
+
+  const summary = `Click analysis: ${fmtCount(totalRage)} rage clicks, ${fmtCount(totalDead)} dead clicks. ${totalRage > 0 ? "Rage clicks indicate significant user frustration." : "No rage clicks detected."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzePerfBudgets(quality: any, overallApdex: number, overallConv: number): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  // Industry performance budgets
+  const budgets = [
+    { label: "Apdex", value: overallApdex, target: 0.85, format: (v: number) => v.toFixed(2), lowerBetter: false },
+    { label: "Conversion", value: overallConv, target: 3, format: fmtPct, lowerBetter: false },
+    { label: "Avg Latency", value: quality.avg, target: 2000, format: fmt, lowerBetter: true },
+    { label: "P90 Latency", value: quality.p90, target: 4000, format: fmt, lowerBetter: true },
+    { label: "Error Rate", value: quality.total > 0 ? (quality.errors / quality.total) * 100 : 0, target: 1, format: fmtPct, lowerBetter: true },
+  ];
+
+  let passing = 0;
+  for (const b of budgets) {
+    const met = b.lowerBetter ? b.value <= b.target : b.value >= b.target;
+    if (met) { passing++; insights.push({ severity: "good", icon: "✅", text: `${b.label}: ${b.format(b.value)} meets budget target of ${b.format(b.target)}.` }); }
+    else { insights.push({ severity: "warning", icon: "⚠️", text: `${b.label}: ${b.format(b.value)} exceeds budget target of ${b.format(b.target)}.` }); recs.push({ impact: b.label === "Apdex" || b.label === "Error Rate" ? "high" : "medium", text: `Bring ${b.label} within budget. Current: ${b.format(b.value)}, Target: ${b.format(b.target)}.` }); }
+  }
+
+  const summary = `Performance budget compliance: ${passing}/${budgets.length} budgets met. ${passing === budgets.length ? "All performance budgets are on track." : `${budgets.length - passing} budget(s) exceeded — prioritize these for optimization.`}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeGeoHeatmap(data: any): AIInsightsData {
+  const records = (data?.data?.records ?? []) as any[];
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (records.length === 0) return { summary: "No geographic performance data available.", insights: [], recommendations: [] };
+
+  const entries = records.map((r: any) => ({ country: String(r.country ?? r.geoCountry ?? "Unknown"), avg: Number(r.avg_duration ?? r.avgDur ?? 0), sessions: Number(r.sessions ?? r.total_sessions ?? 0) })).filter((e: any) => e.sessions > 0);
+  const globalAvg = entries.reduce((a: number, e: any) => a + e.avg * e.sessions, 0) / Math.max(1, entries.reduce((a: number, e: any) => a + e.sessions, 0));
+  const slowRegions = entries.filter((e: any) => e.avg > globalAvg * 1.5).sort((a: any, b: any) => b.sessions - a.sessions);
+  const fastRegions = entries.filter((e: any) => e.avg < globalAvg * 0.7).sort((a: any, b: any) => b.sessions - a.sessions);
+
+  if (slowRegions.length > 0) {
+    insights.push({ severity: "warning", icon: "🌍", text: `${slowRegions.length} region(s) have latency 50%+ above global average (${fmt(globalAvg)}). Slowest: ${slowRegions[0].country} at ${fmt(slowRegions[0].avg)}.` });
+    recs.push({ impact: "medium", text: `Consider CDN edge locations or regional server deployment for: ${slowRegions.slice(0, 3).map((r: any) => r.country).join(", ")}.` });
+  }
+  if (fastRegions.length > 0) insights.push({ severity: "good", icon: "⚡", text: `${fastRegions.length} region(s) are performing 30%+ better than average. Top: ${fastRegions[0].country} at ${fmt(fastRegions[0].avg)}.` });
+
+  const summary = `Geographic analysis across ${entries.length} regions. Global average latency: ${fmt(globalAvg)}. ${slowRegions.length > 0 ? `${slowRegions.length} region(s) are significantly slower than average.` : "Performance is consistent across all regions."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeAnomalyDetection(quality: any, qualityPrev: any, overallApdex: number, overallApdexPrev: number, funnelCounts: number[], funnelCountsPrev: number[]): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  const metrics = [
+    { label: "Sessions", curr: quality.sessions, prev: qualityPrev.sessions, inverted: false },
+    { label: "Avg Duration", curr: quality.avg, prev: qualityPrev.avg, inverted: true },
+    { label: "Error Count", curr: quality.errors, prev: qualityPrev.errors, inverted: true },
+    { label: "Apdex", curr: overallApdex, prev: overallApdexPrev, inverted: false },
+  ];
+
+  let anomalyCount = 0;
+  for (const m of metrics) {
+    if (m.prev === 0) continue;
+    const pct = ((m.curr - m.prev) / m.prev) * 100;
+    const improving = m.inverted ? pct < 0 : pct > 0;
+    if (Math.abs(pct) > 30) {
+      anomalyCount++;
+      if (improving) insights.push({ severity: "good", icon: "📈", text: `${m.label} changed ${Math.abs(pct).toFixed(1)}% (improving).` });
+      else { insights.push({ severity: "critical", icon: "🔴", text: `${m.label} changed ${Math.abs(pct).toFixed(1)}% (degrading). This is a significant anomaly.` }); recs.push({ impact: "high", text: `Investigate ${m.label} regression. Check deployment timeline and infrastructure changes.` }); }
+    } else if (Math.abs(pct) > 15) {
+      if (!improving) { insights.push({ severity: "warning", icon: "⚠️", text: `${m.label} changed ${Math.abs(pct).toFixed(1)}% (degrading).` }); recs.push({ impact: "medium", text: `Monitor ${m.label} closely — it's trending in the wrong direction.` }); }
+    }
+  }
+
+  if (anomalyCount === 0) insights.push({ severity: "good", icon: "✅", text: "No significant anomalies detected. All metrics are within normal variance." });
+
+  const summary = `Anomaly scan: ${anomalyCount} significant deviation(s) detected across ${metrics.length} monitored metrics. ${anomalyCount === 0 ? "System is stable." : "Investigate flagged metrics for potential issues."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeConversionAttribution(data: any, overallConv: number, aov: number, funnelCounts: number[]): AIInsightsData {
+  const records = (data?.data?.records ?? []) as any[];
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (records.length === 0) return { summary: "No conversion attribution data available.", insights: [], recommendations: [] };
+
+  const entries = records.map((r: any) => ({ segment: String(r.segment ?? r.device ?? ""), sessions: Number(r.sessions ?? 0), convRate: Number(r.conv_rate ?? r.convRate ?? 0) })).filter((e: any) => e.sessions > 10);
+  const best = entries.reduce((a: any, e: any) => e.convRate > (a?.convRate ?? 0) ? e : a, null as any);
+  const worst = entries.reduce((a: any, e: any) => e.convRate < (a?.convRate ?? Infinity) ? e : a, null as any);
+
+  if (best && worst && best.convRate > worst.convRate * 2) {
+    insights.push({ severity: "warning", icon: "📊", text: `"${best.segment}" converts at ${fmtPct(best.convRate)} vs. "${worst.segment}" at ${fmtPct(worst.convRate)} — a ${(best.convRate / Math.max(0.01, worst.convRate)).toFixed(1)}x difference.` });
+    recs.push({ impact: "high", text: `Optimize the experience for "${worst.segment}" users. The conversion gap suggests UX issues specific to this segment.` });
+    if (aov > 0) { const opp = worst.sessions * ((best.convRate - worst.convRate) / 100) * aov; recs.push({ impact: "medium", text: `Closing the conversion gap for "${worst.segment}" could add ~${fmtCurrency(opp)} in revenue.` }); }
+  } else if (best) {
+    insights.push({ severity: "good", icon: "✅", text: "Conversion rates are relatively balanced across segments. No major attribution gaps." });
+  }
+
+  const summary = `Attribution analysis across ${entries.length} segments. ${best ? `Best: "${best.segment}" at ${fmtPct(best.convRate)}.` : ""} ${worst ? `Worst: "${worst.segment}" at ${fmtPct(worst.convRate)}.` : ""}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeSegmentation(devices: any[], browsers: any[], geos: any[]): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  // Device analysis
+  const mobile = devices.find((d: any) => String(d.deviceType ?? d.device ?? "").toLowerCase().includes("mobile"));
+  const desktop = devices.find((d: any) => String(d.deviceType ?? d.device ?? "").toLowerCase().includes("desktop"));
+  if (mobile && desktop) {
+    const mobileSess = Number(mobile.sessions ?? 0);
+    const desktopSess = Number(desktop.sessions ?? 0);
+    const mobileShare = (mobileSess / Math.max(1, mobileSess + desktopSess)) * 100;
+    insights.push({ severity: "info", icon: "📱", text: `Mobile traffic: ${fmtPct(mobileShare)} of sessions. ${mobileShare > 60 ? "Mobile-first optimization is critical." : mobileShare > 40 ? "Significant mobile audience — ensure mobile UX parity." : "Desktop-dominant traffic."}` });
+    if (mobileShare > 50) recs.push({ impact: "medium", text: "Prioritize mobile performance: test on real mid-range devices, ensure touch targets are ≥48px, optimize for slower networks." });
+  }
+
+  // Browser diversity
+  if (browsers.length > 8) insights.push({ severity: "info", icon: "🌐", text: `Users span ${browsers.length} browser types. Ensure cross-browser testing covers the top 5.` });
+
+  const summary = `Segmentation: ${devices.length} device types, ${browsers.length} browsers, ${geos.length} geolocations. ${mobile ? `Mobile share: ${fmtPct(Number(mobile.sessions ?? 0) / Math.max(1, devices.reduce((a: number, d: any) => a + Number(d.sessions ?? 0), 0)) * 100)}.` : ""}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeErrorsDropoffs(errors: any[], funnelCounts: number[], steps: StepDef[]): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  const totalErrors = errors.reduce((a, e: any) => a + Number(e.occurrences ?? e.count ?? 0), 0);
+  // Correlate errors with funnel drop-offs
+  let maxDropIdx = 0, maxDrop = 0;
+  for (let i = 1; i < funnelCounts.length; i++) {
+    const drop = funnelCounts[i - 1] > 0 ? ((funnelCounts[i - 1] - funnelCounts[i]) / funnelCounts[i - 1]) * 100 : 0;
+    if (drop > maxDrop) { maxDrop = drop; maxDropIdx = i; }
+  }
+
+  if (totalErrors > 0 && maxDrop > 30) {
+    insights.push({ severity: "critical", icon: "🔗", text: `High error volume (${fmtCount(totalErrors)}) correlates with ${fmtPct(maxDrop)} drop-off at "${steps[maxDropIdx]?.label ?? `Step ${maxDropIdx + 1}`}". Errors may be causing abandonment.` });
+    recs.push({ impact: "high", text: `Fix errors occurring at or before "${steps[maxDropIdx]?.label ?? `Step ${maxDropIdx + 1}`}" — they're likely driving the ${fmtPct(maxDrop)} drop-off.` });
+  } else if (totalErrors > 0) {
+    insights.push({ severity: "warning", icon: "⚠️", text: `${fmtCount(totalErrors)} errors detected but funnel drop-offs are moderate. Errors may be non-blocking.` });
+  } else {
+    insights.push({ severity: "good", icon: "✅", text: "No significant error-dropoff correlation detected." });
+  }
+
+  const summary = `Error-dropoff correlation: ${fmtCount(totalErrors)} errors, largest drop-off ${fmtPct(maxDrop)} at step ${maxDropIdx + 1}. ${maxDrop > 30 && totalErrors > 0 ? "Strong correlation suggests errors are driving abandonment." : "Weak correlation — drop-offs may be UX-related rather than error-related."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeGenericTab(tabName: string): AIInsightsData {
+  return {
+    summary: `${tabName}: Data analysis based on current metrics and industry benchmarks.`,
+    insights: [{ severity: "info", icon: "📊", text: `Review the ${tabName} data above and compare against your organization's KPI targets.` }],
+    recommendations: [{ impact: "low", text: "Establish baseline metrics for this view and set up alerting for deviations beyond 2 standard deviations." }],
+  };
+}
+
+// Sankey sub-tab analysis functions
+function analyzeSankeyFlow(pathAnalysis: any, observations: any[], recommendations: any[]): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (observations.length > 0) {
+    for (const o of observations.slice(0, 5)) {
+      insights.push({ severity: o.severity === "critical" ? "critical" : o.severity === "warning" ? "warning" : "good", icon: o.icon, text: o.text });
+    }
+  }
+  if (recommendations.length > 0) {
+    for (const r of recommendations.slice(0, 4)) {
+      recs.push({ impact: r.impact === "high" ? "high" : r.impact === "medium" ? "medium" : "low", text: r.text });
+    }
+  }
+
+  if (insights.length === 0) insights.push({ severity: "good", icon: "✅", text: "User flow patterns appear healthy with no critical observations." });
+
+  const summary = `Flow analysis: ${observations.length} observation(s), ${recommendations.length} recommendation(s). ${observations.filter((o: any) => o.severity === "critical").length > 0 ? "Critical flow issues detected." : "Flow patterns are within normal range."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeSankeySubTab(subTabName: string): AIInsightsData {
+  const tips: Record<string, { summary: string; insight: string; rec: string }> = {
+    "Conversion Paths": { summary: "Conversion path analysis shows the most common routes users take to convert.", insight: "Compare top conversion paths against the designed funnel to identify unexpected but effective routes.", rec: "Promote the most successful conversion paths by making them more discoverable in navigation and CTAs." },
+    "Loop Analysis": { summary: "Loop analysis identifies pages where users cycle back repeatedly.", insight: "Page loops often indicate confusion, missing information, or comparison behavior.", rec: "Add contextual help, progress indicators, or comparison tools on high-loop pages to reduce cycling." },
+    "Page Timing": { summary: "Page timing shows per-page load performance across the user journey.", insight: "Pages with high median load times are conversion bottlenecks — users abandon slow pages.", rec: "Target pages above 3s median load time for optimization. Use lazy loading and code splitting." },
+    "Session Endpoints": { summary: "Session endpoint analysis shows where users typically end their sessions.", insight: "High exit rates on mid-funnel pages suggest friction or unmet expectations.", rec: "Add exit-intent interventions (offers, chat, surveys) on high-exit pages to recover abandoning users." },
+    "Revenue Paths": { summary: "Revenue path analysis maps user journeys to monetary outcomes.", insight: "High-revenue paths should be optimized for speed and reliability as a priority.", rec: "A/B test the top revenue-generating paths to find further conversion improvements." },
+    "Path Trends": { summary: "Path trends show how navigation patterns evolve over time.", insight: "Changing path patterns may indicate shifting user needs or the impact of site redesigns.", rec: "Correlate path trend changes with deployment dates to assess the impact of UX changes." },
+    "Funnel Leakage": { summary: "Funnel leakage identifies where and why users exit the intended funnel.", insight: "Leakage points with high volume represent the largest recovery opportunities.", rec: "Implement re-engagement strategies (email retargeting, push notifications) for users who leak at high-volume exit points." },
+    "Funnel Velocity": { summary: "Funnel velocity measures how quickly users progress through funnel steps.", insight: "Slow velocity between steps indicates decision friction or information gaps.", rec: "Reduce time-to-next-step by adding clear CTAs, reducing form complexity, and providing social proof." },
+  };
+  const t = tips[subTabName] ?? { summary: `${subTabName} analysis.`, insight: "Review the data above for patterns.", rec: "Establish baselines and monitor for changes." };
+  return { summary: t.summary, insights: [{ severity: "info", icon: "📊", text: t.insight }], recommendations: [{ impact: "medium", text: t.rec }] };
+}
+
+function analyzeRootCauseCorrelation(hourlyData: any, quality: any, overallApdex: number, overallConv: number): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  const errRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
+  if (errRate > 3 && overallConv < 3) {
+    insights.push({ severity: "critical", icon: "🔗", text: `High error rate (${fmtPct(errRate)}) coincides with low conversion (${fmtPct(overallConv)}). Strong negative correlation suggests errors are a root cause.` });
+    recs.push({ impact: "high", text: "Prioritize error reduction — the statistical correlation suggests fixing errors will directly improve conversion rates." });
+  }
+  if (quality.avg > 3000 && overallConv < 3) {
+    insights.push({ severity: "warning", icon: "⏱", text: `Slow average duration (${fmt(quality.avg)}) correlates with low conversion. Per Google, 53% of mobile users abandon sites taking >3s.` });
+    recs.push({ impact: "high", text: "Performance is likely a conversion bottleneck. Focus on reducing server response time and optimizing critical rendering path." });
+  }
+  if (insights.length === 0) insights.push({ severity: "good", icon: "✅", text: "No strong negative correlations between performance/errors and conversion detected." });
+
+  const summary = `Root cause analysis: ${errRate > 3 ? "Error rate is a likely conversion blocker." : ""} ${quality.avg > 3000 ? "Latency is a conversion risk factor." : ""} ${insights.length === 1 && insights[0].severity === "good" ? "No dominant root cause identified — conversion may be influenced by UX/content factors." : ""}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzePredictiveForecasting(quality: any, overallApdex: number, overallConv: number): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (overallApdex < 0.7) { insights.push({ severity: "warning", icon: "📉", text: `Current Apdex (${overallApdex.toFixed(2)}) projects continued user dissatisfaction if no action is taken.` }); recs.push({ impact: "high", text: "Without performance improvements, expect Apdex to remain below acceptable thresholds. Prioritize P90 latency reduction." }); }
+  else insights.push({ severity: "good", icon: "📈", text: `Current Apdex (${overallApdex.toFixed(2)}) trajectory is healthy.` });
+
+  if (overallConv < 2) { insights.push({ severity: "warning", icon: "📉", text: `Conversion rate (${fmtPct(overallConv)}) is below industry baseline. Forecast suggests intervention needed.` }); recs.push({ impact: "high", text: "Set a 90-day improvement target of +1% conversion. Focus on reducing the top 3 funnel drop-off points." }); }
+
+  recs.push({ impact: "low", text: "Forecasts are based on linear trends. Consider seasonality and planned launches when interpreting projections." });
+
+  const summary = `Predictive forecast based on current trajectory. ${overallApdex < 0.7 || overallConv < 2 ? "Current trends indicate intervention is needed to meet performance and conversion targets." : "Current trends are stable — continue monitoring for deviations."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeResourceWaterfall(waterfallData: any, byStepData: any): AIInsightsData {
+  const records = (waterfallData?.data?.records ?? []) as any[];
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (records.length === 0) return { summary: "No resource waterfall data available.", insights: [], recommendations: [] };
+
+  const entries = records.map((r: any) => ({ type: String(r.res_type ?? ""), avgDur: Number(r.avg_dur ?? 0), count: Number(r.requests ?? 0), totalBytes: Number(r.total_size ?? 0) }));
+  const slowResources = entries.filter((e: any) => e.avgDur > 500);
+  const heavyResources = entries.filter((e: any) => e.totalBytes > 500000);
+
+  if (slowResources.length > 0) { insights.push({ severity: "warning", icon: "🐌", text: `${slowResources.length} resource type(s) have average load time >500ms. These slow down page rendering.` }); recs.push({ impact: "medium", text: "Optimize slow resources: compress images (WebP/AVIF), minify JS/CSS, implement HTTP/2 multiplexing." }); }
+  if (heavyResources.length > 0) { insights.push({ severity: "warning", icon: "📦", text: `${heavyResources.length} resource type(s) exceed 500KB total. Google recommends total page weight under 1.5MB.` }); recs.push({ impact: "medium", text: "Reduce page weight: lazy-load below-fold images, tree-shake unused JavaScript, use dynamic imports for code splitting." }); }
+  if (slowResources.length === 0 && heavyResources.length === 0) insights.push({ severity: "good", icon: "✅", text: "Resource loading performance is within acceptable bounds." });
+
+  const summary = `Resource analysis: ${entries.length} resource types. ${slowResources.length} slow (>500ms avg), ${heavyResources.length} heavy (>500KB). ${slowResources.length + heavyResources.length === 0 ? "All resources are well-optimized." : "Optimization opportunities identified."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeChangeIntelligence(deployData: any, quality: any, qualityPrev: any, overallApdex: number, overallApdexPrev: number): AIInsightsData {
+  const records = (deployData?.data?.records ?? []) as any[];
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  const deployCount = records.length;
+  const apdexDelta = overallApdexPrev > 0 ? ((overallApdex - overallApdexPrev) / overallApdexPrev) * 100 : 0;
+  const errDelta = qualityPrev.errors > 0 ? ((quality.errors - qualityPrev.errors) / qualityPrev.errors) * 100 : 0;
+
+  if (deployCount > 0) {
+    insights.push({ severity: "info", icon: "🚀", text: `${deployCount} deployment event(s) detected in the current timeframe.` });
+    if (apdexDelta < -10) { insights.push({ severity: "critical", icon: "🔴", text: `Apdex degraded ${Math.abs(apdexDelta).toFixed(1)}% post-deployment. A recent change may have introduced a performance regression.` }); recs.push({ impact: "high", text: "Correlate the Apdex drop with specific deployment timestamps. Consider rollback if the regression is severe." }); }
+    if (errDelta > 30) { insights.push({ severity: "critical", icon: "🔴", text: `Errors increased ${Math.abs(errDelta).toFixed(1)}% after deployment(s). New code may have introduced bugs.` }); recs.push({ impact: "high", text: "Review error logs for new exception types introduced after the latest deployment. Consider feature flags for gradual rollout." }); }
+    if (apdexDelta >= 0 && errDelta <= 0) insights.push({ severity: "good", icon: "✅", text: "No performance or error regressions detected post-deployment." });
+  } else {
+    insights.push({ severity: "info", icon: "📋", text: "No deployment events detected. Performance changes are likely organic or infrastructure-related." });
+  }
+
+  recs.push({ impact: "low", text: "Implement deployment markers via Dynatrace Events API to automatically correlate releases with performance changes." });
+
+  const summary = `Change intelligence: ${deployCount} deployment(s). ${apdexDelta < -10 || errDelta > 30 ? "Post-deployment regression detected." : "No regressions detected post-deployment."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeSLOTracker(quality: any, overallApdex: number, overallConv: number, cwv: any): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  const slos = [
+    { name: "Apdex SLO", current: overallApdex, target: 0.85, format: (v: number) => v.toFixed(2), lowerBetter: false },
+    { name: "LCP SLO", current: cwv.lcp, target: 2500, format: fmt, lowerBetter: true },
+    { name: "Error Budget", current: quality.total > 0 ? (quality.errors / quality.total) * 100 : 0, target: 1, format: fmtPct, lowerBetter: true },
+  ];
+
+  let slosMet = 0;
+  for (const s of slos) {
+    const met = s.lowerBetter ? s.current <= s.target : s.current >= s.target;
+    if (met) { slosMet++; insights.push({ severity: "good", icon: "✅", text: `${s.name}: ${s.format(s.current)} meets target (${s.format(s.target)}).` }); }
+    else {
+      const remaining = s.lowerBetter ? s.current - s.target : s.target - s.current;
+      insights.push({ severity: "critical", icon: "🔴", text: `${s.name}: ${s.format(s.current)} misses target (${s.format(s.target)}). Error budget may be exhausted.` });
+      recs.push({ impact: "high", text: `${s.name} is burning error budget. ${s.lowerBetter ? "Reduce" : "Improve"} by ${s.format(Math.abs(remaining))} to meet SLO.` });
+    }
+  }
+
+  const summary = `SLO Status: ${slosMet}/${slos.length} SLOs met. ${slosMet === slos.length ? "All SLOs are being met — error budgets are healthy." : `${slos.length - slosMet} SLO(s) at risk — prioritize error budget recovery.`}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeCohortRetention(dailyData: any[], avgSessionsPerUser: number, overallConvRate: number): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (avgSessionsPerUser >= 2) insights.push({ severity: "good", icon: "✅", text: `Average ${avgSessionsPerUser.toFixed(1)} sessions/user indicates healthy return visitor engagement (benchmark: ≥1.5).` });
+  else { insights.push({ severity: "warning", icon: "⚠️", text: `Average ${avgSessionsPerUser.toFixed(1)} sessions/user is below the 1.5 benchmark. Users aren't returning.` }); recs.push({ impact: "medium", text: "Improve retention: implement email re-engagement campaigns, personalized content, and push notifications for return visits." }); }
+
+  if (overallConvRate < 2) { insights.push({ severity: "warning", icon: "📉", text: `Cohort conversion rate of ${fmtPct(overallConvRate)} is below the 2% e-commerce baseline.` }); recs.push({ impact: "high", text: "Focus on cohort-specific conversion: analyze which daily cohorts convert best and replicate those conditions." }); }
+
+  // Look for declining trend
+  if (dailyData.length >= 7) {
+    const first3Avg = dailyData.slice(0, 3).reduce((a: number, d: any) => a + d.convRate, 0) / 3;
+    const last3Avg = dailyData.slice(-3).reduce((a: number, d: any) => a + d.convRate, 0) / 3;
+    if (last3Avg < first3Avg * 0.8) { insights.push({ severity: "warning", icon: "📉", text: `Cohort conversion is declining: recent days average ${fmtPct(last3Avg)} vs. earlier ${fmtPct(first3Avg)}.` }); recs.push({ impact: "medium", text: "Investigate the cause of declining cohort conversion — check for seasonal patterns, campaign changes, or site issues." }); }
+  }
+
+  const summary = `Cohort retention: ${avgSessionsPerUser.toFixed(1)} sessions/user, ${fmtPct(overallConvRate)} cohort conversion rate. ${avgSessionsPerUser >= 2 ? "Return engagement is strong." : "Return engagement needs improvement."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeSessionEngagement(avgScore: number, highPct: number, lowPct: number, highConvRate: number, lowConvRate: number): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (avgScore >= 50) insights.push({ severity: "good", icon: "✅", text: `Average engagement score of ${avgScore.toFixed(0)}/100 is healthy.` });
+  else { insights.push({ severity: "warning", icon: "⚠️", text: `Average engagement score of ${avgScore.toFixed(0)}/100 is low. Users aren't deeply interacting with your site.` }); recs.push({ impact: "medium", text: "Increase engagement: add interactive elements, improve content relevance, and use progressive disclosure to guide users deeper." }); }
+
+  if (highConvRate > lowConvRate * 3 && highConvRate > 0) {
+    insights.push({ severity: "info", icon: "📊", text: `Highly engaged users convert at ${fmtPct(highConvRate)} vs ${fmtPct(lowConvRate)} for low engagement — a ${(highConvRate / Math.max(0.1, lowConvRate)).toFixed(1)}x difference.` });
+    recs.push({ impact: "high", text: "Focus on moving medium-engagement users to high engagement. This group represents the largest conversion uplift opportunity." });
+  }
+
+  if (lowPct > 50) { insights.push({ severity: "warning", icon: "⚠️", text: `${fmtPct(lowPct)} of sessions have low engagement (<30). Most visitors leave without meaningful interaction.` }); recs.push({ impact: "high", text: "Reduce bounce: improve above-the-fold content, add clear value propositions, and ensure fast initial page load." }); }
+
+  const summary = `Engagement: avg score ${avgScore.toFixed(0)}/100. High-engagement sessions convert ${(highConvRate / Math.max(0.1, lowConvRate)).toFixed(1)}x better than low-engagement ones. ${lowPct > 50 ? "Majority of sessions have low engagement." : "Engagement distribution is balanced."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeThirdPartyImpact(thirdPartyPct: number, avgThirdPartyDur: number, avgFirstPartyDur: number, thirdPartyCount: number): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (thirdPartyPct > 60) { insights.push({ severity: "critical", icon: "🔴", text: `Third-party requests make up ${fmtPct(thirdPartyPct)} of all requests. Industry recommendation is <40%.` }); recs.push({ impact: "high", text: "Audit third-party scripts: remove unused tags, defer non-critical scripts, and self-host critical resources where possible." }); }
+  else if (thirdPartyPct > 40) insights.push({ severity: "warning", icon: "⚠️", text: `Third-party requests at ${fmtPct(thirdPartyPct)}. Monitor for growth — each additional third-party adds latency risk.` });
+  else insights.push({ severity: "good", icon: "✅", text: `Third-party request share of ${fmtPct(thirdPartyPct)} is well-managed.` });
+
+  if (avgThirdPartyDur > avgFirstPartyDur * 2 && avgThirdPartyDur > 300) {
+    insights.push({ severity: "warning", icon: "⏱", text: `3P avg duration (${Math.round(avgThirdPartyDur)}ms) is ${(avgThirdPartyDur / Math.max(1, avgFirstPartyDur)).toFixed(1)}x slower than 1P (${Math.round(avgFirstPartyDur)}ms).` });
+    recs.push({ impact: "medium", text: "Slow third-party resources: use async/defer loading, implement resource hints (preconnect/dns-prefetch), set timeouts for non-critical third parties." });
+  }
+
+  const summary = `Third-party analysis: ${thirdPartyCount} external domains, ${fmtPct(thirdPartyPct)} of requests. ${thirdPartyPct > 60 ? "Excessive third-party dependency detected." : "Third-party usage is within acceptable range."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeErrorClustering(clusters: any[], totalErrors: number): AIInsightsData {
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (clusters.length === 0) return { summary: "No errors to cluster.", insights: [{ severity: "good", icon: "✅", text: "Zero errors detected — excellent reliability." }], recommendations: [] };
+
+  const topCluster = clusters[0];
+  const topPct = totalErrors > 0 ? (Number(topCluster?.occurrences ?? 0) / totalErrors) * 100 : 0;
+
+  if (topPct > 50) { insights.push({ severity: "critical", icon: "🎯", text: `Top error cluster represents ${fmtPct(topPct)} of all errors. Single point of failure risk.` }); recs.push({ impact: "high", text: `Fix "${String(topCluster?.name ?? "").substring(0, 40)}" first — eliminating this one error type cuts error volume by more than half.` }); }
+
+  if (clusters.length > 20) { insights.push({ severity: "warning", icon: "📊", text: `${clusters.length} distinct error types — indicates widespread code quality issues.` }); recs.push({ impact: "medium", text: "Implement a systematic error triage process. Categorize errors by impact (sessions affected × frequency) and address top 5 first." }); }
+
+  const criticalClusters = clusters.filter((c: any) => Number(c.sessions ?? 0) > 100);
+  if (criticalClusters.length > 0) {
+    insights.push({ severity: "critical", icon: "🔴", text: `${criticalClusters.length} error cluster(s) affect 100+ sessions each. These are high-impact reliability issues.` });
+  }
+
+  recs.push({ impact: "low", text: "Set up error budget alerting: notify when any single error type exceeds 1% of total sessions." });
+
+  const summary = `Error clustering: ${clusters.length} unique error types, ${fmtCount(totalErrors)} total occurrences. ${topPct > 50 ? "Dominated by a single error type — fix it for maximum impact." : "Errors are distributed across multiple types."}`;
+  return { summary, insights, recommendations: recs };
+}
+
+// ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
 function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, quality, compareMode, setCompareMode, isLoading, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void }) {
@@ -2403,8 +3038,12 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
   const prevFunnelSteps = compareMode ? makeFunnelSteps(funnelCountsPrev) : undefined;
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
 
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov]));
+
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       {/* KPI row */}
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-kpi-card">
@@ -2552,8 +3191,12 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
     { label: "Frustrated", current: quality.frustrated, prev: qualityPrev.frustrated, inverted: true, format: fmtCount },
   ];
 
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeTrends(quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov), [quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov]));
+
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Period-over-Period Comparison" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Comparing current period with the equivalent previous period. Green ▲ = improving, Red ▼ = regressing.</Text>
 
@@ -2611,6 +3254,7 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
 // TAB: Web Vitals
 // ===========================================================================
 function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; cwvByPage: any; isLoading: boolean; appEntityId?: string }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWebVitals(v), [v]));
   if (isLoading) return <Loading />;
 
   const pages = (cwvByPage.data?.records ?? []) as any[];
@@ -2622,6 +3266,8 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <Flex gap={16} flexWrap="wrap" alignItems="center">
         <div className="uj-kpi-card" style={{ minWidth: 160 }}>
           <Text className="uj-kpi-label">Performance Health</Text>
@@ -2686,9 +3332,12 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
 // TAB: Step Details
 // ===========================================================================
 function StepDetailsTab({ stepMap, isLoading, appEntityId, steps, aov = 0, funnelCounts = [] }: { stepMap: Map<string, any>; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov?: number; funnelCounts?: number[] }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeStepDetails(stepMap, steps, funnelCounts), [stepMap, steps, funnelCounts]));
   if (isLoading) return <Loading />;
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       {steps.map((step, i) => {
         const m = stepMap.get(step.label);
         const avg = m ? Number(m.avg_duration_ms ?? 0) : 0;
@@ -2750,12 +3399,15 @@ function StepDetailsTab({ stepMap, isLoading, appEntityId, steps, aov = 0, funne
 // TAB: Worst Sessions (Session Replay Links) — NEW
 // ===========================================================================
 function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWorstSessions(data), [data]));
   if (isLoading) return <Loading />;
 
   const sessions = (data.data?.records ?? []) as any[];
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Worst-Performing Sessions" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Sessions ranked by frustrated actions, errors, and slowness. Click Replay to open in Dynatrace Session Replay.</Text>
 
@@ -2836,6 +3488,7 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
 // TAB: Exceptions (Error Drilldown)
 // ===========================================================================
 function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: boolean; frontend: string }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeExceptions(data), [data]));
   if (isLoading) return <Loading />;
 
   const errors = (data.data?.records ?? []) as any[];
@@ -2844,6 +3497,8 @@ function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: bool
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Exception Drilldown" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Exceptions grouped by error name. Ranked by occurrence count to help prioritize fixes.</Text>
 
@@ -2957,6 +3612,7 @@ function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: bool
 // TAB: Click Issues (Rage / Dead Clicks) — NEW
 // ===========================================================================
 function ClickIssuesTab({ data, isLoading }: { data: any; isLoading: boolean }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeClickIssues(data), [data]));
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -2968,6 +3624,8 @@ function ClickIssuesTab({ data, isLoading }: { data: any; isLoading: boolean }) 
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Rage & Dead Click Detection" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Rage clicks signal user frustration (rapid repeated clicks). Dead clicks indicate non-responsive UI elements. Both hurt conversion.</Text>
 
@@ -3073,6 +3731,7 @@ const PERF_BUDGETS = [
 ];
 
 function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoading }: { quality: any; overallApdex: number; overallConv: number; hourlyData: any; isLoading: boolean }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzePerfBudgets(quality, overallApdex, overallConv), [quality, overallApdex, overallConv]));
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -3102,6 +3761,8 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Performance Budget Tracking" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Track actual metrics against defined performance budgets. Green = within budget, Red = over budget.</Text>
 
@@ -3245,6 +3906,7 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
 // TAB: Geo Heatmap — NEW
 // ===========================================================================
 function GeoHeatmapTab({ data, isLoading, frontend }: { data: any; isLoading: boolean; frontend: string }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGeoHeatmap(data), [data]));
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -3286,6 +3948,8 @@ function GeoHeatmapTab({ data, isLoading, frontend }: { data: any; isLoading: bo
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Geographic Performance Heatmap" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Performance by country with Apdex color-coding. Identifies regions with poor user experience for targeted CDN or infrastructure optimization.</Text>
 
@@ -3464,6 +4128,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
   const [hasUserChanged, setHasUserChanged] = useState(false);
   // Sync with saved default if user hasn't manually changed yet
   useEffect(() => { if (!hasUserChanged) setMapView(defaultView); }, [defaultView, hasUserChanged]);
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGeoHeatmap(data), [data]));
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -3592,6 +4257,8 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <style>{animCSS}</style>
       <Flex alignItems="center" justifyContent="space-between">
         <SectionHeader title="Map" />
@@ -3950,6 +4617,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
 // TAB: Navigation Paths — NEW
 // ===========================================================================
 function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any; isLoading: boolean; appEntityId: string; steps: StepDef[] }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("Navigation Paths"), []));
   if (isLoading) return <Loading />;
 
   const paths = (data.data?.records ?? []) as any[];
@@ -3974,6 +4642,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Navigation Paths Analysis" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Actual user navigation flows. Reveals unexpected paths, loops, and exit points outside the intended funnel.</Text>
 
@@ -4088,6 +4758,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any
 // TAB: Anomaly Detection — NEW
 // ===========================================================================
 function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev, stepMap, durationDist, isLoading, steps, aov }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; durationDist: any; isLoading: boolean; steps: StepDef[]; aov: number }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeAnomalyDetection(quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev), [quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev]));
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -4144,6 +4815,8 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Anomaly Detection" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Flags metrics deviating significantly from baseline (previous period). Anomaly threshold varies per metric type.</Text>
 
@@ -4289,6 +4962,7 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
 // TAB: Conversion Attribution — NEW
 // ===========================================================================
 function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCounts }: { data: any; isLoading: boolean; overallConv: number; aov: number; funnelCounts: number[] }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeConversionAttribution(data, overallConv, aov, funnelCounts), [data, overallConv, aov, funnelCounts]));
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -4349,6 +5023,8 @@ function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCou
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Conversion Attribution Analysis" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Identifies which factors (speed, device, browser, errors) most influence conversion success. Overall conversion: <Strong style={{ color: statusClr(overallConv) }}>{fmtPct(overallConv)}</Strong></Text>
 
@@ -4442,6 +5118,7 @@ function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCou
 // ===========================================================================
 function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps, aov }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[]; aov: number }) {
   const [copied, setCopied] = useState(false);
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov]));
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -4617,6 +5294,8 @@ ${bottleneckHtml}
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       {/* Export buttons */}
       <Flex justifyContent="flex-end" gap={8}>
         <button onClick={copyReportText} className="uj-export-btn" title="Copy plain-text report to clipboard">
@@ -4757,6 +5436,7 @@ ${bottleneckHtml}
 // TAB: Segmentation
 // ===========================================================================
 function SegmentationTab({ devices, browsers, geos, isLoading, aov = 0, overallConv = 0 }: { devices: any[]; browsers: any[]; geos: any[]; isLoading: boolean; aov?: number; overallConv?: number }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSegmentation(devices, browsers, geos), [devices, browsers, geos]));
   if (isLoading) return <Loading />;
 
   const showRevenue = aov > 0 && overallConv > 0;
@@ -4778,6 +5458,8 @@ function SegmentationTab({ devices, browsers, geos, isLoading, aov = 0, overallC
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="By Device Type" />
       <div className="uj-table-tile"><DataTable sortable resizable fullWidth data={mapSeg(devices, "deviceType")} columns={segCols("Device", "deviceType")} /></div>
       <SectionHeader title="By Browser" />
@@ -4792,6 +5474,7 @@ function SegmentationTab({ devices, browsers, geos, isLoading, aov = 0, overallC
 // TAB: Errors & Drop-offs
 // ===========================================================================
 function ErrorsTab({ errors, funnelCounts, isLoading, steps, aov }: { errors: any[]; funnelCounts: number[]; isLoading: boolean; steps: StepDef[]; aov: number }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeErrorsDropoffs(errors, funnelCounts, steps), [errors, funnelCounts, steps]));
   if (isLoading) return <Loading />;
 
   const lastIdx = steps.length - 1;
@@ -4806,6 +5489,8 @@ function ErrorsTab({ errors, funnelCounts, isLoading, steps, aov }: { errors: an
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Biggest Drop-offs" />
       <Flex gap={16} flexWrap="wrap">
         {dropOffs.map((d, i) => (
@@ -4854,6 +5539,7 @@ function ErrorsTab({ errors, funnelCounts, isLoading, steps, aov }: { errors: an
 function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov }: { funnelCounts: number[]; stepMap: Map<string, any>; overallApdex: number; isLoading: boolean; steps: StepDef[]; aov: number }) {
   const [pctChange, setPctChange] = useState(100);
   const [wiFunnelStyle, setWiFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("What-If Analysis"), []));
   if (isLoading) return <Loading />;
 
   const mult = 1 + pctChange / 100;
@@ -4894,6 +5580,8 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <MultiplierSlider value={pctChange} onChange={setPctChange} />
 
       <Flex gap={16} flexWrap="wrap">
@@ -5006,6 +5694,7 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
 // TAB: Revenue Intelligence
 // ===========================================================================
 function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overallConv, overallConvPrev, overallApdex, quality, qualityPrev, isLoading, steps, aov }: { funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; overallConv: number; overallConvPrev: number; overallApdex: number; quality: any; qualityPrev: any; isLoading: boolean; steps: StepDef[]; aov: number }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("Revenue Intelligence"), []));
   if (isLoading) return <Loading />;
 
   if (aov <= 0) {
@@ -5070,6 +5759,8 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       {/* Top-line revenue KPIs */}
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-revenue-card uj-revenue-hero">
@@ -5284,6 +5975,14 @@ function buildSankey(records: any[]): { nodes: SankeyNode[]; links: SankeyLink[]
 }
 
 function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData, frontend, durationData, prevPathsData, velocityData }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any; frontend: string; durationData: any; prevPathsData: any; velocityData: any }) {
+  const [sankeySubTab, setSankeySubTab] = useState<"flow" | "convPaths" | "loops" | "timing" | "endpoints" | "revPaths" | "pathTrends" | "leakage" | "velocity">("flow");
+
+  const sankeySubTabLabel = useMemo(() => {
+    const map: Record<string, string> = { flow: "Flow Chart", convPaths: "Conversion Paths", loops: "Loop Analysis", timing: "Page Timing", endpoints: "Session Endpoints", revPaths: "Revenue Paths", pathTrends: "Path Trends", leakage: "Funnel Leakage", velocity: "Funnel Velocity" };
+    return map[sankeySubTab] ?? "Flow Chart";
+  }, [sankeySubTab]);
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSankeySubTab(sankeySubTabLabel), [sankeySubTabLabel]));
+
   if (isLoading) return <Loading />;
 
   const records = (data.data?.records ?? []) as any[];
@@ -5291,7 +5990,6 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
-  const [sankeySubTab, setSankeySubTab] = useState<"flow" | "convPaths" | "loops" | "timing" | "endpoints" | "revPaths" | "pathTrends" | "leakage" | "velocity">("flow");
 
   const totalSessions = records.reduce((a: number, r: any) => a + Number(r.sessions ?? r.d0 ?? 0), 0);
   const uniquePages = new Set(nodes.map(n => n.label)).size;
@@ -7011,6 +7709,8 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       {chartHeader}
       {subTabBar}
 
@@ -7541,6 +8241,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   );
 }
 function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, isLoading, steps, aov, funnelCounts }: { hourlyData: any; stepDropData: any; quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; isLoading: boolean; steps: StepDef[]; aov: number; funnelCounts: number[] }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeRootCauseCorrelation(hourlyData, quality, overallApdex, overallConv), [hourlyData, quality, overallApdex, overallConv]));
   if (isLoading) return <Loading />;
 
   const hourlyRecords = (hourlyData.data?.records ?? []) as any[];
@@ -7640,6 +8341,8 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Root Cause Correlation" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Correlates conversion drops with latency spikes, error surges, and P90 outliers on an hourly timeline. Identifies the technical driver behind every drop.</Text>
 
@@ -7883,6 +8586,7 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
 // TAB: Predictive Forecasting
 // ===========================================================================
 function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, quality, overallApdex, overallConv, isLoading, steps, aov = 0, funnelCounts = [] }: { trendData: any; apdexTrendData: any; vitalsTrendData: any; quality: any; overallApdex: number; overallConv: number; isLoading: boolean; steps: StepDef[]; aov?: number; funnelCounts?: number[] }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzePredictiveForecasting(quality, overallApdex, overallConv), [quality, overallApdex, overallConv]));
   if (isLoading) return <Loading />;
 
   const trendRecords = (trendData.data?.records ?? []) as any[];
@@ -8022,6 +8726,8 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Predictive Forecasting" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Projects key metrics forward {FORECAST_DAYS} days using linear regression on the selected timeframe. Flags metrics trending toward budget breach.</Text>
 
@@ -8316,6 +9022,7 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
 // ===========================================================================
 function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: { waterfallData: any; byStepData: any; isLoading: boolean; steps: StepDef[] }) {
   const [selectedStep, setSelectedStep] = useState<string>("all");
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeResourceWaterfall(waterfallData, byStepData), [waterfallData, byStepData]));
   if (isLoading) return <Loading />;
 
   const allResources = (waterfallData.data?.records ?? []) as any[];
@@ -8384,6 +9091,8 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Resource Waterfall" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Aggregated resource timing per funnel step. Identifies third-party scripts, XHR calls, images, and other resources dragging down page performance.</Text>
 
@@ -8550,6 +9259,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
 // TAB: Change Intelligence
 // ===========================================================================
 function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, overallApdex, overallApdexPrev, isLoading, aov, overallConv, funnelCounts }: { deployData: any; impactData: any; quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; isLoading: boolean; aov: number; overallConv: number; funnelCounts: number[] }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeChangeIntelligence(deployData, quality, qualityPrev, overallApdex, overallApdexPrev), [deployData, quality, qualityPrev, overallApdex, overallApdexPrev]));
   if (isLoading) return <Loading />;
 
   const deployRecords = (deployData.data?.records ?? []) as any[];
@@ -8667,6 +9377,8 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16, paddingRight: 8 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Change Intelligence" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Overlays deployment events on performance timeline. Compares before/after metrics in a 2-hour window around each deploy to detect regressions or improvements.</Text>
 
@@ -8987,6 +9699,7 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
 // SLO TRACKER TAB
 // ===========================================================================
 function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallConv, cwv, isLoading }: { apdexTrend: any; cwvTrend: any; quality: any; overallApdex: number; overallConv: number; cwv: any; isLoading: boolean }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSLOTracker(quality, overallApdex, overallConv, cwv), [quality, overallApdex, overallConv, cwv]));
   if (isLoading) return <Loading />;
 
   const apdexRecords = (apdexTrend.data?.records ?? []) as any[];
@@ -9070,6 +9783,8 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
 
   return (
     <Flex flexDirection="column" gap={16} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Service Level Objectives" />
       <Flex gap={12} flexWrap="wrap">
         {sloResults.map(slo => (
@@ -9125,6 +9840,7 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
 // SESSION REPLAY SPOTLIGHT TAB
 // ===========================================================================
 function SessionReplaySpotlightTab({ data, isLoading }: { data: any; isLoading: boolean }) {
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("Session Replay Spotlight"), []));
   if (isLoading) return <Loading />;
 
   const sessions = (data.data?.records ?? []) as any[];
@@ -9138,6 +9854,8 @@ function SessionReplaySpotlightTab({ data, isLoading }: { data: any; isLoading: 
 
   return (
     <Flex flexDirection="column" gap={16} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="High-Impact Session Replays" />
       <Flex gap={12} flexWrap="wrap">
         {[
@@ -9238,6 +9956,7 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
 }) {
   const [customA, setCustomA] = useState(segA);
   const [customB, setCustomB] = useState(segB);
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGenericTab("A/B Comparison"), []));
 
   const applyPreset = (preset: typeof AB_PRESETS[number]) => {
     setDimension(preset.dimension);
@@ -9299,6 +10018,8 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
 
   return (
     <Flex flexDirection="column" gap={16} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="A/B Segment Comparison" />
 
       <Flex gap={8} flexWrap="wrap" alignItems="center">
@@ -9418,6 +10139,22 @@ function ABComparisonTab({ segAData, segBData, segACwv, segBCwv, dimension, setD
 // TAB: Cohort Retention
 // ===========================================================================
 function CohortRetentionTab({ retentionData, sessionData, isLoading, steps, aov }: { retentionData: any; sessionData: any; isLoading: boolean; steps: StepDef[]; aov: number }) {
+  // Hook must be above early returns
+  const analysisData = useMemo(() => {
+    const retRecords = (retentionData?.data?.records ?? []) as any[];
+    const sessRecords = (sessionData?.data?.records ?? []) as any[];
+    const cohorts = retRecords.map((r: any) => ({ sessions: Number(r.total_sessions ?? 0), conversions: Number(r.converted_sessions ?? 0), day: String(r.day_bucket ?? "").substring(0, 10) })).filter((c: any) => c.day);
+    const dayMap = new Map<string, { sessions: number; conversions: number }>();
+    for (const c of cohorts) { const d = dayMap.get(c.day) ?? { sessions: 0, conversions: 0 }; d.sessions += c.sessions; d.conversions += c.conversions; dayMap.set(c.day, d); }
+    const dailyData = Array.from(dayMap.entries()).map(([day, d]) => ({ day, ...d, convRate: d.sessions > 0 ? (d.conversions / d.sessions) * 100 : 0 })).sort((a, b) => a.day.localeCompare(b.day));
+    const totalUsers = sessRecords.reduce((a: number, r: any) => a + Number(r.unique_users ?? 0), 0);
+    const totalSessions = dailyData.reduce((a, d) => a + d.sessions, 0);
+    const totalConversions = dailyData.reduce((a, d) => a + d.conversions, 0);
+    const avgSessionsPerUser = totalUsers > 0 ? totalSessions / totalUsers : 0;
+    const overallConvRate = totalSessions > 0 ? (totalConversions / totalSessions) * 100 : 0;
+    return { dailyData, avgSessionsPerUser, overallConvRate };
+  }, [retentionData, sessionData]);
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeCohortRetention(analysisData.dailyData, analysisData.avgSessionsPerUser, analysisData.overallConvRate), [analysisData]));
   if (isLoading) return <Loading />;
 
   const retRecords = (retentionData?.data?.records ?? []) as any[];
@@ -9475,6 +10212,8 @@ function CohortRetentionTab({ retentionData, sessionData, isLoading, steps, aov 
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Cohort Retention — Daily user cohorts and conversion retention" />
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Unique Users</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(totalUsers)}</Heading></div>
@@ -9544,6 +10283,24 @@ function CohortRetentionTab({ retentionData, sessionData, isLoading, steps, aov 
 // TAB: Session Engagement Score
 // ===========================================================================
 function SessionEngagementTab({ data, isLoading, steps, aov, overallConv }: { data: any; isLoading: boolean; steps: StepDef[]; aov: number; overallConv: number }) {
+  const engStats = useMemo(() => {
+    const records = (data?.data?.records ?? []) as any[];
+    const sessions = records.map((r: any) => {
+      const actions = Number(r.actions ?? 0), depth = Number(r.funnel_depth ?? 0), errors = Number(r.errors ?? 0);
+      const converted = r.converted === true || r.converted === "true" || Number(r.converted ?? 0) > 0;
+      const maxD = steps.length > 0 ? steps.length : 5;
+      const score = Math.max(0, Math.min(100, Math.min(1, actions / 20) * 30 + Math.min(1, depth / maxD) * 40 + 30 - Math.min(30, errors * 10)));
+      return { score, converted };
+    });
+    const avg = sessions.length > 0 ? sessions.reduce((a, s) => a + s.score, 0) / sessions.length : 0;
+    const high = sessions.filter(s => s.score >= 70), low = sessions.filter(s => s.score < 30);
+    const highPct = sessions.length > 0 ? (high.length / sessions.length) * 100 : 0;
+    const lowPct = sessions.length > 0 ? (low.length / sessions.length) * 100 : 0;
+    const hConv = high.length > 0 ? (high.filter(s => s.converted).length / high.length) * 100 : 0;
+    const lConv = low.length > 0 ? (low.filter(s => s.converted).length / low.length) * 100 : 0;
+    return { avg, highPct, lowPct, hConv, lConv };
+  }, [data, steps]);
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSessionEngagement(engStats.avg, engStats.highPct, engStats.lowPct, engStats.hConv, engStats.lConv), [engStats]));
   if (isLoading) return <Loading />;
 
   const records = (data?.data?.records ?? []) as any[];
@@ -9592,6 +10349,8 @@ function SessionEngagementTab({ data, isLoading, steps, aov, overallConv }: { da
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Session Engagement Score — Quantify user engagement per session" />
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-kpi-card"><Text className="uj-kpi-label">Sessions Analyzed</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{fmtCount(sessions.length)}</Heading></div>
@@ -9683,6 +10442,27 @@ function SessionEngagementTab({ data, isLoading, steps, aov, overallConv }: { da
 // TAB: Third-Party Impact
 // ===========================================================================
 function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any; cwvData: any; isLoading: boolean; frontend: string }) {
+  const tpStats = useMemo(() => {
+    const records = (data?.data?.records ?? []) as any[];
+    const rawEntries = records.map((r: any) => ({ domain: String(r.domain ?? "unknown"), reqCount: Number(r.requests ?? 0) }));
+    const fWords = frontend.toLowerCase().split(/[\s-]+/).filter((w: string) => w.length > 3);
+    const domReqs = new Map<string, number>();
+    for (const e of rawEntries) domReqs.set(e.domain, (domReqs.get(e.domain) ?? 0) + e.reqCount);
+    const sorted = Array.from(domReqs.entries()).sort((a, b) => b[1] - a[1]);
+    const isFirstParty = (d: string) => fWords.length > 0 && fWords.some((w: string) => d.toLowerCase().includes(w));
+    const anyMatch = sorted.some(([d]) => isFirstParty(d));
+    const topDomain = sorted[0]?.[0] ?? "";
+    let tpReqs = 0, totalReqs = 0, tpCount = 0, tpDurSum = 0, fpDurSum = 0, tpDurN = 0, fpDurN = 0;
+    for (const r of records as any[]) {
+      const d = String(r.domain ?? "unknown"); const reqs = Number(r.requests ?? 0); const dur = Number(r.avg_dur ?? 0);
+      totalReqs += reqs;
+      const is3P = anyMatch ? !isFirstParty(d) : d !== topDomain;
+      if (is3P) { tpReqs += reqs; tpDurSum += dur * reqs; tpDurN += reqs; } else { fpDurSum += dur * reqs; fpDurN += reqs; }
+    }
+    tpCount = Array.from(domReqs.keys()).filter(d => anyMatch ? !isFirstParty(d) : d !== topDomain).length;
+    return { thirdPartyPct: totalReqs > 0 ? (tpReqs / totalReqs) * 100 : 0, avg3P: tpDurN > 0 ? tpDurSum / tpDurN : 0, avg1P: fpDurN > 0 ? fpDurSum / fpDurN : 0, tpCount };
+  }, [data, frontend]);
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeThirdPartyImpact(tpStats.thirdPartyPct, tpStats.avg3P, tpStats.avg1P, tpStats.tpCount), [tpStats]));
   if (isLoading) return <Loading />;
 
   const records = (data?.data?.records ?? []) as any[];
@@ -9766,6 +10546,8 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Third-Party Impact — How external resources affect performance" />
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Domains</Text><Heading level={2} className="uj-kpi-value" style={{ color: BLUE }}>{domains.length}</Heading></div>
@@ -9849,6 +10631,16 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any
 // TAB: Error Clustering
 // ===========================================================================
 function ErrorClusteringTab({ data, trendData, isLoading, frontend }: { data: any; trendData: any; isLoading: boolean; frontend: string }) {
+  const ecStats = useMemo(() => {
+    const records = (data?.data?.records ?? []) as any[];
+    const clusters = records.map((r: any) => ({
+      name: String(r.errorName ?? r.error_name ?? "Unknown Error"),
+      occurrences: Number(r.occurrences ?? 0),
+    })).sort((a: any, b: any) => b.occurrences - a.occurrences);
+    const totalErrors = clusters.reduce((a: number, c: any) => a + c.occurrences, 0);
+    return { clusters, totalErrors };
+  }, [data]);
+  const { button: aiButton, panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeErrorClustering(ecStats.clusters, ecStats.totalErrors), [ecStats]));
   if (isLoading) return <Loading />;
 
   const records = (data?.data?.records ?? []) as any[];
@@ -9891,6 +10683,8 @@ function ErrorClusteringTab({ data, trendData, isLoading, frontend }: { data: an
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      <Flex justifyContent="flex-end">{aiButton}</Flex>
+      {aiPanel}
       <SectionHeader title="Error Clustering — Group and analyze errors by pattern" />
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-kpi-card"><Text className="uj-kpi-label">Total Errors</Text><Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{fmtCount(totalErrors)}</Heading></div>
