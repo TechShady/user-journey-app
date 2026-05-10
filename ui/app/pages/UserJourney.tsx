@@ -1141,10 +1141,13 @@ function funnelVelocityQuery(days: number, frontend: string, steps: StepDef[]): 
 | filter frontend.name == "${frontend}"
 | filter ${anyStepFilter(steps)}
 | fieldsAdd step_tag = ${tagExpr}
-| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
-| sort start_time asc
+| filter step_tag != "other"
 | summarize
-    step_times = collectArray(record(step = step_tag, ts = start_time, dur = dur_ms)),
+    first_ts = min(start_time),
+    by: {dt.rum.session.id, step_tag}
+| sort first_ts asc
+| summarize
+    step_entries = collectArray(record(step = step_tag, ts = first_ts)),
     by: {dt.rum.session.id}
 | limit 500`;
 }
@@ -1158,7 +1161,10 @@ function thirdPartyImpactQuery(days: number, frontend: string): string {
 | filter frontend.name == "${frontend}"
 | filter characteristics.has_request == true
 | fieldsAdd res_dur_ms = toDouble(duration) / 1000000.0
-| fieldsAdd domain = coalesce(url.host, "unknown")
+| fieldsAdd raw_url = coalesce(url.full, url.path, "")
+| fieldsAdd url_no_proto = replaceString(replaceString(raw_url, "https://", ""), "http://", "")
+| fieldsAdd domain = if(contains(url_no_proto, "/"), substring(url_no_proto, from: 0, to: indexOf(url_no_proto, "/")), else: url_no_proto)
+| filter domain != ""
 | fieldsAdd lp = lower(coalesce(url.path, ""))
 | fieldsAdd res_type = ${RES_TYPE_EXPR}
 | summarize
@@ -2190,7 +2196,7 @@ export function UserJourney() {
           </div>
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.34</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.35</Text>
         </Flex>
       </div>
       <Sheet title="User Journey — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -7394,23 +7400,33 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
       {/* ==== FUNNEL VELOCITY sub-tab ==== */}
       {sankeySubTab === "velocity" && (() => {
         const velRecords = (velocityData?.data?.records ?? []) as any[];
-        // Parse step_times arrays: each record has step_times = [{step, ts, dur}, ...]
-        type StepTiming = { sessionId: string; stepTimes: number[]; deltas: number[] };
+        // Parse step_entries: each record has step_entries = [{step, ts}, ...] — one entry per unique step
+        // Build step order from user-defined steps
+        const stepOrder = steps.map(s => s.label);
+        type StepTiming = { sessionId: string; deltas: number[] };
         const timings: StepTiming[] = [];
         for (const r of velRecords) {
-          const st = (r.step_times ?? []) as any[];
-          // Each element is a record object {step, ts, dur} — extract ts and sort
-          const times = st
-            .map((t: any) => {
-              if (t && typeof t === 'object' && t.ts) return new Date(String(t.ts)).getTime();
-              return new Date(String(t)).getTime();
-            })
-            .filter((t: number) => !isNaN(t))
-            .sort((a: number, b: number) => a - b);
-          if (times.length < 2) continue;
+          const st = (r.step_entries ?? r.step_times ?? []) as any[];
+          // Build map: step label → earliest timestamp
+          const stepMap = new Map<string, number>();
+          for (const entry of st) {
+            if (!entry || typeof entry !== 'object') continue;
+            const stepName = String(entry.step ?? "");
+            const ts = new Date(String(entry.ts ?? "")).getTime();
+            if (!stepName || isNaN(ts)) continue;
+            const existing = stepMap.get(stepName);
+            if (existing === undefined || ts < existing) stepMap.set(stepName, ts);
+          }
+          // Order by defined step sequence, compute deltas between consecutive steps
+          const orderedTimes: number[] = [];
+          for (const label of stepOrder) {
+            const ts = stepMap.get(label);
+            if (ts !== undefined) orderedTimes.push(ts);
+          }
+          if (orderedTimes.length < 2) continue;
           const deltas: number[] = [];
-          for (let i = 1; i < times.length; i++) deltas.push(Math.max(0, (times[i] - times[i - 1]) / 1000)); // seconds
-          timings.push({ sessionId: String(r["dt.rum.session.id"] ?? ""), stepTimes: times, deltas });
+          for (let i = 1; i < orderedTimes.length; i++) deltas.push(Math.max(0, (orderedTimes[i] - orderedTimes[i - 1]) / 1000));
+          timings.push({ sessionId: String(r["dt.rum.session.id"] ?? ""), deltas });
         }
         // Per-step-transition stats
         const maxSteps = Math.max(0, ...timings.map(t => t.deltas.length));
@@ -9672,24 +9688,44 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any
   const records = (data?.data?.records ?? []) as any[];
   const cwvRecords = (cwvData?.data?.records ?? []) as any[];
 
-  // Parse resource records: domain, res_type, total_bytes, avg_duration, req_count
+  // Parse resource records: domain, res_type, total_dur, avg_duration, req_count
   type ResEntry = { domain: string; resType: string; totalBytes: number; avgDuration: number; reqCount: number; isThirdParty: boolean };
-  const resources: ResEntry[] = records.map((r: any) => {
-    const domain = String(r.domain ?? "unknown");
-    // Heuristic: if domain doesn't contain the frontend app name, it's third-party
-    const fWords = frontend.toLowerCase().split(/[\s-]+/).filter((w: string) => w.length > 3);
-    let isThirdParty = true;
-    try {
-      const frontendHost = new URL(frontend.startsWith("http") ? frontend : `https://${frontend}`).hostname;
-      isThirdParty = !domain.includes(frontendHost.split(".").slice(-2).join("."));
-    } catch {
-      isThirdParty = fWords.length > 0 ? !fWords.some((w: string) => domain.toLowerCase().includes(w)) : true;
+  // First pass: collect all entries without 1P/3P classification
+  const rawEntries = records.map((r: any) => ({
+    domain: String(r.domain ?? "unknown"),
+    resType: String(r.res_type ?? "other"),
+    totalBytes: Number(r.total_dur ?? 0),
+    avgDuration: Number(r.avg_dur ?? 0),
+    reqCount: Number(r.requests ?? 0),
+  }));
+
+  // Determine first-party domain: use frontend name word matching, then fall back to top domain
+  const fWords = frontend.toLowerCase().split(/[\s-]+/).filter((w: string) => w.length > 3);
+  // Aggregate request counts by domain to find the top one
+  const domainReqCounts = new Map<string, number>();
+  for (const e of rawEntries) {
+    domainReqCounts.set(e.domain, (domainReqCounts.get(e.domain) ?? 0) + e.reqCount);
+  }
+  const sortedDomains = Array.from(domainReqCounts.entries()).sort((a, b) => b[1] - a[1]);
+  // A domain is first-party if it contains keywords from the frontend name
+  const isFirstPartyDomain = (d: string): boolean => {
+    const dl = d.toLowerCase();
+    if (fWords.length > 0 && fWords.some((w: string) => dl.includes(w))) return true;
+    return false;
+  };
+  // If no domain matches frontend words, treat the top-request domain as first-party
+  const anyMatch = sortedDomains.some(([d]) => isFirstPartyDomain(d));
+  const topDomain = sortedDomains[0]?.[0] ?? "";
+
+  const resources: ResEntry[] = rawEntries.map((e) => {
+    let isThirdParty: boolean;
+    if (anyMatch) {
+      isThirdParty = !isFirstPartyDomain(e.domain);
+    } else {
+      // No word match — treat the domain with the most requests as first-party
+      isThirdParty = e.domain !== topDomain;
     }
-    return {
-      domain, resType: String(r.res_type ?? "other"),
-      totalBytes: Number(r.total_dur ?? 0), avgDuration: Number(r.avg_dur ?? 0),
-      reqCount: Number(r.requests ?? 0), isThirdParty,
-    };
+    return { ...e, isThirdParty };
   });
 
   // Aggregate by domain
@@ -9762,15 +9798,15 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend }: { data: any
           {topDomains.map((d, i) => {
             const y = i * 36 + 20;
             const maxReqs = Math.max(1, topDomains[0]?.reqCount ?? 1);
-            const barW = Math.max(4, (d.reqCount / maxReqs) * 380);
+            const barW = Math.max(4, (d.reqCount / maxReqs) * 360);
             const color = d.isThirdParty ? ORANGE : GREEN;
             return (
               <g key={i}>
-                <text x={200} y={y + 14} textAnchor="end" fill="rgba(255,255,255,0.7)" fontSize={11} fontWeight={600}>{d.domain.length > 30 ? d.domain.substring(0, 30) + "…" : d.domain}</text>
-                <rect x={210} y={y} width={barW} height={24} rx={4} fill={color} fillOpacity={0.35} stroke={color} strokeWidth={0.5} strokeOpacity={0.4}><title>{d.domain}: {fmtCount(d.reqCount)} reqs, {fmtBytes(d.totalBytes)}, {Math.round(d.avgDuration)}ms avg</title></rect>
-                <text x={210 + barW + 8} y={y + 10} fill="rgba(255,255,255,0.8)" fontSize={10} fontWeight={700}>{fmtCount(d.reqCount)}</text>
-                <text x={210 + barW + 8} y={y + 22} fill="rgba(255,255,255,0.4)" fontSize={9}>{fmtBytes(d.totalBytes)} · {Math.round(d.avgDuration)}ms</text>
-                <text x={202} y={y + 14} textAnchor="end" fill={color} fontSize={9}>{d.isThirdParty ? "3P" : "1P"}</text>
+                <text x={16} y={y + 14} fill={color} fontSize={9} fontWeight={700}>{d.isThirdParty ? "3P" : "1P"}</text>
+                <text x={220} y={y + 14} textAnchor="end" fill="rgba(255,255,255,0.7)" fontSize={11} fontWeight={600}>{d.domain.length > 30 ? d.domain.substring(0, 30) + "…" : d.domain}</text>
+                <rect x={230} y={y} width={barW} height={24} rx={4} fill={color} fillOpacity={0.35} stroke={color} strokeWidth={0.5} strokeOpacity={0.4}><title>{d.domain}: {fmtCount(d.reqCount)} reqs, {fmtBytes(d.totalBytes)}, {Math.round(d.avgDuration)}ms avg</title></rect>
+                <text x={230 + barW + 8} y={y + 10} fill="rgba(255,255,255,0.8)" fontSize={10} fontWeight={700}>{fmtCount(d.reqCount)}</text>
+                <text x={230 + barW + 8} y={y + 22} fill="rgba(255,255,255,0.4)" fontSize={9}>{fmtBytes(d.totalBytes)} · {Math.round(d.avgDuration)}ms</text>
               </g>
             );
           })}
