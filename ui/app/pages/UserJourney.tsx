@@ -2466,7 +2466,7 @@ export function UserJourney() {
         {tabOrder.filter(t => isTabVisible(t)).map(tabId => {
           let content: React.ReactNode = null;
           switch (tabId) {
-            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} />; break;
+            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} pageMap={pageMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} pageMap={pageMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
@@ -3197,7 +3197,7 @@ function analyzeErrorClustering(clusters: any[], totalErrors: number): AIInsight
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
-function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, quality, compareMode, setCompareMode, isLoading, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void }) {
+function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, pageMap, quality, compareMode, setCompareMode, isLoading, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void }) {
   if (isLoading) return <Loading />;
 
   const makeFunnelSteps = (counts: number[]): FunnelStep[] => steps.map((step, i) => {
@@ -3338,6 +3338,74 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           ]}
         />
       </div>
+
+      {/* Per-page breakdown for multi-page steps */}
+      {steps.some(s => s.identifiers.length > 1) && (
+        <>
+          <SectionHeader title="Per-Page Breakdown" />
+          <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>Individual page metrics for steps with multiple pages. First page is the primary link target.</Text>
+          {steps.map((step, i) => {
+            if (step.identifiers.length < 2) return null;
+            const m = stepMap.get(step.label);
+            const stepApdex = m ? calcApdex(Number(m.satisfied ?? 0), Number(m.tolerating ?? 0), Number(m.total_actions ?? 0)) : 0;
+            const stepSessions = funnelCounts[i] ?? 0;
+            return (
+              <div key={i} className="uj-table-tile" style={{ padding: 16 }}>
+                <Flex alignItems="center" gap={12} style={{ marginBottom: 10 }}>
+                  <span className="uj-step-badge">{i + 1}</span>
+                  {(() => { const pid = stepPrimaryIdentifier(step); return appEntityId && pid ? (
+                    <a href={vitalsUrl(appEntityId, pid)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", color: BLUE, fontWeight: 700, fontSize: 15 }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{step.label} ↗</a>
+                  ) : (
+                    <Heading level={5} style={{ margin: 0 }}>{step.label}</Heading>
+                  ); })()}
+                  <Text style={{ fontSize: 12, opacity: 0.4, marginLeft: 8 }}>Rollup: {fmtCount(stepSessions)} sessions · Apdex {stepApdex.toFixed(2)}</Text>
+                </Flex>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+                  {step.identifiers.map((id, j) => {
+                    let pm = pageMap.get(id);
+                    if (!pm) { for (const [key, val] of pageMap) { if (identifierMatchesLabel(id, key)) { pm = val; break; } } }
+                    const sessions = pm ? Number(pm.sessions ?? 0) : 0;
+                    const avg = pm ? Number(pm.avg_duration_ms ?? 0) : 0;
+                    const p90 = pm ? Number(pm.p90_duration_ms ?? 0) : 0;
+                    const errors = pm ? Number(pm.error_count ?? 0) : 0;
+                    const sat = pm ? Number(pm.satisfied ?? 0) : 0;
+                    const tol = pm ? Number(pm.tolerating ?? 0) : 0;
+                    const total = pm ? Number(pm.total_actions ?? 0) : 0;
+                    const apdex = calcApdex(sat, tol, total);
+                    const linkable = appEntityId && !isWildcard(id);
+                    const isPrimary = j === 0;
+                    return (
+                      <div key={j} style={{ padding: "10px 12px", borderRadius: 8, background: isPrimary ? "rgba(69,137,255,0.06)" : "rgba(128,128,128,0.04)", border: `1px solid ${isPrimary ? "rgba(69,137,255,0.15)" : "rgba(128,128,128,0.1)"}` }}>
+                        <Flex alignItems="center" gap={6} style={{ marginBottom: 6 }}>
+                          {isPrimary && <span style={{ fontSize: 9, fontWeight: 700, color: BLUE, background: `${BLUE}18`, padding: "1px 5px", borderRadius: 3 }}>PRIMARY</span>}
+                          {linkable ? (
+                            <a href={vitalsUrl(appEntityId!, id)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontSize: 13, fontWeight: 600 }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{id} ↗</a>
+                          ) : (
+                            <Text style={{ fontSize: 13, fontWeight: 600 }}>{id}</Text>
+                          )}
+                        </Flex>
+                        <Flex gap={12} flexWrap="wrap" alignItems="center">
+                          <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Sessions</Text><br/><Strong style={{ color: BLUE, fontSize: 14 }}>{fmtCount(sessions)}</Strong></div>
+                          <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Apdex</Text><br/><Strong style={{ color: apdexClr(apdex), fontSize: 14 }}>{apdex.toFixed(2)}</Strong></div>
+                          <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Avg</Text><br/><Strong style={{ color: avg > 3000 ? RED : avg > 1000 ? YELLOW : GREEN, fontSize: 14 }}>{fmt(avg)}</Strong></div>
+                          <div><Text style={{ fontSize: 11, opacity: 0.5 }}>P90</Text><br/><Strong style={{ color: p90 > 3000 ? RED : p90 > 1500 ? YELLOW : GREEN, fontSize: 14 }}>{fmt(p90)}</Strong></div>
+                          <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Errors</Text><br/><Strong style={{ color: errors > 0 ? RED : GREEN, fontSize: 14 }}>{errors}</Strong></div>
+                        </Flex>
+                        {/* Satisfaction mini-bar */}
+                        <div style={{ marginTop: 6, height: 4, borderRadius: 2, overflow: "hidden", display: "flex" }}>
+                          <div style={{ width: `${total > 0 ? (sat / total) * 100 : 0}%`, background: GREEN, height: "100%" }} />
+                          <div style={{ width: `${total > 0 ? (tol / total) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
+                          <div style={{ width: `${total > 0 ? ((total - sat - tol) / total) * 100 : 0}%`, background: RED, height: "100%" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
     </Flex>
   );
 }
