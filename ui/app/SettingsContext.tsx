@@ -4,17 +4,17 @@ import { useUserAppState, useSetUserAppState } from "@dynatrace-sdk/react-hooks"
 // ---------------------------------------------------------------------------
 // Types & defaults
 // ---------------------------------------------------------------------------
-export type StepDef = { label: string; identifier: string; type: "view" | "request" };
+export type StepDef = { label: string; identifiers: string[]; type: "view" | "request" };
 
 export const DEFAULT_FRONTEND = "www.angular.easytravel.com";
 export const MIN_STEPS = 2;
 export const MAX_STEPS = 10;
 
 export const DEFAULT_FUNNEL_STEPS: StepDef[] = [
-  { label: "Home", identifier: "/easytravel/home", type: "view" },
-  { label: "Search", identifier: "/easytravel/search", type: "view" },
-  { label: "Journey Detail", identifier: "/easytravel/journeys/:id:", type: "view" },
-  { label: "Book", identifier: "/easytravel/journeys/:id:/book", type: "view" },
+  { label: "Home", identifiers: ["/easytravel/home"], type: "view" },
+  { label: "Search", identifiers: ["/easytravel/search"], type: "view" },
+  { label: "Journey Detail", identifiers: ["/easytravel/journeys/:id:"], type: "view" },
+  { label: "Book", identifiers: ["/easytravel/journeys/:id:/book"], type: "view" },
 ];
 
 export const DEFAULT_AOV = 0;
@@ -62,9 +62,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     if (savedSteps.data?.value) {
       try {
-        const parsed = JSON.parse(savedSteps.data.value as string) as StepDef[];
+        const parsed = JSON.parse(savedSteps.data.value as string) as any[];
         if (Array.isArray(parsed) && parsed.length >= MIN_STEPS && parsed.length <= MAX_STEPS) {
-          setSteps(parsed);
+          // Migrate old format: identifier (string) → identifiers (string[])
+          const migrated: StepDef[] = parsed.map((s: any) => ({
+            label: s.label ?? "",
+            identifiers: Array.isArray(s.identifiers) ? s.identifiers : (s.identifier ? [s.identifier] : [""]),
+            type: s.type ?? "view",
+          }));
+          setSteps(migrated);
         }
       } catch { /* ignore parse errors */ }
     }

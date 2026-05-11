@@ -167,17 +167,34 @@ function cwvClr(val: number, metric: keyof typeof CWV): string { return val <= C
 function cwvLabel(val: number, metric: keyof typeof CWV): string { return val <= CWV[metric].good ? "Good" : val <= CWV[metric].poor ? "Needs Improvement" : "Poor"; }
 function calcApdex(sat: number, tol: number, total: number): number { return total > 0 ? (sat + tol / 2) / total : 0; }
 
+function identifierFilter(id: string, type: "view" | "request"): string {
+  const field = type === "view" ? "view.name" : "url.path";
+  const startsW = id.startsWith("*");
+  const endsW = id.endsWith("*");
+  if (startsW && endsW && id.length > 2) return `contains(${field}, "${id.slice(1, -1)}")`;
+  if (endsW) return `startsWith(${field}, "${id.slice(0, -1)}")`;
+  if (startsW) return `endsWith(${field}, "${id.slice(1)}")`;
+  return `${field} == "${id}"`;
+}
 function stepFilter(s: StepDef): string {
-  if (s.type === "view") {
-    return s.identifier.endsWith("*")
-      ? `startsWith(view.name, "${s.identifier.slice(0, -1)}")`
-      : `view.name == "${s.identifier}"`;
-  }
-  return `url.path == "${s.identifier}"`;
+  const filters = s.identifiers.map(id => identifierFilter(id, s.type));
+  return filters.length === 1 ? filters[0] : `(${filters.join(" or ")})`;
 }
 function anyStepFilter(steps: StepDef[]): string { return steps.map(stepFilter).join(" or "); }
 function stepTagExpr(steps: StepDef[], labels: string[]): string {
   return `coalesce(\n    ${steps.map((s, i) => `if(${stepFilter(s)}, "${labels[i]}")`).join(",\n    ")},\n    "other")`;
+}
+function isWildcard(id: string): boolean { return id.includes("*"); }
+function stepPrimaryIdentifier(s: StepDef): string | null {
+  return s.identifiers.find(id => !isWildcard(id)) ?? null;
+}
+function identifierMatchesLabel(id: string, label: string): boolean {
+  const startsW = id.startsWith("*");
+  const endsW = id.endsWith("*");
+  if (startsW && endsW && id.length > 2) return label.includes(id.slice(1, -1));
+  if (endsW) return label.startsWith(id.slice(0, -1));
+  if (startsW) return label.endsWith(id.slice(1));
+  return label === id;
 }
 
 function sessionReplayUrl(sessionId: string, startTs?: string): string {
@@ -831,12 +848,15 @@ function resourceStepTagExpr(steps: StepDef[]): string {
   // Match resources to funnel steps using both page URL and resource URL.
   // In SPAs, page.url.path may always be "/" so we also check url.path (the resource's own URL).
   const parts = steps.map((s) => {
-    const seg = s.identifier.split("/").filter(Boolean).pop() || "";
-    const segLower = seg.toLowerCase();
-    if (s.type === "view") {
-      return `if(page.url.path == "${s.identifier}" or contains(lower(coalesce(page.url.path, "")), "${segLower}") or contains(lower(coalesce(url.path, "")), "${segLower}"), "${s.label}")`;
-    }
-    return `if(contains(lower(coalesce(page.url.path, "")), "${segLower}") or contains(lower(coalesce(url.path, "")), "${segLower}"), "${s.label}")`;
+    const allConds = s.identifiers.map(id => {
+      const seg = id.replace(/\*/g, "").split("/").filter(Boolean).pop() || "";
+      const segLower = seg.toLowerCase();
+      if (s.type === "view") {
+        return `page.url.path == "${id}" or contains(lower(coalesce(page.url.path, "")), "${segLower}") or contains(lower(coalesce(url.path, "")), "${segLower}")`;
+      }
+      return `contains(lower(coalesce(page.url.path, "")), "${segLower}") or contains(lower(coalesce(url.path, "")), "${segLower}")`;
+    });
+    return `if(${allConds.join(" or ")}, "${s.label}")`;
   });
   return `coalesce(\n    ${parts.join(",\n    ")},\n    "other")`;
 }
@@ -1380,7 +1400,8 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0 }: { ste
         const countDelta = prevStep ? step.count - prevStep.count : 0;
         const countDeltaPct = prevStep && prevStep.count > 0 ? (countDelta / prevStep.count) * 100 : 0;
 
-        const stepUrl = appEntityId ? vitalsUrl(appEntityId, stepDefs[i]?.identifier ?? step.label) : undefined;
+        const primaryId = stepDefs[i] ? stepPrimaryIdentifier(stepDefs[i]) : null;
+        const stepUrl = appEntityId && primaryId ? vitalsUrl(appEntityId, primaryId) : undefined;
         const stagger = i * 400;
 
         return (
@@ -1392,7 +1413,7 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0 }: { ste
                 <text x={24} y={midY + 4} textAnchor="middle" fill={sClr} fontSize="12" fontWeight="700">{i + 1}</text>
                 <text x={cx} y={midY - 10} textAnchor="middle" fill="rgba(255,255,255,0.95)" fontSize="14" fontWeight="600" textDecoration="underline">{step.label}</text>
                 <CountUpText value={step.count} delay={stagger + 200} suffix=" sessions" x={cx} y={midY + 8} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="12" />
-                <title>Open in Vitals: {stepDefs[i]?.identifier ?? step.label}</title>
+                <title>Open in Vitals: {stepDefs[i]?.identifiers.join(", ") ?? step.label}</title>
               </g>
             ) : (
               <>
@@ -1792,6 +1813,16 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 11, 2026</Paragraph>
+            <Paragraph><Strong>Multi-Page Funnel Steps + Wildcard Support</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Each funnel step now supports <Strong>multiple pages</Strong> with OR logic — e.g. (Step1a OR Step1b) AND Step2 AND (Step3a OR Step3b)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Wildcard patterns</Strong> in all positions: <code>/home*</code> (starts with), <code>*home</code> (ends with), <code>*home*</code> (contains)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Settings UI updated with per-step <Strong>"+ Add Page"</Strong> button and per-identifier remove (✕)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• DQL filters generate <code>startsWith()</code>, <code>endsWith()</code>, <code>contains()</code> expressions for wildcards</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Vitals links intelligently skip wildcard identifiers — uses first non-wildcard page for linking</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Backward-compatible: existing single-identifier configurations are automatically migrated</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 10, 2026</Paragraph>
             <Paragraph><Strong>AI Insights — Intelligent Analysis Engine</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>AI Insights button</Strong> in the header bar (between timeframe selector and help icon) — single toggle for all tabs</Paragraph>
@@ -1846,10 +1877,10 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="Funnel Steps">
         <div style={{ margin: "12px 0", padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8 }}>
           {steps.map((step, i) => (
-            <Paragraph key={i}><Strong>Step {i + 1} — {step.label}</Strong> ({step.type === "view" ? "view" : "XHR"}: {step.identifier}): {i === 0 ? "Entry point." : `Requires Step${i > 1 ? "s" : ""} 1${i > 1 ? `-${i}` : ""}.`}</Paragraph>
+            <Paragraph key={i}><Strong>Step {i + 1} — {step.label}</Strong> ({step.type === "view" ? "view" : "XHR"}: {step.identifiers.join(" | ")}): {i === 0 ? "Entry point." : `Requires Step${i > 1 ? "s" : ""} 1${i > 1 ? `-${i}` : ""}.`}</Paragraph>
           ))}
         </div>
-        <Paragraph style={{ fontSize: 13, opacity: 0.6, marginTop: 8 }}>Steps are configurable via Settings (⚙). Min {MIN_STEPS}, max {MAX_STEPS} steps.</Paragraph>
+        <Paragraph style={{ fontSize: 13, opacity: 0.6, marginTop: 8 }}>Steps are configurable via Settings (⚙). Min {MIN_STEPS}, max {MAX_STEPS} steps. Each step supports <Strong>multiple pages</Strong> (OR logic) and <Strong>wildcards</Strong>: <code>/home*</code> (starts with), <code>*home</code> (ends with), <code>*home*</code> (contains). Logic: (Step1a OR Step1b) AND Step2 AND (Step3a OR Step3b) AND Step4.</Paragraph>
       </HelpSection>
       <HelpSection title="Tabs">
         <Paragraph><Strong>Funnel Overview</Strong>: KPIs, conversion funnel visualization, per-step Apdex, and step analysis table. 5 chart styles: <Strong>Classic</Strong> (tapered SVG), <Strong>Horizontal Bar</Strong> (waterfall with drop-off extensions), <Strong>Stacked Cohort</Strong> (Marimekko columns split into converted/dropped), <Strong>Elapsed-Time Curve</Strong> (survival curve plotting user retention vs. cumulative response time), and <Strong>Comparison Split</Strong> (mirror funnel showing current vs. previous period side-by-side with delta indicators). Toggle <Strong>Compare</Strong> on Classic to overlay the previous period as dashed outlines. Default style configurable via Settings.</Paragraph>
@@ -2233,7 +2264,7 @@ export function UserJourney() {
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
           {/* Funnel Steps */}
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Funnel Steps</Paragraph>
-          <Paragraph style={{ marginBottom: 12, opacity: 0.6, fontSize: 12 }}>Define the user journey steps (min {MIN_STEPS}, max {MAX_STEPS}). Each step needs a label, URL path/identifier, and type (view or request). Changes are saved per user.</Paragraph>
+          <Paragraph style={{ marginBottom: 12, opacity: 0.6, fontSize: 12 }}>Define the user journey steps (min {MIN_STEPS}, max {MAX_STEPS}). Each step can have multiple pages (OR logic within a step). Wildcards supported: <Strong>/home*</Strong>, <Strong>*home</Strong>, <Strong>*home*</Strong>. Logic: (Step1a OR Step1b) AND Step2 AND Step3.</Paragraph>
           {steps.map((step, i) => (
             <div key={i} style={{ marginBottom: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
               <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
@@ -2247,10 +2278,6 @@ export function UserJourney() {
                   <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 2 }}>Label</Text>
                   <TextInput value={step.label} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], label: val ?? "" }; saveSteps(next); }} placeholder="e.g. Home Page" />
                 </div>
-                <div style={{ flex: 2 }}>
-                  <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 2 }}>Path / Identifier</Text>
-                  <TextInput value={step.identifier} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], identifier: val ?? "" }; saveSteps(next); }} placeholder="e.g. /easytravel/home" />
-                </div>
                 <div style={{ minWidth: 100 }}>
                   <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 2 }}>Type</Text>
                   <Select value={step.type} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], type: (val ?? "view") as "view" | "request" }; saveSteps(next); }}>
@@ -2262,10 +2289,22 @@ export function UserJourney() {
                   </Select>
                 </div>
               </Flex>
+              <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 4, marginTop: 4 }}>Pages / Identifiers {step.identifiers.length > 1 && <span style={{ opacity: 0.7 }}>(OR logic — any match counts)</span>}</Text>
+              {step.identifiers.map((id, j) => (
+                <Flex key={j} gap={6} alignItems="center" style={{ marginBottom: 4 }}>
+                  <div style={{ flex: 1 }}>
+                    <TextInput value={id} onChange={(val) => { const next = [...steps]; const ids = [...next[i].identifiers]; ids[j] = val ?? ""; next[i] = { ...next[i], identifiers: ids }; saveSteps(next); }} placeholder="e.g. /easytravel/home or /home*" />
+                  </div>
+                  {step.identifiers.length > 1 && (
+                    <button onClick={() => { const next = [...steps]; const ids = step.identifiers.filter((_, k) => k !== j); next[i] = { ...next[i], identifiers: ids }; saveSteps(next); }} style={{ background: "none", border: "none", color: RED, cursor: "pointer", fontSize: 11, padding: "2px 4px" }}>✕</button>
+                  )}
+                </Flex>
+              ))}
+              <button onClick={() => { const next = [...steps]; next[i] = { ...next[i], identifiers: [...step.identifiers, ""] }; saveSteps(next); }} style={{ background: "none", border: "1px dashed rgba(69,137,255,0.3)", borderRadius: 4, color: BLUE, cursor: "pointer", fontSize: 11, padding: "3px 8px", marginTop: 2 }}>+ Add Page</button>
             </div>
           ))}
           {steps.length < MAX_STEPS && (
-            <button onClick={() => { const next = [...steps, { label: "", identifier: "", type: "view" as const }]; saveSteps(next); }} style={{ width: "100%", padding: "8px", background: "rgba(69,137,255,0.1)", border: "1px dashed rgba(69,137,255,0.3)", borderRadius: 6, color: BLUE, cursor: "pointer", fontSize: 12, marginBottom: 16 }}>+ Add Step</button>
+            <button onClick={() => { const next = [...steps, { label: "", identifiers: [""], type: "view" as const }]; saveSteps(next); }} style={{ width: "100%", padding: "8px", background: "rgba(69,137,255,0.1)", border: "1px dashed rgba(69,137,255,0.3)", borderRadius: 6, color: BLUE, cursor: "pointer", fontSize: 12, marginBottom: 16 }}>+ Add Step</button>
           )}
           <button onClick={() => { saveSteps(DEFAULT_FUNNEL_STEPS); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 13, marginBottom: 16 }}>Reset to Defaults</button>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
@@ -3422,14 +3461,14 @@ function StepDetailsTab({ stepMap, isLoading, appEntityId, steps, aov = 0, funne
           <div key={i} className="uj-step-detail-card">
             <Flex alignItems="center" gap={12} style={{ marginBottom: 12 }}>
               <span className="uj-step-badge">{i + 1}</span>
-              {appEntityId ? (
-                <a href={vitalsUrl(appEntityId, step.identifier)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", color: "inherit" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>
+              {(() => { const pid = stepPrimaryIdentifier(step); return appEntityId && pid ? (
+                <a href={vitalsUrl(appEntityId, pid)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", color: "inherit" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>
                   <Heading level={5} style={{ margin: 0, color: BLUE }}>{step.label}</Heading>
                 </a>
               ) : (
                 <Heading level={5} style={{ margin: 0 }}>{step.label}</Heading>
-              )}
-              <Text style={{ fontSize: 13, opacity: 0.5 }}>{step.identifier}</Text>
+              ); })()}
+              <Text style={{ fontSize: 13, opacity: 0.5 }}>{step.identifiers.join(" | ")}</Text>
               <div style={{ marginLeft: "auto" }}><ApdexGauge score={apdex} size={64} label="Apdex" /></div>
             </Flex>
             <Flex gap={16} flexWrap="wrap">
@@ -4743,7 +4782,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps }: { data: any
                 <Flex flexDirection="column" gap={4} style={{ paddingLeft: 20 }}>
                   {src.targets.slice(0, 5).map((t, ti) => {
                     const pct = src.total > 0 ? (t.count / src.total) * 100 : 0;
-                    const isFunnel = steps.some((s) => t.name.includes(s.identifier));
+                    const isFunnel = steps.some((s) => s.identifiers.some(id => identifierMatchesLabel(id, t.name)));
                     const color = isFunnel ? GREEN : CYAN;
                     return (
                       <Flex key={ti} alignItems="center" gap={8}>
@@ -6178,22 +6217,19 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   };
 
   // ---- Funnel page identification ----
-  const funnelPageIds = useMemo(() => new Set(steps.map(s => s.identifier)), [steps]);
+  const funnelPageIds = useMemo(() => new Set(steps.flatMap(s => s.identifiers)), [steps]);
   const funnelPageLabels = useMemo(() => new Set(steps.map(s => s.label)), [steps]);
   const isFunnelPage = (label: string): boolean => {
     for (const s of steps) {
-      if (s.identifier.endsWith("*")) {
-        if (label.startsWith(s.identifier.slice(0, -1))) return true;
-      } else {
-        if (label === s.identifier || label === s.label) return true;
-      }
+      if (s.identifiers.some(id => identifierMatchesLabel(id, label))) return true;
+      if (label === s.label) return true;
     }
     return funnelPageLabels.has(label) || funnelPageIds.has(label);
   };
   const funnelStepIndex = (label: string): number => {
     return steps.findIndex(s => {
-      if (s.identifier.endsWith("*")) return label.startsWith(s.identifier.slice(0, -1));
-      return label === s.identifier || label === s.label;
+      if (s.identifiers.some(id => identifierMatchesLabel(id, label))) return true;
+      return label === s.label;
     });
   };
 
@@ -6290,8 +6326,8 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   // ---- Funnel Leakage Analysis (sub-tab 8) ----
   const leakageAnalysis = useMemo(() => {
     const pathRecords = (pathsData?.data?.records ?? []) as any[];
-    const lastStepId = steps[steps.length - 1]?.identifier ?? "";
-    const matchesLastStep = (page: string) => lastStepId.endsWith("*") ? page.startsWith(lastStepId.slice(0, -1)) : page === lastStepId;
+    const lastStepDef = steps[steps.length - 1];
+    const matchesLastStep = (page: string) => lastStepDef ? lastStepDef.identifiers.some(id => identifierMatchesLabel(id, page)) : false;
 
     // Classify each session
     type SessionClass = {
@@ -6582,11 +6618,8 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   // --- Conversion Path Analysis (sub-tab 2) ---
   const conversionPaths = useMemo(() => {
     const paths = (pathsData?.data?.records ?? []) as any[];
-    const lastStep = steps[steps.length - 1]?.identifier ?? "";
-    const matchesStep = (page: string) => {
-      if (lastStep.endsWith("*")) return page.startsWith(lastStep.slice(0, -1));
-      return page === lastStep;
-    };
+    const lastStepDef = steps[steps.length - 1];
+    const matchesStep = (page: string) => lastStepDef ? lastStepDef.identifiers.some(id => identifierMatchesLabel(id, page)) : false;
     const converted: string[][] = [];
     const abandoned: string[][] = [];
     for (const r of paths) {
@@ -6689,8 +6722,8 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   const revenuePaths = useMemo(() => {
     if (aov <= 0) return null;
     const paths = (pathsData?.data?.records ?? []) as any[];
-    const lastStep = steps[steps.length - 1]?.identifier ?? "";
-    const matchesStep = (page: string) => lastStep.endsWith("*") ? page.startsWith(lastStep.slice(0, -1)) : page === lastStep;
+    const lastStepDef = steps[steps.length - 1];
+    const matchesStep = (page: string) => lastStepDef ? lastStepDef.identifiers.some(id => identifierMatchesLabel(id, page)) : false;
     const converted = paths.filter(r => (r.path as string[] ?? []).some(matchesStep));
     // Top converting paths (stringify first 5 steps)
     const pathCounts = new Map<string, number>();
