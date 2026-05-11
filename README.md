@@ -1,8 +1,8 @@
-# User Journey
+# User Journey & Experience
 
 A 25-tab frontend observability suite built as a Dynatrace Platform App. Provides real user monitoring (RUM) funnel analysis, Web Vitals tracking, geographic heatmaps, predictive forecasting, and more — all powered by DQL.
 
-![User Journey App](screenshot.png)
+![User Journey & Experience App](screenshot.png)
 
 ## Features
 

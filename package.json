@@ -1,7 +1,7 @@
 {
   "name": "user-journey-app",
   "version": "0.0.0",
-  "description": "User Journey Funnel Analysis for Frontend Optimization",
+  "description": "User Journey & Experience — Frontend Optimization",
   "scripts": {
     "build": "dt-app build",
     "start": "dt-app dev",

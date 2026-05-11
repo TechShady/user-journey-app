@@ -1931,7 +1931,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         </div>
       </HelpSection>
       <HelpSection title="Overview">
-        <Paragraph>The <Strong>User Journey</Strong> app provides comprehensive frontend observability for <Strong>{frontend}</Strong>. It tracks users through a {steps.length}-step conversion funnel using real-time DQL queries against Dynatrace Grail. The funnel is <Strong>strict sequential</Strong>: each step requires all previous steps.</Paragraph>
+        <Paragraph>The <Strong>User Journey & Experience</Strong> app provides comprehensive frontend observability for <Strong>{frontend}</Strong>. It tracks users through a {steps.length}-step conversion funnel using real-time DQL queries against Dynatrace Grail. The funnel is <Strong>strict sequential</Strong>: each step requires all previous steps.</Paragraph>
       </HelpSection>
       <HelpSection title="Funnel Steps">
         <div style={{ margin: "12px 0", padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8 }}>
@@ -2290,7 +2290,7 @@ export function UserJourney() {
             </svg>
           </div>
           <div>
-            <Heading level={3} style={{ margin: 0 }}>User Journey</Heading>
+            <Heading level={3} style={{ margin: 0 }}>User Journey & Experience</Heading>
             <Text style={{ fontSize: 12, opacity: 0.6 }}>{frontend}</Text>
           </div>
         </Flex>
@@ -2314,7 +2314,7 @@ export function UserJourney() {
           <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.35</Text>
         </Flex>
       </div>
-      <Sheet title="User Journey — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
+      <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
       <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
         <div style={{ padding: "4px 0" }}>
           {/* Frontend Application Name */}
@@ -5515,7 +5515,7 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
       return `<tr><td style="padding:4px 12px;font-size:12px;text-align:right;width:90px;color:#666">${m.label}</td><td style="padding:4px 8px"><div style="background:#eee;border-radius:5px;height:10px;width:200px;overflow:hidden"><div style="height:100%;width:${m.score}%;background:${bc};border-radius:5px"></div></div></td><td style="padding:4px 8px;font-size:12px;font-weight:700;color:${bc}">${m.score}</td><td style="padding:4px 8px;font-size:10px;color:#aaa">${m.weight}%</td></tr>`;
     }).join("");
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>User Journey Report — ${frontend}</title>
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>User Journey & Experience Report — ${frontend}</title>
 <style>
   @media print { body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } @page { margin: 0.6in; size: A4; } .no-print { display: none !important; } }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a2e; margin: 0; padding: 32px; max-width: 900px; margin: 0 auto; line-height: 1.5; }
@@ -5530,7 +5530,7 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
 <div class="toolbar no-print">
   <button onclick="window.print()">Print / Save PDF</button>
 </div>
-<h1>User Journey — Executive Report</h1>
+<h1>User Journey & Experience — Executive Report</h1>
 <div style="font-size:12px;color:#888;margin-bottom:20px">${frontend} | Generated: ${ts}</div>
 
 <h2>Overall Grade</h2>
@@ -5550,7 +5550,7 @@ ${bottleneckHtml}
 <table><tr><th>Metric</th><th>Value</th><th>Status</th></tr>${perfRows}</table>
 
 <div style="text-align:center;margin-top:30px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#aaa">
-  User Journey App v4.0 | ${frontend} | ${ts}
+  User Journey & Experience v4.0 | ${frontend} | ${ts}
 </div>
 </body></html>`;
   };
@@ -5563,7 +5563,7 @@ ${bottleneckHtml}
 
   const copyReportText = () => {
     const lines: string[] = [
-      `USER JOURNEY — EXECUTIVE REPORT`,
+      `USER JOURNEY & EXPERIENCE — EXECUTIVE REPORT`,
       `${frontend} | ${new Date().toLocaleString()}`,
       ``,
       `GRADE: ${letterGrade} (${Math.round(overallGradeNum)}/100)`,
