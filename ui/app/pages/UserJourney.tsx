@@ -171,6 +171,16 @@ function identifierFilter(id: string, type: "view" | "request"): string {
   const field = type === "view" ? "view.name" : "url.path";
   const startsW = id.startsWith("*");
   const endsW = id.endsWith("*");
+  // Mid-string wildcard: /easytravel/journeys/*/book → startsWith + endsWith
+  const midIdx = id.indexOf("*", 1);
+  if (!startsW && !endsW && midIdx > 0) {
+    const parts = id.split("*");
+    if (parts.length === 2) return `(startsWith(${field}, "${parts[0]}") and endsWith(${field}, "${parts[1]}"))`;
+    // Multiple mid-wildcards: chain contains for inner parts
+    const conds = [`startsWith(${field}, "${parts[0]}")`, `endsWith(${field}, "${parts[parts.length - 1]}")`];
+    for (let i = 1; i < parts.length - 1; i++) conds.push(`contains(${field}, "${parts[i]}")`);
+    return `(${conds.join(" and ")})`;
+  }
   if (startsW && endsW && id.length > 2) return `contains(${field}, "${id.slice(1, -1)}")`;
   if (endsW) return `startsWith(${field}, "${id.slice(0, -1)}")`;
   if (startsW) return `endsWith(${field}, "${id.slice(1)}")`;
@@ -184,13 +194,34 @@ function anyStepFilter(steps: StepDef[]): string { return steps.map(stepFilter).
 function stepTagExpr(steps: StepDef[], labels: string[]): string {
   return `coalesce(\n    ${steps.map((s, i) => `if(${stepFilter(s)}, "${labels[i]}")`).join(",\n    ")},\n    "other")`;
 }
-function isWildcard(id: string): boolean { return id.includes("*"); }
+// Dynatrace view-group placeholders treated as dynamic (no Vitals link)
+const DT_PLACEHOLDER_RE = /:[a-zA-Z_]+:/;
+function isWildcard(id: string): boolean { return id.includes("*") || DT_PLACEHOLDER_RE.test(id); }
 function stepPrimaryIdentifier(s: StepDef): string | null {
   return s.identifiers.find(id => !isWildcard(id)) ?? null;
 }
 function identifierMatchesLabel(id: string, label: string): boolean {
+  // Dynatrace placeholder tokens (:id:, :hash:, etc.) — treat as single-segment wildcard
+  if (DT_PLACEHOLDER_RE.test(id)) {
+    const regex = new RegExp("^" + id.replace(/:[a-zA-Z_]+:/g, "[^/]+") + "$");
+    return regex.test(label);
+  }
   const startsW = id.startsWith("*");
   const endsW = id.endsWith("*");
+  // Mid-string wildcard: /a/*/b → startsWith("a/") && endsWith("/b")
+  const midIdx = id.indexOf("*", 1);
+  if (!startsW && !endsW && midIdx > 0) {
+    const parts = id.split("*");
+    if (!label.startsWith(parts[0]) || !label.endsWith(parts[parts.length - 1])) return false;
+    // Verify all inner parts exist in order
+    let pos = parts[0].length;
+    for (let i = 1; i < parts.length - 1; i++) {
+      const found = label.indexOf(parts[i], pos);
+      if (found === -1) return false;
+      pos = found + parts[i].length;
+    }
+    return true;
+  }
   if (startsW && endsW && id.length > 2) return label.includes(id.slice(1, -1));
   if (endsW) return label.startsWith(id.slice(0, -1));
   if (startsW) return label.endsWith(id.slice(1));
@@ -293,6 +324,32 @@ function stepMetricsQuery(days: number, frontend: string, steps: StepDef[]): str
     tolerating = countIf(satisfaction == "tolerating"),
     frustrated = countIf(satisfaction == "frustrated"),
     by: {step_tag}`;
+}
+
+/** Per-page metrics — breaks down each page (view.name) individually for multi-page steps */
+function pageMetricsQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const field = steps[0]?.type === "view" ? "view.name" : "url.path";
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd satisfaction = coalesce(
+    if(dur_ms <= ${APDEX_T}.0, "satisfied"),
+    if(dur_ms <= ${APDEX_4T}.0, "tolerating"),
+    "frustrated")
+| summarize
+    sessions = countDistinct(dt.rum.session.id),
+    total_actions = count(),
+    avg_duration_ms = avg(dur_ms),
+    p50_duration_ms = percentile(dur_ms, 50),
+    p90_duration_ms = percentile(dur_ms, 90),
+    p99_duration_ms = percentile(dur_ms, 99),
+    error_count = countIf(characteristics.has_error == true),
+    satisfied = countIf(satisfaction == "satisfied"),
+    tolerating = countIf(satisfaction == "tolerating"),
+    frustrated = countIf(satisfaction == "frustrated"),
+    by: {${field}}`;
 }
 
 function cwvQuery(days: number, frontend: string): string {
@@ -1819,7 +1876,9 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Wildcard patterns</Strong> in all positions: <code>/home*</code> (starts with), <code>*home</code> (ends with), <code>*home*</code> (contains)</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• Settings UI updated with per-step <Strong>"+ Add Page"</Strong> button and per-identifier remove (✕)</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• DQL filters generate <code>startsWith()</code>, <code>endsWith()</code>, <code>contains()</code> expressions for wildcards</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Vitals links intelligently skip wildcard identifiers — uses first non-wildcard page for linking</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Vitals links intelligently skip wildcard identifiers and Dynatrace placeholders (<code>:id:</code>, <code>:hash:</code>) — uses first non-wildcard page for linking</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Mid-string wildcards</Strong>: <code>/journeys/*/book</code> generates <code>startsWith() AND endsWith()</code> DQL filters</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Step Details — Compare Pages</Strong>: For multi-page steps, a Compare button reveals per-page metrics with the first page as primary baseline and delta indicators for all other pages</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• Backward-compatible: existing single-identifier configurations are automatically migrated</Paragraph>
           </div>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
@@ -1886,7 +1945,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Funnel Overview</Strong>: KPIs, conversion funnel visualization, per-step Apdex, and step analysis table. 5 chart styles: <Strong>Classic</Strong> (tapered SVG), <Strong>Horizontal Bar</Strong> (waterfall with drop-off extensions), <Strong>Stacked Cohort</Strong> (Marimekko columns split into converted/dropped), <Strong>Elapsed-Time Curve</Strong> (survival curve plotting user retention vs. cumulative response time), and <Strong>Comparison Split</Strong> (mirror funnel showing current vs. previous period side-by-side with delta indicators). Toggle <Strong>Compare</Strong> on Classic to overlay the previous period as dashed outlines. Default style configurable via Settings.</Paragraph>
         <Paragraph><Strong>Trends</Strong>: Period-over-period comparison of all key metrics. Shows current vs. previous period with delta arrows — green for improvement, red for regression. Inverted logic for duration/errors (lower = better). When AOV is set, adds a Revenue trend card showing current vs. previous period estimated revenue.</Paragraph>
         <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), page-level CWV breakdown, and performance health score.</Paragraph>
-        <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99).</Paragraph>
+        <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99). For steps with multiple pages, a <Strong>Compare Pages</Strong> button reveals per-page metrics with the first page as the primary baseline — delta indicators show how each additional page performs relative to it.</Paragraph>
         <Paragraph><Strong>Worst Sessions</Strong>: Surfaces the worst-performing sessions ranked by frustrated actions, errors, and slowness. Each session links directly to <Strong>Dynatrace Session Replay</Strong> for instant root-cause analysis.</Paragraph>
         <Paragraph><Strong>Exceptions</Strong>: JavaScript exceptions grouped by error name. Shows occurrences, affected sessions, error velocity (new vs. recurring), and impacted pages. Helps prioritize which errors to fix first.</Paragraph>
         <Paragraph><Strong>Click Issues</Strong>: Detects rage clicks (rapid repeated clicks indicating frustration) and dead clicks (clicks on non-responsive elements). Shows the worst offending elements, pages, and session impact to guide UX fixes.</Paragraph>
@@ -2080,6 +2139,8 @@ export function UserJourney() {
   setQueryAnchorMs(timeframeAnchor);
   const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps) });
   const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps) });
+  const hasMultiPageSteps = steps.some(s => s.identifiers.length > 1);
+  const pageMetrics = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" });
   const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend) });
   const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays, frontend) });
   const deviceData = useDql({ query: deviceQuery(timeframeDays, frontend, steps) });
@@ -2182,6 +2243,16 @@ export function UserJourney() {
     (stepMetrics.data?.records ?? []).forEach((r: any) => { if (r?.step_tag) m.set(r.step_tag, r); });
     return m;
   }, [stepMetrics.data]);
+
+  // Parse per-page metrics (for multi-page step comparison)
+  const pageMap = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const r of (pageMetrics.data?.records ?? []) as any[]) {
+      const key = String(r["view.name"] ?? r["url.path"] ?? "");
+      if (key) m.set(key, r);
+    }
+    return m;
+  }, [pageMetrics.data]);
 
   // Parse CWV
   const cwv = useMemo(() => {
@@ -2398,7 +2469,7 @@ export function UserJourney() {
             case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
-            case "Step Details": content = <StepDetailsTab stepMap={stepMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
+            case "Step Details": content = <StepDetailsTab stepMap={stepMap} pageMap={pageMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />; break;
             case "Exceptions": content = <JSErrorsTab data={jsErrorsData} isLoading={jsErrorsData.isLoading} frontend={frontend} />; break;
             case "Click Issues": content = <ClickIssuesTab data={clickIssuesData} isLoading={clickIssuesData.isLoading} />; break;
@@ -2678,7 +2749,8 @@ function analyzeStepDetails(stepMap: Map<string, any>, steps: StepDef[], funnelC
   if (poorApdexSteps > 0) recs.push({ impact: "high", text: `${poorApdexSteps} step(s) have Poor Apdex. Focus performance optimization on these steps first — they're the biggest user satisfaction bottlenecks.` });
   if (slowSteps > 0) recs.push({ impact: "medium", text: `${slowSteps} step(s) have P90 > 5s. Consider server-side caching, lazy loading, or code splitting for these pages.` });
 
-  const summary = `Step Details provides a granular deep dive into each individual funnel step, revealing exactly where performance bottlenecks and user satisfaction issues exist at the page level. This tab is built for Performance Engineers diagnosing slow pages, UX Researchers understanding per-page user satisfaction, and Backend Engineers identifying which APIs or services need optimization. It answers: Which specific funnel steps have poor user satisfaction? What are the P50, P90, and P99 response time percentiles for each step? How is satisfaction distributed (satisfied vs. tolerating vs. frustrated) at each stage? Currently evaluating ${steps.length} funnel steps. ${poorApdexSteps > 0 ? `${poorApdexSteps} step(s) have Poor Apdex (<0.50), meaning the majority of users at these steps are frustrated — these are your most urgent optimization targets.` : "All steps have acceptable Apdex scores, indicating generally satisfied users across the funnel."} ${slowSteps > 0 ? `${slowSteps} step(s) have P90 response times exceeding 5 seconds, meaning 10% of users at these steps experience unacceptable waits.` : ""} Each step shows an Apdex gauge, satisfaction breakdown bar (green/amber/red segments), and duration percentile distribution. Use this to prioritize which pages to optimize first based on both user impact and funnel position.`;
+  const multiPageSteps = steps.filter(s => s.identifiers.length > 1).length;
+  const summary = `Step Details provides a granular deep dive into each individual funnel step, revealing exactly where performance bottlenecks and user satisfaction issues exist at the page level. This tab is built for Performance Engineers diagnosing slow pages, UX Researchers understanding per-page user satisfaction, and Backend Engineers identifying which APIs or services need optimization. It answers: Which specific funnel steps have poor user satisfaction? What are the P50, P90, and P99 response time percentiles for each step? How is satisfaction distributed (satisfied vs. tolerating vs. frustrated) at each stage? Currently evaluating ${steps.length} funnel steps${multiPageSteps > 0 ? ` (${multiPageSteps} with multiple pages — use the Compare Pages button to see per-page breakdowns with delta indicators against the primary page)` : ""}. ${poorApdexSteps > 0 ? `${poorApdexSteps} step(s) have Poor Apdex (<0.50), meaning the majority of users at these steps are frustrated — these are your most urgent optimization targets.` : "All steps have acceptable Apdex scores, indicating generally satisfied users across the funnel."} ${slowSteps > 0 ? `${slowSteps} step(s) have P90 response times exceeding 5 seconds, meaning 10% of users at these steps experience unacceptable waits.` : ""} Each step shows an Apdex gauge, satisfaction breakdown bar (green/amber/red segments), and duration percentile distribution. For multi-page steps, the Compare view shows each page independently with its own Apdex, durations, and satisfaction counts — the first page is the primary baseline and all other pages show delta percentages against it.`;
   return { summary, insights, recommendations: recs };
 }
 
@@ -3435,27 +3507,90 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
 // ===========================================================================
 // TAB: Step Details
 // ===========================================================================
-function StepDetailsTab({ stepMap, isLoading, appEntityId, steps, aov = 0, funnelCounts = [] }: { stepMap: Map<string, any>; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov?: number; funnelCounts?: number[] }) {
+function StepDetailsTab({ stepMap, pageMap, isLoading, appEntityId, steps, aov = 0, funnelCounts = [] }: { stepMap: Map<string, any>; pageMap: Map<string, any>; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov?: number; funnelCounts?: number[] }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeStepDetails(stepMap, steps, funnelCounts), [stepMap, steps, funnelCounts]));
+  const [compareSteps, setCompareSteps] = React.useState<Set<number>>(new Set());
   if (isLoading) return <Loading />;
+
+  const toggleCompare = (idx: number) => {
+    setCompareSteps(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
+
+  const extractMetrics = (m: any) => {
+    const avg = m ? Number(m.avg_duration_ms ?? 0) : 0;
+    const p50 = m ? Number(m.p50_duration_ms ?? 0) : 0;
+    const p90 = m ? Number(m.p90_duration_ms ?? 0) : 0;
+    const p99 = m ? Number(m.p99_duration_ms ?? 0) : 0;
+    const total = m ? Number(m.total_actions ?? 0) : 0;
+    const errors = m ? Number(m.error_count ?? 0) : 0;
+    const sat = m ? Number(m.satisfied ?? 0) : 0;
+    const tol = m ? Number(m.tolerating ?? 0) : 0;
+    const fru = m ? Number(m.frustrated ?? 0) : 0;
+    const apdex = calcApdex(sat, tol, total);
+    const errRate = total > 0 ? (errors / total) * 100 : 0;
+    return { avg, p50, p90, p99, total, errors, sat, tol, fru, apdex, errRate };
+  };
+
+  const renderDelta = (current: number, primary: number, inverted = false, suffix = "") => {
+    if (primary === 0 && current === 0) return null;
+    const delta = current - primary;
+    const pct = primary > 0 ? (delta / primary) * 100 : (current > 0 ? 100 : 0);
+    if (Math.abs(pct) < 0.5) return null;
+    const better = inverted ? delta < 0 : delta > 0;
+    const clr = better ? GREEN : RED;
+    const arrow = delta > 0 ? "▲" : "▼";
+    return <span style={{ fontSize: 11, color: clr, fontWeight: 600, marginLeft: 4 }}>{arrow}{Math.abs(pct).toFixed(1)}%{suffix}</span>;
+  };
+
+  const renderMetricRow = (label: string, met: ReturnType<typeof extractMetrics>, primaryMet?: ReturnType<typeof extractMetrics>, isPrimary = false) => (
+    <>
+      <Flex gap={16} flexWrap="wrap">
+        <div className="uj-metric-box"><Text className="uj-metric-label">Avg Duration</Text><Strong className="uj-metric-value" style={{ color: met.avg > 3000 ? RED : met.avg > 1000 ? YELLOW : GREEN }}>{fmt(met.avg)}</Strong>{primaryMet && !isPrimary && renderDelta(met.avg, primaryMet.avg, true)}</div>
+        <div className="uj-metric-box"><Text className="uj-metric-label">P50</Text><Strong className="uj-metric-value">{fmt(met.p50)}</Strong>{primaryMet && !isPrimary && renderDelta(met.p50, primaryMet.p50, true)}</div>
+        <div className="uj-metric-box"><Text className="uj-metric-label">P90</Text><Strong className="uj-metric-value" style={{ color: met.p90 > 3000 ? RED : met.p90 > 1500 ? YELLOW : GREEN }}>{fmt(met.p90)}</Strong>{primaryMet && !isPrimary && renderDelta(met.p90, primaryMet.p90, true)}</div>
+        <div className="uj-metric-box"><Text className="uj-metric-label">P99</Text><Strong className="uj-metric-value" style={{ color: met.p99 > 5000 ? RED : GREEN }}>{fmt(met.p99)}</Strong>{primaryMet && !isPrimary && renderDelta(met.p99, primaryMet.p99, true)}</div>
+        <div className="uj-metric-box"><Text className="uj-metric-label">Events</Text><Strong className="uj-metric-value" style={{ color: BLUE }}>{fmtCount(met.total)}</Strong>{primaryMet && !isPrimary && renderDelta(met.total, primaryMet.total)}</div>
+        <div className="uj-metric-box"><Text className="uj-metric-label">Errors</Text><Strong className="uj-metric-value" style={{ color: met.errors > 0 ? RED : GREEN }}>{met.errors}</Strong></div>
+        <div className="uj-metric-box"><Text className="uj-metric-label">Error Rate</Text><Strong className="uj-metric-value" style={{ color: met.errRate > 5 ? RED : met.errRate > 1 ? YELLOW : GREEN }}>{fmtPct(met.errRate)}</Strong>{primaryMet && !isPrimary && renderDelta(met.errRate, primaryMet.errRate, true)}</div>
+      </Flex>
+      <Flex gap={12} alignItems="center" style={{ marginTop: 8 }}>
+        <Text style={{ fontSize: 12, color: GREEN }}>Satisfied: {met.sat}</Text>
+        <Text style={{ fontSize: 12, color: YELLOW }}>Tolerating: {met.tol}</Text>
+        <Text style={{ fontSize: 12, color: RED }}>Frustrated: {met.fru}</Text>
+        <div style={{ flex: 1, height: 6, borderRadius: 3, overflow: "hidden", display: "flex" }}>
+          <div style={{ width: `${met.total > 0 ? (met.sat / met.total) * 100 : 0}%`, background: GREEN, height: "100%" }} />
+          <div style={{ width: `${met.total > 0 ? (met.tol / met.total) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
+          <div style={{ width: `${met.total > 0 ? (met.fru / met.total) * 100 : 0}%`, background: RED, height: "100%" }} />
+        </div>
+      </Flex>
+    </>
+  );
+
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
       {steps.map((step, i) => {
-        const m = stepMap.get(step.label);
-        const avg = m ? Number(m.avg_duration_ms ?? 0) : 0;
-        const p50 = m ? Number(m.p50_duration_ms ?? 0) : 0;
-        const p90 = m ? Number(m.p90_duration_ms ?? 0) : 0;
-        const p99 = m ? Number(m.p99_duration_ms ?? 0) : 0;
-        const total = m ? Number(m.total_actions ?? 0) : 0;
-        const errors = m ? Number(m.error_count ?? 0) : 0;
-        const sat = m ? Number(m.satisfied ?? 0) : 0;
-        const tol = m ? Number(m.tolerating ?? 0) : 0;
-        const fru = m ? Number(m.frustrated ?? 0) : 0;
-        const apdex = calcApdex(sat, tol, total);
-        const errRate = total > 0 ? (errors / total) * 100 : 0;
+        const met = extractMetrics(stepMap.get(step.label));
         const dropOff = i > 0 && funnelCounts.length > i ? (funnelCounts[i - 1] - funnelCounts[i]) : 0;
         const revenueAtRisk = aov > 0 && dropOff > 0 ? dropOff * aov : 0;
+        const isMulti = step.identifiers.length > 1;
+        const isComparing = compareSteps.has(i);
+
+        // Find per-page metrics for each identifier
+        const pageMetricsList = isMulti ? step.identifiers.map(id => {
+          // Try exact match first, then try matching via identifierMatchesLabel
+          let pm = pageMap.get(id);
+          if (!pm) {
+            for (const [key, val] of pageMap) {
+              if (identifierMatchesLabel(id, key)) { pm = val; break; }
+            }
+          }
+          return { id, metrics: extractMetrics(pm) };
+        }) : [];
 
         return (
           <div key={i} className="uj-step-detail-card">
@@ -3469,28 +3604,41 @@ function StepDetailsTab({ stepMap, isLoading, appEntityId, steps, aov = 0, funne
                 <Heading level={5} style={{ margin: 0 }}>{step.label}</Heading>
               ); })()}
               <Text style={{ fontSize: 13, opacity: 0.5 }}>{step.identifiers.join(" | ")}</Text>
-              <div style={{ marginLeft: "auto" }}><ApdexGauge score={apdex} size={64} label="Apdex" /></div>
+              {isMulti && (
+                <button onClick={() => toggleCompare(i)} style={{ marginLeft: 8, padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: `1px solid ${isComparing ? PURPLE : "rgba(128,128,128,0.3)"}`, background: isComparing ? `${PURPLE}20` : "transparent", color: isComparing ? PURPLE : "rgba(128,128,128,0.7)", cursor: "pointer" }}>{isComparing ? "Hide Compare" : "Compare Pages"}</button>
+              )}
+              <div style={{ marginLeft: "auto" }}><ApdexGauge score={met.apdex} size={64} label="Apdex" /></div>
             </Flex>
-            <Flex gap={16} flexWrap="wrap">
-              <div className="uj-metric-box"><Text className="uj-metric-label">Avg Duration</Text><Strong className="uj-metric-value" style={{ color: avg > 3000 ? RED : avg > 1000 ? YELLOW : GREEN }}>{fmt(avg)}</Strong></div>
-              <div className="uj-metric-box"><Text className="uj-metric-label">P50</Text><Strong className="uj-metric-value">{fmt(p50)}</Strong></div>
-              <div className="uj-metric-box"><Text className="uj-metric-label">P90</Text><Strong className="uj-metric-value" style={{ color: p90 > 3000 ? RED : p90 > 1500 ? YELLOW : GREEN }}>{fmt(p90)}</Strong></div>
-              <div className="uj-metric-box"><Text className="uj-metric-label">P99</Text><Strong className="uj-metric-value" style={{ color: p99 > 5000 ? RED : GREEN }}>{fmt(p99)}</Strong></div>
-              <div className="uj-metric-box"><Text className="uj-metric-label">Events</Text><Strong className="uj-metric-value" style={{ color: BLUE }}>{fmtCount(total)}</Strong></div>
-              <div className="uj-metric-box"><Text className="uj-metric-label">Errors</Text><Strong className="uj-metric-value" style={{ color: errors > 0 ? RED : GREEN }}>{errors}</Strong></div>
-              <div className="uj-metric-box"><Text className="uj-metric-label">Error Rate</Text><Strong className="uj-metric-value" style={{ color: errRate > 5 ? RED : errRate > 1 ? YELLOW : GREEN }}>{fmtPct(errRate)}</Strong></div>
-              {revenueAtRisk > 0 && <div className="uj-metric-box"><Text className="uj-metric-label">Revenue at Risk</Text><Strong className="uj-metric-value" style={{ color: RED }}>{fmtCurrency(revenueAtRisk)}</Strong><Text style={{ fontSize: 13, opacity: 0.4 }}>{fmtCount(dropOff)} drop-offs</Text></div>}
-            </Flex>
-            <Flex gap={12} alignItems="center" style={{ marginTop: 12 }}>
-              <Text style={{ fontSize: 12, color: GREEN }}>Satisfied: {sat}</Text>
-              <Text style={{ fontSize: 12, color: YELLOW }}>Tolerating: {tol}</Text>
-              <Text style={{ fontSize: 12, color: RED }}>Frustrated: {fru}</Text>
-              <div style={{ flex: 1, height: 6, borderRadius: 3, overflow: "hidden", display: "flex" }}>
-                <div style={{ width: `${total > 0 ? (sat / total) * 100 : 0}%`, background: GREEN, height: "100%" }} />
-                <div style={{ width: `${total > 0 ? (tol / total) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
-                <div style={{ width: `${total > 0 ? (fru / total) * 100 : 0}%`, background: RED, height: "100%" }} />
+
+            {/* Aggregate step metrics */}
+            {renderMetricRow(step.label, met)}
+            {revenueAtRisk > 0 && <Flex gap={16} style={{ marginTop: 4 }}><div className="uj-metric-box"><Text className="uj-metric-label">Revenue at Risk</Text><Strong className="uj-metric-value" style={{ color: RED }}>{fmtCurrency(revenueAtRisk)}</Strong><Text style={{ fontSize: 13, opacity: 0.4 }}>{fmtCount(dropOff)} drop-offs</Text></div></Flex>}
+
+            {/* Per-page comparison (when toggled) */}
+            {isComparing && isMulti && (
+              <div style={{ marginTop: 16, borderTop: "1px solid rgba(128,128,128,0.15)", paddingTop: 12 }}>
+                <Text style={{ fontSize: 12, fontWeight: 700, opacity: 0.6, marginBottom: 8, display: "block" }}>Per-Page Breakdown — first page is primary (deltas compare against it)</Text>
+                {pageMetricsList.map((pm, j) => {
+                  const isPrimary = j === 0;
+                  const primaryMetrics = pageMetricsList[0]?.metrics;
+                  const linkable = appEntityId && !isWildcard(pm.id);
+                  return (
+                    <div key={j} style={{ marginTop: j > 0 ? 12 : 0, padding: "10px 12px", background: isPrimary ? "rgba(69,137,255,0.06)" : "rgba(128,128,128,0.04)", borderRadius: 8, border: `1px solid ${isPrimary ? "rgba(69,137,255,0.15)" : "rgba(128,128,128,0.1)"}` }}>
+                      <Flex alignItems="center" gap={8} style={{ marginBottom: 8 }}>
+                        {isPrimary && <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, background: `${BLUE}18`, padding: "1px 6px", borderRadius: 3 }}>PRIMARY</span>}
+                        {linkable ? (
+                          <a href={vitalsUrl(appEntityId!, pm.id)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontSize: 13, fontWeight: 600 }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{pm.id} ↗</a>
+                        ) : (
+                          <Text style={{ fontSize: 13, fontWeight: 600 }}>{pm.id}</Text>
+                        )}
+                        <div style={{ marginLeft: "auto" }}><ApdexGauge score={pm.metrics.apdex} size={48} label="" /></div>
+                      </Flex>
+                      {renderMetricRow(pm.id, pm.metrics, isPrimary ? undefined : primaryMetrics, isPrimary)}
+                    </div>
+                  );
+                })}
               </div>
-            </Flex>
+            )}
           </div>
         );
       })}
