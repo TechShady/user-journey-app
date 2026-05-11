@@ -2630,10 +2630,30 @@ function useAIInsights(analysisFn: () => AIInsightsData): { panel: React.ReactNo
 // ---------------------------------------------------------------------------
 // Per-tab analysis functions — industry-standard benchmarks
 // ---------------------------------------------------------------------------
-function analyzeFunnelOverview(overallConv: number, overallApdex: number, quality: any, funnelCounts: number[], steps: StepDef[], stepMap: Map<string, any>, aov: number): AIInsightsData {
+function analyzeFunnelOverview(overallConv: number, overallApdex: number, quality: any, funnelCounts: number[], steps: StepDef[], stepMap: Map<string, any>, aov: number, pageMap?: Map<string, any>): AIInsightsData {
   const insights: InsightItem[] = [];
   const recs: RecommendationItem[] = [];
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
+
+  // Multi-page session overlap explanation
+  if (pageMap && pageMap.size > 0) {
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      if (step.identifiers.length < 2) continue;
+      const rollupSessions = funnelCounts[i] ?? 0;
+      if (rollupSessions === 0) continue;
+      let pageSessionSum = 0;
+      for (const id of step.identifiers) {
+        let pm = pageMap.get(id);
+        if (!pm) { for (const [key, val] of pageMap) { if (identifierMatchesLabel(id, key)) { pm = val; break; } } }
+        if (pm) pageSessionSum += Number(pm.sessions ?? 0);
+      }
+      if (pageSessionSum > rollupSessions) {
+        const overlap = pageSessionSum - rollupSessions;
+        insights.push({ severity: "info", icon: "🔗", text: `"${step.label}" has ${step.identifiers.length} pages with ${fmtCount(pageSessionSum)} combined page-level sessions but only ${fmtCount(rollupSessions)} unique sessions in the funnel rollup. ~${fmtCount(overlap)} sessions visited multiple pages in this step — the rollup correctly deduplicates them.` });
+      }
+    }
+  }
 
   // Conversion
   if (overallConv >= 5) insights.push({ severity: "good", icon: "✅", text: `Conversion rate of ${fmtPct(overallConv)} is above the industry average of 2-5%.` });
@@ -3217,7 +3237,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
   const prevFunnelSteps = compareMode ? makeFunnelSteps(funnelCountsPrev) : undefined;
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
 
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap]));
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
