@@ -6,15 +6,16 @@ import { useUserAppState, useSetUserAppState } from "@dynatrace-sdk/react-hooks"
 // ---------------------------------------------------------------------------
 export type StepDef = { label: string; identifiers: string[]; type: "view" | "request" };
 
-export const DEFAULT_FRONTEND = "www.angular.easytravel.com";
+export const DEFAULT_FRONTEND = "Product_Browse";
 export const MIN_STEPS = 2;
 export const MAX_STEPS = 10;
 
 export const DEFAULT_FUNNEL_STEPS: StepDef[] = [
-  { label: "Home", identifiers: ["/easytravel/home"], type: "view" },
-  { label: "Search", identifiers: ["/easytravel/search"], type: "view" },
-  { label: "Journey Detail", identifiers: ["/easytravel/journeys/:id:"], type: "view" },
-  { label: "Book", identifiers: ["/easytravel/journeys/:id:/book"], type: "view" },
+  { label: "Landing", identifiers: ["/", "/home", "/index"], type: "view" },
+  { label: "Browse / Category", identifiers: ["/products", "/category/*", "/search"], type: "view" },
+  { label: "Product Detail", identifiers: ["/product/*", "/products/:id:"], type: "view" },
+  { label: "Add to Cart", identifiers: ["/cart"], type: "view" },
+  { label: "Checkout / Purchase", identifiers: ["/checkout", "/order/confirm*"], type: "view" },
 ];
 
 export const DEFAULT_AOV = 0;

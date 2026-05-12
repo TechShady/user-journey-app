@@ -111,7 +111,9 @@ const CWV = {
 // at module scope so `periodClause` can emit absolute ISO timestamps, and so
 // query strings change when the user shifts the window (driving useDql refetch).
 let CURRENT_ANCHOR_MS: number | null = null;
+let CURRENT_TIMEFRAME_DAYS: number = 0.083;
 export function setQueryAnchorMs(ms: number | null) { CURRENT_ANCHOR_MS = ms; }
+export function setCurrentTimeframeDays(d: number) { CURRENT_TIMEFRAME_DAYS = d; }
 
 function toIso(ms: number): string { return new Date(ms).toISOString(); }
 
@@ -228,8 +230,27 @@ function identifierMatchesLabel(id: string, label: string): boolean {
   return label === id;
 }
 
+/** Build the Dynatrace `tf=` query-string value from the app's current
+ *  timeframe so drilldown links open with the same window the user selected. */
+function tfParam(): string {
+  const days = CURRENT_TIMEFRAME_DAYS;
+  const anchor = CURRENT_ANCHOR_MS;
+  if (anchor != null) {
+    const durMs = Math.max(1, days) * 86400000;
+    const fromIso = new Date(anchor - durMs).toISOString();
+    const toIso = new Date(anchor).toISOString();
+    return encodeURIComponent(`${fromIso};${toIso}`);
+  }
+  if (days < 1) {
+    const h = Math.max(1, Math.round(days * 24));
+    return encodeURIComponent(`now-${h}h;now`);
+  }
+  const d = Math.max(1, Math.round(days));
+  return encodeURIComponent(`now-${d}d;now`);
+}
+
 function sessionReplayUrl(sessionId: string, startTs?: string): string {
-  return `${ENV_URL}/ui/apps/dynatrace.users.sessions/session-viewer/${sessionId}/${startTs ?? ''}?tf=now-2h%3Bnow&perspective=general`;
+  return `${ENV_URL}/ui/apps/dynatrace.users.sessions/session-viewer/${sessionId}/${startTs ?? ''}?tf=${tfParam()}&perspective=general`;
 }
 
 function appEntityQuery(frontend: string): string {
@@ -241,18 +262,18 @@ function appEntityQuery(frontend: string): string {
 
 function vitalsUrl(appEntityId: string, pageName: string): string {
   const encoded = btoa(pageName);
-  return `${ENV_URL}/ui/apps/dynatrace.experience.vitals/performance/web/${encodeURIComponent(appEntityId)}/pages/${encodeURIComponent(encoded)}`;
+  return `${ENV_URL}/ui/apps/dynatrace.experience.vitals/performance/web/${encodeURIComponent(appEntityId)}/pages/${encodeURIComponent(encoded)}?tf=${tfParam()}`;
 }
 
 function errorInspectorUrl(errorId: string, frontend: string): string {
   const filter = encodeURIComponent(`"Frontend" = "${frontend}" "Error Type" = "Exception"`);
-  return `${ENV_URL}/ui/apps/dynatrace.error.inspector/explorer?tf=now-2h%3Bnow&sort=affected_users%3Adescending&perspective=impact&detailsId=${encodeURIComponent(errorId)}&sidebarOpen=true#filtering=${filter}`;
+  return `${ENV_URL}/ui/apps/dynatrace.error.inspector/explorer?tf=${tfParam()}&sort=affected_users%3Adescending&perspective=impact&detailsId=${encodeURIComponent(errorId)}&sidebarOpen=true#filtering=${filter}`;
 }
 
 function sessionsFilterUrl(frontend: string, locationName?: string): string {
   let filter = `Frontends = ${frontend}`;
   if (locationName) filter += ` Location = "${locationName}"`;
-  return `${ENV_URL}/ui/apps/dynatrace.users.sessions/sessions/sessions?tf=now-2h%3Bnow&perspective=general#filtering=${encodeURIComponent(filter)}`;
+  return `${ENV_URL}/ui/apps/dynatrace.users.sessions/sessions/sessions?tf=${tfParam()}&perspective=general#filtering=${encodeURIComponent(filter)}`;
 }
 
 /** Open a URL in a new tab. Uses window.open() so that Mac browsers (which block
@@ -2137,6 +2158,7 @@ export function UserJourney() {
   // arrow-shifted (past-window) timeframes produce queries against the
   // shifted window and re-key useDql to refetch.
   setQueryAnchorMs(timeframeAnchor);
+  setCurrentTimeframeDays(timeframeDays);
   const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps) });
   const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps) });
   const hasMultiPageSteps = steps.some(s => s.identifiers.length > 1);
