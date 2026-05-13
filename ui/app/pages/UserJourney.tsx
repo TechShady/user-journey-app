@@ -260,6 +260,24 @@ function appEntityQuery(frontend: string): string {
 | limit 1`;
 }
 
+function availableAppsQuery(): string {
+  return `fetch user.events, from: now()-30d
+| filter isNotNull(frontend.name)
+| summarize count = count(), by: {frontend.name}
+| sort count desc
+| limit 100
+| fieldsRemove count`;
+}
+
+function availablePagesQuery(frontend: string): string {
+  return `fetch user.events, from: now()-7d
+| filter frontend.name == "${frontend}" and isNotNull(view.name) and view.name != ""
+| summarize count = count(), by: {view.name}
+| sort count desc
+| limit 300
+| fieldsRemove count`;
+}
+
 function vitalsUrl(appEntityId: string, pageName: string): string {
   const encoded = btoa(pageName);
   return `${ENV_URL}/ui/apps/dynatrace.experience.vitals/performance/web/${encodeURIComponent(appEntityId)}/pages/${encodeURIComponent(encoded)}?tf=${tfParam()}`;
@@ -1891,6 +1909,15 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 13, 2026</Paragraph>
+            <Paragraph><Strong>Settings — App &amp; Page Dropdowns</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Frontend Application</Strong> is now a searchable dropdown populated from apps with data in the last 30 days — no more manual typing</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Pages / Identifiers</Strong> are now searchable dropdowns showing all distinct pages seen for the selected app in the last 7 days</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Selecting a new app automatically re-queries pages so the identifier dropdowns only show pages belonging to that app</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Current saved values (including wildcard patterns) are preserved as valid options even if not in the fetched list</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Both dropdowns include a <Strong>live search filter</Strong> — type to narrow down long lists instantly</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 11, 2026</Paragraph>
             <Paragraph><Strong>Multi-Page Funnel Steps + Wildcard Support</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• Each funnel step now supports <Strong>multiple pages</Strong> with OR logic — e.g. (Step1a OR Step1b) AND Step2 AND (Step3a OR Step3b)</Paragraph>
@@ -1995,7 +2022,9 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Error Clustering</Strong>: Groups JavaScript errors by type/pattern to help prioritize fixes. Shows occurrence count, affected sessions, and impact percentage per error cluster. Includes hourly error trend chart for detecting spikes, top clusters bar chart, and sample error messages for quick identification. Focus on high-impact clusters first.</Paragraph>
       </HelpSection>
       <HelpSection title="Tab Settings">
-        <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Tab Settings. Each of the 30 tabs can be toggled on or off individually. Drag to reorder. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
+        <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Settings. Each of the 30 tabs can be toggled on or off individually. Drag to reorder. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
+        <Paragraph><Strong>Frontend Application</Strong>: Searchable dropdown listing all applications with session data in the last 30 days. Selecting a different app immediately re-queries all data and updates the Pages / Identifiers dropdowns for the new app.</Paragraph>
+        <Paragraph><Strong>Funnel Steps — Pages / Identifiers</Strong>: Each identifier is a searchable dropdown showing all distinct page names seen for the selected app in the last 7 days. Current saved values (including wildcard patterns such as <code>/home*</code>) appear as valid options even if they are not in the fetched list. Use the search filter to narrow long lists. Both dropdowns load only when Settings is open.</Paragraph>
         <Paragraph><Strong>Average Order Value</Strong>: Set in Settings to enable revenue metrics across What-If Analysis, Revenue Intelligence, Errors &amp; Drop-offs, Conversion Attribution, Map, Root Cause Correlation, Trends, Executive Summary, Anomaly Detection, and Change Intelligence tabs. This value represents the average revenue per conversion (final funnel step completion). Set to 0 to hide revenue metrics.</Paragraph>
       </HelpSection>
       <HelpSection title="Apdex Score">
@@ -2193,6 +2222,10 @@ export function UserJourney() {
   const sankeyPrevPaths = useDql({ query: sankeyPrevPathsQuery(timeframeDays, frontend) });
   const appEntityData = useDql({ query: appEntityQuery(frontend) });
   const appEntityId = (appEntityData.data?.records?.[0] as any)?.['id'] ?? '';
+  const settingsAppsData = useDql({ query: showSettings ? availableAppsQuery() : "fetch user.events | limit 0" });
+  const settingsPagesData = useDql({ query: (showSettings && frontend) ? availablePagesQuery(frontend) : "fetch user.events | limit 0" });
+  const availableApps: string[] = (settingsAppsData.data?.records ?? []).map((r: any) => r['frontend.name']).filter(Boolean);
+  const availablePages: string[] = (settingsPagesData.data?.records ?? []).map((r: any) => r['view.name']).filter(Boolean);
   const hourlyDistributionData = useDql({ query: hourlyDistributionQuery(timeframeDays, frontend, steps) });
 
   // NEW: Conversion Attribution, Duration Distribution
@@ -2333,7 +2366,7 @@ export function UserJourney() {
           <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.35</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.51</Text>
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -2341,18 +2374,27 @@ export function UserJourney() {
         <div style={{ padding: "4px 0" }}>
           {/* Frontend Application Name */}
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Frontend Application</Paragraph>
-          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>The Dynatrace frontend application name to monitor. Changes take effect immediately.</Paragraph>
+          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Select the Dynatrace frontend application to monitor. The list shows apps with data in the last 30 days. Changes take effect immediately.</Paragraph>
           <div style={{ marginBottom: 20 }}>
-            <TextInput
-              value={frontend}
-              onChange={(val) => {
-                const v = (val ?? "").trim();
-                if (v) {
-                  saveFrontend(v);
-                }
-              }}
-              placeholder="e.g. www.angular.easytravel.com"
-            />
+            {settingsAppsData.isLoading ? (
+              <ProgressBar style={{ width: "100%" }} />
+            ) : (
+              <Select value={frontend} onChange={(val) => { if (val) saveFrontend(val); }}>
+                <Select.Trigger />
+                <Select.Content>
+                  <Select.Filter />
+                  {frontend && !availableApps.includes(frontend) && (
+                    <Select.Option value={frontend}>{frontend}</Select.Option>
+                  )}
+                  {availableApps.map(app => (
+                    <Select.Option key={app} value={app}>{app}</Select.Option>
+                  ))}
+                  {availableApps.length === 0 && (
+                    <Select.Option value="" disabled>No applications found</Select.Option>
+                  )}
+                </Select.Content>
+              </Select>
+            )}
           </div>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
           {/* Funnel Steps */}
@@ -2386,7 +2428,25 @@ export function UserJourney() {
               {step.identifiers.map((id, j) => (
                 <Flex key={j} gap={6} alignItems="center" style={{ marginBottom: 4 }}>
                   <div style={{ flex: 1 }}>
-                    <TextInput value={id} onChange={(val) => { const next = [...steps]; const ids = [...next[i].identifiers]; ids[j] = val ?? ""; next[i] = { ...next[i], identifiers: ids }; saveSteps(next); }} placeholder="e.g. /easytravel/home or /home*" />
+                    {settingsPagesData.isLoading ? (
+                      <ProgressBar style={{ width: "100%" }} />
+                    ) : (
+                      <Select value={id} onChange={(val) => { const next = [...steps]; const ids = [...next[i].identifiers]; ids[j] = val ?? ""; next[i] = { ...next[i], identifiers: ids }; saveSteps(next); }}>
+                        <Select.Trigger />
+                        <Select.Content>
+                          <Select.Filter />
+                          {id && !availablePages.includes(id) && (
+                            <Select.Option value={id}>{id}</Select.Option>
+                          )}
+                          {availablePages.map(page => (
+                            <Select.Option key={page} value={page}>{page}</Select.Option>
+                          ))}
+                          {availablePages.length === 0 && (
+                            <Select.Option value="" disabled>No pages found for this app</Select.Option>
+                          )}
+                        </Select.Content>
+                      </Select>
+                    )}
                   </div>
                   {step.identifiers.length > 1 && (
                     <button onClick={() => { const next = [...steps]; const ids = step.identifiers.filter((_, k) => k !== j); next[i] = { ...next[i], identifiers: ids }; saveSteps(next); }} style={{ background: "none", border: "none", color: RED, cursor: "pointer", fontSize: 11, padding: "2px 4px" }}>✕</button>
