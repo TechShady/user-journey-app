@@ -58,7 +58,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const val = savedFrontend.data.value as string;
       if (val.trim()) setFrontend(val.trim());
     }
-  }, [savedFrontend.data]);
+  }, [savedFrontend.data?.value]);
 
   useEffect(() => {
     if (savedSteps.data?.value) {
@@ -75,14 +75,14 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       } catch { /* ignore parse errors */ }
     }
-  }, [savedSteps.data]);
+  }, [savedSteps.data?.value]);
 
   useEffect(() => {
     if (savedAov.data?.value) {
       const v = Number(savedAov.data.value);
       if (!isNaN(v) && v >= 0) setAov(v);
     }
-  }, [savedAov.data]);
+  }, [savedAov.data?.value]);
 
   const saveFrontend = (v: string) => {
     setFrontend(v);

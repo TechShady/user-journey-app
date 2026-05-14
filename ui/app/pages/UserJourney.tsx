@@ -2083,6 +2083,8 @@ export function UserJourney() {
   const [tabOrder, setTabOrder] = useState<TabKey[]>([...DEFAULT_TAB_ORDER]);
   const [draggedTabIdx, setDraggedTabIdx] = useState<number | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  const closeAiInsights = React.useCallback(() => setAiOpen(false), []);
+  const aiContextValue = React.useMemo(() => ({ open: aiOpen, close: closeAiInsights }), [aiOpen, closeAiInsights]);
   const { frontend, steps, saveFrontend, saveSteps, aov, saveAov } = useSettings();
   const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
   const [funnelStyle, setFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
@@ -2102,7 +2104,7 @@ export function UserJourney() {
         setTabVisibility(prev => ({ ...prev, ...parsed }));
       } catch { /* ignore parse errors */ }
     }
-  }, [savedState.data]);
+  }, [savedState.data?.value]);
 
   useEffect(() => {
     if (savedTabOrder.data?.value) {
@@ -2117,21 +2119,21 @@ export function UserJourney() {
         }
       } catch { /* ignore */ }
     }
-  }, [savedTabOrder.data]);
+  }, [savedTabOrder.data?.value]);
 
   useEffect(() => {
     if (savedSankeyStyle.data?.value) {
       const val = savedSankeyStyle.data.value as string;
       if (SANKEY_STYLE_OPTIONS.some(o => o.value === val)) setSankeyStyle(val as SankeyStyle);
     }
-  }, [savedSankeyStyle.data]);
+  }, [savedSankeyStyle.data?.value]);
 
   useEffect(() => {
     if (savedFunnelStyle.data?.value) {
       const val = savedFunnelStyle.data.value as string;
       if (FUNNEL_STYLE_OPTIONS.some(o => o.value === val)) setFunnelStyle(val as FunnelStyle);
     }
-  }, [savedFunnelStyle.data]);
+  }, [savedFunnelStyle.data?.value]);
 
   const [mapViewDefault, setMapViewDefault] = useState<MapViewSetting>(DEFAULT_MAP_VIEW);
   useEffect(() => {
@@ -2139,7 +2141,7 @@ export function UserJourney() {
       const val = savedMapView.data.value as string;
       if (MAP_VIEW_OPTIONS.some(o => o.value === val)) setMapViewDefault(val as MapViewSetting);
     }
-  }, [savedMapView.data]);
+  }, [savedMapView.data?.value]);
 
   // Fix: Mac browsers block target="_blank" inside sandboxed iframes.
   // Intercept all such clicks and use window.open() as a direct user gesture.
@@ -2543,7 +2545,7 @@ export function UserJourney() {
       </Sheet>
 
       {/* Tabs — rendered in user-defined tabOrder */}
-      <AIInsightsContext.Provider value={{ open: aiOpen, close: () => setAiOpen(false) }}>
+      <AIInsightsContext.Provider value={aiContextValue}>
       <Tabs defaultIndex={0}>
         {tabOrder.filter(t => isTabVisible(t)).map(tabId => {
           let content: React.ReactNode = null;
@@ -3300,6 +3302,8 @@ function analyzeErrorClustering(clusters: any[], totalErrors: number): AIInsight
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
 function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, pageMap, quality, compareMode, setCompareMode, isLoading, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void }) {
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap]));
+
   if (isLoading) return <Loading />;
 
   const makeFunnelSteps = (counts: number[]): FunnelStep[] => steps.map((step, i) => {
@@ -3318,8 +3322,6 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
   const funnelSteps = makeFunnelSteps(funnelCounts);
   const prevFunnelSteps = compareMode ? makeFunnelSteps(funnelCountsPrev) : undefined;
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
-
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap]));
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
@@ -3516,6 +3518,8 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
 // TAB: Trends (Period-over-Period Comparison) — NEW
 // ===========================================================================
 function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, isLoading, steps, aov }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; isLoading: boolean; steps: StepDef[]; aov: number }) {
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeTrends(quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov), [quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov]));
+
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -3538,8 +3542,6 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
     { label: "Errors", current: quality.errors, prev: qualityPrev.errors, inverted: true, format: fmtCount },
     { label: "Frustrated", current: quality.frustrated, prev: qualityPrev.frustrated, inverted: true, format: fmtCount },
   ];
-
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeTrends(quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov), [quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov]));
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
@@ -6390,16 +6392,11 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   }, [sankeySubTab]);
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSankeySubTab(sankeySubTabLabel), [sankeySubTabLabel]));
 
-  if (isLoading) return <Loading />;
-
   const records = (data.data?.records ?? []) as any[];
   const { nodes, links, maxDepth } = useMemo(() => buildSankey(records), [records]);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
-
-  const totalSessions = records.reduce((a: number, r: any) => a + Number(r.sessions ?? r.d0 ?? 0), 0);
-  const uniquePages = new Set(nodes.map(n => n.label)).size;
 
   // Build a set of connected node IDs and link indices for the focused node
   const { connectedNodes, connectedLinks } = useMemo(() => {
@@ -6416,30 +6413,6 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     return { connectedNodes: cn, connectedLinks: cl };
   }, [focusNodeId, links]);
 
-  const hasFocus = focusNodeId !== null;
-
-  // Focus info panel
-  const focusNode = hasFocus ? nodes.find(n => n.id === focusNodeId) : null;
-  const focusInbound = hasFocus ? links.filter(l => l.target === focusNodeId) : [];
-  const focusOutbound = hasFocus ? links.filter(l => l.source === focusNodeId) : [];
-  const focusSessions = focusNode?.value ?? 0;
-
-  // Label-based focus for alternate charts (aggregates across all nodes with same label)
-  const labelNodeIds = focusLabel ? nodes.filter(n => n.label === focusLabel).map(n => n.id) : [];
-  const labelInbound = focusLabel ? links.filter(l => labelNodeIds.includes(l.target)).reduce((acc, l) => {
-    const src = nodes.find(n => n.id === l.source)!;
-    const existing = acc.find(a => a.label === src.label);
-    if (existing) existing.value += l.value; else acc.push({ label: src.label, value: l.value });
-    return acc;
-  }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value) : [];
-  const labelOutbound = focusLabel ? links.filter(l => labelNodeIds.includes(l.source)).reduce((acc, l) => {
-    const tgt = nodes.find(n => n.id === l.target)!;
-    const existing = acc.find(a => a.label === tgt.label);
-    if (existing) existing.value += l.value; else acc.push({ label: tgt.label, value: l.value });
-    return acc;
-  }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value) : [];
-  const labelSessions = focusLabel ? nodes.filter(n => n.label === focusLabel).reduce((a, n) => Math.max(a, n.value), 0) : 0;
-
   // Set of labels connected to the focused label (for directed/alluvial/stateMachine focus mode)
   const connectedLabelSet = useMemo(() => {
     if (!focusLabel) return new Set<string>();
@@ -6454,85 +6427,6 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     }
     return cl;
   }, [focusLabel, links, nodes]);
-  const hasLabelFocus = focusLabel !== null;
-
-  const handleLabelClick = (label: string) => {
-    setFocusLabel(prev => prev === label ? null : label);
-  };
-
-  // ---- Node tooltip builder (rich hover with top 3 inbound/outbound) ----
-  const buildNodeTooltip = (nodeId: string): string => {
-    const node = nodes.find(n => n.id === nodeId);
-    if (!node) return "";
-    const inFunnel = isFunnelPage(node.label);
-    const isExit = exitNodeIds.has(nodeId);
-    const inbound = links.filter(l => l.target === nodeId).map(l => {
-      const src = nodes.find(n => n.id === l.source)!;
-      return { label: src.label, value: l.value };
-    }).sort((a, b) => b.value - a.value);
-    const outbound = links.filter(l => l.source === nodeId).map(l => {
-      const tgt = nodes.find(n => n.id === l.target)!;
-      return { label: tgt.label, value: l.value };
-    }).sort((a, b) => b.value - a.value);
-    const totalIn = inbound.reduce((s, x) => s + x.value, 0);
-    const totalOut = outbound.reduce((s, x) => s + x.value, 0);
-    const selfIn = inbound.find(x => x.label === node.label);
-    const selfReloadPct = selfIn && node.value > 0 ? (selfIn.value / node.value) * 100 : 0;
-    const lines: string[] = [`${node.label}: ${fmtCount(node.value)} sessions`];
-    if (isExit) lines[0] += " ⛔ Exit Point";
-    else if (inFunnel) lines[0] += " ★ Funnel";
-    if (selfReloadPct > 5) lines.push(`⟲ Self-reload: ${Math.round(selfReloadPct)}% (${fmtCount(selfIn!.value)})`);
-    if (inbound.length > 0) {
-      lines.push(`Inbound (${inbound.length}):`);
-      inbound.slice(0, 3).forEach(x => { const pct = totalIn > 0 ? (x.value / totalIn) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
-    }
-    if (outbound.length > 0) {
-      lines.push(`Outbound (${outbound.length}):`);
-      outbound.slice(0, 3).forEach(x => { const pct = totalOut > 0 ? (x.value / totalOut) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
-    }
-    const err = errorMap.get(node.label);
-    if (err && err.errorCount > 0) lines.push(`Errors: ${fmtCount(err.errorCount)} (${fmtCount(err.errorSessions)} sessions)`);
-    return lines.join("\n");
-  };
-
-  const buildLabelTooltip = (label: string): string => {
-    const matchNodes = nodes.filter(n => n.label === label);
-    const totalSessions = matchNodes.reduce((a, n) => Math.max(a, n.value), 0);
-    const nodeIds = matchNodes.map(n => n.id);
-    const inFunnel = isFunnelPage(label);
-    const isExit = exitLabels.has(label);
-    const inbound = links.filter(l => nodeIds.includes(l.target)).reduce((acc, l) => {
-      const src = nodes.find(n => n.id === l.source)!;
-      const existing = acc.find(a => a.label === src.label);
-      if (existing) existing.value += l.value; else acc.push({ label: src.label, value: l.value });
-      return acc;
-    }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value);
-    const outbound = links.filter(l => nodeIds.includes(l.source)).reduce((acc, l) => {
-      const tgt = nodes.find(n => n.id === l.target)!;
-      const existing = acc.find(a => a.label === tgt.label);
-      if (existing) existing.value += l.value; else acc.push({ label: tgt.label, value: l.value });
-      return acc;
-    }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value);
-    const totalIn = inbound.reduce((s, x) => s + x.value, 0);
-    const totalOut = outbound.reduce((s, x) => s + x.value, 0);
-    const selfIn = inbound.find(x => x.label === label);
-    const selfReloadPct = selfIn && totalSessions > 0 ? (selfIn.value / totalSessions) * 100 : 0;
-    const lines: string[] = [`${label}: ${fmtCount(totalSessions)} sessions`];
-    if (isExit) lines[0] += " ⛔ Exit Point";
-    else if (inFunnel) lines[0] += " ★ Funnel";
-    if (selfReloadPct > 5) lines.push(`⟲ Self-reload: ${Math.round(selfReloadPct)}% (${fmtCount(selfIn!.value)})`);
-    if (inbound.length > 0) {
-      lines.push(`Inbound (${inbound.length}):`);
-      inbound.slice(0, 3).forEach(x => { const pct = totalIn > 0 ? (x.value / totalIn) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
-    }
-    if (outbound.length > 0) {
-      lines.push(`Outbound (${outbound.length}):`);
-      outbound.slice(0, 3).forEach(x => { const pct = totalOut > 0 ? (x.value / totalOut) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
-    }
-    const err = errorMap.get(label);
-    if (err && err.errorCount > 0) lines.push(`Errors: ${fmtCount(err.errorCount)} (${fmtCount(err.errorSessions)} sessions)`);
-    return lines.join("\n");
-  };
 
   // ---- Funnel page identification ----
   const funnelPageIds = useMemo(() => new Set(steps.flatMap(s => s.identifiers)), [steps]);
@@ -6858,11 +6752,11 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     const completionRate = pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0;
     if (completionRate < 20) {
       obs.push({ icon: "\u{1F6A8}", text: `Only ${fmtPct(completionRate)} of sessions complete the full funnel`, severity: "critical" });
-      recs.push({ text: "Investigate top funnel exit points \u2014 most users are abandoning before conversion", impact: "high" });
+      recs.push({ text: "Investigate top funnel exit points — most users are abandoning before conversion", impact: "high" });
     } else if (completionRate < 50) {
-      obs.push({ icon: "\u26A0\uFE0F", text: `${fmtPct(completionRate)} funnel completion rate \u2014 room for improvement`, severity: "warning" });
+      obs.push({ icon: "⚠️", text: `${fmtPct(completionRate)} funnel completion rate — room for improvement`, severity: "warning" });
     } else {
-      obs.push({ icon: "\u2705", text: `${fmtPct(completionRate)} funnel completion rate`, severity: "info" });
+      obs.push({ icon: "✅", text: `${fmtPct(completionRate)} funnel completion rate`, severity: "info" });
     }
 
     // Return rate after exit
@@ -6871,7 +6765,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
       obs.push({ icon: "\u{1F6A8}", text: `Only ${fmtPct(returnRate)} of users return after leaving the funnel`, severity: "critical" });
       recs.push({ text: "Add re-engagement CTAs on off-funnel pages to guide users back", impact: "high" });
     } else if (returnRate < 40) {
-      obs.push({ icon: "\u26A0\uFE0F", text: `${fmtPct(returnRate)} return rate after funnel exit`, severity: "warning" });
+      obs.push({ icon: "⚠️", text: `${fmtPct(returnRate)} return rate after funnel exit`, severity: "warning" });
     }
 
     // Lost revenue
@@ -6887,14 +6781,14 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     const poorFunnelPages = pageHealth.filter(p => p.isFunnel && p.healthScore < 60);
     if (poorFunnelPages.length > 0) {
       obs.push({ icon: "\u{1F534}", text: `${poorFunnelPages.length} funnel page(s) have poor health scores: ${poorFunnelPages.map(p => p.label).join(", ")}`, severity: "critical" });
-      recs.push({ text: `Fix performance on ${poorFunnelPages[0].label} \u2014 ${poorFunnelPages[0].issues.join(", ")}`, impact: "high" });
+      recs.push({ text: `Fix performance on ${poorFunnelPages[0].label} — ${poorFunnelPages[0].issues.join(", ")}`, impact: "high" });
     }
 
     // Error-heavy pages
     const errorPages = pageHealth.filter(p => p.errors > 10).sort((a, b) => b.errors - a.errors);
     if (errorPages.length > 0) {
-      obs.push({ icon: "\u274C", text: `${errorPages[0].label} has ${fmtCount(errorPages[0].errors)} errors affecting ${fmtCount(errorPages[0].errorSessions)} sessions`, severity: "critical" });
-      recs.push({ text: `Prioritize error resolution on ${errorPages[0].label} \u2014 high error volume is likely driving abandonment`, impact: "high" });
+      obs.push({ icon: "❌", text: `${errorPages[0].label} has ${fmtCount(errorPages[0].errors)} errors affecting ${fmtCount(errorPages[0].errorSessions)} sessions`, severity: "critical" });
+      recs.push({ text: `Prioritize error resolution on ${errorPages[0].label} — high error volume is likely driving abandonment`, impact: "high" });
     }
 
     // Top exit point analysis
@@ -6902,20 +6796,20 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
       const topExit = pathAnalysis.sortedExits[0];
       obs.push({ icon: "\u{1F6AA}", text: `Top exit point: "${topExit.page}" with ${fmtCount(topExit.exits)} exits (${fmtPct(topExit.exits > 0 ? (topExit.returns / topExit.exits) * 100 : 0)} return)`, severity: "warning" });
       if (topExit.nextPagesList.length > 0) {
-        recs.push({ text: `Users leaving "${topExit.page}" go to "${topExit.nextPagesList[0][0]}" \u2014 consider adding funnel CTAs there`, impact: "medium" });
+        recs.push({ text: `Users leaving "${topExit.page}" go to "${topExit.nextPagesList[0][0]}" — consider adding funnel CTAs there`, impact: "medium" });
       }
     }
 
     // Off-funnel traffic
     if (pathAnalysis.sortedOffFunnel.length > 0) {
       const topOff = pathAnalysis.sortedOffFunnel[0];
-      obs.push({ icon: "\u2197\uFE0F", text: `"${topOff[0]}" is the #1 off-funnel destination with ${fmtCount(topOff[1])} visits`, severity: "info" });
+      obs.push({ icon: "↗️", text: `"${topOff[0]}" is the #1 off-funnel destination with ${fmtCount(topOff[1])} visits`, severity: "info" });
     }
 
     // Recommendations for pages with poor INP (usability)
     const poorInpPages = pageHealth.filter(p => p.inp > CWV.inp.poor);
     if (poorInpPages.length > 0) {
-      recs.push({ text: `${poorInpPages.length} page(s) have poor INP (>500ms) \u2014 poor interactivity may frustrate users and cause exits`, impact: "medium" });
+      recs.push({ text: `${poorInpPages.length} page(s) have poor INP (>500ms) — poor interactivity may frustrate users and cause exits`, impact: "medium" });
     }
 
     // Recommendation: optimize LCP on entry pages
@@ -6923,7 +6817,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     for (const en of entryNodes) {
       const cwv = cwvMap.get(en.label);
       if (cwv && cwv.lcp > CWV.lcp.good) {
-        recs.push({ text: `Entry page "${en.label}" has LCP ${Math.round(cwv.lcp)}ms \u2014 slow first impressions increase bounce rate`, impact: "high" });
+        recs.push({ text: `Entry page "${en.label}" has LCP ${Math.round(cwv.lcp)}ms — slow first impressions increase bounce rate`, impact: "high" });
         break;
       }
     }
@@ -7110,6 +7004,152 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     };
   }, [pathsData, prevPathsData]);
 
+  // ---- Exit node detection: nodes with outbound < 30% of their value ----
+  const exitNodeIds = useMemo(() => {
+    const outboundByNode = new Map<string, number>();
+    for (const l of links) {
+      outboundByNode.set(l.source, (outboundByNode.get(l.source) ?? 0) + l.value);
+    }
+    const exitIds = new Set<string>();
+    for (const n of nodes) {
+      const outbound = outboundByNode.get(n.id) ?? 0;
+      if (n.value > 0 && outbound < n.value * 0.3) {
+        exitIds.add(n.id);
+      }
+    }
+    return exitIds;
+  }, [nodes, links]);
+
+  // Also compute exit labels (for Directed/Alluvial/StateMachine which use label-based focus)
+  const exitLabels = useMemo(() => {
+    const labelOutbound = new Map<string, number>();
+    const labelValue = new Map<string, number>();
+    for (const l of links) {
+      const src = nodes.find(n => n.id === l.source);
+      if (src) labelOutbound.set(src.label, (labelOutbound.get(src.label) ?? 0) + l.value);
+    }
+    for (const n of nodes) {
+      labelValue.set(n.label, Math.max(labelValue.get(n.label) ?? 0, n.value));
+    }
+    const exitSet = new Set<string>();
+    for (const [label, value] of labelValue) {
+      const outbound = labelOutbound.get(label) ?? 0;
+      if (value > 0 && outbound < value * 0.3) {
+        exitSet.add(label);
+      }
+    }
+    return exitSet;
+  }, [nodes, links]);
+
+  if (isLoading) return <Loading />;
+
+  const totalSessions = records.reduce((a: number, r: any) => a + Number(r.sessions ?? r.d0 ?? 0), 0);
+  const uniquePages = new Set(nodes.map(n => n.label)).size;
+
+  const hasFocus = focusNodeId !== null;
+
+  // Focus info panel
+  const focusNode = hasFocus ? nodes.find(n => n.id === focusNodeId) : null;
+  const focusInbound = hasFocus ? links.filter(l => l.target === focusNodeId) : [];
+  const focusOutbound = hasFocus ? links.filter(l => l.source === focusNodeId) : [];
+  const focusSessions = focusNode?.value ?? 0;
+
+  // Label-based focus for alternate charts (aggregates across all nodes with same label)
+  const labelNodeIds = focusLabel ? nodes.filter(n => n.label === focusLabel).map(n => n.id) : [];
+  const labelInbound = focusLabel ? links.filter(l => labelNodeIds.includes(l.target)).reduce((acc, l) => {
+    const src = nodes.find(n => n.id === l.source)!;
+    const existing = acc.find(a => a.label === src.label);
+    if (existing) existing.value += l.value; else acc.push({ label: src.label, value: l.value });
+    return acc;
+  }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value) : [];
+  const labelOutbound = focusLabel ? links.filter(l => labelNodeIds.includes(l.source)).reduce((acc, l) => {
+    const tgt = nodes.find(n => n.id === l.target)!;
+    const existing = acc.find(a => a.label === tgt.label);
+    if (existing) existing.value += l.value; else acc.push({ label: tgt.label, value: l.value });
+    return acc;
+  }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value) : [];
+  const labelSessions = focusLabel ? nodes.filter(n => n.label === focusLabel).reduce((a, n) => Math.max(a, n.value), 0) : 0;
+
+  const hasLabelFocus = focusLabel !== null;
+
+  const handleLabelClick = (label: string) => {
+    setFocusLabel(prev => prev === label ? null : label);
+  };
+
+  // ---- Node tooltip builder (rich hover with top 3 inbound/outbound) ----
+  const buildNodeTooltip = (nodeId: string): string => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return "";
+    const inFunnel = isFunnelPage(node.label);
+    const isExit = exitNodeIds.has(nodeId);
+    const inbound = links.filter(l => l.target === nodeId).map(l => {
+      const src = nodes.find(n => n.id === l.source)!;
+      return { label: src.label, value: l.value };
+    }).sort((a, b) => b.value - a.value);
+    const outbound = links.filter(l => l.source === nodeId).map(l => {
+      const tgt = nodes.find(n => n.id === l.target)!;
+      return { label: tgt.label, value: l.value };
+    }).sort((a, b) => b.value - a.value);
+    const totalIn = inbound.reduce((s, x) => s + x.value, 0);
+    const totalOut = outbound.reduce((s, x) => s + x.value, 0);
+    const selfIn = inbound.find(x => x.label === node.label);
+    const selfReloadPct = selfIn && node.value > 0 ? (selfIn.value / node.value) * 100 : 0;
+    const lines: string[] = [`${node.label}: ${fmtCount(node.value)} sessions`];
+    if (isExit) lines[0] += " ⛔ Exit Point";
+    else if (inFunnel) lines[0] += " ★ Funnel";
+    if (selfReloadPct > 5) lines.push(`⟲ Self-reload: ${Math.round(selfReloadPct)}% (${fmtCount(selfIn!.value)})`);
+    if (inbound.length > 0) {
+      lines.push(`Inbound (${inbound.length}):`);
+      inbound.slice(0, 3).forEach(x => { const pct = totalIn > 0 ? (x.value / totalIn) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
+    }
+    if (outbound.length > 0) {
+      lines.push(`Outbound (${outbound.length}):`);
+      outbound.slice(0, 3).forEach(x => { const pct = totalOut > 0 ? (x.value / totalOut) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
+    }
+    const err = errorMap.get(node.label);
+    if (err && err.errorCount > 0) lines.push(`Errors: ${fmtCount(err.errorCount)} (${fmtCount(err.errorSessions)} sessions)`);
+    return lines.join("\n");
+  };
+
+  const buildLabelTooltip = (label: string): string => {
+    const matchNodes = nodes.filter(n => n.label === label);
+    const totalSessions = matchNodes.reduce((a, n) => Math.max(a, n.value), 0);
+    const nodeIds = matchNodes.map(n => n.id);
+    const inFunnel = isFunnelPage(label);
+    const isExit = exitLabels.has(label);
+    const inbound = links.filter(l => nodeIds.includes(l.target)).reduce((acc, l) => {
+      const src = nodes.find(n => n.id === l.source)!;
+      const existing = acc.find(a => a.label === src.label);
+      if (existing) existing.value += l.value; else acc.push({ label: src.label, value: l.value });
+      return acc;
+    }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value);
+    const outbound = links.filter(l => nodeIds.includes(l.source)).reduce((acc, l) => {
+      const tgt = nodes.find(n => n.id === l.target)!;
+      const existing = acc.find(a => a.label === tgt.label);
+      if (existing) existing.value += l.value; else acc.push({ label: tgt.label, value: l.value });
+      return acc;
+    }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value);
+    const totalIn = inbound.reduce((s, x) => s + x.value, 0);
+    const totalOut = outbound.reduce((s, x) => s + x.value, 0);
+    const selfIn = inbound.find(x => x.label === label);
+    const selfReloadPct = selfIn && totalSessions > 0 ? (selfIn.value / totalSessions) * 100 : 0;
+    const lines: string[] = [`${label}: ${fmtCount(totalSessions)} sessions`];
+    if (isExit) lines[0] += " ⛔ Exit Point";
+    else if (inFunnel) lines[0] += " ★ Funnel";
+    if (selfReloadPct > 5) lines.push(`⟲ Self-reload: ${Math.round(selfReloadPct)}% (${fmtCount(selfIn!.value)})`);
+    if (inbound.length > 0) {
+      lines.push(`Inbound (${inbound.length}):`);
+      inbound.slice(0, 3).forEach(x => { const pct = totalIn > 0 ? (x.value / totalIn) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
+    }
+    if (outbound.length > 0) {
+      lines.push(`Outbound (${outbound.length}):`);
+      outbound.slice(0, 3).forEach(x => { const pct = totalOut > 0 ? (x.value / totalOut) * 100 : 0; lines.push(`  ${Math.round(pct)}% (${fmtCount(x.value)})  ${x.label}`); });
+    }
+    const err = errorMap.get(label);
+    if (err && err.errorCount > 0) lines.push(`Errors: ${fmtCount(err.errorCount)} (${fmtCount(err.errorSessions)} sessions)`);
+    return lines.join("\n");
+  };
+
   const renderLabelPopup = () => {
     if (!focusLabel) return null;
     return (
@@ -7197,43 +7237,6 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   const scaleY = innerH / 500; // scale from layout space to SVG space
 
   const truncLabel = (s: string, max = 22) => s.length > max ? s.substring(0, max) + "\u2026" : s;
-
-  // ---- Exit node detection: nodes with outbound < 30% of their value ----
-  const exitNodeIds = useMemo(() => {
-    const outboundByNode = new Map<string, number>();
-    for (const l of links) {
-      outboundByNode.set(l.source, (outboundByNode.get(l.source) ?? 0) + l.value);
-    }
-    const exitIds = new Set<string>();
-    for (const n of nodes) {
-      const outbound = outboundByNode.get(n.id) ?? 0;
-      if (n.value > 0 && outbound < n.value * 0.3) {
-        exitIds.add(n.id);
-      }
-    }
-    return exitIds;
-  }, [nodes, links]);
-
-  // Also compute exit labels (for Directed/Alluvial/StateMachine which use label-based focus)
-  const exitLabels = useMemo(() => {
-    const labelOutbound = new Map<string, number>();
-    const labelValue = new Map<string, number>();
-    for (const l of links) {
-      const src = nodes.find(n => n.id === l.source);
-      if (src) labelOutbound.set(src.label, (labelOutbound.get(src.label) ?? 0) + l.value);
-    }
-    for (const n of nodes) {
-      labelValue.set(n.label, Math.max(labelValue.get(n.label) ?? 0, n.value));
-    }
-    const exitSet = new Set<string>();
-    for (const [label, value] of labelValue) {
-      const outbound = labelOutbound.get(label) ?? 0;
-      if (value > 0 && outbound < value * 0.3) {
-        exitSet.add(label);
-      }
-    }
-    return exitSet;
-  }, [nodes, links]);
 
   // ---- Chart style selector + KPI header (shared across all styles) ----
   const chartHeader = (
