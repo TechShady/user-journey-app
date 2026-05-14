@@ -3,7 +3,7 @@
   "environmentUrl": "https://mqv31449.apps.dynatrace.com",
   "app": {
     "name": "User Journey & Experience",
-    "version": "4.47.57",
+    "version": "4.47.58",
     "description": "User Journey & Experience — frontend observability suite",
     "id": "my.user.journey.app",
     "scopes": [

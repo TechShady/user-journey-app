@@ -319,7 +319,7 @@ function Delta({ current, previous, inverted = false, suffix = "" }: { current: 
 // ---------------------------------------------------------------------------
 // DQL Queries
 // ---------------------------------------------------------------------------
-function sessionFlowQuery(days: number, frontend: string, steps: StepDef[], prev = false): string {
+function sessionFlowQuery(days: number, frontend: string, steps: StepDef[], prev = false, nonce = 0): string {
   const period = periodClause(days, prev);
   const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
   const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
@@ -327,7 +327,8 @@ function sessionFlowQuery(days: number, frontend: string, steps: StepDef[], prev
     const conds = Array.from({ length: i + 1 }, (__, j) => `reached_step${j + 1} == true`).join(" and ");
     return `    at_step${i + 1} = countIf(${conds})`;
   }).join(",\n");
-  return `fetch user.events, ${period}
+  return `// ${nonce}
+fetch user.events, ${period}
 | filter frontend.name == "${frontend}"
 | filter ${anyStepFilter(steps)}
 | fieldsAdd step_tag = ${tagExpr}
@@ -339,10 +340,11 @@ ${iAnyLines}
 ${countLines}`;
 }
 
-function stepMetricsQuery(days: number, frontend: string, steps: StepDef[]): string {
+function stepMetricsQuery(days: number, frontend: string, steps: StepDef[], nonce = 0): string {
   const period = periodClause(days);
   const tagExpr = stepTagExpr(steps, steps.map((s) => s.label));
-  return `fetch user.events, ${period}
+  return `// ${nonce}
+fetch user.events, ${period}
 | filter frontend.name == "${frontend}"
 | filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
@@ -366,10 +368,11 @@ function stepMetricsQuery(days: number, frontend: string, steps: StepDef[]): str
 }
 
 /** Per-page metrics — breaks down each page (view.name) individually for multi-page steps */
-function pageMetricsQuery(days: number, frontend: string, steps: StepDef[]): string {
+function pageMetricsQuery(days: number, frontend: string, steps: StepDef[], nonce = 0): string {
   const period = periodClause(days);
   const field = steps[0]?.type === "view" ? "view.name" : "url.path";
-  return `fetch user.events, ${period}
+  return `// ${nonce}
+fetch user.events, ${period}
 | filter frontend.name == "${frontend}"
 | filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
@@ -481,9 +484,10 @@ function errorQuery(days: number, frontend: string, steps: StepDef[]): string {
 | sort error_count desc`;
 }
 
-function sessionQualityQuery(days: number, frontend: string, steps: StepDef[], prev = false): string {
+function sessionQualityQuery(days: number, frontend: string, steps: StepDef[], prev = false, nonce = 0): string {
   const period = periodClause(days, prev);
-  return `fetch user.events, ${period}
+  return `// ${nonce}
+fetch user.events, ${period}
 | filter frontend.name == "${frontend}"
 | filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
@@ -497,6 +501,33 @@ function sessionQualityQuery(days: number, frontend: string, steps: StepDef[], p
     satisfied = countIf(dur_ms <= ${APDEX_T}.0),
     tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
     frustrated = countIf(dur_ms > ${APDEX_4T}.0)`;
+}
+
+// Hourly funnel conversion for today — used by predictive EOD model
+function todayFunnelHourlyQuery(frontend: string, steps: StepDef[], nonce = 0): string {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const convertedConds = steps.map((_, i) => `reached_step${i + 1} == true`).join(" and ");
+  return `// ${nonce}
+fetch user.events, from: "${todayStart}", to: now()
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd hour = getHour(start_time)
+| summarize
+    steps = collectDistinct(step_tag),
+    by: {dt.rum.session.id, hour}
+| fieldsAdd
+${iAnyLines}
+| fieldsAdd converted = if(${convertedConds}, true, else: false)
+| summarize
+    total_sessions = count(),
+    converted_sessions = countIf(converted == true),
+    by: {hour}
+| fieldsAdd conv_rate = if(total_sessions > 0, toDouble(converted_sessions) / toDouble(total_sessions) * 100.0, else: 0.0)
+| sort hour asc`;
 }
 
 // NEW: Worst Sessions query
@@ -1909,6 +1940,15 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 14, 2026</Paragraph>
+            <Paragraph><Strong>Funnel Overview — Real-Time Refresh &amp; Predictive EOD Model</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Auto-refresh</Strong>: Live funnel data reloads at 30 s, 1 min, or 5 min intervals — no page reload. A <Strong>Refresh</Strong> button triggers an immediate manual fetch. "Updated HH:MM:SS" timestamp shows when data was last pulled.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Predictive Funnel Model</Strong>: Fits a linear regression to today's hourly conversion rates (from midnight to now) and projects where today's overall conversion rate will land by 23:59. Shown only when ≥2 hourly data points are available.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Model card shows: <Strong>Projected EOD conv rate</Strong>, <Strong>Hourly velocity</Strong> (slope in %/hour, color-coded rising/stable/declining), <Strong>Hours remaining</Strong>, and a <Strong>sparkline</Strong> with actual data (solid) and projected trend (dashed) overlaid.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Confidence % reflects how many of today's hours have data vs. hours elapsed — lower early in the day, higher by evening.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Refresh nonce embedded as a DQL comment forces all five funnel queries (current, previous, step metrics, page metrics, quality) to re-execute on each tick — guaranteed cache-bust without page reload.</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 13, 2026</Paragraph>
             <Paragraph><Strong>Settings — App &amp; Page Dropdowns</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Frontend Application</Strong> is now a searchable dropdown populated from apps with data in the last 30 days — no more manual typing</Paragraph>
@@ -1990,7 +2030,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph style={{ fontSize: 13, opacity: 0.6, marginTop: 8 }}>Steps are configurable via Settings (⚙). Min {MIN_STEPS}, max {MAX_STEPS} steps. Each step supports <Strong>multiple pages</Strong> (OR logic) and <Strong>wildcards</Strong>: <code>/home*</code> (starts with), <code>*home</code> (ends with), <code>*home*</code> (contains). Logic: (Step1a OR Step1b) AND Step2 AND (Step3a OR Step3b) AND Step4.</Paragraph>
       </HelpSection>
       <HelpSection title="Tabs">
-        <Paragraph><Strong>Funnel Overview</Strong>: KPIs, conversion funnel visualization, per-step Apdex, and step analysis table. 5 chart styles: <Strong>Classic</Strong> (tapered SVG), <Strong>Horizontal Bar</Strong> (waterfall with drop-off extensions), <Strong>Stacked Cohort</Strong> (Marimekko columns split into converted/dropped), <Strong>Elapsed-Time Curve</Strong> (survival curve plotting user retention vs. cumulative response time), and <Strong>Comparison Split</Strong> (mirror funnel showing current vs. previous period side-by-side with delta indicators). Toggle <Strong>Compare</Strong> on Classic to overlay the previous period as dashed outlines. Default style configurable via Settings.</Paragraph>
+        <Paragraph><Strong>Funnel Overview</Strong>: KPIs, conversion funnel visualization, per-step Apdex, and step analysis table. 5 chart styles: <Strong>Classic</Strong> (tapered SVG), <Strong>Horizontal Bar</Strong> (waterfall with drop-off extensions), <Strong>Stacked Cohort</Strong> (Marimekko columns split into converted/dropped), <Strong>Elapsed-Time Curve</Strong> (survival curve plotting user retention vs. cumulative response time), and <Strong>Comparison Split</Strong> (mirror funnel showing current vs. previous period side-by-side with delta indicators). Toggle <Strong>Compare</Strong> on Classic to overlay the previous period as dashed outlines. Default style configurable via Settings. <Strong>Auto-refresh</Strong> control (30 s / 1 min / 5 min / Off) in the toolbar keeps funnel data live without a page reload — a manual Refresh button triggers an immediate fetch. <Strong>Predictive Funnel Model</Strong> panel (appears once ≥2 hourly data points exist for today) fits a linear regression to this-morning's conversion rate and projects the end-of-day rate, hourly velocity, and hours remaining on a sparkline with a dashed projection line.</Paragraph>
         <Paragraph><Strong>Trends</Strong>: Period-over-period comparison of all key metrics. Shows current vs. previous period with delta arrows — green for improvement, red for regression. Inverted logic for duration/errors (lower = better). When AOV is set, adds a Revenue trend card showing current vs. previous period estimated revenue.</Paragraph>
         <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), page-level CWV breakdown, and performance health score.</Paragraph>
         <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99). For steps with multiple pages, a <Strong>Compare Pages</Strong> button reveals per-page metrics with the first page as the primary baseline — delta indicators show how each additional page performs relative to it.</Paragraph>
@@ -2061,6 +2101,8 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• Funnel Velocity (Sankey sub-tab) identifies the slowest step transitions — if P90 is much higher than median, a subset of users is struggling disproportionately.</Paragraph>
         <Paragraph>• Set Average Order Value in Settings to unlock revenue projections in What-If Analysis and Revenue Intelligence tabs.</Paragraph>
         <Paragraph>• Click <Strong>AI Insights</Strong> (✦) in the header bar to get instant, data-driven analysis for whichever tab you're viewing — Summary, Insights, and Recommendations powered by industry benchmarks.</Paragraph>
+        <Paragraph>• Use <Strong>Auto-refresh</Strong> in Funnel Overview to monitor live conversion rates during campaigns or deployments — set 30 s for real-time watching, 5 min for background monitoring.</Paragraph>
+        <Paragraph>• The <Strong>Predictive Funnel Model</Strong> is most reliable after 6+ hours of today's data. Early-morning projections have wide confidence intervals — check again at midday for a stable EOD forecast.</Paragraph>
       </HelpSection>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16, marginTop: 8 }}>
         <Paragraph><span style={{ color: "rgba(128,128,128,0.8)" }}>Source code &amp; issue tracker: </span><Link href="https://github.com/TechShady/user-journey-app" target="_blank" rel="noopener noreferrer">github.com/TechShady/user-journey-app</Link></Paragraph>
@@ -2088,6 +2130,20 @@ export function UserJourney() {
   const { frontend, steps, saveFrontend, saveSteps, aov, saveAov } = useSettings();
   const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
   const [funnelStyle, setFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
+
+  // Auto-refresh for Funnel Overview
+  const [autoRefreshSecs, setAutoRefreshSecs] = useState<0 | 30 | 60 | 300>(0);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    if (!autoRefreshSecs) return;
+    const id = setInterval(() => {
+      setRefreshNonce(n => n + 1);
+      setLastRefreshed(new Date());
+    }, autoRefreshSecs * 1000);
+    return () => clearInterval(id);
+  }, [autoRefreshSecs]);
 
   // Persist tab visibility per user
   const savedState = useUserAppState({ key: TAB_STATE_KEY });
@@ -2190,21 +2246,24 @@ export function UserJourney() {
   // shifted window and re-key useDql to refetch.
   setQueryAnchorMs(timeframeAnchor);
   setCurrentTimeframeDays(timeframeDays);
-  const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps) });
-  const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps) });
+  const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, false, refreshNonce) });
+  const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps, refreshNonce) });
   const hasMultiPageSteps = steps.some(s => s.identifiers.length > 1);
-  const pageMetrics = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" });
+  const pageMetrics = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps, refreshNonce) : "fetch user.events | limit 0" });
   const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend) });
   const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays, frontend) });
   const deviceData = useDql({ query: deviceQuery(timeframeDays, frontend, steps) });
   const browserData = useDql({ query: browserQuery(timeframeDays, frontend, steps) });
   const geoData = useDql({ query: geoQuery(timeframeDays, frontend, steps) });
   const errorData = useDql({ query: errorQuery(timeframeDays, frontend, steps) });
-  const qualityData = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps) });
+  const qualityData = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, false, refreshNonce) });
 
   // Previous period queries (for Trends + Funnel Compare)
-  const funnelResultPrev = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, true) });
-  const qualityDataPrev = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, true) });
+  const funnelResultPrev = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, true, refreshNonce) });
+  const qualityDataPrev = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, true, refreshNonce) });
+
+  // Today's hourly funnel data for predictive EOD model
+  const todayFunnelData = useDql({ query: todayFunnelHourlyQuery(frontend, steps, refreshNonce) });
 
   // NEW: Worst Sessions + Exceptions
   const worstSessionsData = useDql({ query: worstSessionsQuery(timeframeDays, frontend, steps) });
@@ -2368,7 +2427,7 @@ export function UserJourney() {
           <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.51</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.58</Text>
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -2550,7 +2609,7 @@ export function UserJourney() {
         {tabOrder.filter(t => isTabVisible(t)).map(tabId => {
           let content: React.ReactNode = null;
           switch (tabId) {
-            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} pageMap={pageMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} />; break;
+            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} pageMap={pageMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} autoRefreshSecs={autoRefreshSecs} setAutoRefreshSecs={setAutoRefreshSecs} lastRefreshed={lastRefreshed} onManualRefresh={() => { setRefreshNonce(n => n + 1); setLastRefreshed(new Date()); }} todayHourlyData={todayFunnelData} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} pageMap={pageMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
@@ -3301,7 +3360,7 @@ function analyzeErrorClustering(clusters: any[], totalErrors: number): AIInsight
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
-function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, pageMap, quality, compareMode, setCompareMode, isLoading, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void }) {
+function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, pageMap, quality, compareMode, setCompareMode, isLoading, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, autoRefreshSecs, setAutoRefreshSecs, lastRefreshed, onManualRefresh, todayHourlyData }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; autoRefreshSecs: 0 | 30 | 60 | 300; setAutoRefreshSecs: (v: 0 | 30 | 60 | 300) => void; lastRefreshed: Date | null; onManualRefresh: () => void; todayHourlyData: any; }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap]));
 
   if (isLoading) return <Loading />;
@@ -3323,9 +3382,53 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
   const prevFunnelSteps = compareMode ? makeFunnelSteps(funnelCountsPrev) : undefined;
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
 
+  // Predictive EOD model — linear regression on today's hourly conv rates
+  const todayRecords = (todayHourlyData?.data?.records ?? []) as any[];
+  const hourlyPoints = todayRecords
+    .map((r: any) => ({ hour: Number(r.hour ?? 0), rate: Number(r.conv_rate ?? 0), sessions: Number(r.total_sessions ?? 0) }))
+    .sort((a, b) => a.hour - b.hour)
+    .filter(p => p.sessions > 0);
+  const predN = hourlyPoints.length;
+  let projectedEod = overallConv;
+  let velocitySlope = 0;
+  let predConfidence = 0;
+  if (predN >= 2) {
+    const sumX = hourlyPoints.reduce((a, p) => a + p.hour, 0);
+    const sumY = hourlyPoints.reduce((a, p) => a + p.rate, 0);
+    const sumXY = hourlyPoints.reduce((a, p) => a + p.hour * p.rate, 0);
+    const sumXX = hourlyPoints.reduce((a, p) => a + p.hour * p.hour, 0);
+    const denom = predN * sumXX - sumX * sumX;
+    velocitySlope = denom !== 0 ? (predN * sumXY - sumX * sumY) / denom : 0;
+    const intercept = (sumY - velocitySlope * sumX) / predN;
+    projectedEod = Math.max(0, Math.min(100, velocitySlope * 23 + intercept));
+    predConfidence = Math.min(95, Math.round((predN / Math.max(1, new Date().getHours() + 1)) * 100));
+  }
+  const currentHour = new Date().getHours();
+  const velocityDir = velocitySlope > 0.05 ? "rising" : velocitySlope < -0.05 ? "declining" : "stable";
+  const velocityClr = velocitySlope > 0.05 ? GREEN : velocitySlope < -0.05 ? RED : YELLOW;
+
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
+      {/* Refresh controls */}
+      <Flex alignItems="center" gap={12} style={{ padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.07)" }}>
+        <Text style={{ fontSize: 13, opacity: 0.5, whiteSpace: "nowrap" }}>Auto-refresh</Text>
+        <Select value={String(autoRefreshSecs)} onChange={(v) => { if (v !== null) setAutoRefreshSecs(Number(v) as 0 | 30 | 60 | 300); }}>
+          <Select.Trigger style={{ minWidth: 90 }} />
+          <Select.Content>
+            <Select.Option value="0">Off</Select.Option>
+            <Select.Option value="30">30 s</Select.Option>
+            <Select.Option value="60">1 min</Select.Option>
+            <Select.Option value="300">5 min</Select.Option>
+          </Select.Content>
+        </Select>
+        <button onClick={onManualRefresh} className="uj-compare-toggle" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M11 6.5A4.5 4.5 0 1 1 6.5 2c1.2 0 2.3.47 3.1 1.24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M9 1v3h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          Refresh
+        </button>
+        {isLoading && <Text style={{ fontSize: 12, opacity: 0.4 }}>Refreshing...</Text>}
+        {lastRefreshed && !isLoading && <Text style={{ fontSize: 12, opacity: 0.35 }}>Updated {lastRefreshed.toLocaleTimeString()}</Text>}
+      </Flex>
       {/* KPI row */}
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-kpi-card">
@@ -3379,6 +3482,69 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           </div>
         </Flex>
       </div>
+
+      {/* Predictive Funnel Model */}
+      {predN >= 2 && (() => {
+        const W = 300, H = 80, padL = 28, padT = 8, padB = 22, padR = 16;
+        const plotW = W - padL - padR;
+        const plotH = H - padT - padB;
+        const allRates = hourlyPoints.map(p => p.rate);
+        const rateMin = Math.max(0, Math.min(...allRates, projectedEod) - 3);
+        const rateMax = Math.min(100, Math.max(...allRates, projectedEod) + 3);
+        const rateRange = rateMax - rateMin || 1;
+        const xS = (h: number) => padL + (h / 23) * plotW;
+        const yS = (r: number) => padT + plotH - ((r - rateMin) / rateRange) * plotH;
+        const actualLine = hourlyPoints.map((p, i) => `${i === 0 ? "M" : "L"}${xS(p.hour).toFixed(1)},${yS(p.rate).toFixed(1)}`).join(" ");
+        const last = hourlyPoints[hourlyPoints.length - 1];
+        const projLine = `M${xS(last.hour).toFixed(1)},${yS(last.rate).toFixed(1)} L${xS(23).toFixed(1)},${yS(projectedEod).toFixed(1)}`;
+        const areaD = `${actualLine} L${xS(last.hour).toFixed(1)},${yS(rateMin).toFixed(1)} L${xS(hourlyPoints[0].hour).toFixed(1)},${yS(rateMin).toFixed(1)} Z`;
+        return (
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 12 }}>
+              <Flex alignItems="center" gap={8}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke={BLUE} strokeWidth="1.2"/><path d="M4 10l2.5-3 2 2 3-4" stroke={BLUE} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <Strong style={{ fontSize: 14 }}>Predictive Funnel Model</Strong>
+                <Text style={{ fontSize: 12, opacity: 0.45 }}>Today's conversion trajectory to EOD</Text>
+              </Flex>
+              <Text style={{ fontSize: 12, opacity: 0.35 }}>{predConfidence}% confidence · {predN} data point{predN !== 1 ? "s" : ""}</Text>
+            </Flex>
+            <Flex gap={20} alignItems="flex-start" flexWrap="wrap">
+              <div className="uj-kpi-card" style={{ minWidth: 120 }}>
+                <Text className="uj-kpi-label">Projected EOD</Text>
+                <Heading level={3} className="uj-kpi-value" style={{ color: statusClr(projectedEod) }}>{fmtPct(projectedEod)}</Heading>
+                <Text style={{ fontSize: 12, opacity: 0.45 }}>conv rate at 23:59</Text>
+              </div>
+              <div className="uj-kpi-card" style={{ minWidth: 120 }}>
+                <Text className="uj-kpi-label">Hourly Velocity</Text>
+                <Heading level={3} className="uj-kpi-value" style={{ color: velocityClr }}>{velocitySlope >= 0 ? "+" : ""}{velocitySlope.toFixed(2)}%/h</Heading>
+                <Text style={{ fontSize: 12, color: velocityClr }}>{velocityDir}</Text>
+              </div>
+              <div className="uj-kpi-card" style={{ minWidth: 120 }}>
+                <Text className="uj-kpi-label">Hours Remaining</Text>
+                <Heading level={3} className="uj-kpi-value" style={{ color: BLUE }}>{23 - currentHour}h</Heading>
+                <Text style={{ fontSize: 12, opacity: 0.45 }}>until end of day</Text>
+              </div>
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <Text style={{ fontSize: 11, opacity: 0.4, marginBottom: 4, display: "block" }}>Hourly conv rate · actual (solid) vs projected (dashed)</Text>
+                <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+                  <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="rgba(255,255,255,0.07)" strokeWidth={1} />
+                  <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="rgba(255,255,255,0.07)" strokeWidth={1} />
+                  <line x1={xS(currentHour)} y1={padT} x2={xS(currentHour)} y2={padT + plotH} stroke="rgba(255,255,255,0.12)" strokeWidth={1} strokeDasharray="3 2" />
+                  <text x={xS(currentHour)} y={padT - 2} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={7}>now</text>
+                  <path d={areaD} fill={BLUE} fillOpacity={0.08} />
+                  <path d={actualLine} fill="none" stroke={BLUE} strokeWidth={2} strokeLinejoin="round" />
+                  <path d={projLine} fill="none" stroke={velocityClr} strokeWidth={1.5} strokeDasharray="5 3" />
+                  <circle cx={xS(23)} cy={yS(projectedEod)} r={4} fill={velocityClr} stroke="rgba(0,0,0,0.5)" strokeWidth={1.2}><title>Projected EOD: {fmtPct(projectedEod)}</title></circle>
+                  {hourlyPoints.map(p => <circle key={p.hour} cx={xS(p.hour)} cy={yS(p.rate)} r={2.5} fill={BLUE}><title>Hour {p.hour}:00 — {fmtPct(p.rate)} ({fmtCount(p.sessions)} sessions)</title></circle>)}
+                  {[0, 6, 12, 18, 23].map(h => <text key={h} x={xS(h)} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={7}>{h}:00</text>)}
+                  <text x={padL - 4} y={padT + 4} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>{rateMax.toFixed(0)}%</text>
+                  <text x={padL - 4} y={padT + plotH} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>{rateMin.toFixed(0)}%</text>
+                </svg>
+              </div>
+            </Flex>
+          </div>
+        );
+      })()}
 
       {/* Funnel with compare toggle + style selector */}
       <Flex alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={12}>
