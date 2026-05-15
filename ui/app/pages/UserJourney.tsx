@@ -2462,7 +2462,7 @@ export function UserJourney() {
           <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.70</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.71</Text>
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -3819,16 +3819,18 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
   sparkSeries['revenue']  = convSparkRows.map((r: any) => r.converted_sessions * aov);
 
   // Z-score anomaly: is the current period value unusual vs the daily series?
-  function anomalySignal(series: number[], current: number, inverted: boolean): "anomaly" | "notable" | "normal" | null {
+  function anomalySignal(series: number[], current: number, inverted: boolean): { level: "anomaly" | "notable" | "normal"; good: boolean } | null {
     if (series.length < 3) return null;
     const mean = series.reduce((a: number, b: number) => a + b, 0) / series.length;
     const variance = series.reduce((a: number, b: number) => a + (b - mean) ** 2, 0) / series.length;
     const std = Math.sqrt(variance);
-    if (std < 0.001 * (Math.abs(mean) || 1)) return "normal";
+    if (std < 0.001 * (Math.abs(mean) || 1)) return { level: "normal", good: true };
     const z = Math.abs(current - mean) / std;
-    if (z >= 2) return "anomaly";
-    if (z >= 1.2) return "notable";
-    return "normal";
+    // good = anomaly is in the desirable direction (up for normal metrics, down for inverted ones)
+    const good = inverted ? current < mean : current > mean;
+    if (z >= 2) return { level: "anomaly", good };
+    if (z >= 1.2) return { level: "notable", good };
+    return { level: "normal", good: true };
   }
 
   const trends = [
@@ -3873,9 +3875,11 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
               {/* Label + anomaly badge */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                 <span style={{ fontSize: 11, opacity: 0.5, textTransform: "uppercase" as const, letterSpacing: 0.5 }}>{t.label}</span>
-                {anomaly === "anomaly" && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(194,25,48,0.15)", color: RED, border: "1px solid rgba(194,25,48,0.25)", whiteSpace: "nowrap" as const }}>⚠ Anomaly</span>}
-                {anomaly === "notable" && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(255,167,0,0.10)", color: YELLOW, border: "1px solid rgba(255,167,0,0.25)", whiteSpace: "nowrap" as const }}>↑ Notable</span>}
-                {anomaly === "normal"  && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(128,128,128,0.08)", color: "rgba(128,128,128,0.45)", border: "1px solid rgba(128,128,128,0.15)", whiteSpace: "nowrap" as const }}>∿ Normal</span>}
+                {anomaly?.level === "anomaly" && !anomaly.good && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(194,25,48,0.15)", color: RED, border: "1px solid rgba(194,25,48,0.25)", whiteSpace: "nowrap" as const }}>⚠ Anomaly</span>}
+                {anomaly?.level === "anomaly" &&  anomaly.good && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(35,134,54,0.15)", color: GREEN, border: "1px solid rgba(35,134,54,0.3)", whiteSpace: "nowrap" as const }}>↑ Spike</span>}
+                {anomaly?.level === "notable" && !anomaly.good && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(255,167,0,0.10)", color: YELLOW, border: "1px solid rgba(255,167,0,0.25)", whiteSpace: "nowrap" as const }}>↓ Notable</span>}
+                {anomaly?.level === "notable" &&  anomaly.good && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(35,134,54,0.10)", color: GREEN, border: "1px solid rgba(35,134,54,0.2)", whiteSpace: "nowrap" as const }}>↑ Notable</span>}
+                {anomaly?.level === "normal"  && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(128,128,128,0.08)", color: "rgba(128,128,128,0.45)", border: "1px solid rgba(128,128,128,0.15)", whiteSpace: "nowrap" as const }}>∿ Normal</span>}
               </div>
               {/* Current value */}
               <Heading level={3} style={{ margin: "2px 0 6px", color }}>{t.format(t.current)}</Heading>
