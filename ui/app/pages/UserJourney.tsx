@@ -2526,7 +2526,7 @@ export function UserJourney() {
           <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.76</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.77</Text>
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -9612,17 +9612,17 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
       <SectionHeader title="Metric Forecasts" />
       <Flex gap={12} flexWrap="wrap">
         {budgets.map((b) => (
-          <div key={b.metric} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(b.severity), minWidth: 320, flex: 1 }}>
+          <div key={b.metric} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(b.severity), minWidth: 420, flex: 1 }}>
             <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
               <Strong style={{ fontSize: 14 }}>{b.metric}</Strong>
               <span style={{ fontSize: 12, padding: "2px 10px", borderRadius: 4, background: `${severityColor(b.severity)}18`, color: severityColor(b.severity), fontWeight: 700, textTransform: "uppercase" as const }}>{severityLabel(b.severity)}</span>
             </Flex>
-            <Flex gap={20} style={{ marginBottom: 8 }}>
-              <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 32, color: b.color }}>{b.format(b.current)}</Strong></div>
-              <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Projected +7d</Text><Strong style={{ display: "block", fontSize: 32, color: b.projectedGood ? GREEN : RED }}>{b.format(b.projected7d)}</Strong></div>
-              <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Budget</Text><Strong style={{ display: "block", fontSize: 32, opacity: 0.6 }}>{b.direction === "above" ? "≥" : "≤"} {b.format(b.threshold)}</Strong></div>
-              <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 28, color: b.isStable ? BLUE : b.improving ? GREEN : RED }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.format(Math.abs(b.effectiveRate))}/day`}</Strong></div>
-            </Flex>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 8 }}>
+              <div><Text style={{ fontSize: 11, opacity: 0.5, whiteSpace: "nowrap" }}>Current</Text><Strong style={{ display: "block", fontSize: 18, color: b.color }}>{b.format(b.current)}</Strong></div>
+              <div><Text style={{ fontSize: 11, opacity: 0.5, whiteSpace: "nowrap" }}>Projected +7d</Text><Strong style={{ display: "block", fontSize: 18, color: b.projectedGood ? GREEN : RED }}>{b.format(b.projected7d)}</Strong></div>
+              <div><Text style={{ fontSize: 11, opacity: 0.5, whiteSpace: "nowrap" }}>Budget</Text><Strong style={{ display: "block", fontSize: 18, opacity: 0.6 }}>{b.direction === "above" ? "≥" : "≤"} {b.format(b.threshold)}</Strong></div>
+              <div><Text style={{ fontSize: 11, opacity: 0.5, whiteSpace: "nowrap" }}>Daily Δ</Text><Strong style={{ display: "block", fontSize: 16, color: b.isStable ? BLUE : b.improving ? GREEN : RED, whiteSpace: "nowrap" }}>{b.isStable ? "● Stable" : `${b.improving ? "▲" : "▼"} ${b.format(Math.abs(b.effectiveRate))}/day`}</Strong></div>
+            </div>
             {b.daysToBreach != null && (
               <div style={{ padding: "6px 12px", background: `${severityColor(b.severity)}10`, borderRadius: 6, marginBottom: 6 }}>
                 <Strong style={{ color: severityColor(b.severity), fontSize: 12 }}>
