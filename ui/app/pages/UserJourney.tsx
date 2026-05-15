@@ -2412,7 +2412,7 @@ export function UserJourney() {
           <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.63</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.64</Text>
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -3547,38 +3547,53 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
               </Flex>
               <Text style={{ fontSize: 12, opacity: 0.35 }}>{predConfidence}% confidence · {predN} data point{predN !== 1 ? "s" : ""}</Text>
             </Flex>
-            <Flex gap={16} style={{ marginBottom: 16 }}>
-              <div className="uj-kpi-card" style={{ flex: 1 }}>
+            <div style={{ display: "flex", gap: 20, width: "100%", marginBottom: 20 }}>
+              <div className="uj-kpi-card" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
                 <Text className="uj-kpi-label">Projected EOD</Text>
                 <Heading level={3} className="uj-kpi-value" style={{ color: statusClr(projectedEod) }}>{fmtPct(projectedEod)}</Heading>
                 <Text style={{ fontSize: 12, opacity: 0.45 }}>conv rate at 23:59</Text>
               </div>
-              <div className="uj-kpi-card" style={{ flex: 1 }}>
+              <div className="uj-kpi-card" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
                 <Text className="uj-kpi-label">Velocity</Text>
                 <Heading level={3} className="uj-kpi-value" style={{ color: velocityClr }}>{velocitySlope >= 0 ? "+" : ""}{velocitySlope.toFixed(2)}%/h</Heading>
                 <Text style={{ fontSize: 12, color: velocityClr }}>{velocityDir}</Text>
               </div>
-              <div className="uj-kpi-card" style={{ flex: 1 }}>
+              <div className="uj-kpi-card" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
                 <Text className="uj-kpi-label">Hours Remaining</Text>
                 <Heading level={3} className="uj-kpi-value" style={{ color: BLUE }}>{23 - currentHour}h</Heading>
                 <Text style={{ fontSize: 12, opacity: 0.45 }}>until end of day</Text>
               </div>
-            </Flex>
+            </div>
             <div style={{ width: "100%" }}>
               <Text style={{ fontSize: 11, opacity: 0.4, marginBottom: 4, display: "block" }}>15-min conv rate · actual (solid, smoothed) vs projected (dashed)</Text>
               <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
-                <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="rgba(255,255,255,0.07)" strokeWidth={1} />
-                <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="rgba(255,255,255,0.07)" strokeWidth={1} />
-                <line x1={xS(currentMin)} y1={padT} x2={xS(currentMin)} y2={padT + plotH} stroke="rgba(255,255,255,0.12)" strokeWidth={1} strokeDasharray="3 2" />
-                <text x={xS(currentMin)} y={padT - 2} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={7}>now</text>
-                <path d={areaD} fill={BLUE} fillOpacity={0.08} />
-                <path d={actualLine} fill="none" stroke={BLUE} strokeWidth={2} strokeLinejoin="round" />
-                <path d={projLine} fill="none" stroke={velocityClr} strokeWidth={1.5} strokeDasharray="5 3" />
-                <circle cx={xS(1425)} cy={yS(projectedEod)} r={4} fill={velocityClr} stroke="rgba(0,0,0,0.5)" strokeWidth={1.2}><title>Projected EOD: {fmtPct(projectedEod)}</title></circle>
-                {hourlyPoints.map((p, i) => <circle key={p.min} cx={xS(p.min)} cy={yS(smoothed[i])} r={1.5} fill={BLUE} fillOpacity={0.7}><title>{String(Math.floor(p.min/60)).padStart(2,"0")}:{String(p.min%60).padStart(2,"0")} — {fmtPct(p.rate)} ({fmtCount(p.sessions)} sessions)</title></circle>)}
-                {[0, 360, 720, 1080, 1380].map(m => <text key={m} x={xS(m)} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={7}>{Math.floor(m/60)}:00</text>)}
-                <text x={padL - 4} y={padT + 4} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>{rateMax.toFixed(0)}%</text>
-                <text x={padL - 4} y={padT + plotH} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>{rateMin.toFixed(0)}%</text>
+                {/* Horizontal grid lines at 25% intervals */}
+                {[0, 0.25, 0.5, 0.75, 1].map(t => {
+                  const gy = padT + plotH * t;
+                  const gVal = rateMax - (rateMax - rateMin) * t;
+                  return (
+                    <g key={t}>
+                      <line x1={padL} y1={gy} x2={padL + plotW} y2={gy} stroke="rgba(255,255,255,0.05)" strokeWidth={1} />
+                      <text x={padL - 6} y={gy + 3} textAnchor="end" fill="rgba(255,255,255,0.22)" fontSize={7}>{gVal.toFixed(0)}%</text>
+                    </g>
+                  );
+                })}
+                {/* Vertical axis border */}
+                <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="rgba(255,255,255,0.1)" strokeWidth={1} />
+                <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="rgba(255,255,255,0.1)" strokeWidth={1} />
+                {/* "now" marker */}
+                <line x1={xS(currentMin)} y1={padT} x2={xS(currentMin)} y2={padT + plotH} stroke="rgba(255,255,255,0.15)" strokeWidth={1} strokeDasharray="3 3" />
+                <text x={xS(currentMin)} y={padT - 3} textAnchor="middle" fill="rgba(255,255,255,0.35)" fontSize={7} fontWeight="500">now</text>
+                {/* Area fill */}
+                <path d={areaD} fill={BLUE} fillOpacity={0.07} />
+                {/* Actual line — thinner, clean */}
+                <path d={actualLine} fill="none" stroke={BLUE} strokeWidth={1.4} strokeLinejoin="round" strokeLinecap="round" strokeOpacity={0.9} />
+                {/* Projected dashed line */}
+                <path d={projLine} fill="none" stroke={velocityClr} strokeWidth={1.3} strokeDasharray="5 4" strokeOpacity={0.85} />
+                {/* EOD target dot */}
+                <circle cx={xS(1425)} cy={yS(projectedEod)} r={4} fill={velocityClr} stroke="rgba(0,0,0,0.6)" strokeWidth={1.2}><title>Projected EOD: {fmtPct(projectedEod)}</title></circle>
+                {/* Time labels */}
+                {[0, 360, 720, 1080, 1380].map(m => <text key={m} x={xS(m)} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.28)" fontSize={7}>{Math.floor(m/60)}:00</text>)}
               </svg>
             </div>
           </div>
