@@ -2462,7 +2462,7 @@ export function UserJourney() {
           <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.71</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.72</Text>
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -3825,9 +3825,9 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
     const variance = series.reduce((a: number, b: number) => a + (b - mean) ** 2, 0) / series.length;
     const std = Math.sqrt(variance);
     if (std < 0.001 * (Math.abs(mean) || 1)) return { level: "normal", good: true };
-    const z = Math.abs(current - mean) / std;
-    // good = anomaly is in the desirable direction (up for normal metrics, down for inverted ones)
-    const good = inverted ? current < mean : current > mean;
+    const lastVal = series[series.length - 1];
+    const z = Math.abs(lastVal - mean) / std;
+    const good = inverted ? lastVal < mean : lastVal > mean;
     if (z >= 2) return { level: "anomaly", good };
     if (z >= 1.2) return { level: "notable", good };
     return { level: "normal", good: true };
