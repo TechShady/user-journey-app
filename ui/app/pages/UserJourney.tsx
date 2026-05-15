@@ -596,7 +596,7 @@ function worstSessionsQuery(days: number, frontend: string, steps: StepDef[]): s
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | fieldsAdd satisfaction = coalesce(if(dur_ms <= ${APDEX_T}.0, "satisfied"), if(dur_ms <= ${APDEX_4T}.0, "tolerating"), "frustrated")
 | fieldsAdd pageName = coalesce(view.name, url.path, "unknown")
-| fieldsAdd errName = if(characteristics.has_error == true, coalesce(error.display_name, error.type, "error"), "")
+| fieldsAdd errName = if(characteristics.has_error == true, coalesce(error.display_name, error.type, "error"), else: "")
 | summarize
     actions = count(),
     avg_dur = avg(dur_ms),
@@ -2007,6 +2007,16 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Page Drop-off Contributors</Strong> funnel: For multi-page steps, a visual bar chart shows which pages within each step have the highest vs. lowest traffic — bars are color-coded by Apdex quality and sorted by event count, with drop percentage indicators</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Core Web Vitals per page</Strong>: The Compare Pages view now overlays LCP, CLS, and INP for each page, color-coded against Google's Good/Needs Improvement/Poor thresholds</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• Instantly identify which specific pages within a multi-page step are contributing most to user drop-off and have the worst performance</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 15, 2026</Paragraph>
+            <Paragraph><Strong>Worst Sessions — AI Impact Scoring &amp; Pattern Clustering</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>AI Impact Score (0–100)</Strong>: Replaces static composite ranking with z-score normalized scoring across 4 severity dimensions (errors 35%, frustrated 30%, avg latency 20%, max latency 15%), weighted by a systemic multiplier</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Systemic multiplier</Strong>: Sessions whose error patterns appear across many other sessions score higher; unique outliers are dampened — focuses attention on repeatable bugs, not noise</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>"Sessions Like This"</Strong> column: Shows how many other sessions share the same behavioral fingerprint (error types + performance bucket + frustration level)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>SYSTEMIC badge</Strong>: Sessions with high systemic scores are flagged, instantly distinguishing widespread issues from isolated edge cases</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Pattern Clusters</Strong> section: Groups sessions by behavioral fingerprint — shows Systemic vs. Outlier counts, distinct pattern count, and top cluster descriptions</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Query enhanced to collect per-session page lists and error types for clustering analysis</Paragraph>
           </div>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 15, 2026</Paragraph>
@@ -4379,12 +4389,10 @@ function StepDetailsTab({ stepMap, pageMap, cwvByPage, isLoading, appEntityId, s
 // ===========================================================================
 function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWorstSessions(data), [data]));
-  if (isLoading) return <Loading />;
-
-  const rawSessions = (data.data?.records ?? []) as any[];
 
   // === ML-driven Impact Score & Clustering ===
   const { scored, clusters } = useMemo(() => {
+    const rawSessions = (data?.data?.records ?? []) as any[];
     if (rawSessions.length === 0) return { scored: [], clusters: new Map<string, number>() };
 
     // Extract features for each session
@@ -4478,7 +4486,9 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
     scored.sort((a: any, b: any) => b._impactScore - a._impactScore);
 
     return { scored: scored.slice(0, 25), clusters: clusterCounts };
-  }, [rawSessions]);
+  }, [data?.data]);
+
+  if (isLoading) return <Loading />;
 
   const sessions = scored;
 

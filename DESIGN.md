@@ -100,8 +100,8 @@ fetch user.events, from: now() - {timeframe}
 fetch user.events, from: now() - {timeframe}
 | filter frontend.name == "{frontend}"
 | filter characteristics.has_page_summary == true
-| fieldsAdd lcp_ms = web_vitals.largest_contentful_paint, cls_val = web_vitals.cumulative_layout_shift, ttfb_ms = web_vitals.time_to_first_byte, fcp_ms = web_vitals.first_contentful_paint
-| summarize lcp_avg = avg(lcp_ms), cls_avg = avg(cls_val), ttfb_avg = avg(ttfb_ms), load_avg = avg(fcp_ms), by: {view.name}
+| fieldsAdd lcp_ms = web_vitals.largest_contentful_paint, cls_val = web_vitals.cumulative_layout_shift, inp_ms = web_vitals.interaction_to_next_paint, ttfb_ms = web_vitals.time_to_first_byte, fcp_ms = web_vitals.first_contentful_paint
+| summarize lcp_avg = avg(lcp_ms), cls_avg = avg(cls_val), inp_avg = avg(inp_ms), ttfb_avg = avg(ttfb_ms), load_avg = avg(fcp_ms), by: {view.name}
 | sort lcp_avg desc
 | limit 20
 ```
@@ -110,7 +110,7 @@ fetch user.events, from: now() - {timeframe}
 
 ### 4. Step Details
 
-**Purpose**: Deep-dive into individual funnel steps with Apdex, satisfaction distribution, and duration percentiles. For multi-page steps, Compare Pages reveals per-page metrics with delta indicators.
+**Purpose**: Deep-dive into individual funnel steps with Apdex, satisfaction distribution, and duration percentiles. For multi-page steps, Compare Pages reveals per-page metrics with delta indicators and Core Web Vitals.
 
 **Key Features**:
 - Per-step Apdex gauge with label (Excellent/Good/Fair/Poor)
@@ -119,20 +119,33 @@ fetch user.events, from: now() - {timeframe}
 - Error rate per step
 - Links to Dynatrace Vitals app (skips wildcard/placeholder identifiers)
 - **Revenue at Risk** metric box per step: `dropOff × AOV` showing dollar value of users lost at each step (visible when AOV > 0)
-- **Compare Pages** button (multi-page steps only): Expands per-page breakdown with individual Apdex, durations, satisfaction counts. First page is the primary baseline; all other pages show delta indicators (▲/▼ with %) against it.
+- **Page Drop-off Contributors** funnel (multi-page steps): Horizontal bar chart ranking pages within each step by event count, color-coded by Apdex quality (green/amber/red), with percentage drop indicators showing relative volume vs. the top page
+- **Web Vitals** button (single-page steps): Toggleable CWV panel showing LCP, CLS, INP color-coded against Google thresholds with Good/Needs Improvement/Poor labels
+- **Compare Pages** button (multi-page steps only): Expands per-page breakdown with individual Apdex, durations, satisfaction counts. First page is the primary baseline; all other pages show delta indicators (▲/▼ with %) against it. Each page also shows **LCP, CLS, INP** color-coded against Google CWV thresholds.
 
-**Queries**: Reuses `stepMetricsQuery` for aggregate step metrics. Adds `pageMetricsQuery` (groups by `view.name` instead of `step_tag`) for per-page breakdown in multi-page steps.
+**Queries**: Reuses `stepMetricsQuery` for aggregate step metrics. Adds `pageMetricsQuery` (groups by `view.name` instead of `step_tag`) for per-page breakdown. Uses `cwvByPageQuery` for per-page Core Web Vitals (LCP, CLS, INP).
 
 ---
 
 ### 5. Worst Sessions
 
-**Purpose**: Surface the worst-performing sessions ranked by frustrated actions, errors, and slowness.
+**Purpose**: Surface the worst-performing sessions using an ML-driven AI Impact Score that distinguishes systemic issues from isolated outliers. Sessions are clustered by behavioral fingerprint to reveal repeatable patterns.
 
 **Key Features**:
-- Top 25 sessions with impact ranking
+- **AI Impact Score (0–100)**: Z-score normalized across 4 severity dimensions (errors 35%, frustrated actions 30%, avg latency 20%, max latency 15%), multiplied by a systemic factor. Sessions whose error types appear across many other sessions score higher; unique outliers are dampened.
+- **"Sessions Like This" cluster count**: Behavioral fingerprint (error types + performance bucket + frustration bucket) groups sessions into clusters. Shows how many other sessions share the same pattern.
+- **SYSTEMIC badge**: Sessions with systemic score > 0.4 (shared error patterns across 40%+ of the population)
+- **Pattern Clusters section**: Systemic vs. Outlier counts, distinct behavioral patterns, top cluster descriptions
+- Top 25 sessions (from 50 fetched) after scoring & re-ranking
 - Session Replay direct links
-- Per-session metrics: actions, avg/max duration, errors, Apdex
+- Per-session metrics: Impact, Cluster, actions, avg/max duration, errors, frustrated, Apdex
+- Summary cards: Avg Impact Score, Frustrated Actions, Total Errors, Avg Peak Duration, Worst Apdex
+
+**Scoring Algorithm**:
+1. Z-score normalize each session's errors, frustrated, avgDur, maxDur against the population
+2. Severity = weighted sum (0.35·errZ + 0.30·fruZ + 0.20·avgDurZ + 0.15·maxDurZ)
+3. Systemic factor = (mean error-type frequency × 0.7 + mean page frequency × 0.3) across session's errors/pages
+4. Impact = severity × (0.4 + systemic × 0.6), capped at 100
 
 **Queries**:
 
@@ -143,9 +156,11 @@ fetch user.events, from: now() - {timeframe}
 | filter {anyStepFilter}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000
 | fieldsAdd satisfaction = if(dur_ms <= 3000, "satisfied", else: if(dur_ms <= 12000, "tolerating", else: "frustrated"))
-| summarize actions = count(), avg_dur = avg(dur_ms), max_dur = max(dur_ms), errors = countIf(characteristics.has_error), frustrated = countIf(satisfaction == "frustrated"), satisfied = countIf(satisfaction == "satisfied"), tolerating = countIf(satisfaction == "tolerating"), start_ts = min(timestamp), by: {dt.rum.session.id}
+| fieldsAdd pageName = coalesce(view.name, url.path, "unknown")
+| fieldsAdd errName = if(characteristics.has_error == true, coalesce(error.display_name, error.type, "error"), "")
+| summarize actions = count(), avg_dur = avg(dur_ms), max_dur = max(dur_ms), p90_dur = percentile(dur_ms, 90), errors = countIf(characteristics.has_error), frustrated = countIf(satisfaction == "frustrated"), satisfied = countIf(satisfaction == "satisfied"), tolerating = countIf(satisfaction == "tolerating"), start_ts = min(start_time), pages = collectDistinct(pageName), error_types = collectDistinct(errName), by: {dt.rum.session.id}
 | sort frustrated desc, errors desc, max_dur desc
-| limit 25
+| limit 50
 ```
 
 ---
@@ -1014,6 +1029,9 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------||
+| 2026-05-15 | 4.47.80 | **Worst Sessions — AI Impact Score & Pattern Clustering**: Replaced static composite ranking (frustrated/errors/max_dur sort) with ML-driven Impact Score (0–100). Z-score normalization across 4 severity dimensions weighted by systemic multiplier (error frequency across sessions). "Sessions Like This" column shows cluster size per behavioral fingerprint. SYSTEMIC badge for repeatable patterns. Pattern Clusters section with systemic/outlier counts. Query enhanced with `collectDistinct(pageName)`, `collectDistinct(errName)`, `p90_dur`, limit raised to 50 for scoring population. AI Insights updated with cluster-aware analysis. |
+| 2026-05-15 | 4.47.79 | **Step Details — Web Vitals Button for Single-Page Steps**: Added "Web Vitals" toggle button (cyan accent) for single-page steps. When clicked, expands a panel showing LCP, CLS, INP color-coded against Google thresholds with Good/Needs Improvement/Poor labels beneath each metric. |
+| 2026-05-15 | 4.47.78 | **Step Details — Page Drop-off Funnel & CWV Overlay**: Added Page Drop-off Contributors funnel for multi-page steps — horizontal bars ranked by event count, Apdex color-coded, with percentage drop indicators. Added LCP/CLS/INP overlay in Compare Pages view per page. `cwvByPageQuery` updated to include INP. `cwvByPage` data passed to StepDetailsTab. Help and AI Insights updated. |
 | 2026-05-11 | 4.47.43 | **Step Details — Per-Page Comparison + Wildcard Enhancements**: Step Details tab now supports per-page comparison for multi-page steps — Compare Pages button (purple accent) reveals per-page breakdown with PRIMARY badge on first page, delta indicators (▲/▼ with %) comparing each subsequent page against the primary baseline, individual Apdex gauges, and Vitals links (skipping wildcards). New `pageMetricsQuery` groups by `view.name` for per-page metrics. Mid-string wildcards supported (`/journeys/*/book` → `startsWith() AND endsWith()`). Dynatrace `:id:` placeholders recognized as wildcards to prevent broken links. AI Insights updated with multi-page awareness. |
 | 2026-05-11 | 4.47.42 | **Multi-Page Funnel Steps + Wildcard Support**: Each funnel step now supports multiple page identifiers with OR logic — e.g. (Step1a OR Step1b) AND Step2 AND (Step3a OR Step3b). Wildcards supported in all positions: `/home*` (startsWith), `*home` (endsWith), `*home*` (contains). DQL filters generate `startsWith()`, `endsWith()`, `contains()` expressions. Links skip wildcard identifiers (use first non-wildcard for Vitals URL). Settings UI updated with per-step "+ Add Page" button and per-identifier remove. Backward-compatible migration from old `identifier: string` to `identifiers: string[]` format. Updated Help docs |
 | 2026-05-10 | 4.47.39 | **AI Insights Engine**: Header-level AI Insights button (3-sparkle icon) between timeframe selector and help icon. Collapsible panel per tab with Summary, color-coded Insights (good/warning/critical/info), and prioritized Recommendations (high/medium/low). Typewriter streaming animation (60ms/word, 0.3s fade). 25+ tab-specific analysis functions with industry benchmarks (conversion 2-5%, Apdex thresholds, Google CWV targets, error rate <1%). React context (`AIInsightsContext`) shares state from header to all 30 tab components via `useAIInsights` hook. All analysis client-side — zero external API calls |
