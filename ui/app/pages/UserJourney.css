@@ -2,6 +2,11 @@
    User Journey & Experience — Styles
    ============================================================ */
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .uj-container {
   padding: 24px 32px;
   max-width: 1400px;

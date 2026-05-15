@@ -168,6 +168,14 @@ function apdexLabel(a: number): string { return a >= 0.85 ? "Excellent" : a >= 0
 function cwvClr(val: number, metric: keyof typeof CWV): string { return val <= CWV[metric].good ? GREEN : val <= CWV[metric].poor ? YELLOW : RED; }
 function cwvLabel(val: number, metric: keyof typeof CWV): string { return val <= CWV[metric].good ? "Good" : val <= CWV[metric].poor ? "Needs Improvement" : "Poor"; }
 function calcApdex(sat: number, tol: number, total: number): number { return total > 0 ? (sat + tol / 2) / total : 0; }
+function formatTimeAgo(ts: number): string {
+  const diff = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (diff < 5) return "just now";
+  if (diff < 60) return `${diff}s ago`;
+  const mins = Math.floor(diff / 60);
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m ago`;
+}
 
 function identifierFilter(id: string, type: "view" | "request"): string {
   const field = type === "view" ? "view.name" : "url.path";
@@ -2177,6 +2185,8 @@ export function UserJourney() {
   const { frontend, steps, saveFrontend, saveSteps, aov, saveAov } = useSettings();
   const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
   const [funnelStyle, setFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
+  const [refreshIntervalMs, setRefreshIntervalMs] = useState<number>(0);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number>(Date.now());
 
   // Persist tab visibility per user
   const savedState = useUserAppState({ key: TAB_STATE_KEY });
@@ -2279,17 +2289,18 @@ export function UserJourney() {
   // shifted window and re-key useDql to refetch.
   setQueryAnchorMs(timeframeAnchor);
   setCurrentTimeframeDays(timeframeDays);
-  const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, false) });
-  const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps) });
+  const funnelRefetchOpts = refreshIntervalMs > 0 ? { refetchInterval: refreshIntervalMs } : undefined;
+  const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, false) }, funnelRefetchOpts);
+  const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps) }, funnelRefetchOpts);
   const hasMultiPageSteps = steps.some(s => s.identifiers.length > 1);
-  const pageMetrics = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" });
+  const pageMetrics = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, funnelRefetchOpts);
   const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend) });
   const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays, frontend) });
   const deviceData = useDql({ query: deviceQuery(timeframeDays, frontend, steps) });
   const browserData = useDql({ query: browserQuery(timeframeDays, frontend, steps) });
   const geoData = useDql({ query: geoQuery(timeframeDays, frontend, steps) });
   const errorData = useDql({ query: errorQuery(timeframeDays, frontend, steps) });
-  const qualityData = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, false) });
+  const qualityData = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, false) }, funnelRefetchOpts);
 
   // Previous period queries (for Trends + Funnel Compare)
   const funnelResultPrev = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, true) });
@@ -2298,7 +2309,7 @@ export function UserJourney() {
   const convSparklineData = useDql({ query: trendsConvSparklineQuery(timeframeDays, frontend, steps) });
 
   // Today's hourly funnel data for predictive EOD model
-  const todayFunnelData = useDql({ query: todayFunnelHourlyQuery(frontend, steps) });
+  const todayFunnelData = useDql({ query: todayFunnelHourlyQuery(frontend, steps) }, funnelRefetchOpts);
 
   // NEW: Worst Sessions + Exceptions
   const worstSessionsData = useDql({ query: worstSessionsQuery(timeframeDays, frontend, steps) });
@@ -2427,6 +2438,16 @@ export function UserJourney() {
   const overallConv = funnelCounts[0] > 0 ? (funnelCounts[lastIdx] / funnelCounts[0]) * 100 : 0;
   const overallConvPrev = funnelCountsPrev[0] > 0 ? (funnelCountsPrev[lastIdx] / funnelCountsPrev[0]) * 100 : 0;
   const isLoading = funnelResult.isLoading || stepMetrics.isLoading;
+  const isFunnelFetching = funnelResult.isFetching || stepMetrics.isFetching || qualityData.isFetching;
+
+  // Track last refreshed timestamp — update whenever funnel queries finish fetching
+  const prevFetchingRef = useRef(false);
+  useEffect(() => {
+    if (prevFetchingRef.current && !isFunnelFetching) {
+      setLastRefreshedAt(Date.now());
+    }
+    prevFetchingRef.current = isFunnelFetching;
+  }, [isFunnelFetching]);
 
   return (
     <div className="uj-container">
@@ -2459,10 +2480,21 @@ export function UserJourney() {
               }}
             />
           </div>
+          <Strong style={{ fontSize: 12 }}>Auto-Refresh</Strong>
+          <Select value={String(refreshIntervalMs)} onChange={(val) => { if (val != null) setRefreshIntervalMs(Number(val)); }}>
+            <Select.Trigger style={{ minWidth: 120 }} />
+            <Select.Content>
+              <Select.Option value="0">Off</Select.Option>
+              <Select.Option value="30000">30 seconds</Select.Option>
+              <Select.Option value="60000">1 minute</Select.Option>
+              <Select.Option value="300000">5 minutes</Select.Option>
+              <Select.Option value="600000">10 minutes</Select.Option>
+            </Select.Content>
+          </Select>
           <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.73</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.74</Text>
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -2644,7 +2676,7 @@ export function UserJourney() {
         {tabOrder.filter(t => isTabVisible(t)).map(tabId => {
           let content: React.ReactNode = null;
           switch (tabId) {
-            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} pageMap={pageMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} />; break;
+            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} pageMap={pageMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} pageMap={pageMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
@@ -3404,8 +3436,15 @@ function analyzeErrorClustering(clusters: any[], totalErrors: number): AIInsight
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
-function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, pageMap, quality, compareMode, setCompareMode, isLoading, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; }) {
+function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, pageMap, quality, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap]));
+  // Ticker to keep "last refreshed X ago" text updating
+  const [, setTick] = React.useState(0);
+  React.useEffect(() => {
+    if (refreshIntervalMs <= 0) return;
+    const id = setInterval(() => setTick(t => t + 1), 10000);
+    return () => clearInterval(id);
+  }, [refreshIntervalMs]);
   const [funnelSubTab, setFunnelSubTab] = React.useState<"funnel"|"predictive"|"steps"|"pages">("funnel");
 
   // On initial load (no data yet) show spinner; on auto-refresh keep existing data visible
@@ -3466,6 +3505,24 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
+
+      {/* Auto-refresh indicator */}
+      {refreshIntervalMs > 0 && (
+        <Flex alignItems="center" gap={8} style={{ fontSize: 12, opacity: 0.6 }}>
+          {isFetching && (
+            <svg width="14" height="14" viewBox="0 0 14 14" style={{ animation: "spin 1s linear infinite" }}>
+              <circle cx="7" cy="7" r="5.5" fill="none" stroke="rgba(69,137,255,0.4)" strokeWidth="2" />
+              <path d="M7 1.5 A5.5 5.5 0 0 1 12.5 7" fill="none" stroke={BLUE} strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          )}
+          <Text style={{ fontSize: 12, opacity: 0.7 }}>
+            {isFetching ? "Refreshing…" : `Last refreshed ${formatTimeAgo(lastRefreshedAt)}`}
+          </Text>
+          <Text style={{ fontSize: 11, opacity: 0.4 }}>
+            (every {refreshIntervalMs < 60000 ? `${refreshIntervalMs / 1000}s` : `${refreshIntervalMs / 60000}m`})
+          </Text>
+        </Flex>
+      )}
 
       {/* KPI row */}
       <Flex gap={16} flexWrap="wrap">
