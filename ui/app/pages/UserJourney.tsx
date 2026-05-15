@@ -2123,7 +2123,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="Tabs">
         <Paragraph><Strong>Funnel Overview</Strong>: KPI bar (sessions, conversions, conversion rate, Apdex, error rate, avg duration). Organized into 4 sub-tabs: <Strong>Conversion Funnel</Strong> — Apdex satisfaction breakdown tile, 5 chart styles (<Strong>Classic</Strong> tapered SVG, <Strong>Horizontal Bar</Strong> waterfall, <Strong>Stacked Cohort</Strong> Marimekko, <Strong>Elapsed-Time Curve</Strong> survival curve, <Strong>Comparison Split</Strong> mirror funnel), and a Compare toggle that overlays the previous period as dashed outlines. Default style configurable via Settings. <Strong>Predictive Model</Strong> — appears once ≥2 hourly data points exist for today; fits a linear regression on this-morning's hourly conversion rates and projects the end-of-day rate, hourly velocity, confidence score, and hours remaining on a sparkline with a dashed projection line. <Strong>Step Analysis</Strong> — sortable table of every funnel step with sessions, avg/P90 duration, Apdex, conversion %, abandons, and errors. <Strong>Per-Page Breakdown</Strong> — per-page metrics for steps that span multiple page identifiers; shows sessions, Apdex, avg/P90, errors, and a satisfaction mini-bar per page.</Paragraph>
         <Paragraph><Strong>Trends</Strong>: Period-over-period comparison of all key metrics across 11 cards (Sessions, Total Actions, Conversion Rate, Apdex, Avg/P50/P90 Duration, Error Rate, Errors, Frustrated, and optionally Revenue when AOV is set). Each card shows: current value with color-coded delta arrow, a <Strong>daily sparkline</Strong> tracing the metric's shape across the current period, and an inline <Strong>anomaly badge</Strong> — <Strong>⚠ Anomaly</Strong> (current value exceeds 2 std dev of daily variance — statistically unusual), <Strong>↑ Notable</Strong> (1.2–2 std dev — worth watching), or <Strong>∿ Normal</Strong> (&lt;1.2 std dev — within expected noise). Inverted logic applies for duration/errors (lower = better). Use anomaly badges to distinguish real regressions from day-to-day noise. The AI Insights panel at the top narrates the most critical changes and recommends next steps.</Paragraph>
-        <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), page-level CWV breakdown, and performance health score.</Paragraph>
+        <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), CWV trend line showing improvement/degradation over time, automated remediation recommendations per failing vital (top offending pages + actionable fixes), page-level breakdown, and performance health score.</Paragraph>
         <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99). For multi-page steps: a <Strong>Page Drop-off Contributors</Strong> funnel shows which pages within each step have the highest traffic volume vs. drop-off — bars are color-coded by Apdex (green/amber/red) and sorted by event count, with a percentage drop indicator showing how each page compares to the top contributor. A <Strong>Compare Pages</Strong> button reveals per-page metrics with the first page as the primary baseline — delta indicators show how each additional page performs relative to it. Each per-page breakdown now includes <Strong>Core Web Vitals (LCP, CLS, INP)</Strong> color-coded against Google thresholds for instant performance assessment.</Paragraph>
         <Paragraph><Strong>Worst Sessions</Strong>: Sessions ranked by an <Strong>AI Impact Score</Strong> that uses z-score normalization across severity dimensions (errors, frustrated actions, avg/max latency) weighted by a systemic multiplier — sessions whose error patterns appear across many other sessions score higher than isolated outliers. Each row shows its Impact score (0–100), a <Strong>"Sessions Like This"</Strong> cluster count indicating how many sessions share the same behavioral fingerprint, and a <Strong>SYSTEMIC</Strong> badge for sessions representing repeatable patterns. A <Strong>Pattern Clusters</Strong> section groups sessions by behavioral fingerprint to distinguish widespread bugs from one-off edge cases. Each session links to <Strong>Dynatrace Session Replay</Strong>.</Paragraph>
         <Paragraph><Strong>Exceptions</Strong>: JavaScript exceptions with inline source map deobfuscation (file:line:col) and a regression detector that classifies each error as NEW, RECURRING, or REGRESSION. Cards styled like Metric Forecasts with compact grid layout, severity-colored left border, and status badges.</Paragraph>
@@ -2737,7 +2737,7 @@ export function UserJourney() {
           switch (tabId) {
             case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} pageMap={pageMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} />; break;
-            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
+            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} pageMap={pageMap} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />; break;
             case "Exceptions": content = <JSErrorsTab data={jsErrorsData} prevData={jsErrorsPrevData} isLoading={jsErrorsData.isLoading} frontend={frontend} />; break;
@@ -3025,7 +3025,8 @@ function analyzeWebVitals(cwv: { lcp: number; cls: number; inp: number; ttfb: nu
   else { insights.push({ severity: "critical", icon: "🔴", text: `TTFB of ${fmt(cwv.ttfb)} is significantly slow (>1.8s). This bottlenecks every other web vital.` }); recs.push({ impact: "high", text: "Critical TTFB: Audit server infrastructure. Check for cold starts, slow database queries, missing cache layers, or high server load." }); }
 
   const goodCount = insights.filter(i => i.severity === "good").length;
-  const summary = `Web Vitals measures your application against Google's Core Web Vitals — the metrics that directly determine search engine rankings and user-perceived performance. This tab is essential for SEO Specialists ensuring search ranking compliance, Frontend Engineers optimizing rendering performance, and Product Managers understanding the connection between speed and conversion. It evaluates four critical metrics: LCP (Largest Contentful Paint, good ≤2.5s) measuring visual load speed, CLS (Cumulative Layout Shift, good ≤0.1) measuring visual stability, INP (Interaction to Next Paint, good ≤200ms) measuring interactivity responsiveness, and TTFB (Time to First Byte, good ≤800ms) measuring server response time. Currently ${goodCount}/4 metrics meet Google's "Good" thresholds. ${goodCount === 4 ? "All vitals are in the green — your site has excellent user experience and strong SEO standing." : goodCount >= 2 ? "Some vitals need attention — Google may deprioritize pages with 'Needs Improvement' or 'Poor' scores in search results." : "Multiple vitals are underperforming — this impacts both organic search visibility and user conversion rates. Google data shows 24% lower bounce rates for sites meeting all CWV thresholds."} The tab includes per-metric gauges with color-coded thresholds, page-level CWV breakdowns to identify the slowest pages, and a composite performance health score.`;
+  const failingCount = 4 - goodCount;
+  const summary = `Web Vitals measures your application against Google's Core Web Vitals — the metrics that directly determine search engine rankings and user-perceived performance. This tab includes CWV trend lines showing daily improvement or degradation over the selected timeframe, and automated remediation recommendations per failing vital with top offending pages and actionable fixes. It evaluates four critical metrics: LCP (Largest Contentful Paint, good ≤2.5s) measuring visual load speed, CLS (Cumulative Layout Shift, good ≤0.1) measuring visual stability, INP (Interaction to Next Paint, good ≤200ms) measuring interactivity responsiveness, and TTFB (Time to First Byte, good ≤800ms) measuring server response time. Currently ${goodCount}/4 metrics meet Google's "Good" thresholds. ${goodCount === 4 ? "All vitals are in the green — your site has excellent user experience and strong SEO standing." : goodCount >= 2 ? `${failingCount} vital(s) need attention — review the Remediation Recommendations section for specific fixes with top offending pages identified.` : `Multiple vitals are underperforming — the Remediation Recommendations section provides actionable fixes per failing metric with the specific pages contributing most to degradation.`} The trend chart reveals whether your optimizations are working or if performance is regressing over time. Use the trend direction indicators (▲ better / ▼ worse) to quickly assess trajectory.`;
   return { summary, insights, recommendations: recs };
 }
 
@@ -4078,16 +4079,72 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
 // ===========================================================================
 // TAB: Web Vitals
 // ===========================================================================
-function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; cwvByPage: any; isLoading: boolean; appEntityId?: string }) {
+function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; cwvByPage: any; cwvTrend: any; isLoading: boolean; appEntityId?: string }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWebVitals(v), [v]));
   if (isLoading) return <Loading />;
 
   const pages = (cwvByPage.data?.records ?? []) as any[];
+  const trendRecords = (cwvTrend?.data?.records ?? []) as any[];
   const lcpScore = v.lcp <= CWV.lcp.good ? 100 : v.lcp <= CWV.lcp.poor ? 50 : 0;
   const clsScore = v.cls <= CWV.cls.good ? 100 : v.cls <= CWV.cls.poor ? 50 : 0;
   const inpScore = v.inp <= CWV.inp.good ? 100 : v.inp <= CWV.inp.poor ? 50 : 0;
   const ttfbScore = v.ttfb <= CWV.ttfb.good ? 100 : v.ttfb <= CWV.ttfb.poor ? 50 : 0;
   const healthScore = Math.round((lcpScore * 0.35 + clsScore * 0.25 + inpScore * 0.25 + ttfbScore * 0.15));
+
+  // Remediation recommendations based on failing vitals + top offending pages
+  const remediations: { vital: string; status: "good" | "needs-improvement" | "poor"; value: string; topPages: string[]; recommendations: string[] }[] = [];
+  const sortedByLcp = [...pages].sort((a, b) => Number(b.lcp_avg ?? 0) - Number(a.lcp_avg ?? 0));
+  const sortedByCls = [...pages].sort((a, b) => Number(b.cls_avg ?? 0) - Number(a.cls_avg ?? 0));
+  const sortedByInp = [...pages].sort((a, b) => Number(b.inp_avg ?? 0) - Number(a.inp_avg ?? 0));
+  const sortedByTtfb = [...pages].sort((a, b) => Number(b.ttfb_avg ?? 0) - Number(a.ttfb_avg ?? 0));
+
+  if (v.lcp > CWV.lcp.good) {
+    const status = v.lcp > CWV.lcp.poor ? "poor" : "needs-improvement";
+    const topPages = sortedByLcp.slice(0, 3).map(p => String(p.pageName ?? "unknown"));
+    remediations.push({ vital: "LCP", status, value: fmt(v.lcp), topPages, recommendations: [
+      "Preload critical hero images and fonts using <link rel=\"preload\">",
+      "Implement lazy loading for below-the-fold images and iframes",
+      "Reduce server response time (TTFB) — consider CDN or edge caching",
+      "Eliminate render-blocking CSS/JS — defer non-critical resources",
+      "Optimize image formats (WebP/AVIF) and implement responsive srcset",
+    ]});
+  }
+  if (v.cls > CWV.cls.good) {
+    const status = v.cls > CWV.cls.poor ? "poor" : "needs-improvement";
+    const topPages = sortedByCls.slice(0, 3).map(p => String(p.pageName ?? "unknown"));
+    remediations.push({ vital: "CLS", status, value: v.cls.toFixed(3), topPages, recommendations: [
+      "Set explicit width/height attributes on images and video elements",
+      "Reserve space for dynamic ad slots and embeds with CSS aspect-ratio",
+      "Avoid inserting content above existing content (banners, consent modals)",
+      "Use CSS contain:layout on animated elements to prevent reflow",
+      "Preload web fonts and use font-display:swap with size-adjust fallback",
+    ]});
+  }
+  if (v.inp > CWV.inp.good) {
+    const status = v.inp > CWV.inp.poor ? "poor" : "needs-improvement";
+    const topPages = sortedByInp.slice(0, 3).map(p => String(p.pageName ?? "unknown"));
+    remediations.push({ vital: "INP", status, value: fmt(v.inp), topPages, recommendations: [
+      "Break up long tasks (>50ms) using requestIdleCallback or scheduler.yield()",
+      "Debounce expensive event handlers (scroll, input, resize)",
+      "Move heavy computation to Web Workers",
+      "Reduce DOM size — large DOM trees slow style recalculation",
+      "Defer third-party scripts that block the main thread",
+    ]});
+  }
+  if (v.ttfb > CWV.ttfb.good) {
+    const status = v.ttfb > CWV.ttfb.poor ? "poor" : "needs-improvement";
+    const topPages = sortedByTtfb.slice(0, 3).map(p => String(p.pageName ?? "unknown"));
+    remediations.push({ vital: "TTFB", status, value: fmt(v.ttfb), topPages, recommendations: [
+      "Enable server-side caching (Redis, Varnish) for frequently accessed pages",
+      "Use a CDN to reduce geographic latency",
+      "Optimize database queries — add indexes, reduce N+1 queries",
+      "Enable HTTP/2 or HTTP/3 for multiplexed connections",
+      "Implement stale-while-revalidate caching strategy",
+    ]});
+  }
+
+  // Trend chart data
+  const trendSorted = [...trendRecords].sort((a, b) => String(a.bucket_key ?? "").localeCompare(String(b.bucket_key ?? "")));
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
@@ -4102,6 +4159,10 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
           <Text className="uj-kpi-label">Load Event End</Text>
           <Heading level={3} className="uj-kpi-value" style={{ color: v.load > 3000 ? RED : v.load > 1500 ? YELLOW : GREEN }}>{fmt(v.load)}</Heading>
         </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Failing Vitals</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: remediations.length > 2 ? RED : remediations.length > 0 ? YELLOW : GREEN }}>{remediations.length}/4</Heading>
+        </div>
       </Flex>
 
       <SectionHeader title="Core Web Vitals" />
@@ -4111,6 +4172,164 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
         <CwvCard label="Interaction to Next Paint" value={v.inp} unit="ms" metric="inp" />
         <CwvCard label="Time to First Byte" value={v.ttfb} unit="ms" metric="ttfb" />
       </Flex>
+
+      {/* CWV Trend Chart */}
+      {trendSorted.length > 1 && (
+        <>
+          <SectionHeader title="CWV Trend" />
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 8, display: "block" }}>Daily averages over the selected timeframe. Dashed lines = Google thresholds (good).</Text>
+            {(() => {
+              const svgW = 600, svgH = 160, padL = 50, padR = 20, padT = 16, padB = 28;
+              const metrics = [
+                { key: "lcp_val", label: "LCP", color: BLUE, threshold: CWV.lcp.good, unit: "ms" },
+                { key: "inp_val", label: "INP", color: PURPLE, threshold: CWV.inp.good, unit: "ms" },
+                { key: "ttfb_val", label: "TTFB", color: CYAN, threshold: CWV.ttfb.good, unit: "ms" },
+              ];
+              // Compute bounds across all time-based metrics (skip CLS, separate scale)
+              const allVals = trendSorted.flatMap(r => metrics.map(m => Number(r[m.key] ?? 0)));
+              const thresholds = metrics.map(m => m.threshold);
+              const vMin = 0;
+              const vMax = Math.max(...allVals, ...thresholds) * 1.1 || 1;
+              const valToY = (val: number) => padT + (svgH - padT - padB) * (1 - (val - vMin) / (vMax - vMin));
+              const n = trendSorted.length;
+              const xStep = (svgW - padL - padR) / Math.max(n - 1, 1);
+
+              return (
+                <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ display: "block" }}>
+                  {/* Y-axis labels */}
+                  <text x={padL - 4} y={padT + 4} textAnchor="end" fontSize={9} fill="rgba(128,128,128,0.6)">{Math.round(vMax)}ms</text>
+                  <text x={padL - 4} y={svgH - padB} textAnchor="end" fontSize={9} fill="rgba(128,128,128,0.6)">0</text>
+                  {/* X-axis labels (first, mid, last) */}
+                  {[0, Math.floor(n / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i).map(idx => (
+                    <text key={idx} x={padL + idx * xStep} y={svgH - padB + 14} textAnchor="middle" fontSize={8} fill="rgba(128,128,128,0.5)">{String(trendSorted[idx]?.bucket_key ?? "").slice(5)}</text>
+                  ))}
+                  {/* Threshold lines */}
+                  {metrics.map(m => (
+                    <line key={m.key + "_th"} x1={padL} y1={valToY(m.threshold)} x2={svgW - padR} y2={valToY(m.threshold)} stroke={m.color} strokeWidth={1} strokeDasharray="4 3" opacity={0.3} />
+                  ))}
+                  {/* Data lines */}
+                  {metrics.map(m => {
+                    const pts = trendSorted.map((r, i) => `${padL + i * xStep},${valToY(Number(r[m.key] ?? 0))}`).join(" ");
+                    return <polyline key={m.key} fill="none" stroke={m.color} strokeWidth={2} points={pts} />;
+                  })}
+                  {/* Dots on last point */}
+                  {metrics.map(m => {
+                    const lastVal = Number(trendSorted[n - 1]?.[m.key] ?? 0);
+                    return <circle key={m.key + "_dot"} cx={padL + (n - 1) * xStep} cy={valToY(lastVal)} r={3.5} fill={m.color}><title>{m.label}: {Math.round(lastVal)}ms</title></circle>;
+                  })}
+                  {/* Legend */}
+                  {metrics.map((m, i) => (
+                    <g key={m.key + "_leg"} transform={`translate(${padL + i * 80}, ${svgH - 6})`}>
+                      <line x1={0} y1={0} x2={14} y2={0} stroke={m.color} strokeWidth={2} />
+                      <text x={18} y={3} fontSize={9} fill={m.color}>{m.label}</text>
+                    </g>
+                  ))}
+                </svg>
+              );
+            })()}
+            {/* CLS separate (different scale) */}
+            {(() => {
+              const svgW = 600, svgH = 80, padL = 50, padR = 20, padT = 12, padB = 20;
+              const clsVals = trendSorted.map(r => Number(r.cls_val ?? 0));
+              const vMax = Math.max(...clsVals, CWV.cls.good) * 1.3 || 0.3;
+              const valToY = (val: number) => padT + (svgH - padT - padB) * (1 - val / vMax);
+              const n = trendSorted.length;
+              const xStep = (svgW - padL - padR) / Math.max(n - 1, 1);
+              const pts = trendSorted.map((r, i) => `${padL + i * xStep},${valToY(Number(r.cls_val ?? 0))}`).join(" ");
+              return (
+                <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ display: "block", marginTop: 8 }}>
+                  <text x={padL - 4} y={padT + 4} textAnchor="end" fontSize={9} fill="rgba(128,128,128,0.6)">{vMax.toFixed(2)}</text>
+                  <text x={padL - 4} y={svgH - padB} textAnchor="end" fontSize={9} fill="rgba(128,128,128,0.6)">0</text>
+                  <line x1={padL} y1={valToY(CWV.cls.good)} x2={svgW - padR} y2={valToY(CWV.cls.good)} stroke={ORANGE} strokeWidth={1} strokeDasharray="4 3" opacity={0.3} />
+                  <polyline fill="none" stroke={ORANGE} strokeWidth={2} points={pts} />
+                  <circle cx={padL + (n - 1) * xStep} cy={valToY(clsVals[n - 1])} r={3.5} fill={ORANGE}><title>CLS: {clsVals[n - 1]?.toFixed(3)}</title></circle>
+                  <g transform={`translate(${padL}, ${svgH - 4})`}>
+                    <line x1={0} y1={0} x2={14} y2={0} stroke={ORANGE} strokeWidth={2} />
+                    <text x={18} y={3} fontSize={9} fill={ORANGE}>CLS</text>
+                  </g>
+                </svg>
+              );
+            })()}
+            {/* Trend direction indicators */}
+            {trendSorted.length >= 3 && (() => {
+              const first3 = trendSorted.slice(0, Math.ceil(trendSorted.length / 2));
+              const last3 = trendSorted.slice(Math.ceil(trendSorted.length / 2));
+              const avgFirst = (arr: any[], key: string) => arr.reduce((a, r) => a + Number(r[key] ?? 0), 0) / arr.length;
+              const avgLast = (arr: any[], key: string) => arr.reduce((a, r) => a + Number(r[key] ?? 0), 0) / arr.length;
+              const trends = [
+                { label: "LCP", first: avgFirst(first3, "lcp_val"), last: avgLast(last3, "lcp_val"), lower: true },
+                { label: "CLS", first: avgFirst(first3, "cls_val"), last: avgLast(last3, "cls_val"), lower: true },
+                { label: "INP", first: avgFirst(first3, "inp_val"), last: avgLast(last3, "inp_val"), lower: true },
+                { label: "TTFB", first: avgFirst(first3, "ttfb_val"), last: avgLast(last3, "ttfb_val"), lower: true },
+              ];
+              return (
+                <Flex gap={16} style={{ marginTop: 12 }}>
+                  {trends.map(t => {
+                    const delta = t.last - t.first;
+                    const pct = t.first > 0 ? (delta / t.first) * 100 : 0;
+                    const improving = t.lower ? delta < 0 : delta > 0;
+                    const stable = Math.abs(pct) < 3;
+                    const color = stable ? "rgba(128,128,128,0.5)" : improving ? GREEN : RED;
+                    const arrow = stable ? "●" : delta > 0 ? "▲" : "▼";
+                    return (
+                      <div key={t.label} style={{ fontSize: 12 }}>
+                        <Text style={{ opacity: 0.5, fontSize: 11 }}>{t.label}</Text>
+                        <Strong style={{ display: "block", color }}>{arrow} {stable ? "Stable" : `${Math.abs(pct).toFixed(1)}% ${improving ? "better" : "worse"}`}</Strong>
+                      </div>
+                    );
+                  })}
+                </Flex>
+              );
+            })()}
+          </div>
+        </>
+      )}
+
+      {/* Automated Remediation Recommendations */}
+      {remediations.length > 0 && (
+        <>
+          <SectionHeader title="Remediation Recommendations" />
+          <Flex flexDirection="column" gap={12}>
+            {remediations.map((r) => {
+              const color = r.status === "poor" ? RED : YELLOW;
+              return (
+                <div key={r.vital} className="uj-anomaly-card" style={{ borderLeftColor: color, minWidth: 0, flex: "none" }}>
+                  <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
+                    <Flex alignItems="center" gap={8}>
+                      <Strong style={{ fontSize: 14 }}>{r.vital} — {r.value}</Strong>
+                      <span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 4, background: `${color}18`, color, fontWeight: 700, textTransform: "uppercase" as const }}>{r.status === "poor" ? "FAILING" : "NEEDS IMPROVEMENT"}</span>
+                    </Flex>
+                  </Flex>
+                  {/* Top offending pages */}
+                  <div style={{ marginBottom: 10 }}>
+                    <Text style={{ fontSize: 11, opacity: 0.5 }}>Top offending pages:</Text>
+                    <Flex gap={6} flexWrap="wrap" style={{ marginTop: 4 }}>
+                      {r.topPages.map((p, pi) => (
+                        <span key={pi} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: `${color}10`, color, fontWeight: 600 }}>{p}</span>
+                      ))}
+                    </Flex>
+                  </div>
+                  {/* Actionable recommendations */}
+                  <div style={{ padding: "8px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6 }}>
+                    {r.recommendations.map((rec, ri) => (
+                      <div key={ri} style={{ fontSize: 12, padding: "3px 0", display: "flex", gap: 6, alignItems: "flex-start" }}>
+                        <span style={{ color, fontWeight: 700, flexShrink: 0 }}>→</span>
+                        <Text style={{ fontSize: 12 }}>{rec}</Text>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </Flex>
+        </>
+      )}
+      {remediations.length === 0 && (
+        <div className="uj-table-tile" style={{ padding: 16 }}>
+          <Text style={{ color: GREEN, fontSize: 13 }}>✅ All Core Web Vitals are passing — no remediation needed. Keep monitoring for regressions.</Text>
+        </div>
+      )}
 
       <SectionHeader title="Web Vitals by Page" />
       <div className="uj-table-tile">

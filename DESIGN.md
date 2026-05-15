@@ -76,11 +76,14 @@ fetch user.events, from: now() - {timeframe}
 
 ### 3. Web Vitals
 
-**Purpose**: Track Core Web Vitals (LCP, CLS, INP, TTFB) with good/poor threshold classification.
+**Purpose**: Track Core Web Vitals (LCP, CLS, INP, TTFB) with good/poor threshold classification, trend visualization, and automated remediation recommendations.
 
 **Key Features**:
 - Gauge visualizations per metric with color thresholds
 - Weighted Performance Health Score (LCP 35%, CLS 25%, INP 25%, TTFB 15%)
+- **CWV Trend Chart**: Daily bucketed line chart (LCP, INP, TTFB on shared axis; CLS on separate scale) with Google threshold dashed lines and trend direction indicators (▲ better / ▼ worse / ● stable)
+- **Automated Remediation Recommendations**: Per-failing-vital cards (anomaly-card style) showing status badge (FAILING/NEEDS IMPROVEMENT), top 3 offending pages, and 5 actionable fix recommendations
+- Failing Vitals KPI (0–4 count)
 - Page-level breakdown table
 - Threshold reference card
 
@@ -1035,6 +1038,7 @@ All revenue calculations are client-side — no additional DQL queries needed be
 | Date | Version | Changes |
 |------|---------|---------||
 | 2026-05-15 | 4.47.83 | **Exceptions — Source Map Deobfuscation & Regression Detector**: Redesigned error cards to match Metric Forecasts style (compact grid layout, severity-colored left border, clean header). Added inline source map deobfuscation — parses file:line:col from error names and displays monospace "Source" row per card. Added regression detector comparing current vs previous period: classifies each error as NEW (cyan), RECURRING (yellow), or REGRESSION (red) with badge. KPI row expanded with New/Recurring/Regressions counts. Previous-period DQL query added. DataTable gains Status column. AI Insights updated with source/regression analysis. |
+| 2026-05-15 | 4.47.84 | **Web Vitals — CWV Trend Lines & Remediation Recommendations**: Added daily CWV trend chart (LCP/INP/TTFB on shared axis, CLS separate scale) with Google threshold dashed lines and trend direction indicators (▲/▼/●). Added automated remediation recommendations per failing vital — anomaly-card style with FAILING/NEEDS IMPROVEMENT badge, top 3 offending pages, and 5 actionable recommendations per metric. Added "Failing Vitals" KPI. Reuses existing `sloCwvTrendQuery` data. AI Insights updated with trend + remediation awareness. |
 | 2026-05-15 | 4.47.80 | **Worst Sessions — AI Impact Score & Pattern Clustering**: Replaced static composite ranking (frustrated/errors/max_dur sort) with ML-driven Impact Score (0–100). Z-score normalization across 4 severity dimensions weighted by systemic multiplier (error frequency across sessions). "Sessions Like This" column shows cluster size per behavioral fingerprint. SYSTEMIC badge for repeatable patterns. Pattern Clusters section with systemic/outlier counts. Query enhanced with `collectDistinct(pageName)`, `collectDistinct(errName)`, `p90_dur`, limit raised to 50 for scoring population. AI Insights updated with cluster-aware analysis. |
 | 2026-05-15 | 4.47.79 | **Step Details — Web Vitals Button for Single-Page Steps**: Added "Web Vitals" toggle button (cyan accent) for single-page steps. When clicked, expands a panel showing LCP, CLS, INP color-coded against Google thresholds with Good/Needs Improvement/Poor labels beneath each metric. |
 | 2026-05-15 | 4.47.78 | **Step Details — Page Drop-off Funnel & CWV Overlay**: Added Page Drop-off Contributors funnel for multi-page steps — horizontal bars ranked by event count, Apdex color-coded, with percentage drop indicators. Added LCP/CLS/INP overlay in Compare Pages view per page. `cwvByPageQuery` updated to include INP. `cwvByPage` data passed to StepDetailsTab. Help and AI Insights updated. |
