@@ -595,18 +595,23 @@ function worstSessionsQuery(days: number, frontend: string, steps: StepDef[]): s
 | filter ${anyStepFilter(steps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | fieldsAdd satisfaction = coalesce(if(dur_ms <= ${APDEX_T}.0, "satisfied"), if(dur_ms <= ${APDEX_4T}.0, "tolerating"), "frustrated")
+| fieldsAdd pageName = coalesce(view.name, url.path, "unknown")
+| fieldsAdd errName = if(characteristics.has_error == true, coalesce(error.display_name, error.type, "error"), "")
 | summarize
     actions = count(),
     avg_dur = avg(dur_ms),
     max_dur = max(dur_ms),
+    p90_dur = percentile(dur_ms, 90),
     errors = countIf(characteristics.has_error == true),
     frustrated = countIf(satisfaction == "frustrated"),
     satisfied = countIf(satisfaction == "satisfied"),
     tolerating = countIf(satisfaction == "tolerating"),
     start_ts = min(start_time),
+    pages = collectDistinct(pageName),
+    error_types = collectDistinct(errName),
     by: {dt.rum.session.id}
 | sort frustrated desc, errors desc, max_dur desc
-| limit 25`;
+| limit 50`;
 }
 
 // Exceptions query
@@ -2108,7 +2113,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Trends</Strong>: Period-over-period comparison of all key metrics across 11 cards (Sessions, Total Actions, Conversion Rate, Apdex, Avg/P50/P90 Duration, Error Rate, Errors, Frustrated, and optionally Revenue when AOV is set). Each card shows: current value with color-coded delta arrow, a <Strong>daily sparkline</Strong> tracing the metric's shape across the current period, and an inline <Strong>anomaly badge</Strong> — <Strong>⚠ Anomaly</Strong> (current value exceeds 2 std dev of daily variance — statistically unusual), <Strong>↑ Notable</Strong> (1.2–2 std dev — worth watching), or <Strong>∿ Normal</Strong> (&lt;1.2 std dev — within expected noise). Inverted logic applies for duration/errors (lower = better). Use anomaly badges to distinguish real regressions from day-to-day noise. The AI Insights panel at the top narrates the most critical changes and recommends next steps.</Paragraph>
         <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), page-level CWV breakdown, and performance health score.</Paragraph>
         <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99). For multi-page steps: a <Strong>Page Drop-off Contributors</Strong> funnel shows which pages within each step have the highest traffic volume vs. drop-off — bars are color-coded by Apdex (green/amber/red) and sorted by event count, with a percentage drop indicator showing how each page compares to the top contributor. A <Strong>Compare Pages</Strong> button reveals per-page metrics with the first page as the primary baseline — delta indicators show how each additional page performs relative to it. Each per-page breakdown now includes <Strong>Core Web Vitals (LCP, CLS, INP)</Strong> color-coded against Google thresholds for instant performance assessment.</Paragraph>
-        <Paragraph><Strong>Worst Sessions</Strong>: Surfaces the worst-performing sessions ranked by frustrated actions, errors, and slowness. Each session links directly to <Strong>Dynatrace Session Replay</Strong> for instant root-cause analysis.</Paragraph>
+        <Paragraph><Strong>Worst Sessions</Strong>: Sessions ranked by an <Strong>AI Impact Score</Strong> that uses z-score normalization across severity dimensions (errors, frustrated actions, avg/max latency) weighted by a systemic multiplier — sessions whose error patterns appear across many other sessions score higher than isolated outliers. Each row shows its Impact score (0–100), a <Strong>"Sessions Like This"</Strong> cluster count indicating how many sessions share the same behavioral fingerprint, and a <Strong>SYSTEMIC</Strong> badge for sessions representing repeatable patterns. A <Strong>Pattern Clusters</Strong> section groups sessions by behavioral fingerprint to distinguish widespread bugs from one-off edge cases. Each session links to <Strong>Dynatrace Session Replay</Strong>.</Paragraph>
         <Paragraph><Strong>Exceptions</Strong>: JavaScript exceptions grouped by error name. Shows occurrences, affected sessions, error velocity (new vs. recurring), and impacted pages. Helps prioritize which errors to fix first.</Paragraph>
         <Paragraph><Strong>Click Issues</Strong>: Detects rage clicks (rapid repeated clicks indicating frustration) and dead clicks (clicks on non-responsive elements). Shows the worst offending elements, pages, and session impact to guide UX fixes.</Paragraph>
         <Paragraph><Strong>Perf Budgets</Strong>: Tracks actual metrics against defined performance budgets (Apdex ≥0.85, Conversion ≥20%, Avg Duration ≤2s, P90 ≤4s, Error Rate ≤2%, Frustrated ≤10%). Shows pass/fail status, margin from target, and hourly Apdex distribution to identify peak-hour degradation.</Paragraph>
@@ -3041,16 +3046,42 @@ function analyzeWorstSessions(data: any): AIInsightsData {
 
   if (records.length === 0) return { summary: "No worst-session data available.", insights: [], recommendations: [] };
 
-  const avgErrors = records.reduce((a: number, r: any) => a + Number(r.error_count ?? r.errors ?? 0), 0) / records.length;
-  const avgDuration = records.reduce((a: number, r: any) => a + Number(r.duration ?? r.session_duration ?? 0), 0) / records.length;
+  const avgErrors = records.reduce((a: number, r: any) => a + Number(r.errors ?? r.error_count ?? 0), 0) / records.length;
+  const avgFrustrated = records.reduce((a: number, r: any) => a + Number(r.frustrated ?? 0), 0) / records.length;
 
-  if (avgErrors > 5) { insights.push({ severity: "critical", icon: "🔴", text: `Worst sessions average ${avgErrors.toFixed(1)} errors per session. These users are having a terrible experience.` }); recs.push({ impact: "high", text: "Review the top worst sessions with Session Replay to identify common error patterns and fix the root cause." }); }
-  else insights.push({ severity: "info", icon: "📊", text: `Worst sessions average ${avgErrors.toFixed(1)} errors per session.` });
+  // Cluster analysis for AI insights
+  const errorTypes = new Map<string, number>();
+  for (const r of records) {
+    const types = Array.isArray(r.error_types) ? r.error_types.filter((e: string) => e && e !== "") : [];
+    for (const t of types) errorTypes.set(t, (errorTypes.get(t) ?? 0) + 1);
+  }
+  const sharedErrors = [...errorTypes.entries()].filter(([, c]) => c >= 3).sort((a, b) => b[1] - a[1]);
+  const systemicSessions = records.filter((r: any) => {
+    const types = Array.isArray(r.error_types) ? r.error_types.filter((e: string) => e && e !== "") : [];
+    return types.some((t: string) => (errorTypes.get(t) ?? 0) >= 3);
+  }).length;
 
-  insights.push({ severity: "info", icon: "⏱", text: `Top ${records.length} worst sessions identified for review. Use Session Replay links to investigate individual user journeys.` });
+  if (systemicSessions > records.length * 0.5) {
+    insights.push({ severity: "critical", icon: "🔴", text: `${systemicSessions} of ${records.length} worst sessions share common error patterns — this is a systemic issue, not isolated incidents.` });
+    recs.push({ impact: "high", text: "Focus on the shared error patterns first. Fixing these will resolve the majority of bad sessions simultaneously." });
+  } else if (systemicSessions > 0) {
+    insights.push({ severity: "warning", icon: "⚠️", text: `${systemicSessions} sessions share common error patterns (systemic), while ${records.length - systemicSessions} are unique outliers.` });
+  } else {
+    insights.push({ severity: "info", icon: "📊", text: "Worst sessions are mostly unique outliers — no dominant shared failure pattern detected." });
+    recs.push({ impact: "medium", text: "With no dominant pattern, investigate the highest-impact sessions individually via Session Replay." });
+  }
+
+  if (sharedErrors.length > 0) {
+    insights.push({ severity: "critical", icon: "🎯", text: `Top shared error: "${sharedErrors[0][0].substring(0, 60)}" appears in ${sharedErrors[0][1]} of the worst sessions.` });
+  }
+
+  if (avgErrors > 5) { insights.push({ severity: "critical", icon: "🔴", text: `Worst sessions average ${avgErrors.toFixed(1)} errors per session.` }); }
+  if (avgFrustrated > 3) { insights.push({ severity: "warning", icon: "😤", text: `Worst sessions average ${avgFrustrated.toFixed(1)} frustrated actions — users are repeatedly hitting performance walls.` }); }
+
   recs.push({ impact: "medium", text: "Set up automated alerting for sessions exceeding error or duration thresholds to catch regressions early." });
+  if (sharedErrors.length > 1) recs.push({ impact: "high", text: `${sharedErrors.length} error types appear in 3+ worst sessions. Prioritize these shared errors for maximum cross-session improvement.` });
 
-  const summary = `Worst Sessions surfaces the most problematic user sessions ranked by a composite impact score combining error count, frustrated actions, and session duration. This tab is designed for QA Engineers reproducing bugs, Support Teams investigating customer complaints, and UX Researchers observing real user struggles. It answers: Which specific sessions had the worst experience? What errors did they encounter? How long did they spend struggling? Each session links directly to Dynatrace Session Replay for visual playback — you can watch exactly what the user saw, clicked, and experienced. Currently ${records.length} worst sessions are identified with an average of ${avgErrors.toFixed(1)} errors per session. The tab shows session duration, error count, device, browser, country, and a direct Replay link for each. Use this as your starting point when investigating user-reported issues or when you need concrete evidence of UX problems to justify engineering investment.`;
+  const summary = `Worst Sessions uses an AI-driven Impact Score to rank sessions by their likelihood of representing systemic issues vs. isolated outliers. The scoring model uses z-score normalization across four severity dimensions (errors, frustrated actions, avg latency, max latency) weighted by a systemic multiplier — sessions whose error types and behavioral fingerprints appear across multiple other sessions score higher, while unique edge cases are dampened. This helps teams focus on the sessions that represent the biggest patterns, not just the loudest single failures. The "Sessions Like This" cluster count reveals how many other sessions share the same behavioral fingerprint (error types + performance bucket + frustration level). Currently analyzing ${records.length} worst sessions: ${systemicSessions} classified as systemic (shared patterns) and ${records.length - systemicSessions} as outliers. ${sharedErrors.length > 0 ? `${sharedErrors.length} error type(s) appear in 3+ sessions, indicating repeatable failure modes.` : "No dominant shared error patterns detected."} The Pattern Clusters section groups sessions by behavioral fingerprint to reveal whether bad experiences are concentrated around specific failure modes or distributed randomly. Use this tab to distinguish "many users hit the same bug" from "one user had a uniquely bad day."`;
   return { summary, insights, recommendations: recs };
 }
 
@@ -4350,13 +4381,112 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWorstSessions(data), [data]));
   if (isLoading) return <Loading />;
 
-  const sessions = (data.data?.records ?? []) as any[];
+  const rawSessions = (data.data?.records ?? []) as any[];
+
+  // === ML-driven Impact Score & Clustering ===
+  const { scored, clusters } = useMemo(() => {
+    if (rawSessions.length === 0) return { scored: [], clusters: new Map<string, number>() };
+
+    // Extract features for each session
+    const features = rawSessions.map((s: any) => {
+      const errors = Number(s.errors ?? 0);
+      const frustrated = Number(s.frustrated ?? 0);
+      const actions = Number(s.actions ?? 0);
+      const avgDur = Number(s.avg_dur ?? 0);
+      const maxDur = Number(s.max_dur ?? 0);
+      const pages = (Array.isArray(s.pages) ? s.pages : []).filter((p: string) => p && p !== "unknown") as string[];
+      const errorTypes = (Array.isArray(s.error_types) ? s.error_types : []).filter((e: string) => e && e !== "") as string[];
+      return { errors, frustrated, actions, avgDur, maxDur, pages, errorTypes };
+    });
+
+    // Compute population statistics for z-score normalization
+    const allErrors = features.map(f => f.errors);
+    const allFrustrated = features.map(f => f.frustrated);
+    const allAvgDur = features.map(f => f.avgDur);
+    const allMaxDur = features.map(f => f.maxDur);
+
+    const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const std = (arr: number[]) => { const m = mean(arr); const v = arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length; return Math.sqrt(v) || 1; };
+
+    const errMean = mean(allErrors), errStd = std(allErrors);
+    const fruMean = mean(allFrustrated), fruStd = std(allFrustrated);
+    const avgDurMean = mean(allAvgDur), avgDurStd = std(allAvgDur);
+    const maxDurMean = mean(allMaxDur), maxDurStd = std(allMaxDur);
+
+    // Count how many sessions share each error type and page
+    const errorFreq = new Map<string, number>();
+    const pageFreq = new Map<string, number>();
+    for (const f of features) {
+      for (const e of f.errorTypes) errorFreq.set(e, (errorFreq.get(e) ?? 0) + 1);
+      for (const p of f.pages) pageFreq.set(p, (pageFreq.get(p) ?? 0) + 1);
+    }
+
+    // Build fingerprint for clustering (error types + high-duration bucket + frustrated bucket)
+    const fingerprints: string[] = features.map(f => {
+      const errFp = f.errorTypes.sort().join("|") || "no-errors";
+      const durBucket = f.avgDur > 5000 ? "very-slow" : f.avgDur > 2000 ? "slow" : "normal";
+      const fruBucket = f.frustrated > 5 ? "high-fru" : f.frustrated > 0 ? "some-fru" : "no-fru";
+      return `${errFp}::${durBucket}::${fruBucket}`;
+    });
+
+    // Count cluster sizes
+    const clusterCounts = new Map<string, number>();
+    for (const fp of fingerprints) clusterCounts.set(fp, (clusterCounts.get(fp) ?? 0) + 1);
+
+    // Compute impact score per session
+    // Higher score = more likely systemic (shared errors/pages across sessions)
+    // Lower score = more likely outlier (unique pattern)
+    const scored = rawSessions.map((s: any, i: number) => {
+      const f = features[i];
+
+      // Severity component: z-score normalized (how bad is this session?)
+      const errZ = (f.errors - errMean) / errStd;
+      const fruZ = (f.frustrated - fruMean) / fruStd;
+      const avgDurZ = (f.avgDur - avgDurMean) / avgDurStd;
+      const maxDurZ = (f.maxDur - maxDurMean) / maxDurStd;
+      const severityScore = Math.max(0, (errZ * 0.35 + fruZ * 0.30 + avgDurZ * 0.20 + maxDurZ * 0.15));
+
+      // Systemic component: how many other sessions share same errors/pages?
+      let sharedErrScore = 0;
+      for (const e of f.errorTypes) {
+        const freq = errorFreq.get(e) ?? 0;
+        sharedErrScore += freq / rawSessions.length; // 0..1 per error type
+      }
+      sharedErrScore = f.errorTypes.length > 0 ? sharedErrScore / f.errorTypes.length : 0;
+
+      let sharedPageScore = 0;
+      for (const p of f.pages) {
+        const freq = pageFreq.get(p) ?? 0;
+        sharedPageScore += freq / rawSessions.length;
+      }
+      sharedPageScore = f.pages.length > 0 ? sharedPageScore / f.pages.length : 0;
+
+      const systemicScore = sharedErrScore * 0.7 + sharedPageScore * 0.3;
+
+      // Combined impact: severity weighted by how systemic it is
+      // systemic issues get boosted, outliers get dampened
+      const rawImpact = severityScore * (0.4 + systemicScore * 0.6);
+      const impactScore = Math.min(100, Math.round(rawImpact * 25));
+
+      const clusterSize = clusterCounts.get(fingerprints[i]) ?? 1;
+      const isSystemic = systemicScore > 0.4;
+
+      return { ...s, _impactScore: impactScore, _clusterSize: clusterSize, _isSystemic: isSystemic, _systemicScore: systemicScore, _fingerprint: fingerprints[i] };
+    });
+
+    // Sort by impact score descending
+    scored.sort((a: any, b: any) => b._impactScore - a._impactScore);
+
+    return { scored: scored.slice(0, 25), clusters: clusterCounts };
+  }, [rawSessions]);
+
+  const sessions = scored;
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
       <SectionHeader title="Worst-Performing Sessions" />
-      <Text style={{ fontSize: 12, opacity: 0.5 }}>Sessions ranked by frustrated actions, errors, and slowness. Click Replay to open in Dynatrace Session Replay.</Text>
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Sessions ranked by AI Impact Score — a weighted composite of severity (errors, frustrated actions, latency) and systemic likelihood (shared error patterns across sessions). Higher scores indicate systemic issues affecting multiple users.</Text>
 
       {sessions.length === 0 ? (
         <div className="uj-table-tile" style={{ padding: 24 }}><Text>No session data in selected timeframe</Text></div>
@@ -4376,6 +4506,9 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
                 Session: sid.length > 16 ? sid.substring(0, 16) + "..." : sid,
                 SessionFull: sid,
                 StartTs: startTs,
+                Impact: s._impactScore,
+                Cluster: s._clusterSize,
+                IsSystemic: s._isSystemic,
                 Actions: actions,
                 "Avg (ms)": Number(s.avg_dur ?? 0),
                 "Max (ms)": Number(s.max_dur ?? 0),
@@ -4385,6 +4518,21 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
               };
             })}
             columns={[
+              { id: "Impact", header: "Impact", accessor: "Impact", sortType: "number" as any, cell: ({ value, rowData }: any) => {
+                const clr = value >= 70 ? RED : value >= 40 ? ORANGE : value >= 20 ? YELLOW : GREEN;
+                return (
+                  <Flex alignItems="center" gap={6}>
+                    <div style={{ width: 36, height: 20, borderRadius: 4, background: `${clr}20`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Strong style={{ fontSize: 11, color: clr }}>{value}</Strong>
+                    </div>
+                    {rowData.IsSystemic && <span style={{ fontSize: 9, fontWeight: 700, color: RED, background: `${RED}15`, padding: "1px 4px", borderRadius: 3 }}>SYSTEMIC</span>}
+                  </Flex>
+                );
+              }},
+              { id: "Cluster", header: "Like This", accessor: "Cluster", sortType: "number" as any, cell: ({ value }: any) => {
+                const clr = value >= 5 ? RED : value >= 3 ? ORANGE : "rgba(128,128,128,0.6)";
+                return <Text style={{ fontSize: 12, fontWeight: 600, color: clr }}>{value === 1 ? "unique" : `${value} sessions`}</Text>;
+              }},
               { id: "Session", header: "Session", accessor: "Session", cell: ({ value, rowData }: any) => {
                 const url = sessionReplayUrl(rowData.SessionFull, rowData.StartTs);
                 return ENV_URL ? (
@@ -4402,6 +4550,56 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
         </div>
       )}
 
+      {/* Cluster analysis summary */}
+      {sessions.length > 0 && (
+        <>
+          <SectionHeader title="Pattern Clusters" />
+          <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 8 }}>Sessions grouped by behavioral fingerprint (error types + performance bucket + frustration level). Larger clusters indicate systemic issues affecting many users in the same way.</Text>
+          <Flex gap={12} flexWrap="wrap">
+            {(() => {
+              const clusterEntries = [...clusters.entries()].filter(([, count]) => count > 1).sort((a, b) => b[1] - a[1]).slice(0, 6);
+              const systemicCount = sessions.filter((s: any) => s._isSystemic).length;
+              const outlierCount = sessions.length - systemicCount;
+              return (
+                <>
+                  <div className="uj-kpi-card">
+                    <Text className="uj-kpi-label">Systemic</Text>
+                    <Heading level={3} className="uj-kpi-value" style={{ color: RED }}>{systemicCount}</Heading>
+                    <Text style={{ fontSize: 10, opacity: 0.5 }}>shared patterns</Text>
+                  </div>
+                  <div className="uj-kpi-card">
+                    <Text className="uj-kpi-label">Outliers</Text>
+                    <Heading level={3} className="uj-kpi-value" style={{ color: GREEN }}>{outlierCount}</Heading>
+                    <Text style={{ fontSize: 10, opacity: 0.5 }}>unique edge cases</Text>
+                  </div>
+                  <div className="uj-kpi-card">
+                    <Text className="uj-kpi-label">Distinct Patterns</Text>
+                    <Heading level={3} className="uj-kpi-value" style={{ color: BLUE }}>{clusters.size}</Heading>
+                    <Text style={{ fontSize: 10, opacity: 0.5 }}>behavioral clusters</Text>
+                  </div>
+                  {clusterEntries.length > 0 && (
+                    <div style={{ width: "100%", marginTop: 8 }}>
+                      {clusterEntries.map(([fp, count], j) => {
+                        const parts = fp.split("::");
+                        const label = parts[0] === "no-errors" ? `${parts[1]}, ${parts[2]}` : `${parts[0].split("|").slice(0, 2).join(", ")}${parts[0].split("|").length > 2 ? " +more" : ""} · ${parts[1]}`;
+                        return (
+                          <Flex key={j} alignItems="center" gap={8} style={{ marginBottom: 4 }}>
+                            <div style={{ width: 28, height: 16, borderRadius: 3, background: `${RED}18`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <Text style={{ fontSize: 10, fontWeight: 700, color: RED }}>{count}</Text>
+                            </div>
+                            <Text style={{ fontSize: 11, opacity: 0.7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</Text>
+                          </Flex>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </Flex>
+        </>
+      )}
+
       {/* Summary cards */}
       {sessions.length > 0 && (
         <>
@@ -4412,7 +4610,9 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
               const totalErrors = sessions.reduce((a: number, s: any) => a + Number(s.errors ?? 0), 0);
               const avgMaxDur = sessions.reduce((a: number, s: any) => a + Number(s.max_dur ?? 0), 0) / sessions.length;
               const worstApdex = Math.min(...sessions.map((s: any) => calcApdex(Number(s.satisfied ?? 0), Number(s.tolerating ?? 0), Number(s.actions ?? 0))));
+              const avgImpact = Math.round(sessions.reduce((a: number, s: any) => a + (s._impactScore ?? 0), 0) / sessions.length);
               return [
+                { label: "Avg Impact Score", value: String(avgImpact), color: avgImpact >= 50 ? RED : avgImpact >= 25 ? ORANGE : GREEN },
                 { label: "Frustrated Actions (top 25)", value: fmtCount(totalFrustrated), color: RED },
                 { label: "Total Errors (top 25)", value: fmtCount(totalErrors), color: RED },
                 { label: "Avg Peak Duration", value: fmt(avgMaxDur), color: avgMaxDur > 10000 ? RED : ORANGE },
