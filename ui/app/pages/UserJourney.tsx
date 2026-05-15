@@ -1115,7 +1115,7 @@ function resourceSessionDrillQuery(days: number, frontend: string, steps: StepDe
 | fieldsAdd lp = lower(coalesce(url.path, ""))
 | fieldsAdd res_type = ${RES_TYPE_EXPR}
 | fieldsAdd res_name = coalesce(url.full, url.path, "unknown")
-| fieldsAdd sid = user_session.id
+| fieldsAdd sid = dt.rum.session.id
 | sort res_dur_ms desc
 | limit 50
 | fields sid, res_name, res_type, res_dur_ms, step_tag, timestamp`;
