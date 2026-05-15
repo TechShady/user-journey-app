@@ -11354,16 +11354,7 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
   }
 
   function getSloCreateUrl(slo: { name: string; target: number; direction: string }) {
-    const sloName = encodeURIComponent(`User Journey – ${slo.name} SLO (${frontend})`);
-    const metric = slo.name === "Apdex" ? "builtin:apps.web.apdex.userType" :
-      slo.name === "Error Rate" ? "builtin:apps.web.actionCount.category" :
-      slo.name === "LCP" ? "builtin:apps.web.webVitals.lcp" :
-      slo.name === "CLS" ? "builtin:apps.web.webVitals.cls" :
-      slo.name === "INP" ? "builtin:apps.web.webVitals.inp" :
-      "builtin:apps.web.webVitals.ttfb";
-    const target = slo.target;
-    const comparison = slo.direction === "above" ? "GTE" : "LTE";
-    return `${ENV_URL}/ui/settings/builtin:monitoring.slo?create=true&name=${sloName}&metricExpression=${encodeURIComponent(metric)}&target=${target}&comparison=${comparison}&evaluationType=AGGREGATE&filter=type%28%22APPLICATION%22%29%2CentityName%28%22${encodeURIComponent(frontend)}%22%29`;
+    return `${ENV_URL}/ui/apps/dynatrace.service.level.objectives`;
   }
 
   const apdexRecords = (apdexTrend.data?.records ?? []) as any[];
@@ -11468,14 +11459,14 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
                 {editing === slo.name ? (
                   <Flex gap={4} alignItems="center" style={{ marginTop: 2 }}>
                     <input type="number" step="any" value={editVal} onChange={e => setEditVal(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commitEdit(slo.name); if (e.key === "Escape") setEditing(null); }} autoFocus style={{ width: 70, fontSize: 13, padding: "2px 4px", background: "rgba(128,128,128,0.1)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 3, color: "inherit" }} />
-                    <span onClick={() => commitEdit(slo.name)} style={{ cursor: "pointer", fontSize: 14, color: GREEN }} title="Save">\u2713</span>
-                    <span onClick={() => setEditing(null)} style={{ cursor: "pointer", fontSize: 14, opacity: 0.5 }} title="Cancel">\u2717</span>
+                    <span onClick={() => commitEdit(slo.name)} style={{ cursor: "pointer", fontSize: 14, color: GREEN }} title="Save">{"\u2713"}</span>
+                    <span onClick={() => setEditing(null)} style={{ cursor: "pointer", fontSize: 14, opacity: 0.5 }} title="Cancel">{"\u2717"}</span>
                   </Flex>
                 ) : (
                   <Flex gap={4} alignItems="center">
                     <Text style={{ display: "block", fontSize: 14 }}>{slo.direction === "above" ? "\u2265" : "\u2264"} {slo.format(slo.target)}</Text>
-                    <span onClick={() => startEdit(slo.name)} style={{ cursor: "pointer", fontSize: 13, opacity: 0.5 }} title="Edit target">\u270e</span>
-                    {targets[slo.name] !== DEFAULT_SLO_TARGETS[slo.name] && <span onClick={() => resetTarget(slo.name)} style={{ cursor: "pointer", fontSize: 11, opacity: 0.4 }} title="Reset to default">\u21ba</span>}
+                    <span onClick={() => startEdit(slo.name)} style={{ cursor: "pointer", fontSize: 13, opacity: 0.5 }} title="Edit target">{"\u270e"}</span>
+                    {targets[slo.name] !== DEFAULT_SLO_TARGETS[slo.name] && <span onClick={() => resetTarget(slo.name)} style={{ cursor: "pointer", fontSize: 11, opacity: 0.4 }} title="Reset to default">{"\u21ba"}</span>}
                   </Flex>
                 )}
               </div>
