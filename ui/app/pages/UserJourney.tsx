@@ -4108,6 +4108,15 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
 function StepDetailsTab({ stepMap, pageMap, cwvByPage, isLoading, appEntityId, steps, aov = 0, funnelCounts = [] }: { stepMap: Map<string, any>; pageMap: Map<string, any>; cwvByPage: any; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov?: number; funnelCounts?: number[] }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeStepDetails(stepMap, steps, funnelCounts), [stepMap, steps, funnelCounts]));
   const [compareSteps, setCompareSteps] = React.useState<Set<number>>(new Set());
+  const [cwvSteps, setCwvSteps] = React.useState<Set<number>>(new Set());
+
+  const toggleCwv = (idx: number) => {
+    setCwvSteps(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
 
   // Build CWV lookup map: pageName → { lcp, cls, inp }
   const cwvMap = useMemo(() => {
@@ -4215,6 +4224,9 @@ function StepDetailsTab({ stepMap, pageMap, cwvByPage, isLoading, appEntityId, s
               {isMulti && (
                 <button onClick={() => toggleCompare(i)} style={{ marginLeft: 8, padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: `1px solid ${isComparing ? PURPLE : "rgba(128,128,128,0.3)"}`, background: isComparing ? `${PURPLE}20` : "transparent", color: isComparing ? PURPLE : "rgba(128,128,128,0.7)", cursor: "pointer" }}>{isComparing ? "Hide Compare" : "Compare Pages"}</button>
               )}
+              {!isMulti && (
+                <button onClick={() => toggleCwv(i)} style={{ marginLeft: 8, padding: "3px 10px", fontSize: 11, fontWeight: 600, borderRadius: 4, border: `1px solid ${cwvSteps.has(i) ? CYAN : "rgba(128,128,128,0.3)"}`, background: cwvSteps.has(i) ? `${CYAN}20` : "transparent", color: cwvSteps.has(i) ? CYAN : "rgba(128,128,128,0.7)", cursor: "pointer" }}>{cwvSteps.has(i) ? "Hide Vitals" : "Web Vitals"}</button>
+              )}
               <div style={{ marginLeft: "auto" }}><ApdexGauge score={met.apdex} size={64} label="Apdex" /></div>
             </Flex>
 
@@ -4249,6 +4261,35 @@ function StepDetailsTab({ stepMap, pageMap, cwvByPage, isLoading, appEntityId, s
                   })}
                 </div>
               );
+            })()}
+
+            {/* CWV panel for single-page steps */}
+            {!isMulti && cwvSteps.has(i) && (() => {
+              const pid = step.identifiers[0];
+              let pageCwv = cwvMap.get(pid);
+              if (!pageCwv) { for (const [k, v] of cwvMap) { if (identifierMatchesLabel(pid, k)) { pageCwv = v; break; } } }
+              return pageCwv ? (
+                <div style={{ marginTop: 12, padding: "12px 14px", background: `${CYAN}08`, borderRadius: 8, border: `1px solid ${CYAN}20` }}>
+                  <Text style={{ fontSize: 12, fontWeight: 700, opacity: 0.6, marginBottom: 8, display: "block" }}>Core Web Vitals</Text>
+                  <Flex gap={16}>
+                    <div className="uj-metric-box">
+                      <Text className="uj-metric-label">LCP</Text>
+                      <Strong className="uj-metric-value" style={{ color: pageCwv.lcp <= CWV.lcp.good ? GREEN : pageCwv.lcp <= CWV.lcp.poor ? YELLOW : RED }}>{pageCwv.lcp < 1000 ? `${Math.round(pageCwv.lcp)}ms` : `${(pageCwv.lcp / 1000).toFixed(2)}s`}</Strong>
+                      <Text style={{ fontSize: 10, opacity: 0.5 }}>{pageCwv.lcp <= CWV.lcp.good ? "Good" : pageCwv.lcp <= CWV.lcp.poor ? "Needs Improvement" : "Poor"}</Text>
+                    </div>
+                    <div className="uj-metric-box">
+                      <Text className="uj-metric-label">CLS</Text>
+                      <Strong className="uj-metric-value" style={{ color: pageCwv.cls <= CWV.cls.good ? GREEN : pageCwv.cls <= CWV.cls.poor ? YELLOW : RED }}>{pageCwv.cls.toFixed(3)}</Strong>
+                      <Text style={{ fontSize: 10, opacity: 0.5 }}>{pageCwv.cls <= CWV.cls.good ? "Good" : pageCwv.cls <= CWV.cls.poor ? "Needs Improvement" : "Poor"}</Text>
+                    </div>
+                    <div className="uj-metric-box">
+                      <Text className="uj-metric-label">INP</Text>
+                      <Strong className="uj-metric-value" style={{ color: pageCwv.inp <= CWV.inp.good ? GREEN : pageCwv.inp <= CWV.inp.poor ? YELLOW : RED }}>{Math.round(pageCwv.inp)}ms</Strong>
+                      <Text style={{ fontSize: 10, opacity: 0.5 }}>{pageCwv.inp <= CWV.inp.good ? "Good" : pageCwv.inp <= CWV.inp.poor ? "Needs Improvement" : "Poor"}</Text>
+                    </div>
+                  </Flex>
+                </div>
+              ) : <Text style={{ fontSize: 12, opacity: 0.5, marginTop: 8 }}>No CWV data available for this page.</Text>;
             })()}
 
             {/* Per-page comparison (when toggled) */}
