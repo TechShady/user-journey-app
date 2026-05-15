@@ -506,6 +506,31 @@ function trendsSparklineQuery(days: number, frontend: string, steps: StepDef[]):
 | sort slot_day asc`;
 }
 
+function trendsConvSparklineQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days, false);
+  const binSize = days < 1 ? '1h' : days <= 3 ? '6h' : '1d';
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(',\n');
+  const convertedConds = steps.map((_, i) => `reached_step${i + 1} == true`).join(' and ');
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter ${anyStepFilter(steps)}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd slot_day = bin(start_time, ${binSize})
+| summarize
+    steps = collectDistinct(step_tag),
+    by: {dt.rum.session.id, slot_day}
+| fieldsAdd
+${iAnyLines}
+| fieldsAdd converted = if(${convertedConds}, true, else: false)
+| summarize
+    total_sessions = count(),
+    converted_sessions = countIf(converted == true),
+    by: {slot_day}
+| fieldsAdd conv_rate = if(total_sessions > 0, toDouble(converted_sessions) / toDouble(total_sessions) * 100.0, else: 0.0)
+| sort slot_day asc`;
+}
+
 function sessionQualityQuery(days: number, frontend: string, steps: StepDef[], prev = false, nonce = 0): string {
   const period = periodClause(days, prev);
   return `// ${nonce}
@@ -2270,6 +2295,7 @@ export function UserJourney() {
   const funnelResultPrev = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, true) });
   const qualityDataPrev = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, true) });
   const sparklineData = useDql({ query: trendsSparklineQuery(timeframeDays, frontend, steps) });
+  const convSparklineData = useDql({ query: trendsConvSparklineQuery(timeframeDays, frontend, steps) });
 
   // Today's hourly funnel data for predictive EOD model
   const todayFunnelData = useDql({ query: todayFunnelHourlyQuery(frontend, steps) });
@@ -2436,7 +2462,7 @@ export function UserJourney() {
           <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.69</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.70</Text>
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -2619,7 +2645,7 @@ export function UserJourney() {
           let content: React.ReactNode = null;
           switch (tabId) {
             case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} pageMap={pageMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} />; break;
-            case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} />; break;
+            case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} pageMap={pageMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />; break;
@@ -3756,7 +3782,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
 // ===========================================================================
 // TAB: Trends (Period-over-Period Comparison) — NEW
 // ===========================================================================
-function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, isLoading, steps, aov, sparklineRecords }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; isLoading: boolean; steps: StepDef[]; aov: number; sparklineRecords: any[] }) {
+function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, isLoading, steps, aov, sparklineRecords, convSparklineRecords }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; isLoading: boolean; steps: StepDef[]; aov: number; sparklineRecords: any[]; convSparklineRecords: any[] }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeTrends(quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov), [quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov]));
 
   if (isLoading) return <Loading />;
@@ -3785,6 +3811,12 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
     apdex:     sparkRows.map((r: any) => r.total > 0 ? calcApdex(r.satisfied, r.tolerating, r.total) : 0),
     frustrated: sparkRows.map((r: any) => r.frustrated),
   };
+  const convSparkRows = convSparklineRecords.map((r: any) => ({
+    conv_rate: Number(r.conv_rate ?? 0),
+    converted_sessions: Number(r.converted_sessions ?? 0),
+  }));
+  sparkSeries['convRate'] = convSparkRows.map((r: any) => r.conv_rate);
+  sparkSeries['revenue']  = convSparkRows.map((r: any) => r.converted_sessions * aov);
 
   // Z-score anomaly: is the current period value unusual vs the daily series?
   function anomalySignal(series: number[], current: number, inverted: boolean): "anomaly" | "notable" | "normal" | null {
@@ -3802,8 +3834,8 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
   const trends = [
     { label: "Sessions",      current: quality.sessions,   prev: qualityPrev.sessions,   inverted: false, format: fmtCount,                         sparkKey: "sessions"   as string | null },
     { label: "Total Actions", current: quality.total,      prev: qualityPrev.total,      inverted: false, format: fmtCount,                         sparkKey: "total"      as string | null },
-    { label: "Conversion Rate", current: overallConv,      prev: overallConvPrev,         inverted: false, format: fmtPct,                           sparkKey: null },
-    ...(aov > 0 ? [{ label: "Revenue",  current: currRevenue,        prev: prevRevenue,           inverted: false, format: fmtCurrency,                      sparkKey: null as string | null }] : []),
+    { label: "Conversion Rate", current: overallConv,      prev: overallConvPrev,         inverted: false, format: fmtPct,                           sparkKey: "convRate" as string | null },
+    ...(aov > 0 ? [{ label: "Revenue",  current: currRevenue,        prev: prevRevenue,           inverted: false, format: fmtCurrency,                      sparkKey: "revenue" as string | null }] : []),
     { label: "Apdex",         current: overallApdex,       prev: overallApdexPrev,        inverted: false, format: (v: number) => v.toFixed(2),     sparkKey: "apdex"      as string | null },
     { label: "Avg Duration",  current: quality.avg,        prev: qualityPrev.avg,         inverted: true,  format: fmt,                             sparkKey: "avg_dur"    as string | null },
     { label: "P50 Duration",  current: quality.p50,        prev: qualityPrev.p50,         inverted: true,  format: fmt,                             sparkKey: "p50_dur"    as string | null },
