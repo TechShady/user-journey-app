@@ -430,11 +430,13 @@ function cwvByPageQuery(days: number, frontend: string): string {
 | fieldsAdd
     lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
     cls_val = toDouble(web_vitals.cumulative_layout_shift),
+    inp_ms = toDouble(web_vitals.interaction_to_next_paint) / 1000000.0,
     ttfb_ms = toDouble(web_vitals.time_to_first_byte) / 1000000.0,
     fcp_ms = toDouble(web_vitals.first_contentful_paint) / 1000000.0
 | summarize
     lcp_avg = avg(lcp_ms),
     cls_avg = avg(cls_val),
+    inp_avg = avg(inp_ms),
     ttfb_avg = avg(ttfb_ms),
     load_avg = avg(fcp_ms),
     by: {pageName}
@@ -1996,6 +1998,13 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 15, 2026</Paragraph>
+            <Paragraph><Strong>Step Details — Page Drop-off Funnel &amp; Core Web Vitals</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Page Drop-off Contributors</Strong> funnel: For multi-page steps, a visual bar chart shows which pages within each step have the highest vs. lowest traffic — bars are color-coded by Apdex quality and sorted by event count, with drop percentage indicators</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Core Web Vitals per page</Strong>: The Compare Pages view now overlays LCP, CLS, and INP for each page, color-coded against Google's Good/Needs Improvement/Poor thresholds</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Instantly identify which specific pages within a multi-page step are contributing most to user drop-off and have the worst performance</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 15, 2026</Paragraph>
             <Paragraph><Strong>Auto-Refresh — Live Data Updates Without Page Reload</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Auto-Refresh selector</Strong> in the header bar (next to Timeframe) with options: Off, 30 seconds, 1 minute, 5 minutes, 10 minutes</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• When enabled, <Strong>all DQL queries across every tab</Strong> automatically re-execute at the selected interval — data values update seamlessly in-place without a page refresh</Paragraph>
@@ -2098,7 +2107,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Funnel Overview</Strong>: KPI bar (sessions, conversions, conversion rate, Apdex, error rate, avg duration). Organized into 4 sub-tabs: <Strong>Conversion Funnel</Strong> — Apdex satisfaction breakdown tile, 5 chart styles (<Strong>Classic</Strong> tapered SVG, <Strong>Horizontal Bar</Strong> waterfall, <Strong>Stacked Cohort</Strong> Marimekko, <Strong>Elapsed-Time Curve</Strong> survival curve, <Strong>Comparison Split</Strong> mirror funnel), and a Compare toggle that overlays the previous period as dashed outlines. Default style configurable via Settings. <Strong>Predictive Model</Strong> — appears once ≥2 hourly data points exist for today; fits a linear regression on this-morning's hourly conversion rates and projects the end-of-day rate, hourly velocity, confidence score, and hours remaining on a sparkline with a dashed projection line. <Strong>Step Analysis</Strong> — sortable table of every funnel step with sessions, avg/P90 duration, Apdex, conversion %, abandons, and errors. <Strong>Per-Page Breakdown</Strong> — per-page metrics for steps that span multiple page identifiers; shows sessions, Apdex, avg/P90, errors, and a satisfaction mini-bar per page.</Paragraph>
         <Paragraph><Strong>Trends</Strong>: Period-over-period comparison of all key metrics across 11 cards (Sessions, Total Actions, Conversion Rate, Apdex, Avg/P50/P90 Duration, Error Rate, Errors, Frustrated, and optionally Revenue when AOV is set). Each card shows: current value with color-coded delta arrow, a <Strong>daily sparkline</Strong> tracing the metric's shape across the current period, and an inline <Strong>anomaly badge</Strong> — <Strong>⚠ Anomaly</Strong> (current value exceeds 2 std dev of daily variance — statistically unusual), <Strong>↑ Notable</Strong> (1.2–2 std dev — worth watching), or <Strong>∿ Normal</Strong> (&lt;1.2 std dev — within expected noise). Inverted logic applies for duration/errors (lower = better). Use anomaly badges to distinguish real regressions from day-to-day noise. The AI Insights panel at the top narrates the most critical changes and recommends next steps.</Paragraph>
         <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), page-level CWV breakdown, and performance health score.</Paragraph>
-        <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99). For steps with multiple pages, a <Strong>Compare Pages</Strong> button reveals per-page metrics with the first page as the primary baseline — delta indicators show how each additional page performs relative to it.</Paragraph>
+        <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99). For multi-page steps: a <Strong>Page Drop-off Contributors</Strong> funnel shows which pages within each step have the highest traffic volume vs. drop-off — bars are color-coded by Apdex (green/amber/red) and sorted by event count, with a percentage drop indicator showing how each page compares to the top contributor. A <Strong>Compare Pages</Strong> button reveals per-page metrics with the first page as the primary baseline — delta indicators show how each additional page performs relative to it. Each per-page breakdown now includes <Strong>Core Web Vitals (LCP, CLS, INP)</Strong> color-coded against Google thresholds for instant performance assessment.</Paragraph>
         <Paragraph><Strong>Worst Sessions</Strong>: Surfaces the worst-performing sessions ranked by frustrated actions, errors, and slowness. Each session links directly to <Strong>Dynatrace Session Replay</Strong> for instant root-cause analysis.</Paragraph>
         <Paragraph><Strong>Exceptions</Strong>: JavaScript exceptions grouped by error name. Shows occurrences, affected sessions, error velocity (new vs. recurring), and impacted pages. Helps prioritize which errors to fix first.</Paragraph>
         <Paragraph><Strong>Click Issues</Strong>: Detects rage clicks (rapid repeated clicks indicating frustration) and dead clicks (clicks on non-responsive elements). Shows the worst offending elements, pages, and session impact to guide UX fixes.</Paragraph>
@@ -2711,7 +2720,7 @@ export function UserJourney() {
             case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallApdex={overallApdex} stepMap={stepMap} pageMap={pageMap} quality={quality} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
-            case "Step Details": content = <StepDetailsTab stepMap={stepMap} pageMap={pageMap} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
+            case "Step Details": content = <StepDetailsTab stepMap={stepMap} pageMap={pageMap} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />; break;
             case "Exceptions": content = <JSErrorsTab data={jsErrorsData} isLoading={jsErrorsData.isLoading} frontend={frontend} />; break;
             case "Click Issues": content = <ClickIssuesTab data={clickIssuesData} isLoading={clickIssuesData.isLoading} />; break;
@@ -3021,7 +3030,7 @@ function analyzeStepDetails(stepMap: Map<string, any>, steps: StepDef[], funnelC
   if (slowSteps > 0) recs.push({ impact: "medium", text: `${slowSteps} step(s) have P90 > 5s. Consider server-side caching, lazy loading, or code splitting for these pages.` });
 
   const multiPageSteps = steps.filter(s => s.identifiers.length > 1).length;
-  const summary = `Step Details provides a granular deep dive into each individual funnel step, revealing exactly where performance bottlenecks and user satisfaction issues exist at the page level. This tab is built for Performance Engineers diagnosing slow pages, UX Researchers understanding per-page user satisfaction, and Backend Engineers identifying which APIs or services need optimization. It answers: Which specific funnel steps have poor user satisfaction? What are the P50, P90, and P99 response time percentiles for each step? How is satisfaction distributed (satisfied vs. tolerating vs. frustrated) at each stage? Currently evaluating ${steps.length} funnel steps${multiPageSteps > 0 ? ` (${multiPageSteps} with multiple pages — use the Compare Pages button to see per-page breakdowns with delta indicators against the primary page)` : ""}. ${poorApdexSteps > 0 ? `${poorApdexSteps} step(s) have Poor Apdex (<0.50), meaning the majority of users at these steps are frustrated — these are your most urgent optimization targets.` : "All steps have acceptable Apdex scores, indicating generally satisfied users across the funnel."} ${slowSteps > 0 ? `${slowSteps} step(s) have P90 response times exceeding 5 seconds, meaning 10% of users at these steps experience unacceptable waits.` : ""} Each step shows an Apdex gauge, satisfaction breakdown bar (green/amber/red segments), and duration percentile distribution. For multi-page steps, the Compare view shows each page independently with its own Apdex, durations, and satisfaction counts — the first page is the primary baseline and all other pages show delta percentages against it.`;
+  const summary = `Step Details provides a granular deep dive into each individual funnel step, revealing exactly where performance bottlenecks and user satisfaction issues exist at the page level. This tab is built for Performance Engineers diagnosing slow pages, UX Researchers understanding per-page user satisfaction, and Backend Engineers identifying which APIs or services need optimization. It answers: Which specific funnel steps have poor user satisfaction? What are the P50, P90, and P99 response time percentiles for each step? How is satisfaction distributed (satisfied vs. tolerating vs. frustrated) at each stage? Which pages within a step are the highest drop-off contributors? What are the Core Web Vitals (LCP, CLS, INP) per page? Currently evaluating ${steps.length} funnel steps${multiPageSteps > 0 ? ` (${multiPageSteps} with multiple pages — the Page Drop-off Contributors funnel shows traffic distribution within each step ranked by volume, and the Compare Pages view reveals per-page metrics with CWV overlay)` : ""}. ${poorApdexSteps > 0 ? `${poorApdexSteps} step(s) have Poor Apdex (<0.50), meaning the majority of users at these steps are frustrated — these are your most urgent optimization targets.` : "All steps have acceptable Apdex scores, indicating generally satisfied users across the funnel."} ${slowSteps > 0 ? `${slowSteps} step(s) have P90 response times exceeding 5 seconds, meaning 10% of users at these steps experience unacceptable waits.` : ""} Each step shows an Apdex gauge, satisfaction breakdown bar (green/amber/red segments), and duration percentile distribution. For multi-page steps, the Page Drop-off Contributors funnel ranks pages by event count (color-coded by Apdex quality) so you can instantly see which page variant loses the most users. The Compare view shows each page independently with LCP/CLS/INP color-coded against Google thresholds, plus per-page Apdex, durations, and satisfaction counts — the first page is the primary baseline and all other pages show delta percentages against it.`;
   return { summary, insights, recommendations: recs };
 }
 
@@ -4096,9 +4105,19 @@ function WebVitalsTab({ cwv: v, cwvByPage, isLoading, appEntityId }: { cwv: { lc
 // ===========================================================================
 // TAB: Step Details
 // ===========================================================================
-function StepDetailsTab({ stepMap, pageMap, isLoading, appEntityId, steps, aov = 0, funnelCounts = [] }: { stepMap: Map<string, any>; pageMap: Map<string, any>; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov?: number; funnelCounts?: number[] }) {
+function StepDetailsTab({ stepMap, pageMap, cwvByPage, isLoading, appEntityId, steps, aov = 0, funnelCounts = [] }: { stepMap: Map<string, any>; pageMap: Map<string, any>; cwvByPage: any; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov?: number; funnelCounts?: number[] }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeStepDetails(stepMap, steps, funnelCounts), [stepMap, steps, funnelCounts]));
   const [compareSteps, setCompareSteps] = React.useState<Set<number>>(new Set());
+
+  // Build CWV lookup map: pageName → { lcp, cls, inp }
+  const cwvMap = useMemo(() => {
+    const m = new Map<string, { lcp: number; cls: number; inp: number }>();
+    for (const r of (cwvByPage?.data?.records ?? []) as any[]) {
+      const name = String(r.pageName ?? "");
+      if (name) m.set(name, { lcp: Number(r.lcp_avg ?? 0), cls: Number(r.cls_avg ?? 0), inp: Number(r.inp_avg ?? 0) });
+    }
+    return m;
+  }, [cwvByPage?.data]);
   if (isLoading) return <Loading />;
 
   const toggleCompare = (idx: number) => {
@@ -4203,6 +4222,35 @@ function StepDetailsTab({ stepMap, pageMap, isLoading, appEntityId, steps, aov =
             {renderMetricRow(step.label, met)}
             {revenueAtRisk > 0 && <Flex gap={16} style={{ marginTop: 4 }}><div className="uj-metric-box"><Text className="uj-metric-label">Revenue at Risk</Text><Strong className="uj-metric-value" style={{ color: RED }}>{fmtCurrency(revenueAtRisk)}</Strong><Text style={{ fontSize: 13, opacity: 0.4 }}>{fmtCount(dropOff)} drop-offs</Text></div></Flex>}
 
+            {/* Page-level drop-off funnel (for multi-page steps) */}
+            {isMulti && pageMetricsList.length > 1 && (() => {
+              const sorted = [...pageMetricsList].sort((a, b) => b.metrics.total - a.metrics.total);
+              const maxSessions = sorted[0]?.metrics.total || 1;
+              return (
+                <div style={{ marginTop: 14, padding: "12px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, border: "1px solid rgba(128,128,128,0.1)" }}>
+                  <Text style={{ fontSize: 12, fontWeight: 700, opacity: 0.6, marginBottom: 10, display: "block" }}>Page Drop-off Contributors</Text>
+                  {sorted.map((pm, j) => {
+                    const pct = maxSessions > 0 ? (pm.metrics.total / maxSessions) * 100 : 0;
+                    const dropPct = j > 0 && sorted[0].metrics.total > 0 ? ((sorted[0].metrics.total - pm.metrics.total) / sorted[0].metrics.total) * 100 : 0;
+                    const barColor = pm.metrics.apdex >= 0.75 ? GREEN : pm.metrics.apdex >= 0.5 ? YELLOW : RED;
+                    return (
+                      <div key={j} style={{ marginBottom: 6 }}>
+                        <Flex alignItems="center" gap={8}>
+                          <Text style={{ fontSize: 11, width: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0 }}>{pm.id}</Text>
+                          <div style={{ flex: 1, height: 18, background: "rgba(128,128,128,0.08)", borderRadius: 3, overflow: "hidden", position: "relative" }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: barColor, borderRadius: 3, transition: "width 0.3s ease" }} />
+                            <span style={{ position: "absolute", right: 6, top: 1, fontSize: 10, fontWeight: 600, opacity: 0.7 }}>{fmtCount(pm.metrics.total)}</span>
+                          </div>
+                          {j > 0 && <Text style={{ fontSize: 10, color: RED, fontWeight: 600, width: 50, textAlign: "right", flexShrink: 0 }}>−{fmtPct(dropPct)}</Text>}
+                          {j === 0 && <Text style={{ fontSize: 10, color: GREEN, fontWeight: 600, width: 50, textAlign: "right", flexShrink: 0 }}>top</Text>}
+                        </Flex>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
             {/* Per-page comparison (when toggled) */}
             {isComparing && isMulti && (
               <div style={{ marginTop: 16, borderTop: "1px solid rgba(128,128,128,0.15)", paddingTop: 12 }}>
@@ -4211,6 +4259,9 @@ function StepDetailsTab({ stepMap, pageMap, isLoading, appEntityId, steps, aov =
                   const isPrimary = j === 0;
                   const primaryMetrics = pageMetricsList[0]?.metrics;
                   const linkable = appEntityId && !isWildcard(pm.id);
+                  // Look up CWV for this page
+                  let pageCwv = cwvMap.get(pm.id);
+                  if (!pageCwv) { for (const [k, v] of cwvMap) { if (identifierMatchesLabel(pm.id, k)) { pageCwv = v; break; } } }
                   return (
                     <div key={j} style={{ marginTop: j > 0 ? 12 : 0, padding: "10px 12px", background: isPrimary ? "rgba(69,137,255,0.06)" : "rgba(128,128,128,0.04)", borderRadius: 8, border: `1px solid ${isPrimary ? "rgba(69,137,255,0.15)" : "rgba(128,128,128,0.1)"}` }}>
                       <Flex alignItems="center" gap={8} style={{ marginBottom: 8 }}>
@@ -4223,6 +4274,22 @@ function StepDetailsTab({ stepMap, pageMap, isLoading, appEntityId, steps, aov =
                         <div style={{ marginLeft: "auto" }}><ApdexGauge score={pm.metrics.apdex} size={48} label="" /></div>
                       </Flex>
                       {renderMetricRow(pm.id, pm.metrics, isPrimary ? undefined : primaryMetrics, isPrimary)}
+                      {pageCwv && (
+                        <Flex gap={16} style={{ marginTop: 8 }}>
+                          <div className="uj-metric-box">
+                            <Text className="uj-metric-label">LCP</Text>
+                            <Strong className="uj-metric-value" style={{ color: pageCwv.lcp <= CWV.lcp.good ? GREEN : pageCwv.lcp <= CWV.lcp.poor ? YELLOW : RED }}>{pageCwv.lcp < 1000 ? `${Math.round(pageCwv.lcp)}ms` : `${(pageCwv.lcp / 1000).toFixed(2)}s`}</Strong>
+                          </div>
+                          <div className="uj-metric-box">
+                            <Text className="uj-metric-label">CLS</Text>
+                            <Strong className="uj-metric-value" style={{ color: pageCwv.cls <= CWV.cls.good ? GREEN : pageCwv.cls <= CWV.cls.poor ? YELLOW : RED }}>{pageCwv.cls.toFixed(3)}</Strong>
+                          </div>
+                          <div className="uj-metric-box">
+                            <Text className="uj-metric-label">INP</Text>
+                            <Strong className="uj-metric-value" style={{ color: pageCwv.inp <= CWV.inp.good ? GREEN : pageCwv.inp <= CWV.inp.poor ? YELLOW : RED }}>{Math.round(pageCwv.inp)}ms</Strong>
+                          </div>
+                        </Flex>
+                      )}
                     </div>
                   );
                 })}
