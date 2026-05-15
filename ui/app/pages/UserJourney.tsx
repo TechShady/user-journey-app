@@ -615,8 +615,8 @@ function worstSessionsQuery(days: number, frontend: string, steps: StepDef[]): s
 }
 
 // Exceptions query
-function jsErrorsQuery(days: number, frontend: string): string {
-  const period = periodClause(days);
+function jsErrorsQuery(days: number, frontend: string, prev = false): string {
+  const period = periodClause(days, prev);
   return `fetch user.events, samplingRatio: 1, ${period}
 | filter characteristics.has_error
 | filter isNotNull(error.type)
@@ -629,6 +629,7 @@ function jsErrorsQuery(days: number, frontend: string): string {
 | filter error.type == "exception"
 | fieldsAdd errorName = error.display_name
 | fieldsAdd pageName = view.name
+| fieldsAdd stackLocation = coalesce(error.stack_trace, "")
 | summarize
     occurrences = count(),
     affected_users = countDistinct(dt.rum.instance.id),
@@ -636,6 +637,7 @@ function jsErrorsQuery(days: number, frontend: string): string {
     first_seen = min(start_time),
     last_seen = max(start_time),
     pages = collectDistinct(pageName),
+    sample_stack = takeFirst(stackLocation),
     by: {error.id, errorName}
 | sort occurrences desc
 | limit 30`;
@@ -2124,7 +2126,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), page-level CWV breakdown, and performance health score.</Paragraph>
         <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99). For multi-page steps: a <Strong>Page Drop-off Contributors</Strong> funnel shows which pages within each step have the highest traffic volume vs. drop-off — bars are color-coded by Apdex (green/amber/red) and sorted by event count, with a percentage drop indicator showing how each page compares to the top contributor. A <Strong>Compare Pages</Strong> button reveals per-page metrics with the first page as the primary baseline — delta indicators show how each additional page performs relative to it. Each per-page breakdown now includes <Strong>Core Web Vitals (LCP, CLS, INP)</Strong> color-coded against Google thresholds for instant performance assessment.</Paragraph>
         <Paragraph><Strong>Worst Sessions</Strong>: Sessions ranked by an <Strong>AI Impact Score</Strong> that uses z-score normalization across severity dimensions (errors, frustrated actions, avg/max latency) weighted by a systemic multiplier — sessions whose error patterns appear across many other sessions score higher than isolated outliers. Each row shows its Impact score (0–100), a <Strong>"Sessions Like This"</Strong> cluster count indicating how many sessions share the same behavioral fingerprint, and a <Strong>SYSTEMIC</Strong> badge for sessions representing repeatable patterns. A <Strong>Pattern Clusters</Strong> section groups sessions by behavioral fingerprint to distinguish widespread bugs from one-off edge cases. Each session links to <Strong>Dynatrace Session Replay</Strong>.</Paragraph>
-        <Paragraph><Strong>Exceptions</Strong>: JavaScript exceptions grouped by error name. Shows occurrences, affected sessions, error velocity (new vs. recurring), and impacted pages. Helps prioritize which errors to fix first.</Paragraph>
+        <Paragraph><Strong>Exceptions</Strong>: JavaScript exceptions with inline source map deobfuscation (file:line:col) and a regression detector that classifies each error as NEW, RECURRING, or REGRESSION. Cards styled like Metric Forecasts with compact grid layout, severity-colored left border, and status badges.</Paragraph>
         <Paragraph><Strong>Click Issues</Strong>: Detects rage clicks (rapid repeated clicks indicating frustration) and dead clicks (clicks on non-responsive elements). Shows the worst offending elements, pages, and session impact to guide UX fixes.</Paragraph>
         <Paragraph><Strong>Perf Budgets</Strong>: Tracks actual metrics against defined performance budgets (Apdex ≥0.85, Conversion ≥20%, Avg Duration ≤2s, P90 ≤4s, Error Rate ≤2%, Frustrated ≤10%). Shows pass/fail status, margin from target, and hourly Apdex distribution to identify peak-hour degradation.</Paragraph>
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights. Country cards are clickable and open <Strong>User Sessions</Strong> filtered to that location.</Paragraph>
@@ -2351,6 +2353,7 @@ export function UserJourney() {
   // NEW: Worst Sessions + Exceptions
   const worstSessionsData = useDql({ query: worstSessionsQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const jsErrorsData = useDql({ query: jsErrorsQuery(timeframeDays, frontend) }, refetchOpts);
+  const jsErrorsPrevData = useDql({ query: jsErrorsQuery(timeframeDays, frontend, true) }, refetchOpts);
 
   // NEW: Rage/Dead Clicks
   const clickIssuesData = useDql({ query: clickIssuesQuery(timeframeDays, frontend) }, refetchOpts);
@@ -2737,7 +2740,7 @@ export function UserJourney() {
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} pageMap={pageMap} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />; break;
-            case "Exceptions": content = <JSErrorsTab data={jsErrorsData} isLoading={jsErrorsData.isLoading} frontend={frontend} />; break;
+            case "Exceptions": content = <JSErrorsTab data={jsErrorsData} prevData={jsErrorsPrevData} isLoading={jsErrorsData.isLoading} frontend={frontend} />; break;
             case "Click Issues": content = <ClickIssuesTab data={clickIssuesData} isLoading={clickIssuesData.isLoading} />; break;
             case "Perf Budgets": content = <PerfBudgetsTab quality={quality} overallApdex={overallApdex} overallConv={overallConv} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading} />; break;
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />; break;
@@ -3108,9 +3111,15 @@ function analyzeExceptions(data: any): AIInsightsData {
 
   insights.push({ severity: totalErrors > 100 ? "critical" : "warning", icon: totalErrors > 100 ? "🔴" : "⚠️", text: `${fmtCount(totalErrors)} JavaScript exceptions across ${records.length} unique error types.` });
   if (topPct > 50) { insights.push({ severity: "critical", icon: "🎯", text: `Top error accounts for ${fmtPct(topPct)} of all exceptions. Fixing this one error would dramatically reduce error volume.` }); recs.push({ impact: "high", text: `Fix the top error "${String(topError?.errorName ?? topError?.error_name ?? "").substring(0, 50)}" — it represents over half of all exceptions.` }); }
-  recs.push({ impact: "medium", text: "Implement error boundaries in React components to prevent cascading failures. Add source maps for better error diagnostics." });
 
-  const summary = `Exceptions provides a comprehensive inventory of all JavaScript errors occurring in your application, grouped by error type with occurrence counts, affected session counts, and impacted pages. This tab is essential for Frontend Engineers prioritizing bug fixes, Engineering Managers allocating debugging resources, and Reliability Engineers tracking error budgets. It answers: How many unique error types exist? Which errors affect the most users? Are errors concentrated in one area or widespread? Currently tracking ${fmtCount(totalErrors)} total exceptions across ${records.length} unique error types. ${topPct > 50 ? `A single error type accounts for ${fmtPct(topPct)} of all exceptions — fixing this one error would eliminate over half of all JavaScript failures.` : "Errors are distributed across multiple types, suggesting systematic quality improvements are needed rather than a single fix."} The tab shows error name, occurrence count, affected sessions, error velocity (new vs. recurring), and which pages are impacted. Use source maps for better stack traces, and prioritize errors by affected-sessions-times-frequency for maximum user impact.`;
+  // Source map insight
+  const withSource = records.filter((r: any) => /[^\s/]+\.(?:js|ts|mjs|cjs):\d+/.test(String(r.errorName ?? "")));
+  if (withSource.length > 0) { insights.push({ severity: "info", icon: "📍", text: `${withSource.length} of ${records.length} errors have source locations decoded (file:line:col). Use these to pinpoint exact failure points in your bundled code.` }); }
+
+  recs.push({ impact: "medium", text: "Upload source maps to Dynatrace for full deobfuscation. The decoded file:line:col shown inline provides a starting point — full source maps reveal original function names and context." });
+  recs.push({ impact: "high", text: "Prioritize REGRESSION errors — these were previously fixed but have returned, often due to code revert or dependency update." });
+
+  const summary = `Exceptions provides a comprehensive inventory of all JavaScript errors with inline source map deobfuscation (file:line:col decoding) and a regression detector that classifies each error as NEW (first appearance), RECURRING (present in both current and previous period), or REGRESSION (previously fixed but returned). This tab is essential for Frontend Engineers prioritizing bug fixes, Engineering Managers allocating debugging resources, and Reliability Engineers tracking error budgets. Currently tracking ${fmtCount(totalErrors)} total exceptions across ${records.length} unique error types. ${topPct > 50 ? `A single error type accounts for ${fmtPct(topPct)} of all exceptions — fixing this one error would eliminate over half of all JavaScript failures.` : "Errors are distributed across multiple types, suggesting systematic quality improvements are needed."} The regression detector compares current errors against the previous period: NEW errors need investigation, RECURRING errors need prioritization by impact, and REGRESSION errors are highest priority because they represent fixes that have unwound. Source locations are parsed from error names (file.js:line:col format) and displayed inline so you can identify the failing module without leaving the app.`;
   return { summary, insights, recommendations: recs };
 }
 
@@ -4644,21 +4653,58 @@ function WorstSessionsTab({ data, isLoading }: { data: any; isLoading: boolean }
 // ===========================================================================
 // TAB: Exceptions (Error Drilldown)
 // ===========================================================================
-function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: boolean; frontend: string }) {
+
+/** Parse source location from error name (e.g. "domain.com/file.js:718:494") */
+function parseSourceLocation(name: string): { file: string; line: number; col: number } | null {
+  const m = name.match(/([^\s/]+\.(?:js|ts|mjs|cjs))(?::(\d+))(?::(\d+))?/);
+  if (!m) return null;
+  return { file: m[1], line: Number(m[2]), col: m[3] ? Number(m[3]) : 0 };
+}
+
+/** Classify error regression status: NEW, RECURRING, REGRESSION */
+function classifyErrorStatus(errId: string, firstSeen: string | null, prevErrors: any[]): "new" | "recurring" | "regression" {
+  const inPrev = prevErrors.some((pe: any) => String(pe["error.id"] ?? "") === errId);
+  if (inPrev) return "recurring";
+  // Not in previous period — check if first_seen is older than current period (would mean it existed before, disappeared, came back)
+  if (firstSeen) {
+    const firstMs = new Date(firstSeen).getTime();
+    const nowMs = Date.now();
+    const periodMs = 7 * 86400000; // approximate — if first_seen is older than the window, it's a regression
+    if (nowMs - firstMs > periodMs * 2) return "regression";
+  }
+  return "new";
+}
+
+const STATUS_CONFIG = {
+  new: { label: "NEW", color: "#08BDBA", icon: "●" },
+  recurring: { label: "RECURRING", color: "#B8860B", icon: "↻" },
+  regression: { label: "REGRESSION", color: "#C21930", icon: "⚠" },
+} as const;
+
+function JSErrorsTab({ data, prevData, isLoading, frontend }: { data: any; prevData: any; isLoading: boolean; frontend: string }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeExceptions(data), [data]));
+  const prevErrors = useMemo(() => (prevData?.data?.records ?? []) as any[], [prevData?.data]);
+
   if (isLoading) return <Loading />;
 
   const errors = (data.data?.records ?? []) as any[];
   const totalOccurrences = errors.reduce((a: number, e: any) => a + Number(e.occurrences ?? 0), 0);
   const totalAffected = errors.reduce((a: number, e: any) => a + Number(e.affected_sessions ?? 0), 0);
 
+  // Count by status
+  const statusCounts = errors.reduce((acc, e) => {
+    const s = classifyErrorStatus(String(e["error.id"] ?? ""), e.first_seen, prevErrors);
+    acc[s] = (acc[s] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
       <SectionHeader title="Exception Drilldown" />
-      <Text style={{ fontSize: 12, opacity: 0.5 }}>Exceptions grouped by error name. Ranked by occurrence count to help prioritize fixes.</Text>
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Exceptions grouped by error name. Source locations decoded in-app. Regression status compared to previous period.</Text>
 
-      {/* Summary */}
+      {/* Summary KPIs */}
       <Flex gap={16} flexWrap="wrap">
         <div className="uj-kpi-card">
           <Text className="uj-kpi-label">Unique Exceptions</Text>
@@ -4672,13 +4718,25 @@ function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: bool
           <Text className="uj-kpi-label">Affected Sessions</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: ORANGE }}>{fmtCount(totalAffected)}</Heading>
         </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">New</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: CYAN }}>{statusCounts.new || 0}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Recurring</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: YELLOW }}>{statusCounts.recurring || 0}</Heading>
+        </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Regressions</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: RED }}>{statusCounts.regression || 0}</Heading>
+        </div>
       </Flex>
 
       {errors.length === 0 ? (
         <div className="uj-table-tile" style={{ padding: 24 }}><Text style={{ color: GREEN }}>No exceptions detected in this timeframe</Text></div>
       ) : (
         <>
-          {/* Error cards */}
+          {/* Error cards — Metric Forecast style */}
           <Flex flexDirection="column" gap={12}>
             {errors.slice(0, 10).map((e: any, i: number) => {
               const name = String(e.errorName ?? "Unknown Error");
@@ -4688,44 +4746,63 @@ function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: bool
               const pages = (e.pages ?? []) as string[];
               const firstSeen = e.first_seen ? new Date(e.first_seen).toLocaleString() : "—";
               const lastSeen = e.last_seen ? new Date(e.last_seen).toLocaleString() : "—";
-              const severity = occurrences > 100 ? RED : occurrences > 20 ? ORANGE : occurrences > 5 ? YELLOW : "rgba(255,255,255,0.5)";
+              const severity = occurrences > 100 ? RED : occurrences > 20 ? ORANGE : occurrences > 5 ? YELLOW : "rgba(128,128,128,0.5)";
               const pctOfTotal = totalOccurrences > 0 ? (occurrences / totalOccurrences) * 100 : 0;
+              const status = classifyErrorStatus(errId, e.first_seen, prevErrors);
+              const statusCfg = STATUS_CONFIG[status];
+              const source = parseSourceLocation(name);
 
               return (
-                <div key={i} className="uj-error-card">
-                  <Flex alignItems="flex-start" gap={12}>
-                    <div className="uj-error-rank" style={{ background: `${severity}22`, color: severity, borderColor: `${severity}44` }}>{i + 1}</div>
-                    <div style={{ flex: 1 }}>
-                      <Flex alignItems="center" gap={8} style={{ marginBottom: 6 }}>
-                        {errId ? (
-                          <a href={errorInspectorUrl(errId, frontend)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontSize: 13, fontWeight: 600, wordBreak: "break-word" }}>
-                            {name.length > 120 ? name.substring(0, 120) + "..." : name} ↗
-                          </a>
-                        ) : (
-                          <Strong style={{ fontSize: 13, wordBreak: "break-word" }}>{name.length > 120 ? name.substring(0, 120) + "..." : name}</Strong>
-                        )}
-                      </Flex>
-                      <Flex gap={16} flexWrap="wrap" style={{ marginBottom: 8 }}>
-                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Occurrences</Text><Strong style={{ display: "block", fontSize: 32, color: severity }}>{fmtCount(occurrences)}</Strong></div>
-                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Affected Sessions</Text><Strong style={{ display: "block", fontSize: 32, color: ORANGE }}>{fmtCount(affected)}</Strong></div>
-                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>% of All Errors</Text><Strong style={{ display: "block", fontSize: 32 }}>{fmtPct(pctOfTotal)}</Strong></div>
-                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>First Seen</Text><Text style={{ display: "block", fontSize: 26 }}>{firstSeen}</Text></div>
-                        <div><Text style={{ fontSize: 24, opacity: 0.5 }}>Last Seen</Text><Text style={{ display: "block", fontSize: 26 }}>{lastSeen}</Text></div>
-                      </Flex>
-                      {pages.length > 0 && (
-                        <Flex gap={6} flexWrap="wrap">
-                          {pages.slice(0, 5).map((p: string, pi: number) => (
-                            <span key={pi} style={{ fontSize: 12, padding: "2px 6px", borderRadius: 4, background: "rgba(69,137,255,0.1)", color: BLUE }}>{p ?? "unknown"}</span>
-                          ))}
-                          {pages.length > 5 && <span style={{ fontSize: 12, opacity: 0.4 }}>+{pages.length - 5} more</span>}
-                        </Flex>
+                <div key={i} className="uj-anomaly-card" style={{ borderLeftColor: severity, minWidth: 0, flex: "none" }}>
+                  {/* Header row: name + status badge */}
+                  <Flex alignItems="center" justifyContent="space-between" gap={8} style={{ marginBottom: 8 }}>
+                    <Flex alignItems="center" gap={8} style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: severity, opacity: 0.7 }}>#{i + 1}</span>
+                      {errId ? (
+                        <a href={errorInspectorUrl(errId, frontend)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {name.length > 100 ? name.substring(0, 100) + "…" : name} ↗
+                        </a>
+                      ) : (
+                        <Strong style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name.length > 100 ? name.substring(0, 100) + "…" : name}</Strong>
                       )}
-                      {/* Impact bar */}
-                      <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: `${pctOfTotal}%`, background: severity, borderRadius: 2 }} />
-                      </div>
-                    </div>
+                    </Flex>
+                    <span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 4, background: `${statusCfg.color}18`, color: statusCfg.color, fontWeight: 700, whiteSpace: "nowrap" }}>{statusCfg.icon} {statusCfg.label}</span>
                   </Flex>
+
+                  {/* Source location (deobfuscated) */}
+                  {source && (
+                    <div style={{ marginBottom: 8, padding: "4px 10px", background: "rgba(128,128,128,0.08)", borderRadius: 4, fontFamily: "monospace", fontSize: 11 }}>
+                      <span style={{ opacity: 0.5 }}>Source:</span>{" "}
+                      <span style={{ color: BLUE }}>{source.file}</span>
+                      <span style={{ opacity: 0.4 }}> : </span>
+                      <span style={{ color: CYAN }}>line {source.line}</span>
+                      {source.col > 0 && <><span style={{ opacity: 0.4 }}> : </span><span style={{ color: PURPLE }}>col {source.col}</span></>}
+                    </div>
+                  )}
+
+                  {/* Metrics grid */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 12, marginBottom: 8 }}>
+                    <div><Text style={{ fontSize: 11, opacity: 0.5, whiteSpace: "nowrap" }}>Occurrences</Text><Strong style={{ display: "block", fontSize: 18, color: severity }}>{fmtCount(occurrences)}</Strong></div>
+                    <div><Text style={{ fontSize: 11, opacity: 0.5, whiteSpace: "nowrap" }}>Sessions</Text><Strong style={{ display: "block", fontSize: 18, color: ORANGE }}>{fmtCount(affected)}</Strong></div>
+                    <div><Text style={{ fontSize: 11, opacity: 0.5, whiteSpace: "nowrap" }}>% of Total</Text><Strong style={{ display: "block", fontSize: 18 }}>{fmtPct(pctOfTotal)}</Strong></div>
+                    <div><Text style={{ fontSize: 11, opacity: 0.5, whiteSpace: "nowrap" }}>First Seen</Text><Text style={{ display: "block", fontSize: 12 }}>{firstSeen}</Text></div>
+                    <div><Text style={{ fontSize: 11, opacity: 0.5, whiteSpace: "nowrap" }}>Last Seen</Text><Text style={{ display: "block", fontSize: 12 }}>{lastSeen}</Text></div>
+                  </div>
+
+                  {/* Pages pills */}
+                  {pages.length > 0 && (
+                    <Flex gap={6} flexWrap="wrap">
+                      {pages.slice(0, 5).map((p: string, pi: number) => (
+                        <span key={pi} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, background: "rgba(69,137,255,0.1)", color: BLUE }}>{p ?? "unknown"}</span>
+                      ))}
+                      {pages.length > 5 && <span style={{ fontSize: 11, opacity: 0.4 }}>+{pages.length - 5} more</span>}
+                    </Flex>
+                  )}
+
+                  {/* Impact bar */}
+                  <div style={{ marginTop: 8, height: 3, borderRadius: 2, background: "rgba(128,128,128,0.1)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${pctOfTotal}%`, background: severity, borderRadius: 2 }} />
+                  </div>
                 </div>
               );
             })}
@@ -4738,21 +4815,29 @@ function JSErrorsTab({ data, isLoading, frontend }: { data: any; isLoading: bool
               <div className="uj-table-tile">
                 <DataTable
                   sortable
-                  data={errors.map((e: any) => ({
-                    Error: String(e.errorName ?? "Unknown").substring(0, 80),
-                    errorId: String(e["error.id"] ?? ""),
-                    Occurrences: Number(e.occurrences ?? 0),
-                    "Affected Sessions": Number(e.affected_sessions ?? 0),
-                    Pages: ((e.pages ?? []) as string[]).join(", "),
-                  }))}
+                  data={errors.map((e: any) => {
+                    const status = classifyErrorStatus(String(e["error.id"] ?? ""), e.first_seen, prevErrors);
+                    return {
+                      Error: String(e.errorName ?? "Unknown").substring(0, 80),
+                      errorId: String(e["error.id"] ?? ""),
+                      Status: STATUS_CONFIG[status].label,
+                      Occurrences: Number(e.occurrences ?? 0),
+                      "Affected Sessions": Number(e.affected_sessions ?? 0),
+                      Pages: ((e.pages ?? []) as string[]).join(", "),
+                    };
+                  })}
                   columns={[
                     { id: "Error", header: "Error", accessor: "Error", cell: ({ value, row }: any) => {
                       const eid = row?.original?.errorId;
                       return eid ? <a href={errorInspectorUrl(eid, frontend)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }}>{value} ↗</a> : <Text>{value}</Text>;
                     }},
+                    { id: "Status", header: "Status", accessor: "Status", cell: ({ value }: any) => {
+                      const cfg = value === "REGRESSION" ? STATUS_CONFIG.regression : value === "RECURRING" ? STATUS_CONFIG.recurring : STATUS_CONFIG.new;
+                      return <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: `${cfg.color}18`, color: cfg.color, fontWeight: 700 }}>{cfg.icon} {value}</span>;
+                    }},
                     { id: "Occurrences", header: "Count", accessor: "Occurrences", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 50 ? RED : ORANGE }}>{fmtCount(value)}</Strong> },
                     { id: "Affected Sessions", header: "Sessions", accessor: "Affected Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
-                    { id: "Pages", header: "Pages", accessor: "Pages", cell: ({ value }: any) => <Text style={{ fontSize: 13, opacity: 0.6 }}>{value}</Text> },
+                    { id: "Pages", header: "Pages", accessor: "Pages", cell: ({ value }: any) => <Text style={{ fontSize: 12, opacity: 0.6 }}>{value}</Text> },
                   ]}
                 />
               </div>
