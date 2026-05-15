@@ -1941,12 +1941,12 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 14, 2026</Paragraph>
-            <Paragraph><Strong>Funnel Overview — Real-Time Refresh &amp; Predictive EOD Model</Strong></Paragraph>
+            <Paragraph><Strong>Funnel Overview — Sub-Tabs, Real-Time Refresh &amp; Predictive EOD Model</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>4 Sub-Tabs</Strong>: Funnel Overview content is now organized into <Strong>Conversion Funnel</Strong> (Apdex breakdown + chart with 5 styles + Compare toggle), <Strong>Predictive Model</Strong> (EOD projection), <Strong>Step Analysis</Strong> (sortable metrics table), and <Strong>Per-Page Breakdown</Strong> (per-identifier metrics for multi-page steps).</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Auto-refresh</Strong>: Live funnel data reloads at 30 s, 1 min, or 5 min intervals — no page reload. A <Strong>Refresh</Strong> button triggers an immediate manual fetch. "Updated HH:MM:SS" timestamp shows when data was last pulled.</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Predictive Funnel Model</Strong>: Fits a linear regression to today's hourly conversion rates (from midnight to now) and projects where today's overall conversion rate will land by 23:59. Shown only when ≥2 hourly data points are available.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Predictive Funnel Model</Strong>: Fits a linear regression to today's hourly conversion rates (from midnight to now) and projects where today's overall conversion rate will land by 23:59. Shown when ≥2 hourly data points are available; otherwise shows a placeholder.</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• Model card shows: <Strong>Projected EOD conv rate</Strong>, <Strong>Hourly velocity</Strong> (slope in %/hour, color-coded rising/stable/declining), <Strong>Hours remaining</Strong>, and a <Strong>sparkline</Strong> with actual data (solid) and projected trend (dashed) overlaid.</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• Confidence % reflects how many of today's hours have data vs. hours elapsed — lower early in the day, higher by evening.</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Refresh nonce embedded as a DQL comment forces all five funnel queries (current, previous, step metrics, page metrics, quality) to re-execute on each tick — guaranteed cache-bust without page reload.</Paragraph>
           </div>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 13, 2026</Paragraph>
@@ -2030,7 +2030,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph style={{ fontSize: 13, opacity: 0.6, marginTop: 8 }}>Steps are configurable via Settings (⚙). Min {MIN_STEPS}, max {MAX_STEPS} steps. Each step supports <Strong>multiple pages</Strong> (OR logic) and <Strong>wildcards</Strong>: <code>/home*</code> (starts with), <code>*home</code> (ends with), <code>*home*</code> (contains). Logic: (Step1a OR Step1b) AND Step2 AND (Step3a OR Step3b) AND Step4.</Paragraph>
       </HelpSection>
       <HelpSection title="Tabs">
-        <Paragraph><Strong>Funnel Overview</Strong>: KPIs, conversion funnel visualization, per-step Apdex, and step analysis table. 5 chart styles: <Strong>Classic</Strong> (tapered SVG), <Strong>Horizontal Bar</Strong> (waterfall with drop-off extensions), <Strong>Stacked Cohort</Strong> (Marimekko columns split into converted/dropped), <Strong>Elapsed-Time Curve</Strong> (survival curve plotting user retention vs. cumulative response time), and <Strong>Comparison Split</Strong> (mirror funnel showing current vs. previous period side-by-side with delta indicators). Toggle <Strong>Compare</Strong> on Classic to overlay the previous period as dashed outlines. Default style configurable via Settings. <Strong>Auto-refresh</Strong> control (30 s / 1 min / 5 min / Off) in the toolbar keeps funnel data live without a page reload — a manual Refresh button triggers an immediate fetch. <Strong>Predictive Funnel Model</Strong> panel (appears once ≥2 hourly data points exist for today) fits a linear regression to this-morning's conversion rate and projects the end-of-day rate, hourly velocity, and hours remaining on a sparkline with a dashed projection line.</Paragraph>
+        <Paragraph><Strong>Funnel Overview</Strong>: KPI bar (sessions, conversions, conversion rate, Apdex, error rate, avg duration) plus <Strong>Auto-refresh</Strong> (30 s / 1 min / 5 min / Off) and a manual Refresh button that keep data live without a page reload. Organized into 4 sub-tabs: <Strong>Conversion Funnel</Strong> — Apdex satisfaction breakdown tile, 5 chart styles (<Strong>Classic</Strong> tapered SVG, <Strong>Horizontal Bar</Strong> waterfall, <Strong>Stacked Cohort</Strong> Marimekko, <Strong>Elapsed-Time Curve</Strong> survival curve, <Strong>Comparison Split</Strong> mirror funnel), and a Compare toggle that overlays the previous period as dashed outlines. Default style configurable via Settings. <Strong>Predictive Model</Strong> — appears once ≥2 hourly data points exist for today; fits a linear regression on this-morning's hourly conversion rates and projects the end-of-day rate, hourly velocity, confidence score, and hours remaining on a sparkline with a dashed projection line. <Strong>Step Analysis</Strong> — sortable table of every funnel step with sessions, avg/P90 duration, Apdex, conversion %, abandons, and errors. <Strong>Per-Page Breakdown</Strong> — per-page metrics for steps that span multiple page identifiers; shows sessions, Apdex, avg/P90, errors, and a satisfaction mini-bar per page.</Paragraph>
         <Paragraph><Strong>Trends</Strong>: Period-over-period comparison of all key metrics. Shows current vs. previous period with delta arrows — green for improvement, red for regression. Inverted logic for duration/errors (lower = better). When AOV is set, adds a Revenue trend card showing current vs. previous period estimated revenue.</Paragraph>
         <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), page-level CWV breakdown, and performance health score.</Paragraph>
         <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99). For steps with multiple pages, a <Strong>Compare Pages</Strong> button reveals per-page metrics with the first page as the primary baseline — delta indicators show how each additional page performs relative to it.</Paragraph>
@@ -2102,7 +2102,8 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• Set Average Order Value in Settings to unlock revenue projections in What-If Analysis and Revenue Intelligence tabs.</Paragraph>
         <Paragraph>• Click <Strong>AI Insights</Strong> (✦) in the header bar to get instant, data-driven analysis for whichever tab you're viewing — Summary, Insights, and Recommendations powered by industry benchmarks.</Paragraph>
         <Paragraph>• Use <Strong>Auto-refresh</Strong> in Funnel Overview to monitor live conversion rates during campaigns or deployments — set 30 s for real-time watching, 5 min for background monitoring.</Paragraph>
-        <Paragraph>• The <Strong>Predictive Funnel Model</Strong> is most reliable after 6+ hours of today's data. Early-morning projections have wide confidence intervals — check again at midday for a stable EOD forecast.</Paragraph>
+        <Paragraph>• The <Strong>Predictive Model</Strong> sub-tab is most reliable after 6+ hours of today's data. Early-morning projections have wide confidence intervals — check again at midday for a stable EOD forecast.</Paragraph>
+        <Paragraph>• The <Strong>Step Analysis</Strong> sub-tab's sortable table is the fastest way to find which funnel step has the worst Apdex or highest abandon count — sort by "Conv %" ascending or "Abandons" descending.</Paragraph>
       </HelpSection>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16, marginTop: 8 }}>
         <Paragraph><span style={{ color: "rgba(128,128,128,0.8)" }}>Source code &amp; issue tracker: </span><Link href="https://github.com/TechShady/user-journey-app" target="_blank" rel="noopener noreferrer">github.com/TechShady/user-journey-app</Link></Paragraph>
@@ -2427,7 +2428,7 @@ export function UserJourney() {
           <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.59</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.60</Text>
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -2835,7 +2836,7 @@ function analyzeFunnelOverview(overallConv: number, overallApdex: number, qualit
   else if (quality.avg > 1000) insights.push({ severity: "info", icon: "📊", text: `Average action duration of ${fmt(quality.avg)} is acceptable but has room for improvement.` });
   else insights.push({ severity: "good", icon: "✅", text: `Average action duration of ${fmt(quality.avg)} is fast, meeting the <1s best practice.` });
 
-  const summary = `Funnel Overview is the primary command center for understanding end-to-end user conversion. It visualizes how ${fmtCount(quality.sessions)} sessions progress through your defined funnel steps, tracking where users advance, where they abandon, and why. This tab is designed for Product Managers evaluating conversion effectiveness, UX Designers identifying friction points, and Performance Engineers correlating speed with business outcomes. It answers: What is my overall conversion rate (currently ${fmtPct(overallConv)} against an industry average of 2-5%)? How satisfied are users with performance (Apdex ${overallApdex.toFixed(2)}, where ≥0.85 is excellent)? Where is the biggest drop-off in my funnel? ${worstDrop > 30 ? `The steepest abandonment occurs at "${worstStep}" where ${fmtPct(worstDrop)} of users leave — this is your highest-leverage optimization target.` : "Funnel progression is relatively smooth with no severe drop-off points."} ${errorRate > 1 ? `Error rate of ${fmtPct(errorRate)} exceeds the <1% industry benchmark and may be suppressing conversion.` : "Error rate is within healthy bounds."} The tab offers 5 visualization styles (Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split), per-step Apdex gauges with satisfaction breakdowns, KPI cards for sessions/conversions/error rate/duration, and revenue-lost annotations when AOV is configured. Use Compare mode to overlay the previous period and instantly spot regressions.`;
+  const summary = `Funnel Overview is the primary command center for understanding end-to-end user conversion. It visualizes how ${fmtCount(quality.sessions)} sessions progress through your defined funnel steps, tracking where users advance, where they abandon, and why. This tab is designed for Product Managers evaluating conversion effectiveness, UX Designers identifying friction points, and Performance Engineers correlating speed with business outcomes. It answers: What is my overall conversion rate (currently ${fmtPct(overallConv)} against an industry average of 2-5%)? How satisfied are users with performance (Apdex ${overallApdex.toFixed(2)}, where ≥0.85 is excellent)? Where is the biggest drop-off in my funnel? ${worstDrop > 30 ? `The steepest abandonment occurs at "${worstStep}" where ${fmtPct(worstDrop)} of users leave — this is your highest-leverage optimization target.` : "Funnel progression is relatively smooth with no severe drop-off points."} ${errorRate > 1 ? `Error rate of ${fmtPct(errorRate)} exceeds the <1% industry benchmark and may be suppressing conversion.` : "Error rate is within healthy bounds."} The tab is organized into 4 sub-tabs: (1) Conversion Funnel — Apdex satisfaction breakdown, 5 visualization styles (Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split), and Compare mode to overlay the previous period; (2) Predictive Model — linear regression on today's hourly conversion rates projects where the conversion rate will land by 23:59, with hourly velocity and confidence score; (3) Step Analysis — sortable table of all funnel steps with sessions, avg/P90 duration, Apdex, conversion %, abandons, and errors per step; (4) Per-Page Breakdown — per-page metrics for steps with multiple page identifiers. Auto-refresh (30 s / 1 min / 5 min) and manual Refresh keep data live without a page reload. Revenue-lost annotations are shown when AOV is configured.`;
 
   return { summary, insights, recommendations: recs };
 }
@@ -3363,7 +3364,9 @@ function analyzeErrorClustering(clusters: any[], totalErrors: number): AIInsight
 function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallApdex, stepMap, pageMap, quality, compareMode, setCompareMode, isLoading, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, autoRefreshSecs, setAutoRefreshSecs, lastRefreshed, onManualRefresh, todayHourlyData }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallApdex: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; autoRefreshSecs: 0 | 30 | 60 | 300; setAutoRefreshSecs: (v: 0 | 30 | 60 | 300) => void; lastRefreshed: Date | null; onManualRefresh: () => void; todayHourlyData: any; }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap]));
 
-  if (isLoading) return <Loading />;
+  // On initial load (no data yet) show spinner; on auto-refresh keep existing data visible
+  const hasNoData = funnelCounts.every(c => c === 0) && quality.total === 0;
+  if (isLoading && hasNoData) return <Loading />;
 
   const makeFunnelSteps = (counts: number[]): FunnelStep[] => steps.map((step, i) => {
     const prev = i === 0 ? counts[0] : counts[i - 1];
@@ -3457,228 +3460,245 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         </div>
       </Flex>
 
-      {/* Apdex satisfaction breakdown */}
-      <div className="uj-table-tile" style={{ padding: 16 }}>
-        <Flex gap={24} alignItems="center" flexWrap="wrap">
-          <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 13, opacity: 0.5 }}>Satisfied</Text>
-            <Heading level={4} style={{ color: GREEN, margin: "4px 0" }}>{fmtCount(quality.satisfied)}</Heading>
-            <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_T / 1000}s</Text>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 13, opacity: 0.5 }}>Tolerating</Text>
-            <Heading level={4} style={{ color: YELLOW, margin: "4px 0" }}>{fmtCount(quality.tolerating)}</Heading>
-            <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_4T / 1000}s</Text>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 13, opacity: 0.5 }}>Frustrated</Text>
-            <Heading level={4} style={{ color: RED, margin: "4px 0" }}>{fmtCount(quality.frustrated)}</Heading>
-            <Text style={{ fontSize: 12, opacity: 0.4 }}>&gt; {APDEX_4T / 1000}s</Text>
-          </div>
-          <div style={{ flex: 1, height: 10, borderRadius: 5, overflow: "hidden", display: "flex", minWidth: 200 }}>
-            <div style={{ width: `${quality.total > 0 ? (quality.satisfied / quality.total) * 100 : 0}%`, background: GREEN, height: "100%" }} />
-            <div style={{ width: `${quality.total > 0 ? (quality.tolerating / quality.total) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
-            <div style={{ width: `${quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0}%`, background: RED, height: "100%" }} />
-          </div>
-        </Flex>
-      </div>
-
-      {/* Predictive Funnel Model */}
-      {predN >= 2 && (() => {
-        const W = 300, H = 80, padL = 28, padT = 8, padB = 22, padR = 16;
-        const plotW = W - padL - padR;
-        const plotH = H - padT - padB;
-        const allRates = hourlyPoints.map(p => p.rate);
-        const rateMin = Math.max(0, Math.min(...allRates, projectedEod) - 3);
-        const rateMax = Math.min(100, Math.max(...allRates, projectedEod) + 3);
-        const rateRange = rateMax - rateMin || 1;
-        const xS = (h: number) => padL + (h / 23) * plotW;
-        const yS = (r: number) => padT + plotH - ((r - rateMin) / rateRange) * plotH;
-        const actualLine = hourlyPoints.map((p, i) => `${i === 0 ? "M" : "L"}${xS(p.hour).toFixed(1)},${yS(p.rate).toFixed(1)}`).join(" ");
-        const last = hourlyPoints[hourlyPoints.length - 1];
-        const projLine = `M${xS(last.hour).toFixed(1)},${yS(last.rate).toFixed(1)} L${xS(23).toFixed(1)},${yS(projectedEod).toFixed(1)}`;
-        const areaD = `${actualLine} L${xS(last.hour).toFixed(1)},${yS(rateMin).toFixed(1)} L${xS(hourlyPoints[0].hour).toFixed(1)},${yS(rateMin).toFixed(1)} Z`;
-        return (
-          <div className="uj-table-tile" style={{ padding: 16 }}>
-            <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 12 }}>
-              <Flex alignItems="center" gap={8}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke={BLUE} strokeWidth="1.2"/><path d="M4 10l2.5-3 2 2 3-4" stroke={BLUE} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                <Strong style={{ fontSize: 14 }}>Predictive Funnel Model</Strong>
-                <Text style={{ fontSize: 12, opacity: 0.45 }}>Today's conversion trajectory to EOD</Text>
-              </Flex>
-              <Text style={{ fontSize: 12, opacity: 0.35 }}>{predConfidence}% confidence · {predN} data point{predN !== 1 ? "s" : ""}</Text>
-            </Flex>
-            <Flex gap={20} alignItems="flex-start" flexWrap="wrap">
-              <div className="uj-kpi-card" style={{ minWidth: 120 }}>
-                <Text className="uj-kpi-label">Projected EOD</Text>
-                <Heading level={3} className="uj-kpi-value" style={{ color: statusClr(projectedEod) }}>{fmtPct(projectedEod)}</Heading>
-                <Text style={{ fontSize: 12, opacity: 0.45 }}>conv rate at 23:59</Text>
-              </div>
-              <div className="uj-kpi-card" style={{ minWidth: 120 }}>
-                <Text className="uj-kpi-label">Hourly Velocity</Text>
-                <Heading level={3} className="uj-kpi-value" style={{ color: velocityClr }}>{velocitySlope >= 0 ? "+" : ""}{velocitySlope.toFixed(2)}%/h</Heading>
-                <Text style={{ fontSize: 12, color: velocityClr }}>{velocityDir}</Text>
-              </div>
-              <div className="uj-kpi-card" style={{ minWidth: 120 }}>
-                <Text className="uj-kpi-label">Hours Remaining</Text>
-                <Heading level={3} className="uj-kpi-value" style={{ color: BLUE }}>{23 - currentHour}h</Heading>
-                <Text style={{ fontSize: 12, opacity: 0.45 }}>until end of day</Text>
-              </div>
-              <div style={{ flex: 1, minWidth: 240 }}>
-                <Text style={{ fontSize: 11, opacity: 0.4, marginBottom: 4, display: "block" }}>Hourly conv rate · actual (solid) vs projected (dashed)</Text>
-                <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
-                  <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="rgba(255,255,255,0.07)" strokeWidth={1} />
-                  <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="rgba(255,255,255,0.07)" strokeWidth={1} />
-                  <line x1={xS(currentHour)} y1={padT} x2={xS(currentHour)} y2={padT + plotH} stroke="rgba(255,255,255,0.12)" strokeWidth={1} strokeDasharray="3 2" />
-                  <text x={xS(currentHour)} y={padT - 2} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={7}>now</text>
-                  <path d={areaD} fill={BLUE} fillOpacity={0.08} />
-                  <path d={actualLine} fill="none" stroke={BLUE} strokeWidth={2} strokeLinejoin="round" />
-                  <path d={projLine} fill="none" stroke={velocityClr} strokeWidth={1.5} strokeDasharray="5 3" />
-                  <circle cx={xS(23)} cy={yS(projectedEod)} r={4} fill={velocityClr} stroke="rgba(0,0,0,0.5)" strokeWidth={1.2}><title>Projected EOD: {fmtPct(projectedEod)}</title></circle>
-                  {hourlyPoints.map(p => <circle key={p.hour} cx={xS(p.hour)} cy={yS(p.rate)} r={2.5} fill={BLUE}><title>Hour {p.hour}:00 — {fmtPct(p.rate)} ({fmtCount(p.sessions)} sessions)</title></circle>)}
-                  {[0, 6, 12, 18, 23].map(h => <text key={h} x={xS(h)} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={7}>{h}:00</text>)}
-                  <text x={padL - 4} y={padT + 4} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>{rateMax.toFixed(0)}%</text>
-                  <text x={padL - 4} y={padT + plotH} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>{rateMin.toFixed(0)}%</text>
-                </svg>
-              </div>
-            </Flex>
-          </div>
-        );
-      })()}
-
-      {/* Funnel with compare toggle + style selector */}
-      <Flex alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={12}>
-        <SectionHeader title="Conversion Funnel" />
-        <Flex alignItems="center" gap={12}>
-          <Text style={{ fontSize: 13, opacity: 0.5 }}>Style</Text>
-          <Select value={funnelStyle} onChange={(val) => { if (val) onFunnelStyleChange(val as FunnelStyle); }}>
-            <Select.Trigger style={{ minWidth: 170 }} />
-            <Select.Content>
-              {FUNNEL_STYLE_OPTIONS.map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
-            </Select.Content>
-          </Select>
-          <button onClick={() => setCompareMode(!compareMode)} className={`uj-compare-toggle ${compareMode ? "active" : ""}`}>
-            {compareMode ? "\u27F5 Hide Compare" : "Compare \u27F6"}
-          </button>
-        </Flex>
-      </Flex>
-      <div className="uj-funnel-container">
-        {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} />}
-        {funnelStyle === "horizontal" && <HorizontalBarFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
-        {funnelStyle === "cohort" && <StackedCohortFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
-        {funnelStyle === "elapsed" && <ElapsedTimeFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} stepMap={stepMap} stepDefs={steps} />}
-        {funnelStyle === "split" && <ComparisonSplitFunnel steps={funnelSteps} prevSteps={makeFunnelSteps(funnelCountsPrev)} aov={aov} />}
-        {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
-          <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
-            <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
-            <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, borderTop: "2px dashed rgba(255,255,255,0.3)" }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Previous period</Text></Flex>
-          </Flex>
-        )}
-      </div>
-
-      {/* Step table */}
-      <SectionHeader title="Step Analysis" />
-      <div className="uj-table-tile">
-        <DataTable
-          sortable
-          data={steps.map((step, i) => {
-            const prev = i === 0 ? funnelCounts[0] : funnelCounts[i - 1];
-            const conv = i === 0 ? 100 : prev > 0 ? (funnelCounts[i] / prev) * 100 : 0;
-            const m = stepMap.get(step.label);
-            const apdex = m ? calcApdex(Number(m.satisfied ?? 0), Number(m.tolerating ?? 0), Number(m.total_actions ?? 0)) : 0;
-            return {
-              Step: i + 1, Action: step.label, Sessions: funnelCounts[i],
-              "Avg (ms)": m ? Number(m.avg_duration_ms ?? 0) : 0,
-              "P90 (ms)": m ? Number(m.p90_duration_ms ?? 0) : 0,
-              Apdex: apdex, "Conv %": conv,
-              Abandons: i === 0 ? 0 : prev - funnelCounts[i],
-              Errors: m ? Number(m.error_count ?? 0) : 0,
-            };
-          })}
-          columns={[
-            { id: "Step", header: "#", accessor: "Step", sortType: "number" as any },
-            { id: "Action", header: "Step", accessor: "Action" },
-            { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
-            { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
-            { id: "P90 (ms)", header: "P90", accessor: "P90 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
-            { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
-            { id: "Conv %", header: "Conv %", accessor: "Conv %", sortType: "number" as any, cell: ({ value, rowData }: any) => rowData.Step === 1 ? <Text style={{ opacity: 0.5 }}>entry</Text> : <Strong style={{ color: statusClr(value) }}>{fmtPct(value)}</Strong> },
-            { id: "Abandons", header: "Abandons", accessor: "Abandons", sortType: "number" as any, cell: ({ value, rowData }: any) => rowData.Step === 1 ? <Text style={{ opacity: 0.5 }}>—</Text> : <Strong style={{ color: value > 0 ? RED : GREEN }}>{fmtCount(value)}</Strong> },
-            { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 0 ? RED : undefined }}>{value}</Text> },
-          ]}
-        />
-      </div>
-
-      {/* Per-page breakdown for multi-page steps */}
-      {steps.some(s => s.identifiers.length > 1) && (
-        <>
-          <SectionHeader title="Per-Page Breakdown" />
-          <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>Individual page metrics for steps with multiple pages. First page is the primary link target.</Text>
-          {steps.map((step, i) => {
-            if (step.identifiers.length < 2) return null;
-            const m = stepMap.get(step.label);
-            const stepApdex = m ? calcApdex(Number(m.satisfied ?? 0), Number(m.tolerating ?? 0), Number(m.total_actions ?? 0)) : 0;
-            const stepSessions = funnelCounts[i] ?? 0;
-            return (
-              <div key={i} className="uj-table-tile" style={{ padding: 16 }}>
-                <Flex alignItems="center" gap={12} style={{ marginBottom: 10 }}>
-                  <span className="uj-step-badge">{i + 1}</span>
-                  {(() => { const pid = stepPrimaryIdentifier(step); return appEntityId && pid ? (
-                    <a href={vitalsUrl(appEntityId, pid)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", color: BLUE, fontWeight: 700, fontSize: 15 }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{step.label} ↗</a>
-                  ) : (
-                    <Heading level={5} style={{ margin: 0 }}>{step.label}</Heading>
-                  ); })()}
-                  <Text style={{ fontSize: 12, opacity: 0.4, marginLeft: 8 }}>Rollup: {fmtCount(stepSessions)} sessions · Apdex {stepApdex.toFixed(2)}</Text>
-                </Flex>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
-                  {step.identifiers.map((id, j) => {
-                    let pm = pageMap.get(id);
-                    if (!pm) { for (const [key, val] of pageMap) { if (identifierMatchesLabel(id, key)) { pm = val; break; } } }
-                    const sessions = pm ? Number(pm.sessions ?? 0) : 0;
-                    const avg = pm ? Number(pm.avg_duration_ms ?? 0) : 0;
-                    const p90 = pm ? Number(pm.p90_duration_ms ?? 0) : 0;
-                    const errors = pm ? Number(pm.error_count ?? 0) : 0;
-                    const sat = pm ? Number(pm.satisfied ?? 0) : 0;
-                    const tol = pm ? Number(pm.tolerating ?? 0) : 0;
-                    const total = pm ? Number(pm.total_actions ?? 0) : 0;
-                    const apdex = calcApdex(sat, tol, total);
-                    const linkable = appEntityId && !isWildcard(id);
-                    const isPrimary = j === 0;
-                    return (
-                      <div key={j} style={{ padding: "10px 12px", borderRadius: 8, background: isPrimary ? "rgba(69,137,255,0.06)" : "rgba(128,128,128,0.04)", border: `1px solid ${isPrimary ? "rgba(69,137,255,0.15)" : "rgba(128,128,128,0.1)"}` }}>
-                        <Flex alignItems="center" gap={6} style={{ marginBottom: 6 }}>
-                          {isPrimary && <span style={{ fontSize: 9, fontWeight: 700, color: BLUE, background: `${BLUE}18`, padding: "1px 5px", borderRadius: 3 }}>PRIMARY</span>}
-                          {linkable ? (
-                            <a href={vitalsUrl(appEntityId!, id)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontSize: 13, fontWeight: 600 }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{id} ↗</a>
-                          ) : (
-                            <Text style={{ fontSize: 13, fontWeight: 600 }}>{id}</Text>
-                          )}
-                        </Flex>
-                        <Flex gap={12} flexWrap="wrap" alignItems="center">
-                          <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Sessions</Text><br/><Strong style={{ color: BLUE, fontSize: 14 }}>{fmtCount(sessions)}</Strong></div>
-                          <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Apdex</Text><br/><Strong style={{ color: apdexClr(apdex), fontSize: 14 }}>{apdex.toFixed(2)}</Strong></div>
-                          <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Avg</Text><br/><Strong style={{ color: avg > 3000 ? RED : avg > 1000 ? YELLOW : GREEN, fontSize: 14 }}>{fmt(avg)}</Strong></div>
-                          <div><Text style={{ fontSize: 11, opacity: 0.5 }}>P90</Text><br/><Strong style={{ color: p90 > 3000 ? RED : p90 > 1500 ? YELLOW : GREEN, fontSize: 14 }}>{fmt(p90)}</Strong></div>
-                          <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Errors</Text><br/><Strong style={{ color: errors > 0 ? RED : GREEN, fontSize: 14 }}>{errors}</Strong></div>
-                        </Flex>
-                        {/* Satisfaction mini-bar */}
-                        <div style={{ marginTop: 6, height: 4, borderRadius: 2, overflow: "hidden", display: "flex" }}>
-                          <div style={{ width: `${total > 0 ? (sat / total) * 100 : 0}%`, background: GREEN, height: "100%" }} />
-                          <div style={{ width: `${total > 0 ? (tol / total) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
-                          <div style={{ width: `${total > 0 ? ((total - sat - tol) / total) * 100 : 0}%`, background: RED, height: "100%" }} />
-                        </div>
-                      </div>
-                    );
-                  })}
+      <Tabs defaultIndex={0}>
+        <Tab title="Conversion Funnel">
+          <Flex flexDirection="column" gap={20} style={{ paddingTop: 12 }}>
+            {/* Apdex satisfaction breakdown */}
+            <div className="uj-table-tile" style={{ padding: 16 }}>
+              <Flex gap={24} alignItems="center" flexWrap="wrap">
+                <div style={{ textAlign: "center" }}>
+                  <Text style={{ fontSize: 13, opacity: 0.5 }}>Satisfied</Text>
+                  <Heading level={4} style={{ color: GREEN, margin: "4px 0" }}>{fmtCount(quality.satisfied)}</Heading>
+                  <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_T / 1000}s</Text>
                 </div>
+                <div style={{ textAlign: "center" }}>
+                  <Text style={{ fontSize: 13, opacity: 0.5 }}>Tolerating</Text>
+                  <Heading level={4} style={{ color: YELLOW, margin: "4px 0" }}>{fmtCount(quality.tolerating)}</Heading>
+                  <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_4T / 1000}s</Text>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <Text style={{ fontSize: 13, opacity: 0.5 }}>Frustrated</Text>
+                  <Heading level={4} style={{ color: RED, margin: "4px 0" }}>{fmtCount(quality.frustrated)}</Heading>
+                  <Text style={{ fontSize: 12, opacity: 0.4 }}>&gt; {APDEX_4T / 1000}s</Text>
+                </div>
+                <div style={{ flex: 1, height: 10, borderRadius: 5, overflow: "hidden", display: "flex", minWidth: 200 }}>
+                  <div style={{ width: `${quality.total > 0 ? (quality.satisfied / quality.total) * 100 : 0}%`, background: GREEN, height: "100%" }} />
+                  <div style={{ width: `${quality.total > 0 ? (quality.tolerating / quality.total) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
+                  <div style={{ width: `${quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0}%`, background: RED, height: "100%" }} />
+                </div>
+              </Flex>
+            </div>
+            {/* Funnel style + compare controls */}
+            <Flex alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={12}>
+              <SectionHeader title="Conversion Funnel" />
+              <Flex alignItems="center" gap={12}>
+                <Text style={{ fontSize: 13, opacity: 0.5 }}>Style</Text>
+                <Select value={funnelStyle} onChange={(val) => { if (val) onFunnelStyleChange(val as FunnelStyle); }}>
+                  <Select.Trigger style={{ minWidth: 170 }} />
+                  <Select.Content>
+                    {FUNNEL_STYLE_OPTIONS.map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
+                  </Select.Content>
+                </Select>
+                <button onClick={() => setCompareMode(!compareMode)} className={`uj-compare-toggle ${compareMode ? "active" : ""}`}>
+                  {compareMode ? "\u27F5 Hide Compare" : "Compare \u27F6"}
+                </button>
+              </Flex>
+            </Flex>
+            <div className="uj-funnel-container">
+              {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} />}
+              {funnelStyle === "horizontal" && <HorizontalBarFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
+              {funnelStyle === "cohort" && <StackedCohortFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
+              {funnelStyle === "elapsed" && <ElapsedTimeFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} stepMap={stepMap} stepDefs={steps} />}
+              {funnelStyle === "split" && <ComparisonSplitFunnel steps={funnelSteps} prevSteps={makeFunnelSteps(funnelCountsPrev)} aov={aov} />}
+              {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
+                <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
+                  <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
+                  <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, borderTop: "2px dashed rgba(255,255,255,0.3)" }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Previous period</Text></Flex>
+                </Flex>
+              )}
+            </div>
+          </Flex>
+        </Tab>
+        <Tab title="Predictive Model">
+          <Flex flexDirection="column" gap={20} style={{ paddingTop: 12 }}>
+            {predN >= 2 ? (() => {
+              const W = 300, H = 80, padL = 28, padT = 8, padB = 22, padR = 16;
+              const plotW = W - padL - padR;
+              const plotH = H - padT - padB;
+              const allRates = hourlyPoints.map(p => p.rate);
+              const rateMin = Math.max(0, Math.min(...allRates, projectedEod) - 3);
+              const rateMax = Math.min(100, Math.max(...allRates, projectedEod) + 3);
+              const rateRange = rateMax - rateMin || 1;
+              const xS = (h: number) => padL + (h / 23) * plotW;
+              const yS = (r: number) => padT + plotH - ((r - rateMin) / rateRange) * plotH;
+              const actualLine = hourlyPoints.map((p, i) => `${i === 0 ? "M" : "L"}${xS(p.hour).toFixed(1)},${yS(p.rate).toFixed(1)}`).join(" ");
+              const last = hourlyPoints[hourlyPoints.length - 1];
+              const projLine = `M${xS(last.hour).toFixed(1)},${yS(last.rate).toFixed(1)} L${xS(23).toFixed(1)},${yS(projectedEod).toFixed(1)}`;
+              const areaD = `${actualLine} L${xS(last.hour).toFixed(1)},${yS(rateMin).toFixed(1)} L${xS(hourlyPoints[0].hour).toFixed(1)},${yS(rateMin).toFixed(1)} Z`;
+              return (
+                <div className="uj-table-tile" style={{ padding: 16 }}>
+                  <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 12 }}>
+                    <Flex alignItems="center" gap={8}>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke={BLUE} strokeWidth="1.2"/><path d="M4 10l2.5-3 2 2 3-4" stroke={BLUE} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      <Strong style={{ fontSize: 14 }}>Predictive Funnel Model</Strong>
+                      <Text style={{ fontSize: 12, opacity: 0.45 }}>Today's conversion trajectory to EOD</Text>
+                    </Flex>
+                    <Text style={{ fontSize: 12, opacity: 0.35 }}>{predConfidence}% confidence · {predN} data point{predN !== 1 ? "s" : ""}</Text>
+                  </Flex>
+                  <Flex gap={20} alignItems="flex-start" flexWrap="wrap">
+                    <div className="uj-kpi-card" style={{ minWidth: 120 }}>
+                      <Text className="uj-kpi-label">Projected EOD</Text>
+                      <Heading level={3} className="uj-kpi-value" style={{ color: statusClr(projectedEod) }}>{fmtPct(projectedEod)}</Heading>
+                      <Text style={{ fontSize: 12, opacity: 0.45 }}>conv rate at 23:59</Text>
+                    </div>
+                    <div className="uj-kpi-card" style={{ minWidth: 120 }}>
+                      <Text className="uj-kpi-label">Hourly Velocity</Text>
+                      <Heading level={3} className="uj-kpi-value" style={{ color: velocityClr }}>{velocitySlope >= 0 ? "+" : ""}{velocitySlope.toFixed(2)}%/h</Heading>
+                      <Text style={{ fontSize: 12, color: velocityClr }}>{velocityDir}</Text>
+                    </div>
+                    <div className="uj-kpi-card" style={{ minWidth: 120 }}>
+                      <Text className="uj-kpi-label">Hours Remaining</Text>
+                      <Heading level={3} className="uj-kpi-value" style={{ color: BLUE }}>{23 - currentHour}h</Heading>
+                      <Text style={{ fontSize: 12, opacity: 0.45 }}>until end of day</Text>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 240 }}>
+                      <Text style={{ fontSize: 11, opacity: 0.4, marginBottom: 4, display: "block" }}>Hourly conv rate · actual (solid) vs projected (dashed)</Text>
+                      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+                        <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="rgba(255,255,255,0.07)" strokeWidth={1} />
+                        <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="rgba(255,255,255,0.07)" strokeWidth={1} />
+                        <line x1={xS(currentHour)} y1={padT} x2={xS(currentHour)} y2={padT + plotH} stroke="rgba(255,255,255,0.12)" strokeWidth={1} strokeDasharray="3 2" />
+                        <text x={xS(currentHour)} y={padT - 2} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={7}>now</text>
+                        <path d={areaD} fill={BLUE} fillOpacity={0.08} />
+                        <path d={actualLine} fill="none" stroke={BLUE} strokeWidth={2} strokeLinejoin="round" />
+                        <path d={projLine} fill="none" stroke={velocityClr} strokeWidth={1.5} strokeDasharray="5 3" />
+                        <circle cx={xS(23)} cy={yS(projectedEod)} r={4} fill={velocityClr} stroke="rgba(0,0,0,0.5)" strokeWidth={1.2}><title>Projected EOD: {fmtPct(projectedEod)}</title></circle>
+                        {hourlyPoints.map(p => <circle key={p.hour} cx={xS(p.hour)} cy={yS(p.rate)} r={2.5} fill={BLUE}><title>Hour {p.hour}:00 — {fmtPct(p.rate)} ({fmtCount(p.sessions)} sessions)</title></circle>)}
+                        {[0, 6, 12, 18, 23].map(h => <text key={h} x={xS(h)} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={7}>{h}:00</text>)}
+                        <text x={padL - 4} y={padT + 4} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>{rateMax.toFixed(0)}%</text>
+                        <text x={padL - 4} y={padT + plotH} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>{rateMin.toFixed(0)}%</text>
+                      </svg>
+                    </div>
+                  </Flex>
+                </div>
+              );
+            })() : (
+              <div className="uj-table-tile" style={{ padding: 24, textAlign: "center" }}>
+                <Text style={{ opacity: 0.5 }}>Predictive model requires ≥2 hourly data points for today. Check back after more data accumulates.</Text>
               </div>
-            );
-          })}
-        </>
-      )}
+            )}
+          </Flex>
+        </Tab>
+        <Tab title="Step Analysis">
+          <Flex flexDirection="column" gap={20} style={{ paddingTop: 12 }}>
+            <div className="uj-table-tile">
+              <DataTable
+                sortable
+                data={steps.map((step, i) => {
+                  const prev = i === 0 ? funnelCounts[0] : funnelCounts[i - 1];
+                  const conv = i === 0 ? 100 : prev > 0 ? (funnelCounts[i] / prev) * 100 : 0;
+                  const m = stepMap.get(step.label);
+                  const apdex = m ? calcApdex(Number(m.satisfied ?? 0), Number(m.tolerating ?? 0), Number(m.total_actions ?? 0)) : 0;
+                  return {
+                    Step: i + 1, Action: step.label, Sessions: funnelCounts[i],
+                    "Avg (ms)": m ? Number(m.avg_duration_ms ?? 0) : 0,
+                    "P90 (ms)": m ? Number(m.p90_duration_ms ?? 0) : 0,
+                    Apdex: apdex, "Conv %": conv,
+                    Abandons: i === 0 ? 0 : prev - funnelCounts[i],
+                    Errors: m ? Number(m.error_count ?? 0) : 0,
+                  };
+                })}
+                columns={[
+                  { id: "Step", header: "#", accessor: "Step", sortType: "number" as any },
+                  { id: "Action", header: "Step", accessor: "Action" },
+                  { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Strong>{fmtCount(value)}</Strong> },
+                  { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
+                  { id: "P90 (ms)", header: "P90", accessor: "P90 (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
+                  { id: "Apdex", header: "Apdex", accessor: "Apdex", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: apdexClr(value) }}>{value.toFixed(2)}</Strong> },
+                  { id: "Conv %", header: "Conv %", accessor: "Conv %", sortType: "number" as any, cell: ({ value, rowData }: any) => rowData.Step === 1 ? <Text style={{ opacity: 0.5 }}>entry</Text> : <Strong style={{ color: statusClr(value) }}>{fmtPct(value)}</Strong> },
+                  { id: "Abandons", header: "Abandons", accessor: "Abandons", sortType: "number" as any, cell: ({ value, rowData }: any) => rowData.Step === 1 ? <Text style={{ opacity: 0.5 }}>—</Text> : <Strong style={{ color: value > 0 ? RED : GREEN }}>{fmtCount(value)}</Strong> },
+                  { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 0 ? RED : undefined }}>{value}</Text> },
+                ]}
+              />
+            </div>
+          </Flex>
+        </Tab>
+        <Tab title="Per-Page Breakdown">
+          <Flex flexDirection="column" gap={20} style={{ paddingTop: 12 }}>
+            {steps.some(s => s.identifiers.length > 1) ? (
+              <>
+                <Text style={{ fontSize: 12, opacity: 0.5 }}>Individual page metrics for steps with multiple pages. First page is the primary link target.</Text>
+                {steps.map((step, i) => {
+                  if (step.identifiers.length < 2) return null;
+                  const m = stepMap.get(step.label);
+                  const stepApdex = m ? calcApdex(Number(m.satisfied ?? 0), Number(m.tolerating ?? 0), Number(m.total_actions ?? 0)) : 0;
+                  const stepSessions = funnelCounts[i] ?? 0;
+                  return (
+                    <div key={i} className="uj-table-tile" style={{ padding: 16 }}>
+                      <Flex alignItems="center" gap={12} style={{ marginBottom: 10 }}>
+                        <span className="uj-step-badge">{i + 1}</span>
+                        {(() => { const pid = stepPrimaryIdentifier(step); return appEntityId && pid ? (
+                          <a href={vitalsUrl(appEntityId, pid)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", color: BLUE, fontWeight: 700, fontSize: 15 }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{step.label} ↗</a>
+                        ) : (
+                          <Heading level={5} style={{ margin: 0 }}>{step.label}</Heading>
+                        ); })()}
+                        <Text style={{ fontSize: 12, opacity: 0.4, marginLeft: 8 }}>Rollup: {fmtCount(stepSessions)} sessions · Apdex {stepApdex.toFixed(2)}</Text>
+                      </Flex>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+                        {step.identifiers.map((id, j) => {
+                          let pm = pageMap.get(id);
+                          if (!pm) { for (const [key, val] of pageMap) { if (identifierMatchesLabel(id, key)) { pm = val; break; } } }
+                          const sessions = pm ? Number(pm.sessions ?? 0) : 0;
+                          const avg = pm ? Number(pm.avg_duration_ms ?? 0) : 0;
+                          const p90 = pm ? Number(pm.p90_duration_ms ?? 0) : 0;
+                          const errors = pm ? Number(pm.error_count ?? 0) : 0;
+                          const sat = pm ? Number(pm.satisfied ?? 0) : 0;
+                          const tol = pm ? Number(pm.tolerating ?? 0) : 0;
+                          const total = pm ? Number(pm.total_actions ?? 0) : 0;
+                          const apdex = calcApdex(sat, tol, total);
+                          const linkable = appEntityId && !isWildcard(id);
+                          const isPrimary = j === 0;
+                          return (
+                            <div key={j} style={{ padding: "10px 12px", borderRadius: 8, background: isPrimary ? "rgba(69,137,255,0.06)" : "rgba(128,128,128,0.04)", border: `1px solid ${isPrimary ? "rgba(69,137,255,0.15)" : "rgba(128,128,128,0.1)"}` }}>
+                              <Flex alignItems="center" gap={6} style={{ marginBottom: 6 }}>
+                                {isPrimary && <span style={{ fontSize: 9, fontWeight: 700, color: BLUE, background: `${BLUE}18`, padding: "1px 5px", borderRadius: 3 }}>PRIMARY</span>}
+                                {linkable ? (
+                                  <a href={vitalsUrl(appEntityId!, id)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none", fontSize: 13, fontWeight: 600 }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{id} ↗</a>
+                                ) : (
+                                  <Text style={{ fontSize: 13, fontWeight: 600 }}>{id}</Text>
+                                )}
+                              </Flex>
+                              <Flex gap={12} flexWrap="wrap" alignItems="center">
+                                <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Sessions</Text><br/><Strong style={{ color: BLUE, fontSize: 14 }}>{fmtCount(sessions)}</Strong></div>
+                                <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Apdex</Text><br/><Strong style={{ color: apdexClr(apdex), fontSize: 14 }}>{apdex.toFixed(2)}</Strong></div>
+                                <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Avg</Text><br/><Strong style={{ color: avg > 3000 ? RED : avg > 1000 ? YELLOW : GREEN, fontSize: 14 }}>{fmt(avg)}</Strong></div>
+                                <div><Text style={{ fontSize: 11, opacity: 0.5 }}>P90</Text><br/><Strong style={{ color: p90 > 3000 ? RED : p90 > 1500 ? YELLOW : GREEN, fontSize: 14 }}>{fmt(p90)}</Strong></div>
+                                <div><Text style={{ fontSize: 11, opacity: 0.5 }}>Errors</Text><br/><Strong style={{ color: errors > 0 ? RED : GREEN, fontSize: 14 }}>{errors}</Strong></div>
+                              </Flex>
+                              <div style={{ marginTop: 6, height: 4, borderRadius: 2, overflow: "hidden", display: "flex" }}>
+                                <div style={{ width: `${total > 0 ? (sat / total) * 100 : 0}%`, background: GREEN, height: "100%" }} />
+                                <div style={{ width: `${total > 0 ? (tol / total) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
+                                <div style={{ width: `${total > 0 ? ((total - sat - tol) / total) * 100 : 0}%`, background: RED, height: "100%" }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            ) : (
+              <div className="uj-table-tile" style={{ padding: 24, textAlign: "center" }}>
+                <Text style={{ opacity: 0.5 }}>No multi-page steps configured. Per-page breakdown is available when a step has multiple page identifiers.</Text>
+              </div>
+            )}
+          </Flex>
+        </Tab>
+      </Tabs>
     </Flex>
   );
 }
+
 
 // ===========================================================================
 // TAB: Trends (Period-over-Period Comparison) — NEW
