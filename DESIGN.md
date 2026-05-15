@@ -225,11 +225,17 @@ fetch user.events, from: now() - {timeframe}
 
 ### 8. Perf Budgets
 
-**Purpose**: Performance budget compliance monitoring with pass/fail thresholds.
+**Purpose**: Performance budget compliance monitoring with user-configurable thresholds, projected time-to-breach, and near-breach alerting.
 
 **Key Features**:
-- 6 budget metrics: Apdex >= 0.85, Conversion >= 20%, Avg Duration <= 2s, P90 <= 4s, Error Rate <= 2%, Frustrated <= 10%
-- Pass/fail status with margin to threshold
+- 6 budget metrics: Apdex >= 0.85, Conversion >= 20%, Avg Duration <= 2s, P90 <= 4s, Error Rate <= 2%, Frustrated <= 10% (all configurable)
+- **User-configurable thresholds**: Click ✎ icon per metric to edit inline. Values persisted per user via `useUserAppState`. Reset button restores defaults.
+- **Projected time-to-breach**: Compares current vs previous period, computes daily rate of change, projects when a passing metric will cross its threshold
+- **Near-breach alerting**: Yellow "NEAR" badge + alert banner when a metric is within 10% of its threshold
+- **Workflow trigger suggestion**: When near-breach detected, shows DQL condition template for Dynatrace Workflow automation
+- Pass/fail/near status with margin to threshold
+- "Near Breach" KPI card in summary row
+- Budget Summary Table with "Breach" column (NOW / ~Np / Safe)
 - Hourly Apdex distribution chart
 
 **Queries**:
@@ -1037,6 +1043,7 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------||
+| 2026-05-15 | 4.47.85 | **Perf Budgets — Configurable Thresholds, Time-to-Breach & Alerts**: Thresholds now user-configurable inline (✎ icon per metric, persisted via `useUserAppState`). Added projected time-to-breach per metric using period-over-period trend rate. Near-breach alerting (within 10% of threshold) with yellow "NEAR" badge and alert banner. Workflow Trigger Suggestion section provides DQL condition template for Dynatrace Workflow automation. Cards compacted to grid layout with Period Δ indicator. Budget Summary Table gains "Breach" column. "Near Breach" KPI added. Previous-period quality data passed to component for trend computation. |
 | 2026-05-15 | 4.47.83 | **Exceptions — Source Map Deobfuscation & Regression Detector**: Redesigned error cards to match Metric Forecasts style (compact grid layout, severity-colored left border, clean header). Added inline source map deobfuscation — parses file:line:col from error names and displays monospace "Source" row per card. Added regression detector comparing current vs previous period: classifies each error as NEW (cyan), RECURRING (yellow), or REGRESSION (red) with badge. KPI row expanded with New/Recurring/Regressions counts. Previous-period DQL query added. DataTable gains Status column. AI Insights updated with source/regression analysis. |
 | 2026-05-15 | 4.47.84 | **Web Vitals — CWV Trend Lines & Remediation Recommendations**: Added daily CWV trend chart (LCP/INP/TTFB on shared axis, CLS separate scale) with Google threshold dashed lines and trend direction indicators (▲/▼/●). Added automated remediation recommendations per failing vital — anomaly-card style with FAILING/NEEDS IMPROVEMENT badge, top 3 offending pages, and 5 actionable recommendations per metric. Added "Failing Vitals" KPI. Reuses existing `sloCwvTrendQuery` data. AI Insights updated with trend + remediation awareness. |
 | 2026-05-15 | 4.47.80 | **Worst Sessions — AI Impact Score & Pattern Clustering**: Replaced static composite ranking (frustrated/errors/max_dur sort) with ML-driven Impact Score (0–100). Z-score normalization across 4 severity dimensions weighted by systemic multiplier (error frequency across sessions). "Sessions Like This" column shows cluster size per behavioral fingerprint. SYSTEMIC badge for repeatable patterns. Pattern Clusters section with systemic/outlier counts. Query enhanced with `collectDistinct(pageName)`, `collectDistinct(errName)`, `p90_dur`, limit raised to 50 for scoring population. AI Insights updated with cluster-aware analysis. |

@@ -93,6 +93,7 @@ type TabKey = typeof TAB_KEYS[number];
 const DEFAULT_TAB_VISIBILITY: Record<TabKey, boolean> = Object.fromEntries(TAB_KEYS.map(k => [k, true])) as Record<TabKey, boolean>;
 const TAB_STATE_KEY = "uj-tab-visibility";
 const TAB_ORDER_STATE_KEY = "uj-tab-order";
+const BUDGET_THRESHOLDS_STATE_KEY = "uj-budget-thresholds";
 const DEFAULT_TAB_ORDER: TabKey[] = [...TAB_KEYS];
 
 const CWV = {
@@ -2128,7 +2129,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Worst Sessions</Strong>: Sessions ranked by an <Strong>AI Impact Score</Strong> that uses z-score normalization across severity dimensions (errors, frustrated actions, avg/max latency) weighted by a systemic multiplier — sessions whose error patterns appear across many other sessions score higher than isolated outliers. Each row shows its Impact score (0–100), a <Strong>"Sessions Like This"</Strong> cluster count indicating how many sessions share the same behavioral fingerprint, and a <Strong>SYSTEMIC</Strong> badge for sessions representing repeatable patterns. A <Strong>Pattern Clusters</Strong> section groups sessions by behavioral fingerprint to distinguish widespread bugs from one-off edge cases. Each session links to <Strong>Dynatrace Session Replay</Strong>.</Paragraph>
         <Paragraph><Strong>Exceptions</Strong>: JavaScript exceptions with inline source map deobfuscation (file:line:col) and a regression detector that classifies each error as NEW, RECURRING, or REGRESSION. Cards styled like Metric Forecasts with compact grid layout, severity-colored left border, and status badges.</Paragraph>
         <Paragraph><Strong>Click Issues</Strong>: Detects rage clicks (rapid repeated clicks indicating frustration) and dead clicks (clicks on non-responsive elements). Shows the worst offending elements, pages, and session impact to guide UX fixes.</Paragraph>
-        <Paragraph><Strong>Perf Budgets</Strong>: Tracks actual metrics against defined performance budgets (Apdex ≥0.85, Conversion ≥20%, Avg Duration ≤2s, P90 ≤4s, Error Rate ≤2%, Frustrated ≤10%). Shows pass/fail status, margin from target, and hourly Apdex distribution to identify peak-hour degradation.</Paragraph>
+        <Paragraph><Strong>Perf Budgets</Strong>: User-configurable budget thresholds (click ✎ to edit, persisted per user). Tracks actual vs target with pass/fail/near-breach status. Projected time-to-breach per metric based on period-over-period trend. Alert banners when within 10% of breach with workflow trigger DQL suggestions. Hourly Apdex distribution for peak-hour analysis.</Paragraph>
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights. Country cards are clickable and open <Strong>User Sessions</Strong> filtered to that location.</Paragraph>
         <Paragraph><Strong>Map</Strong>: Interactive choropleth map with World and US views, colorized by session count, average duration, Apdex, error rate, or estimated revenue (when AOV is set). Use the dropdown to switch between World (country-level) and US (state-level) views. Countries/states with data are clickable and link to <Strong>User Sessions</Strong>.</Paragraph>
         <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Flow visualization groups transitions by source page, highlighting funnel-aligned vs. off-path navigation. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
@@ -2233,6 +2234,7 @@ export function UserJourney() {
   const savedSankeyStyle = useUserAppState({ key: SANKEY_STYLE_STATE_KEY });
   const savedFunnelStyle = useUserAppState({ key: FUNNEL_STYLE_STATE_KEY });
   const savedMapView = useUserAppState({ key: MAP_VIEW_STATE_KEY });
+  const savedBudgetThresholds = useUserAppState({ key: BUDGET_THRESHOLDS_STATE_KEY });
   const { execute: saveState } = useSetUserAppState();
 
   useEffect(() => {
@@ -2742,7 +2744,7 @@ export function UserJourney() {
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} />; break;
             case "Exceptions": content = <JSErrorsTab data={jsErrorsData} prevData={jsErrorsPrevData} isLoading={jsErrorsData.isLoading} frontend={frontend} />; break;
             case "Click Issues": content = <ClickIssuesTab data={clickIssuesData} isLoading={clickIssuesData.isLoading} />; break;
-            case "Perf Budgets": content = <PerfBudgetsTab quality={quality} overallApdex={overallApdex} overallConv={overallConv} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading} />; break;
+            case "Perf Budgets": content = <PerfBudgetsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading || qualityDataPrev.isLoading} saveState={saveState} savedThresholds={savedBudgetThresholds} />; break;
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} />; break;
             case "Map": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} />; break;
             case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} />; break;
@@ -3161,7 +3163,7 @@ function analyzePerfBudgets(quality: any, overallApdex: number, overallConv: num
     else { insights.push({ severity: "warning", icon: "⚠️", text: `${b.label}: ${b.format(b.value)} exceeds budget target of ${b.format(b.target)}.` }); recs.push({ impact: b.label === "Apdex" || b.label === "Error Rate" ? "high" : "medium", text: `Bring ${b.label} within budget. Current: ${b.format(b.value)}, Target: ${b.format(b.target)}.` }); }
   }
 
-  const summary = `Perf Budgets tracks your application against defined performance budget thresholds, providing a pass/fail compliance dashboard that engineering teams can monitor daily. This tab is designed for SREs enforcing performance SLAs, Engineering Leads running performance governance, and DevOps teams integrating performance into CI/CD pipelines. It answers: Are we meeting our performance targets? Which metrics are out of budget? How far are we from each target? How does performance vary by hour of day? The tab evaluates 5 industry-standard budgets: Apdex (target ≥0.85), Conversion Rate (target ≥3%), Average Latency (target ≤2s), P90 Latency (target ≤4s), and Error Rate (target ≤1%). Currently ${passing}/${budgets.length} budgets are met. ${passing === budgets.length ? "All performance budgets are on track — your application meets all defined targets." : `${budgets.length - passing} budget(s) are exceeded and need immediate attention.`} The tab also includes an hourly Apdex distribution chart to identify peak-hour degradation patterns — this reveals whether budget failures are constant or concentrated during high-traffic windows. Use this tab in daily standups and sprint planning to maintain accountability for performance.`;
+  const summary = `Perf Budgets tracks your application against user-configurable performance budget thresholds with projected time-to-breach estimates and near-breach alerting. Thresholds can be edited inline (click ✎ icon per metric) and are persisted per user. The tab compares current vs previous period to compute trend rate and projects when a passing metric will cross its threshold at the current trajectory. When a metric is within 10% of its threshold, it triggers a NEAR BREACH alert banner with a suggested DQL workflow trigger condition for automated notifications. Currently ${passing}/${budgets.length} budgets are met. ${passing === budgets.length ? "All performance budgets are on track." : `${budgets.length - passing} budget(s) need attention.`} The tab evaluates 6 configurable budgets: Apdex, Conversion Rate, Average Latency, P90 Latency, Error Rate, and Frustrated %. The hourly Apdex distribution chart reveals whether failures are constant or concentrated during peak traffic windows.`;
   return { summary, insights, recommendations: recs };
 }
 
@@ -5189,12 +5191,46 @@ const PERF_BUDGETS = [
   { metric: "Frustrated %", target: 10, unit: "%", inverted: true, format: fmtPct },
 ];
 
-function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoading }: { quality: any; overallApdex: number; overallConv: number; hourlyData: any; isLoading: boolean }) {
+function PerfBudgetsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, hourlyData, isLoading, saveState, savedThresholds }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; hourlyData: any; isLoading: boolean; saveState: any; savedThresholds: any }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzePerfBudgets(quality, overallApdex, overallConv), [quality, overallApdex, overallConv]));
+
+  // User-configurable thresholds (persisted)
+  const [thresholds, setThresholds] = useState<Record<string, number>>(() => {
+    try {
+      const raw = savedThresholds?.data?.value;
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  });
+  const [editingMetric, setEditingMetric] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  // Sync when saved state loads
+  useEffect(() => {
+    try {
+      const raw = savedThresholds?.data?.value;
+      if (raw) setThresholds(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, [savedThresholds?.data?.value]);
+
+  const getTarget = (metric: string, defaultTarget: number) => thresholds[metric] ?? defaultTarget;
+  const saveThreshold = (metric: string, value: number) => {
+    const next = { ...thresholds, [metric]: value };
+    setThresholds(next);
+    saveState({ key: BUDGET_THRESHOLDS_STATE_KEY, body: { value: JSON.stringify(next) } });
+  };
+  const resetThreshold = (metric: string) => {
+    const next = { ...thresholds };
+    delete next[metric];
+    setThresholds(next);
+    saveState({ key: BUDGET_THRESHOLDS_STATE_KEY, body: { value: JSON.stringify(next) } });
+  };
+
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
   const frustratedPct = quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0;
+  const errorRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
+  const frustratedPctPrev = qualityPrev.total > 0 ? (qualityPrev.frustrated / qualityPrev.total) * 100 : 0;
 
   const actuals: Record<string, number> = {
     "Apdex": overallApdex,
@@ -5204,16 +5240,56 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
     "Error Rate": errorRate,
     "Frustrated %": frustratedPct,
   };
+  const prevActuals: Record<string, number> = {
+    "Apdex": overallApdexPrev,
+    "Conversion Rate": overallConvPrev,
+    "Avg Duration": qualityPrev.avg,
+    "P90 Duration": qualityPrev.p90,
+    "Error Rate": errorRatePrev,
+    "Frustrated %": frustratedPctPrev,
+  };
 
   const budgetStatus = PERF_BUDGETS.map((b) => {
+    const target = getTarget(b.metric, b.target);
     const actual = actuals[b.metric] ?? 0;
-    const passing = b.inverted ? actual <= b.target : actual >= b.target;
-    const margin = b.target > 0 ? ((actual - b.target) / b.target) * 100 : 0;
-    return { ...b, actual, passing, margin };
+    const prev = prevActuals[b.metric] ?? 0;
+    const passing = b.inverted ? actual <= target : actual >= target;
+    const margin = target > 0 ? ((actual - target) / target) * 100 : 0;
+
+    // Daily rate of change (current - prev gives delta over 1 period)
+    const dailyDelta = actual - prev; // change per period
+    // Time-to-breach: how many periods until breach at current rate
+    let daysToBreach: number | null = null;
+    if (passing && dailyDelta !== 0) {
+      if (b.inverted) {
+        // metric should stay below target; breach if actual goes above
+        const headroom = target - actual;
+        if (dailyDelta > 0 && headroom > 0) daysToBreach = Math.ceil(headroom / dailyDelta);
+      } else {
+        // metric should stay above target; breach if actual drops below
+        const headroom = actual - target;
+        if (dailyDelta < 0 && headroom > 0) daysToBreach = Math.ceil(headroom / Math.abs(dailyDelta));
+      }
+    }
+    if (daysToBreach != null && daysToBreach <= 0) daysToBreach = null;
+
+    // Near-breach alert: within 10% of target
+    let nearBreach = false;
+    if (passing) {
+      if (b.inverted) {
+        nearBreach = actual >= target * 0.9; // within 10% of max
+      } else {
+        nearBreach = actual <= target * 1.1; // within 10% of min
+      }
+    }
+
+    return { ...b, target, actual, prev, passing, margin, daysToBreach, nearBreach, dailyDelta };
   });
 
   const passingCount = budgetStatus.filter((b) => b.passing).length;
   const overallHealth = Math.round((passingCount / budgetStatus.length) * 100);
+  const nearBreachCount = budgetStatus.filter((b) => b.nearBreach).length;
+  const alertMetrics = budgetStatus.filter((b) => b.nearBreach || (b.daysToBreach != null && b.daysToBreach <= 7));
 
   // Parse hourly data
   const hours = (hourlyData.data?.records ?? []) as any[];
@@ -5222,7 +5298,27 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
       <SectionHeader title="Performance Budget Tracking" />
-      <Text style={{ fontSize: 12, opacity: 0.5 }}>Track actual metrics against defined performance budgets. Green = within budget, Red = over budget.</Text>
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>Track actual metrics against configurable budgets. Click the edit icon to customize thresholds. Alerts trigger when within 10% of breach.</Text>
+
+      {/* Alert banner */}
+      {alertMetrics.length > 0 && (
+        <div style={{ padding: "12px 16px", background: `${YELLOW}12`, border: `1px solid ${YELLOW}44`, borderRadius: 8 }}>
+          <Flex alignItems="center" gap={8} style={{ marginBottom: 6 }}>
+            <span style={{ fontSize: 16 }}>⚠</span>
+            <Strong style={{ fontSize: 13, color: YELLOW }}>Budget Alert — {alertMetrics.length} metric{alertMetrics.length > 1 ? "s" : ""} near breach threshold</Strong>
+          </Flex>
+          <Flex flexDirection="column" gap={4}>
+            {alertMetrics.map(a => (
+              <Text key={a.metric} style={{ fontSize: 12, paddingLeft: 24 }}>
+                <Strong style={{ color: a.passing ? YELLOW : RED }}>{a.metric}</Strong>: {a.format(a.actual)} {a.inverted ? "→ max" : "→ min"} {a.format(a.target)}
+                {a.daysToBreach != null && <span style={{ color: ORANGE }}> — projected breach in ~{a.daysToBreach} period{a.daysToBreach !== 1 ? "s" : ""}</span>}
+                {a.nearBreach && !a.daysToBreach && <span style={{ color: YELLOW }}> — within 10% of threshold</span>}
+              </Text>
+            ))}
+          </Flex>
+          <Text style={{ fontSize: 11, opacity: 0.5, marginTop: 6, paddingLeft: 24 }}>Recommendation: Create a Dynatrace Workflow with a DQL trigger to automate notifications when these metrics cross their threshold.</Text>
+        </div>
+      )}
 
       {/* Overall compliance */}
       <Flex gap={16} flexWrap="wrap">
@@ -5239,6 +5335,10 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
           <Text className="uj-kpi-label">Failing</Text>
           <Heading level={2} className="uj-kpi-value" style={{ color: budgetStatus.length - passingCount > 0 ? RED : GREEN }}>{budgetStatus.length - passingCount}</Heading>
         </div>
+        <div className="uj-kpi-card">
+          <Text className="uj-kpi-label">Near Breach</Text>
+          <Heading level={2} className="uj-kpi-value" style={{ color: nearBreachCount > 0 ? YELLOW : GREEN }}>{nearBreachCount}</Heading>
+        </div>
       </Flex>
 
       {/* Budget cards */}
@@ -5248,43 +5348,120 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
           const pctOfTarget = b.inverted
             ? (b.target > 0 ? Math.min((b.actual / b.target) * 100, 150) : 0)
             : (b.target > 0 ? Math.min((b.actual / b.target) * 100, 150) : 0);
-          const barColor = b.passing ? GREEN : RED;
-          const targetLine = b.inverted ? 100 : 100;
+          const barColor = b.passing ? (b.nearBreach ? YELLOW : GREEN) : RED;
+          const isEditing = editingMetric === b.metric;
 
           return (
-            <div key={b.metric} className="uj-budget-card">
+            <div key={b.metric} className="uj-budget-card" style={{ borderColor: b.nearBreach ? `${YELLOW}44` : undefined }}>
               <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
                 <Strong style={{ fontSize: 13 }}>{b.metric}</Strong>
-                <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: b.passing ? `${GREEN}18` : `${RED}18`, color: b.passing ? GREEN : RED, fontWeight: 700 }}>
-                  {b.passing ? "PASS" : "FAIL"}
-                </span>
+                <Flex gap={6} alignItems="center">
+                  {b.nearBreach && <span style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, background: `${YELLOW}18`, color: YELLOW, fontWeight: 700 }}>NEAR</span>}
+                  <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: b.passing ? `${GREEN}18` : `${RED}18`, color: b.passing ? GREEN : RED, fontWeight: 700 }}>
+                    {b.passing ? "PASS" : "FAIL"}
+                  </span>
+                </Flex>
               </Flex>
-              <Flex gap={16} style={{ marginBottom: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 8 }}>
                 <div>
-                  <Text style={{ fontSize: 24, opacity: 0.5 }}>Actual</Text>
-                  <Strong style={{ display: "block", color: b.passing ? GREEN : RED, fontSize: 32 }}>{b.format(b.actual)}</Strong>
+                  <Text style={{ fontSize: 11, opacity: 0.5 }}>Actual</Text>
+                  <Strong style={{ display: "block", color: b.passing ? GREEN : RED, fontSize: 18 }}>{b.format(b.actual)}</Strong>
                 </div>
                 <div>
-                  <Text style={{ fontSize: 24, opacity: 0.5 }}>Target</Text>
-                  <Text style={{ display: "block", fontSize: 28 }}>{b.inverted ? "≤ " : "≥ "}{b.format(b.target)}</Text>
+                  <Text style={{ fontSize: 11, opacity: 0.5 }}>Target</Text>
+                  <Flex alignItems="center" gap={4}>
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const v = parseFloat(editValue);
+                            if (!isNaN(v) && v > 0) saveThreshold(b.metric, v);
+                            setEditingMetric(null);
+                          }
+                          if (e.key === "Escape") setEditingMetric(null);
+                        }}
+                        onBlur={() => {
+                          const v = parseFloat(editValue);
+                          if (!isNaN(v) && v > 0) saveThreshold(b.metric, v);
+                          setEditingMetric(null);
+                        }}
+                        autoFocus
+                        style={{ width: 60, fontSize: 14, padding: "2px 4px", borderRadius: 4, border: `1px solid ${BLUE}`, background: "transparent", color: "inherit", outline: "none" }}
+                      />
+                    ) : (
+                      <Strong style={{ display: "block", fontSize: 16 }}>{b.inverted ? "≤ " : "≥ "}{b.format(b.target)}</Strong>
+                    )}
+                    {!isEditing && (
+                      <span
+                        onClick={() => { setEditingMetric(b.metric); setEditValue(String(b.target)); }}
+                        style={{ cursor: "pointer", fontSize: 12, opacity: 0.4, padding: "2px 4px" }}
+                        title="Edit threshold"
+                      >✎</span>
+                    )}
+                  </Flex>
+                  {thresholds[b.metric] != null && (
+                    <span onClick={() => resetThreshold(b.metric)} style={{ fontSize: 10, cursor: "pointer", color: BLUE, opacity: 0.6 }}>reset</span>
+                  )}
                 </div>
                 <div>
-                  <Text style={{ fontSize: 24, opacity: 0.5 }}>Margin</Text>
-                  <Text style={{ display: "block", fontSize: 28, color: b.passing ? GREEN : RED }}>
+                  <Text style={{ fontSize: 11, opacity: 0.5 }}>Margin</Text>
+                  <Text style={{ display: "block", fontSize: 14, color: b.passing ? GREEN : RED }}>
                     {b.inverted ? (b.margin <= 0 ? `${Math.abs(b.margin).toFixed(1)}% under` : `${b.margin.toFixed(1)}% over`) : (b.margin >= 0 ? `${b.margin.toFixed(1)}% above` : `${Math.abs(b.margin).toFixed(1)}% below`)}
                   </Text>
                 </div>
+              </div>
+              {/* Time-to-breach + trend */}
+              <Flex gap={12} style={{ marginBottom: 8 }}>
+                <div>
+                  <Text style={{ fontSize: 11, opacity: 0.5 }}>Time to Breach</Text>
+                  <Strong style={{ display: "block", fontSize: 14, color: b.daysToBreach != null ? (b.daysToBreach <= 3 ? RED : b.daysToBreach <= 7 ? ORANGE : YELLOW) : GREEN }}>
+                    {!b.passing ? "NOW" : b.daysToBreach != null ? `~${b.daysToBreach} period${b.daysToBreach !== 1 ? "s" : ""}` : "Safe"}
+                  </Strong>
+                </div>
+                <div>
+                  <Text style={{ fontSize: 11, opacity: 0.5 }}>Period Δ</Text>
+                  <Strong style={{ display: "block", fontSize: 14, color: b.dailyDelta === 0 ? "rgba(128,128,128,0.5)" : (b.inverted ? (b.dailyDelta > 0 ? RED : GREEN) : (b.dailyDelta < 0 ? RED : GREEN)) }}>
+                    {b.dailyDelta === 0 ? "● Stable" : `${b.dailyDelta > 0 ? "▲" : "▼"} ${b.format(Math.abs(b.dailyDelta))}`}
+                  </Strong>
+                </div>
               </Flex>
               {/* Progress bar toward target */}
-              <div style={{ position: "relative", height: 8, borderRadius: 4, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                <div style={{ height: "100%", width: `${Math.min(pctOfTarget, 100)}%`, background: barColor, borderRadius: 4, transition: "width 0.4s ease" }} />
-                {/* Target marker */}
-                <div style={{ position: "absolute", top: 0, left: `${targetLine}%`, width: 2, height: "100%", background: "rgba(255,255,255,0.4)" }} />
+              <div style={{ position: "relative", height: 6, borderRadius: 3, background: "rgba(128,128,128,0.1)", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min(pctOfTarget, 100)}%`, background: barColor, borderRadius: 3, transition: "width 0.4s ease" }} />
+                <div style={{ position: "absolute", top: 0, left: "100%", width: 2, height: "100%", background: "rgba(128,128,128,0.4)" }} />
               </div>
             </div>
           );
         })}
       </Flex>
+
+      {/* Workflow trigger recommendation */}
+      {alertMetrics.length > 0 && (
+        <>
+          <SectionHeader title="Workflow Trigger Suggestion" />
+          <div className="uj-table-tile" style={{ padding: 16 }}>
+            <Text style={{ fontSize: 12, opacity: 0.7, marginBottom: 8, display: "block" }}>
+              The following DQL condition can be used as a Dynatrace Workflow trigger to alert when budgets are within 10% of breach:
+            </Text>
+            <pre style={{ fontSize: 11, padding: "10px 14px", borderRadius: 6, background: "rgba(128,128,128,0.08)", border: "1px solid rgba(128,128,128,0.15)", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+{alertMetrics.map(a => {
+  const op = a.inverted ? ">=" : "<=";
+  const thresholdVal = a.inverted ? (a.target * 0.9).toFixed(2) : (a.target * 1.1).toFixed(2);
+  return `// ${a.metric}: alert when ${a.inverted ? "above" : "below"} ${thresholdVal}\n// Current: ${a.format(a.actual)} | Target: ${a.format(a.target)}`;
+}).join("\n\n")}
+
+{`// Example Workflow DQL trigger condition:
+// fetch user.events, from:now()-1h
+// | filter frontend.name == "<your_app>"
+// | ... compute metric ...
+// | filter metric_value ${alertMetrics[0]?.inverted ? ">=" : "<="} ${alertMetrics[0]?.inverted ? (alertMetrics[0].target * 0.9).toFixed(2) : (alertMetrics[0].target * 1.1).toFixed(2)}`}
+            </pre>
+          </div>
+        </>
+      )}
 
       {/* Full budget table */}
       <SectionHeader title="Budget Summary Table" />
@@ -5295,12 +5472,13 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
             Metric: b.metric,
             Actual: b.actual,
             Target: b.target,
-            Status: b.passing ? "PASS" : "FAIL",
+            Status: b.passing ? (b.nearBreach ? "NEAR" : "PASS") : "FAIL",
+            "Time to Breach": b.daysToBreach != null ? `~${b.daysToBreach}p` : (!b.passing ? "NOW" : "Safe"),
             "Margin %": b.margin,
           }))}
           columns={[
             { id: "Metric", header: "Metric", accessor: "Metric", cell: ({ value }: any) => <Strong>{value}</Strong> },
-            { id: "Status", header: "Status", accessor: "Status", cell: ({ value }: any) => <Strong style={{ color: value === "PASS" ? GREEN : RED }}>{value}</Strong> },
+            { id: "Status", header: "Status", accessor: "Status", cell: ({ value }: any) => <Strong style={{ color: value === "PASS" ? GREEN : value === "NEAR" ? YELLOW : RED }}>{value}</Strong> },
             { id: "Actual", header: "Actual", accessor: "Actual", sortType: "number" as any, cell: ({ value, rowData }: any) => {
               const b = budgetStatus.find((x) => x.metric === rowData.Metric);
               return <Text>{b ? b.format(value) : value}</Text>;
@@ -5308,6 +5486,10 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
             { id: "Target", header: "Target", accessor: "Target", sortType: "number" as any, cell: ({ value, rowData }: any) => {
               const b = budgetStatus.find((x) => x.metric === rowData.Metric);
               return <Text style={{ opacity: 0.6 }}>{b ? (b.inverted ? "≤ " : "≥ ") + b.format(value) : value}</Text>;
+            }},
+            { id: "Time to Breach", header: "Breach", accessor: "Time to Breach", cell: ({ value }: any) => {
+              const color = value === "NOW" ? RED : value === "Safe" ? GREEN : ORANGE;
+              return <Strong style={{ color }}>{value}</Strong>;
             }},
             { id: "Margin %", header: "Margin", accessor: "Margin %", sortType: "number" as any, cell: ({ value, rowData }: any) => {
               const b = budgetStatus.find((x) => x.metric === rowData.Metric);
@@ -5338,7 +5520,7 @@ function PerfBudgetsTab({ quality, overallApdex, overallConv, hourlyData, isLoad
                 return (
                   <Flex key={hour} alignItems="center" gap={8}>
                     <Text style={{ fontSize: 12, width: 35, textAlign: "right", opacity: 0.5 }}>{String(hour).padStart(2, "0")}:00</Text>
-                    <div style={{ flex: 1, height: 12, borderRadius: 3, background: "rgba(255,255,255,0.04)", overflow: "hidden", position: "relative" }}>
+                    <div style={{ flex: 1, height: 12, borderRadius: 3, background: "rgba(128,128,128,0.04)", overflow: "hidden", position: "relative" }}>
                       <div style={{ height: "100%", width: `${barWidth}%`, background: apdexClr(apdex), borderRadius: 3, opacity: 0.7, transition: "width 0.3s ease" }} />
                     </div>
                     <Text style={{ fontSize: 12, minWidth: 45, textAlign: "right", color: BLUE }}>{fmtCount(actions)}</Text>
