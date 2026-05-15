@@ -640,12 +640,14 @@ timeseries { lcp = avg(dt.frontend.web.page.largest_contentful_paint), cls = avg
 
 ### 21. Resource Waterfall
 
-**Purpose**: Aggregated resource timing per funnel step showing scripts, CSS, images, fonts, and XHR load times.
+**Purpose**: Aggregated resource timing per funnel step + individual session-level drill-down showing scripts, CSS, images, fonts, and XHR load times.
 
 **Key Features**:
 - Visual waterfall bars (P50/P90)
 - Per-step resource type breakdown
 - Optimization recommendations (slow resources flagged)
+- **Top 10 Slowest Resources**: Individual resource requests ranked by duration with clickable session links to view affected sessions
+- **Session Drill-Down Panel**: Select a session to see all resources loaded in that session with full replay link. Buttons for each unique session ID; clicking opens a resource table for that session.
 
 **Queries**:
 
@@ -1045,7 +1047,8 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------||
-| 2026-05-15 | 4.47.86 | **SLO Tracker — Editable Targets & Create Dynatrace SLO**: SLO target values now user-editable inline (✎ icon per metric, persisted via `useUserAppState`). Reset button (↺) restores defaults. Added one-click "Create SLO" button per metric that opens Dynatrace SLO settings page pre-filled with metric expression, target value, comparison operator, and frontend filter — provisions a native platform SLO without leaving the app. Button shows ✓ Created state after click. |
+| 2026-05-15 | 4.47.88 | **Resource Waterfall — Session Drill-Down & Top 10 Slowest**: Added "Top 10 Slowest Resources" section showing individual resource requests ranked by duration with clickable session links. Added "Session Drill-Down" panel with session selector buttons — click to see all resources loaded in that specific session with a "View Full Session" replay link. New `resourceSessionDrillQuery` fetches per-session resource data (top 50 by duration). Help and AI Insights updated. |
+| 2026-05-15 | 4.47.86 | **SLO Tracker — Editable Targets & Create Dynatrace SLO**: SLO target values now user-editable inline (✎ icon per metric, persisted via `useUserAppState`). Reset button (↺) restores defaults. Added one-click "Create SLO" button per metric that opens Dynatrace SLO management app. |
 | 2026-05-15 | 4.47.85 | **Perf Budgets — Configurable Thresholds, Time-to-Breach & Alerts**: Thresholds now user-configurable inline (✎ icon per metric, persisted via `useUserAppState`). Added projected time-to-breach per metric using period-over-period trend rate. Near-breach alerting (within 10% of threshold) with yellow "NEAR" badge and alert banner. Workflow Trigger Suggestion section provides DQL condition template for Dynatrace Workflow automation. Cards compacted to grid layout with Period Δ indicator. Budget Summary Table gains "Breach" column. "Near Breach" KPI added. Previous-period quality data passed to component for trend computation. |
 | 2026-05-15 | 4.47.83 | **Exceptions — Source Map Deobfuscation & Regression Detector**: Redesigned error cards to match Metric Forecasts style (compact grid layout, severity-colored left border, clean header). Added inline source map deobfuscation — parses file:line:col from error names and displays monospace "Source" row per card. Added regression detector comparing current vs previous period: classifies each error as NEW (cyan), RECURRING (yellow), or REGRESSION (red) with badge. KPI row expanded with New/Recurring/Regressions counts. Previous-period DQL query added. DataTable gains Status column. AI Insights updated with source/regression analysis. |
 | 2026-05-15 | 4.47.84 | **Web Vitals — CWV Trend Lines & Remediation Recommendations**: Added daily CWV trend chart (LCP/INP/TTFB on shared axis, CLS separate scale) with Google threshold dashed lines and trend direction indicators (▲/▼/●). Added automated remediation recommendations per failing vital — anomaly-card style with FAILING/NEEDS IMPROVEMENT badge, top 3 offending pages, and 5 actionable recommendations per metric. Added "Failing Vitals" KPI. Reuses existing `sloCwvTrendQuery` data. AI Insights updated with trend + remediation awareness. |

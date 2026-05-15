@@ -1104,6 +1104,23 @@ function resourceByStepQuery(days: number, frontend: string, steps: StepDef[]): 
 | sort total_dur desc`;
 }
 
+function resourceSessionDrillQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const stepTag = resourceStepTagExpr(steps);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter characteristics.has_request == true
+| fieldsAdd res_dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd step_tag = ${stepTag}
+| fieldsAdd lp = lower(coalesce(url.path, ""))
+| fieldsAdd res_type = ${RES_TYPE_EXPR}
+| fieldsAdd res_name = coalesce(url.full, url.path, "unknown")
+| fieldsAdd sid = user_session.id
+| sort res_dur_ms desc
+| limit 50
+| fields sid, res_name, res_type, res_dur_ms, step_tag, timestamp`;
+}
+
 // ---------------------------------------------------------------------------
 // Change Intelligence — deployment events + before/after comparison
 // ---------------------------------------------------------------------------
@@ -2143,7 +2160,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>What-If Analysis</Strong>: Traffic impact modeling with projected Apdex, latency, and conversion degradation. When AOV is set in Settings, also shows revenue impact: projected revenue at higher traffic, net revenue change, conversion degradation loss, and a "Perf Tax" breakdown showing revenue lost to performance under load.</Paragraph>
         <Paragraph><Strong>Root Cause Correlation</Strong>: Automatically correlates conversion drops with technical signals — latency spikes, error surges, and frustrated sessions — on an hourly timeline. Identifies which funnel steps degrade at the exact hours conversion dips. Surfaces ranked root cause signals with severity and confidence scores so you can pinpoint the technical driver behind every conversion drop without manual cross-referencing. When AOV is set, shows the estimated revenue at risk from sessions occurring during impact hours.</Paragraph>
         <Paragraph><Strong>Predictive Forecasting</Strong>: Uses trend data from the selected timeframe to project Apdex, conversion rate, error rate, and average duration forward 7 days via linear regression. Flags when a metric is on trajectory to breach a performance budget threshold before it actually happens. Includes trend direction, rate of change, and days-to-breach estimates for proactive incident prevention.</Paragraph>
-        <Paragraph><Strong>Resource Waterfall</Strong>: Aggregated resource timing per funnel step — third-party scripts, XHR/Fetch calls, images, CSS, and fonts. Shows which specific resources drag down LCP and increase page weight. Includes per-step resource type breakdown, top slow resources ranked by total time, and a visual waterfall bar chart showing P50/P90/Max latency ranges. Helps identify CDN misses, unoptimized images, and slow third-party scripts.</Paragraph>
+        <Paragraph><Strong>Resource Waterfall</Strong>: Aggregated resource timing per funnel step — third-party scripts, XHR/Fetch calls, images, CSS, and fonts. Top 10 Slowest Resources section shows individual requests ranked by duration with clickable session links. Session Drill-Down panel lets you select a specific session to see all resources loaded in that session (with full replay link). Includes per-step resource type breakdown, visual waterfall bar chart with P50/P90 ranges, and optimization recommendations.</Paragraph>
         <Paragraph><Strong>Change Intelligence</Strong>: Pulls deployment events from Dynatrace and overlays them on an hourly performance timeline. Automatically compares metrics in the window before and after each deployment to detect regressions. Shows before/after Apdex, duration, error rate, and frustrated % with severity classification. When AOV is set, shows estimated revenue loss per regression and total revenue impact across all regressive deployments. Use to validate whether a deploy caused a performance regression or improvement.</Paragraph>
         <Paragraph><Strong>SLO Tracker</Strong>: Define Service Level Objectives for Apdex, error rate, LCP, CLS, INP, and TTFB with user-editable targets (click ✎ to customize, persisted per user). Tracks error budget burn-down with hourly granularity. Shows remaining budget %, burn rate, and projected time to exhaustion. One-click "Create SLO" button per metric provisions the SLO natively in the Dynatrace platform (opens SLO settings pre-filled). Color-coded status indicators flag SLOs at risk before they breach.</Paragraph>
         <Paragraph><Strong>Session Replay Spotlight</Strong>: Surfaces the highest-impact session replays ranked by an impact score combining errors, crashes, bounces, and interaction density. Shows session duration, error count, device, browser, and country. Each session links directly to <Strong>Dynatrace Session Replay</Strong> for instant visual debugging. Quickly find the sessions that matter most without manually searching.</Paragraph>
@@ -2395,6 +2412,7 @@ export function UserJourney() {
   // NEW: Resource Waterfall
   const resourceWaterfallData = useDql({ query: resourceWaterfallQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const resourceByStepData = useDql({ query: resourceByStepQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const resourceSessionDrillData = useDql({ query: resourceSessionDrillQuery(timeframeDays, frontend, steps) }, refetchOpts);
 
   // NEW: Change Intelligence
   const deploymentEventsData = useDql({ query: deploymentEventsQuery(timeframeDays) }, refetchOpts);
@@ -2759,7 +2777,7 @@ export function UserJourney() {
             case "What-If Analysis": content = <WhatIfTab funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} aov={aov} />; break;
             case "Root Cause Correlation": content = <RootCauseCorrelationTab hourlyData={rootCauseCorrelationData} stepDropData={rootCauseStepDropData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} isLoading={rootCauseCorrelationData.isLoading || rootCauseStepDropData.isLoading} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Predictive Forecasting": content = <PredictiveForecastingTab trendData={forecastTrendData} apdexTrendData={forecastApdexTrendData} vitalsTrendData={forecastVitalsTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} isLoading={forecastTrendData.isLoading || forecastApdexTrendData.isLoading || forecastVitalsTrendData.isLoading} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
-            case "Resource Waterfall": content = <ResourceWaterfallTab waterfallData={resourceWaterfallData} byStepData={resourceByStepData} isLoading={resourceWaterfallData.isLoading || resourceByStepData.isLoading} steps={steps} />; break;
+            case "Resource Waterfall": content = <ResourceWaterfallTab waterfallData={resourceWaterfallData} byStepData={resourceByStepData} sessionDrillData={resourceSessionDrillData} isLoading={resourceWaterfallData.isLoading || resourceByStepData.isLoading || resourceSessionDrillData.isLoading} steps={steps} frontend={frontend} />; break;
             case "Change Intelligence": content = <ChangeIntelligenceTab deployData={deploymentEventsData} impactData={changeImpactData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} isLoading={deploymentEventsData.isLoading || changeImpactData.isLoading} aov={aov} overallConv={overallConv} funnelCounts={funnelCounts} />; break;
             case "SLO Tracker": content = <SLOTrackerTab apdexTrend={sloApdexTrendData} cwvTrend={sloCwvTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} cwv={cwv} isLoading={sloApdexTrendData.isLoading || sloCwvTrendData.isLoading} saveState={saveState} savedTargets={savedSloTargets} frontend={frontend} />; break;
             case "Session Replay Spotlight": content = <SessionReplaySpotlightTab data={sessionReplayData} isLoading={sessionReplayData.isLoading} />; break;
@@ -3397,7 +3415,7 @@ function analyzeResourceWaterfall(waterfallData: any, byStepData: any): AIInsigh
   if (heavyResources.length > 0) { insights.push({ severity: "warning", icon: "📦", text: `${heavyResources.length} resource type(s) exceed 500KB total. Google recommends total page weight under 1.5MB.` }); recs.push({ impact: "medium", text: "Reduce page weight: lazy-load below-fold images, tree-shake unused JavaScript, use dynamic imports for code splitting." }); }
   if (slowResources.length === 0 && heavyResources.length === 0) insights.push({ severity: "good", icon: "✅", text: "Resource loading performance is within acceptable bounds." });
 
-  const summary = `Resource Waterfall provides aggregated resource timing analysis per funnel step, revealing which scripts, images, stylesheets, XHR calls, and fonts are slowing down your pages. This tab is essential for Frontend Performance Engineers optimizing page weight and render speed, DevOps Engineers managing CDN configuration, and Tech Leads evaluating third-party script costs. It answers: Which resources take the longest to load? Which are the heaviest? How do resources differ by funnel step? Currently analyzing ${entries.length} resource types. ${slowResources.length} type(s) have average load times exceeding 500ms, and ${heavyResources.length} type(s) exceed 500KB total payload. ${slowResources.length + heavyResources.length === 0 ? "All resources are well-optimized." : "Optimization opportunities identified that could improve LCP and overall page load speed."} The tab includes per-step resource type breakdowns, top slow resources ranked by total time, and a visual waterfall bar chart showing P50/P90/Max latency ranges. Use this to identify CDN cache misses, unoptimized images, render-blocking scripts, and oversized bundles.`;
+  const summary = `Resource Waterfall provides aggregated resource timing analysis per funnel step plus individual session-level drill-down, revealing which scripts, images, stylesheets, XHR calls, and fonts are slowing down your pages. This tab is essential for Frontend Performance Engineers optimizing page weight and render speed, DevOps Engineers managing CDN configuration, and Tech Leads evaluating third-party script costs. It answers: Which resources take the longest to load? Which individual requests are the slowest? Which sessions are affected? How do resources differ by funnel step? Currently analyzing ${entries.length} resource types. ${slowResources.length} type(s) have average load times exceeding 500ms, and ${heavyResources.length} type(s) exceed 500KB total payload. ${slowResources.length + heavyResources.length === 0 ? "All resources are well-optimized." : "Optimization opportunities identified that could improve LCP and overall page load speed."} The Top 10 Slowest Resources section ranks individual resource requests by duration with clickable links to affected sessions. The Session Drill-Down panel shows all resources loaded within a selected session for waterfall-style analysis. Use this to identify CDN cache misses, unoptimized images, render-blocking scripts, and oversized bundles.`;
   return { summary, insights, recommendations: recs };
 }
 
@@ -10645,8 +10663,9 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
 // ===========================================================================
 // TAB: Resource Waterfall
 // ===========================================================================
-function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: { waterfallData: any; byStepData: any; isLoading: boolean; steps: StepDef[] }) {
+function ResourceWaterfallTab({ waterfallData, byStepData, sessionDrillData, isLoading, steps, frontend }: { waterfallData: any; byStepData: any; sessionDrillData: any; isLoading: boolean; steps: StepDef[]; frontend: string }) {
   const [selectedStep, setSelectedStep] = useState<string>("all");
+  const [drillSession, setDrillSession] = useState<string | null>(null);
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeResourceWaterfall(waterfallData, byStepData), [waterfallData, byStepData]));
   if (isLoading) return <Loading />;
 
@@ -10875,6 +10894,94 @@ function ResourceWaterfallTab({ waterfallData, byStepData, isLoading, steps }: {
           </div>
         )}
       </Flex>
+
+      {/* Top 10 Slowest Resources (Session-Level) */}
+      <SectionHeader title="Top 10 Slowest Resources (Individual Requests)" />
+      <Text style={{ fontSize: 13, opacity: 0.5, marginBottom: 4 }}>Individual resource requests ranked by duration. Click a session to view full replay.</Text>
+      {(() => {
+        const sessionRecords = (sessionDrillData.data?.records ?? []) as any[];
+        const top10 = sessionRecords.slice(0, 10).map((r: any) => ({
+          sid: String(r.sid ?? ""),
+          name: String(r.res_name ?? "unknown"),
+          type: String(r.res_type ?? "other"),
+          dur: Number(r.res_dur_ms ?? 0),
+          step: String(r.step_tag ?? ""),
+          ts: r.timestamp ? new Date(r.timestamp).toLocaleString() : "",
+        }));
+        if (top10.length === 0) return <div className="uj-table-tile" style={{ padding: 24, textAlign: "center" }}><Text style={{ opacity: 0.5 }}>No individual resource data available.</Text></div>;
+        return (
+          <div className="uj-table-tile">
+            <DataTable sortable resizable fullWidth data={top10.map((r, i) => ({
+              "#": i + 1,
+              Resource: r.name.length > 70 ? "..." + r.name.slice(-67) : r.name,
+              Type: r.type,
+              Duration: r.dur,
+              Step: r.step,
+              Time: r.ts,
+              Session: r.sid,
+            }))} columns={[
+              { id: "#", header: "#", accessor: "#", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
+              { id: "Resource", header: "Resource", accessor: "Resource", cell: ({ value }: any) => <Text style={{ fontSize: 12, wordBreak: "break-all" as const }}>{value}</Text> },
+              { id: "Type", header: "Type", accessor: "Type", cell: ({ value }: any) => <span style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: `${typeClr(value)}20`, color: typeClr(value), fontWeight: 600 }}>{value}</span> },
+              { id: "Duration", header: "Duration", accessor: "Duration", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 2000 ? RED : value > 1000 ? ORANGE : GREEN }}>{fmt(value)}</Strong> },
+              { id: "Step", header: "Step", accessor: "Step" },
+              { id: "Time", header: "Time", accessor: "Time", cell: ({ value }: any) => <Text style={{ fontSize: 12, opacity: 0.6 }}>{value}</Text> },
+              { id: "Session", header: "Session", accessor: "Session", cell: ({ value }: any) => value ? <a href={sessionReplayUrl(value)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, fontSize: 12, textDecoration: "none" }} onMouseEnter={(e: any) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e: any) => (e.currentTarget.style.textDecoration = "none")} title="Open session">{value.slice(0, 8)}...</a> : <Text style={{ opacity: 0.3 }}>{"\u2014"}</Text> },
+            ]} />
+          </div>
+        );
+      })()}
+
+      {/* Session Drill-Down Panel */}
+      <SectionHeader title="Session Resource Drill-Down" />
+      <Text style={{ fontSize: 13, opacity: 0.5, marginBottom: 4 }}>Select a session to see all resources loaded in that session.</Text>
+      {(() => {
+        const sessionRecords = (sessionDrillData.data?.records ?? []) as any[];
+        const sessionIds = [...new Set(sessionRecords.map((r: any) => String(r.sid ?? "")))].filter(Boolean);
+        if (sessionIds.length === 0) return <div className="uj-table-tile" style={{ padding: 24, textAlign: "center" }}><Text style={{ opacity: 0.5 }}>No session-level data available.</Text></div>;
+
+        const sessionResources = drillSession ? sessionRecords.filter((r: any) => String(r.sid) === drillSession).map((r: any) => ({
+          name: String(r.res_name ?? "unknown"),
+          type: String(r.res_type ?? "other"),
+          dur: Number(r.res_dur_ms ?? 0),
+          step: String(r.step_tag ?? ""),
+          ts: r.timestamp ? new Date(r.timestamp).toLocaleTimeString() : "",
+        })) : [];
+
+        return (
+          <Flex flexDirection="column" gap={12}>
+            <Flex gap={8} alignItems="center" flexWrap="wrap">
+              <Strong style={{ fontSize: 12 }}>Session:</Strong>
+              {sessionIds.slice(0, 15).map(sid => (
+                <button key={sid} onClick={() => setDrillSession(drillSession === sid ? null : sid)} style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${drillSession === sid ? BLUE : "rgba(128,128,128,0.3)"}`, background: drillSession === sid ? `${BLUE}20` : "transparent", color: drillSession === sid ? BLUE : "inherit", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{sid.slice(0, 8)}...</button>
+              ))}
+            </Flex>
+            {drillSession && (
+              <Flex flexDirection="column" gap={8}>
+                <Flex gap={8} alignItems="center">
+                  <Strong style={{ fontSize: 13 }}>Session: {drillSession.slice(0, 16)}...</Strong>
+                  <a href={sessionReplayUrl(drillSession)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+                    <Button variant="emphasized" style={{ fontSize: 11, padding: "2px 8px" }}>{"\u25B6"} View Full Session</Button>
+                  </a>
+                  <Text style={{ fontSize: 12, opacity: 0.5 }}>{sessionResources.length} resource{sessionResources.length !== 1 ? "s" : ""}</Text>
+                </Flex>
+                <div className="uj-table-tile">
+                  <DataTable sortable resizable fullWidth data={sessionResources.map((r, i) => ({
+                    "#": i + 1, Resource: r.name.length > 60 ? "..." + r.name.slice(-57) : r.name, Type: r.type, Duration: r.dur, Step: r.step, Time: r.ts,
+                  }))} columns={[
+                    { id: "#", header: "#", accessor: "#" },
+                    { id: "Resource", header: "Resource", accessor: "Resource", cell: ({ value }: any) => <Text style={{ fontSize: 12, wordBreak: "break-all" as const }}>{value}</Text> },
+                    { id: "Type", header: "Type", accessor: "Type", cell: ({ value }: any) => <span style={{ fontSize: 12, padding: "1px 6px", borderRadius: 3, background: `${typeClr(value)}20`, color: typeClr(value), fontWeight: 600 }}>{value}</span> },
+                    { id: "Duration", header: "Duration", accessor: "Duration", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 2000 ? RED : value > 1000 ? ORANGE : GREEN }}>{fmt(value)}</Strong> },
+                    { id: "Step", header: "Step", accessor: "Step" },
+                    { id: "Time", header: "Time", accessor: "Time", cell: ({ value }: any) => <Text style={{ fontSize: 12, opacity: 0.6 }}>{value}</Text> },
+                  ]} />
+                </div>
+              </Flex>
+            )}
+          </Flex>
+        );
+      })()}
     </Flex>
   );
 }
