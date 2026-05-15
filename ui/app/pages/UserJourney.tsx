@@ -1995,6 +1995,16 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 15, 2026</Paragraph>
+            <Paragraph><Strong>Auto-Refresh — Live Data Updates Without Page Reload</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Auto-Refresh selector</Strong> in the header bar (next to Timeframe) with options: Off, 30 seconds, 1 minute, 5 minutes, 10 minutes</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• When enabled, <Strong>all DQL queries across every tab</Strong> automatically re-execute at the selected interval — data values update seamlessly in-place without a page refresh</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Live status indicator</Strong> in the header: spinning icon + "Refreshing…" during data fetch, then "Last refreshed Xs ago" when idle</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Existing data remains visible during background refetch — no flicker or loading spinners on refresh cycles (only initial load shows full spinner)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Uses the native <code>refetchInterval</code> option from <code>useDql</code> — queries are automatically stale-checked and only re-fetched when interval elapses</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Ideal for wall displays, NOC monitors, or hands-free continuous monitoring during incidents</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 14, 2026</Paragraph>
             <Paragraph><Strong>Funnel Overview — Sub-Tabs &amp; Predictive EOD Model</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>4 Sub-Tabs</Strong>: Funnel Overview content is now organized into <Strong>Conversion Funnel</Strong> (Apdex breakdown + chart with 5 styles + Compare toggle), <Strong>Predictive Model</Strong> (EOD projection), <Strong>Step Analysis</Strong> (sortable metrics table), and <Strong>Per-Page Breakdown</Strong> (per-identifier metrics for multi-page steps).</Paragraph>
@@ -2115,6 +2125,9 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Session Engagement</Strong>: Assigns an engagement score (0-100) to each session based on actions taken (30%), funnel depth reached (40%), and error penalty (30%). Visualizes score distribution histogram with conversion overlay, shows conversion rate by engagement tier (high/medium/low), and surfaces high-intent non-converters — engaged users who didn't convert, representing the biggest optimization opportunity.</Paragraph>
         <Paragraph><Strong>Third-Party Impact</Strong>: Analyzes first-party vs. third-party resource loading. Shows request counts, payload sizes, and average durations per domain. Identifies third-party domains that may be slowing down pages. Includes page-level CWV data for correlation analysis — helps determine if third-party scripts are degrading Core Web Vitals.</Paragraph>
         <Paragraph><Strong>Error Clustering</Strong>: Groups JavaScript errors by type/pattern to help prioritize fixes. Shows occurrence count, affected sessions, and impact percentage per error cluster. Includes hourly error trend chart for detecting spikes, top clusters bar chart, and sample error messages for quick identification. Focus on high-impact clusters first.</Paragraph>
+      </HelpSection>
+      <HelpSection title="Auto-Refresh">
+        <Paragraph>The <Strong>Auto-Refresh</Strong> selector in the header controls automatic data re-fetching. Options: <Strong>Off</Strong> (manual only), <Strong>30 seconds</Strong>, <Strong>1 minute</Strong>, <Strong>5 minutes</Strong>, <Strong>10 minutes</Strong>. When active, all DQL queries across every tab re-execute at the chosen interval. Data updates seamlessly in-place — existing values remain visible during refresh (no loading spinners). A status indicator shows "Refreshing…" with a spinner during fetch, and "Last refreshed Xs ago" when idle. Use for wall displays, NOC dashboards, or continuous incident monitoring.</Paragraph>
       </HelpSection>
       <HelpSection title="Tab Settings">
         <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Settings. Each of the 30 tabs can be toggled on or off individually. Drag to reorder. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
@@ -2513,7 +2526,7 @@ export function UserJourney() {
           <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.75</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.76</Text>
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
