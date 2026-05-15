@@ -2412,7 +2412,7 @@ export function UserJourney() {
           <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
-          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.64</Text>
+          <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v4.47.65</Text>
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -3547,18 +3547,18 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
               </Flex>
               <Text style={{ fontSize: 12, opacity: 0.35 }}>{predConfidence}% confidence · {predN} data point{predN !== 1 ? "s" : ""}</Text>
             </Flex>
-            <div style={{ display: "flex", gap: 20, width: "100%", marginBottom: 20 }}>
-              <div className="uj-kpi-card" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, marginBottom: 20 }}>
+              <div className="uj-kpi-card" style={{ padding: "20px 24px" }}>
                 <Text className="uj-kpi-label">Projected EOD</Text>
                 <Heading level={3} className="uj-kpi-value" style={{ color: statusClr(projectedEod) }}>{fmtPct(projectedEod)}</Heading>
                 <Text style={{ fontSize: 12, opacity: 0.45 }}>conv rate at 23:59</Text>
               </div>
-              <div className="uj-kpi-card" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
+              <div className="uj-kpi-card" style={{ padding: "20px 24px" }}>
                 <Text className="uj-kpi-label">Velocity</Text>
                 <Heading level={3} className="uj-kpi-value" style={{ color: velocityClr }}>{velocitySlope >= 0 ? "+" : ""}{velocitySlope.toFixed(2)}%/h</Heading>
                 <Text style={{ fontSize: 12, color: velocityClr }}>{velocityDir}</Text>
               </div>
-              <div className="uj-kpi-card" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
+              <div className="uj-kpi-card" style={{ padding: "20px 24px" }}>
                 <Text className="uj-kpi-label">Hours Remaining</Text>
                 <Heading level={3} className="uj-kpi-value" style={{ color: BLUE }}>{23 - currentHour}h</Heading>
                 <Text style={{ fontSize: 12, opacity: 0.45 }}>until end of day</Text>
@@ -6255,6 +6255,7 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov 
         </>
       )}
 
+      <MultiplierSlider value={pctChange} onChange={setPctChange} />
       <Flex justifyContent="space-between" alignItems="center">
         <SectionHeader title="Projected Funnel" />
         <select value={wiFunnelStyle} onChange={(e) => setWiFunnelStyle(e.target.value as FunnelStyle)} style={{ background: "rgba(128,128,128,0.15)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, padding: "4px 10px", color: "inherit", fontSize: 12 }}>
