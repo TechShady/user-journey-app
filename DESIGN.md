@@ -703,10 +703,12 @@ fetch user.events, from: now() - {timeframe}
 
 ### 23. SLO Tracker
 
-**Purpose**: Service Level Objective tracking with error budget burn-down.
+**Purpose**: Service Level Objective tracking with error budget burn-down, user-editable targets, and one-click native SLO provisioning.
 
 **Key Features**:
-- SLO definitions: Apdex >= 0.85, Error Rate <= 2%, LCP <= 2500ms, CLS <= 0.1, INP <= 200ms, TTFB <= 800ms
+- SLO definitions: Apdex >= 0.85, Error Rate <= 2%, LCP <= 2500ms, CLS <= 0.1, INP <= 200ms, TTFB <= 800ms (all defaults)
+- **User-editable targets**: Click ✎ icon per SLO to customize target inline. Persisted per user via `useUserAppState`. Reset button (↺) restores default.
+- **One-click "Create SLO" button**: Per-metric button opens the Dynatrace SLO settings page pre-filled with metric expression, target value, comparison operator, and application filter for the current frontend. Provisions a native platform SLO without leaving the app.
 - Error budget remaining + burn rate
 - Projected exhaustion time
 - Hourly granularity trend
@@ -1043,6 +1045,7 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------||
+| 2026-05-15 | 4.47.86 | **SLO Tracker — Editable Targets & Create Dynatrace SLO**: SLO target values now user-editable inline (✎ icon per metric, persisted via `useUserAppState`). Reset button (↺) restores defaults. Added one-click "Create SLO" button per metric that opens Dynatrace SLO settings page pre-filled with metric expression, target value, comparison operator, and frontend filter — provisions a native platform SLO without leaving the app. Button shows ✓ Created state after click. |
 | 2026-05-15 | 4.47.85 | **Perf Budgets — Configurable Thresholds, Time-to-Breach & Alerts**: Thresholds now user-configurable inline (✎ icon per metric, persisted via `useUserAppState`). Added projected time-to-breach per metric using period-over-period trend rate. Near-breach alerting (within 10% of threshold) with yellow "NEAR" badge and alert banner. Workflow Trigger Suggestion section provides DQL condition template for Dynatrace Workflow automation. Cards compacted to grid layout with Period Δ indicator. Budget Summary Table gains "Breach" column. "Near Breach" KPI added. Previous-period quality data passed to component for trend computation. |
 | 2026-05-15 | 4.47.83 | **Exceptions — Source Map Deobfuscation & Regression Detector**: Redesigned error cards to match Metric Forecasts style (compact grid layout, severity-colored left border, clean header). Added inline source map deobfuscation — parses file:line:col from error names and displays monospace "Source" row per card. Added regression detector comparing current vs previous period: classifies each error as NEW (cyan), RECURRING (yellow), or REGRESSION (red) with badge. KPI row expanded with New/Recurring/Regressions counts. Previous-period DQL query added. DataTable gains Status column. AI Insights updated with source/regression analysis. |
 | 2026-05-15 | 4.47.84 | **Web Vitals — CWV Trend Lines & Remediation Recommendations**: Added daily CWV trend chart (LCP/INP/TTFB on shared axis, CLS separate scale) with Google threshold dashed lines and trend direction indicators (▲/▼/●). Added automated remediation recommendations per failing vital — anomaly-card style with FAILING/NEEDS IMPROVEMENT badge, top 3 offending pages, and 5 actionable recommendations per metric. Added "Failing Vitals" KPI. Reuses existing `sloCwvTrendQuery` data. AI Insights updated with trend + remediation awareness. |

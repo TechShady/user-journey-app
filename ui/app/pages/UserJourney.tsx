@@ -94,6 +94,7 @@ const DEFAULT_TAB_VISIBILITY: Record<TabKey, boolean> = Object.fromEntries(TAB_K
 const TAB_STATE_KEY = "uj-tab-visibility";
 const TAB_ORDER_STATE_KEY = "uj-tab-order";
 const BUDGET_THRESHOLDS_STATE_KEY = "uj-budget-thresholds";
+const SLO_TARGETS_STATE_KEY = "uj-slo-targets";
 const DEFAULT_TAB_ORDER: TabKey[] = [...TAB_KEYS];
 
 const CWV = {
@@ -2144,7 +2145,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Predictive Forecasting</Strong>: Uses trend data from the selected timeframe to project Apdex, conversion rate, error rate, and average duration forward 7 days via linear regression. Flags when a metric is on trajectory to breach a performance budget threshold before it actually happens. Includes trend direction, rate of change, and days-to-breach estimates for proactive incident prevention.</Paragraph>
         <Paragraph><Strong>Resource Waterfall</Strong>: Aggregated resource timing per funnel step — third-party scripts, XHR/Fetch calls, images, CSS, and fonts. Shows which specific resources drag down LCP and increase page weight. Includes per-step resource type breakdown, top slow resources ranked by total time, and a visual waterfall bar chart showing P50/P90/Max latency ranges. Helps identify CDN misses, unoptimized images, and slow third-party scripts.</Paragraph>
         <Paragraph><Strong>Change Intelligence</Strong>: Pulls deployment events from Dynatrace and overlays them on an hourly performance timeline. Automatically compares metrics in the window before and after each deployment to detect regressions. Shows before/after Apdex, duration, error rate, and frustrated % with severity classification. When AOV is set, shows estimated revenue loss per regression and total revenue impact across all regressive deployments. Use to validate whether a deploy caused a performance regression or improvement.</Paragraph>
-        <Paragraph><Strong>SLO Tracker</Strong>: Define Service Level Objectives for Apdex, error rate, LCP, CLS, INP, and TTFB with configurable targets. Tracks error budget burn-down over the selected timeframe with hourly granularity. Shows remaining budget %, burn rate (budget consumed per hour), and projected time to exhaustion. Color-coded status indicators flag SLOs at risk before they breach — enabling proactive SRE practices.</Paragraph>
+        <Paragraph><Strong>SLO Tracker</Strong>: Define Service Level Objectives for Apdex, error rate, LCP, CLS, INP, and TTFB with user-editable targets (click ✎ to customize, persisted per user). Tracks error budget burn-down with hourly granularity. Shows remaining budget %, burn rate, and projected time to exhaustion. One-click "Create SLO" button per metric provisions the SLO natively in the Dynatrace platform (opens SLO settings pre-filled). Color-coded status indicators flag SLOs at risk before they breach.</Paragraph>
         <Paragraph><Strong>Session Replay Spotlight</Strong>: Surfaces the highest-impact session replays ranked by an impact score combining errors, crashes, bounces, and interaction density. Shows session duration, error count, device, browser, and country. Each session links directly to <Strong>Dynatrace Session Replay</Strong> for instant visual debugging. Quickly find the sessions that matter most without manually searching.</Paragraph>
         <Paragraph><Strong>A/B Comparison</Strong>: Compare two user segments side-by-side across all key metrics. Pre-built segments for Desktop vs. Mobile, Chrome vs. Firefox, and US vs. non-US — or enter custom DQL filter expressions. Shows Apdex, conversion, error rate, duration, and Core Web Vitals for each segment with delta indicators highlighting which segment performs better. Use to quantify platform-specific gaps and prioritize optimization efforts.</Paragraph>
         <Paragraph><Strong>Revenue Intelligence</Strong>: Comprehensive revenue analytics powered by the Average Order Value (AOV) set in Settings. Shows current vs. previous period revenue with change indicators, revenue per session, and three performance taxes: latency tax (revenue lost to slow pages), frustration tax (revenue lost to frustrated sessions), and error tax (revenue lost to errors). Includes a funnel leakage table showing estimated revenue lost at each drop-off step, and ranked optimization opportunities with projected revenue uplift for each improvement action. Requires AOV &gt; 0 in Settings.</Paragraph>
@@ -2235,6 +2236,7 @@ export function UserJourney() {
   const savedFunnelStyle = useUserAppState({ key: FUNNEL_STYLE_STATE_KEY });
   const savedMapView = useUserAppState({ key: MAP_VIEW_STATE_KEY });
   const savedBudgetThresholds = useUserAppState({ key: BUDGET_THRESHOLDS_STATE_KEY });
+  const savedSloTargets = useUserAppState({ key: SLO_TARGETS_STATE_KEY });
   const { execute: saveState } = useSetUserAppState();
 
   useEffect(() => {
@@ -2759,7 +2761,7 @@ export function UserJourney() {
             case "Predictive Forecasting": content = <PredictiveForecastingTab trendData={forecastTrendData} apdexTrendData={forecastApdexTrendData} vitalsTrendData={forecastVitalsTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} isLoading={forecastTrendData.isLoading || forecastApdexTrendData.isLoading || forecastVitalsTrendData.isLoading} steps={steps} aov={aov} funnelCounts={funnelCounts} />; break;
             case "Resource Waterfall": content = <ResourceWaterfallTab waterfallData={resourceWaterfallData} byStepData={resourceByStepData} isLoading={resourceWaterfallData.isLoading || resourceByStepData.isLoading} steps={steps} />; break;
             case "Change Intelligence": content = <ChangeIntelligenceTab deployData={deploymentEventsData} impactData={changeImpactData} quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} isLoading={deploymentEventsData.isLoading || changeImpactData.isLoading} aov={aov} overallConv={overallConv} funnelCounts={funnelCounts} />; break;
-            case "SLO Tracker": content = <SLOTrackerTab apdexTrend={sloApdexTrendData} cwvTrend={sloCwvTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} cwv={cwv} isLoading={sloApdexTrendData.isLoading || sloCwvTrendData.isLoading} />; break;
+            case "SLO Tracker": content = <SLOTrackerTab apdexTrend={sloApdexTrendData} cwvTrend={sloCwvTrendData} quality={quality} overallApdex={overallApdex} overallConv={overallConv} cwv={cwv} isLoading={sloApdexTrendData.isLoading || sloCwvTrendData.isLoading} saveState={saveState} savedTargets={savedSloTargets} frontend={frontend} />; break;
             case "Session Replay Spotlight": content = <SessionReplaySpotlightTab data={sessionReplayData} isLoading={sessionReplayData.isLoading} />; break;
             case "A/B Comparison": content = <ABComparisonTab segAData={abSegAData} segBData={abSegBData} segACwv={abSegACwv} segBCwv={abSegBCwv} dimension={abDimension} setDimension={setAbDimension} segA={abSegA} segB={abSegB} setSegA={setAbSegA} setSegB={setAbSegB} isLoading={abSegAData.isLoading || abSegBData.isLoading || abSegACwv.isLoading || abSegBCwv.isLoading} aov={aov} overallConv={overallConv} />; break;
             case "Revenue Intelligence": content = <RevenueIntelligenceTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} quality={quality} qualityPrev={qualityPrev} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} />; break;
@@ -3444,7 +3446,7 @@ function analyzeSLOTracker(quality: any, overallApdex: number, overallConv: numb
     }
   }
 
-  const summary = `SLO Tracker provides SRE-grade Service Level Objective monitoring with error budget tracking, burn rate analysis, and projected time to exhaustion. This tab is built for SRE Teams managing reliability targets, Engineering Directors overseeing platform health, and Operations Managers reporting on SLA compliance. It answers: Are we meeting our SLOs? How much error budget remains? At the current burn rate, when will we exhaust our budget? Which SLOs are at risk? The tracker monitors Apdex SLO (target ≥0.85), LCP SLO (target ≤2.5s), and Error Budget SLO (target ≤1% error rate). Currently ${slosMet}/${slos.length} SLOs are being met. ${slosMet === slos.length ? "All SLOs are healthy — error budgets have sufficient remaining capacity." : `${slos.length - slosMet} SLO(s) are at risk and may exhaust their error budget if current trends continue.`} The tab tracks error budget burn-down with hourly granularity, showing remaining budget percentage, burn rate per hour, and projected time to exhaustion. Color-coded status indicators flag SLOs transitioning from healthy to at-risk before they breach.`;
+  const summary = `SLO Tracker provides SRE-grade Service Level Objective monitoring with error budget tracking, burn rate analysis, and projected time to exhaustion. SLO target values are now user-editable inline (click ✎ per metric) and persisted per user. A one-click "Create SLO" button per metric provisions the SLO natively in the Dynatrace platform (opens SLO settings page pre-filled with metric, target, and filter for the current frontend). This tab is built for SRE Teams managing reliability targets, Engineering Directors overseeing platform health, and Operations Managers reporting on SLA compliance. It answers: Are we meeting our SLOs? How much error budget remains? At the current burn rate, when will we exhaust our budget? Which SLOs are at risk? The tracker monitors Apdex SLO (default target ≥0.85), LCP SLO (default target ≤2.5s), and Error Budget SLO (default target ≤1% error rate) — all customizable. Currently ${slosMet}/${slos.length} SLOs are being met. ${slosMet === slos.length ? "All SLOs are healthy — error budgets have sufficient remaining capacity." : `${slos.length - slosMet} SLO(s) are at risk and may exhaust their error budget if current trends continue.`} The tab tracks error budget burn-down with hourly granularity, showing remaining budget percentage, burn rate per hour, and projected time to exhaustion. Color-coded status indicators flag SLOs transitioning from healthy to at-risk before they breach.`;
   return { summary, insights, recommendations: recs };
 }
 
@@ -11319,21 +11321,62 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
 // ===========================================================================
 // SLO TRACKER TAB
 // ===========================================================================
-function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallConv, cwv, isLoading }: { apdexTrend: any; cwvTrend: any; quality: any; overallApdex: number; overallConv: number; cwv: any; isLoading: boolean }) {
+function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallConv, cwv, isLoading, saveState, savedTargets, frontend }: { apdexTrend: any; cwvTrend: any; quality: any; overallApdex: number; overallConv: number; cwv: any; isLoading: boolean; saveState: any; savedTargets: any; frontend: string }) {
+  const DEFAULT_SLO_TARGETS: Record<string, number> = { Apdex: 0.85, "Error Rate": 2.0, LCP: CWV.lcp.good, CLS: CWV.cls.good, INP: CWV.inp.good, TTFB: CWV.ttfb.good };
+  const [targets, setTargets] = useState<Record<string, number>>(DEFAULT_SLO_TARGETS);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editVal, setEditVal] = useState("");
+  const [createdSlos, setCreatedSlos] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (savedTargets?.data?.value) {
+      try { const parsed = JSON.parse(savedTargets.data.value); setTargets({ ...DEFAULT_SLO_TARGETS, ...parsed }); } catch {}
+    }
+  }, [savedTargets?.data?.value]);
+
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSLOTracker(quality, overallApdex, overallConv, cwv), [quality, overallApdex, overallConv, cwv]));
   if (isLoading) return <Loading />;
+
+  function startEdit(name: string) { setEditing(name); setEditVal(String(targets[name] ?? DEFAULT_SLO_TARGETS[name])); }
+  function commitEdit(name: string) {
+    const v = parseFloat(editVal);
+    if (!isNaN(v) && v > 0) {
+      const next = { ...targets, [name]: v };
+      setTargets(next);
+      saveState({ key: SLO_TARGETS_STATE_KEY, body: { value: JSON.stringify(next) } });
+    }
+    setEditing(null);
+  }
+  function resetTarget(name: string) {
+    const next = { ...targets, [name]: DEFAULT_SLO_TARGETS[name] };
+    setTargets(next);
+    saveState({ key: SLO_TARGETS_STATE_KEY, body: { value: JSON.stringify(next) } });
+  }
+
+  function getSloCreateUrl(slo: { name: string; target: number; direction: string }) {
+    const sloName = encodeURIComponent(`User Journey – ${slo.name} SLO (${frontend})`);
+    const metric = slo.name === "Apdex" ? "builtin:apps.web.apdex.userType" :
+      slo.name === "Error Rate" ? "builtin:apps.web.actionCount.category" :
+      slo.name === "LCP" ? "builtin:apps.web.webVitals.lcp" :
+      slo.name === "CLS" ? "builtin:apps.web.webVitals.cls" :
+      slo.name === "INP" ? "builtin:apps.web.webVitals.inp" :
+      "builtin:apps.web.webVitals.ttfb";
+    const target = slo.target;
+    const comparison = slo.direction === "above" ? "GTE" : "LTE";
+    return `${ENV_URL}/ui/settings/builtin:monitoring.slo?create=true&name=${sloName}&metricExpression=${encodeURIComponent(metric)}&target=${target}&comparison=${comparison}&evaluationType=AGGREGATE&filter=type%28%22APPLICATION%22%29%2CentityName%28%22${encodeURIComponent(frontend)}%22%29`;
+  }
 
   const apdexRecords = (apdexTrend.data?.records ?? []) as any[];
   const cwvRecords = (cwvTrend.data?.records ?? []) as any[];
 
-  // SLO definitions
+  // SLO definitions with editable targets
   const slos = [
-    { name: "Apdex", target: 0.85, direction: "above" as const, format: (v: number) => v.toFixed(2), color: apdexClr },
-    { name: "Error Rate", target: 2.0, direction: "below" as const, format: fmtPct, color: (v: number) => v <= 2 ? GREEN : v <= 5 ? YELLOW : RED },
-    { name: "LCP", target: CWV.lcp.good, direction: "below" as const, format: fmt, color: (v: number) => cwvClr(v, "lcp") },
-    { name: "CLS", target: CWV.cls.good, direction: "below" as const, format: (v: number) => v.toFixed(3), color: (v: number) => cwvClr(v, "cls") },
-    { name: "INP", target: CWV.inp.good, direction: "below" as const, format: fmt, color: (v: number) => cwvClr(v, "inp") },
-    { name: "TTFB", target: CWV.ttfb.good, direction: "below" as const, format: fmt, color: (v: number) => cwvClr(v, "ttfb") },
+    { name: "Apdex", target: targets["Apdex"], direction: "above" as const, format: (v: number) => v.toFixed(2), color: apdexClr },
+    { name: "Error Rate", target: targets["Error Rate"], direction: "below" as const, format: fmtPct, color: (v: number) => v <= targets["Error Rate"] ? GREEN : v <= 5 ? YELLOW : RED },
+    { name: "LCP", target: targets["LCP"], direction: "below" as const, format: fmt, color: (v: number) => cwvClr(v, "lcp") },
+    { name: "CLS", target: targets["CLS"], direction: "below" as const, format: (v: number) => v.toFixed(3), color: (v: number) => cwvClr(v, "cls") },
+    { name: "INP", target: targets["INP"], direction: "below" as const, format: fmt, color: (v: number) => cwvClr(v, "inp") },
+    { name: "TTFB", target: targets["TTFB"], direction: "below" as const, format: fmt, color: (v: number) => cwvClr(v, "ttfb") },
   ];
 
   const apdexBuckets = apdexRecords.map((r: any) => {
@@ -11411,11 +11454,31 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
           <div key={slo.name} className="uj-table-tile" style={{ padding: 16, flex: "1 1 320px", minWidth: 320, borderLeft: `3px solid ${slo.sClr}` }}>
             <Flex justifyContent="space-between" alignItems="center">
               <Strong style={{ fontSize: 14 }}>{slo.name}</Strong>
-              <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: `${slo.sClr}18`, color: slo.sClr, fontWeight: 700 }}>{slo.status}</span>
+              <Flex gap={8} alignItems="center">
+                <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4, background: `${slo.sClr}18`, color: slo.sClr, fontWeight: 700 }}>{slo.status}</span>
+                <a href={getSloCreateUrl(slo)} target="_blank" rel="noopener noreferrer" title={`Create "${slo.name}" SLO in Dynatrace`} style={{ textDecoration: "none" }}>
+                  <Button variant="emphasized" style={{ fontSize: 11, padding: "2px 8px", lineHeight: 1.2 }}>{createdSlos.has(slo.name) ? "\u2713 Created" : "+ Create SLO"}</Button>
+                </a>
+              </Flex>
             </Flex>
             <Flex gap={24} style={{ marginTop: 12 }}>
               <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 18, color: slo.color(slo.current) }}>{slo.format(slo.current)}</Strong></div>
-              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Target</Text><Text style={{ display: "block", fontSize: 14 }}>{slo.direction === "above" ? "\u2265" : "\u2264"} {slo.format(slo.target)}</Text></div>
+              <div>
+                <Text style={{ fontSize: 12, opacity: 0.5 }}>Target</Text>
+                {editing === slo.name ? (
+                  <Flex gap={4} alignItems="center" style={{ marginTop: 2 }}>
+                    <input type="number" step="any" value={editVal} onChange={e => setEditVal(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commitEdit(slo.name); if (e.key === "Escape") setEditing(null); }} autoFocus style={{ width: 70, fontSize: 13, padding: "2px 4px", background: "rgba(128,128,128,0.1)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 3, color: "inherit" }} />
+                    <span onClick={() => commitEdit(slo.name)} style={{ cursor: "pointer", fontSize: 14, color: GREEN }} title="Save">\u2713</span>
+                    <span onClick={() => setEditing(null)} style={{ cursor: "pointer", fontSize: 14, opacity: 0.5 }} title="Cancel">\u2717</span>
+                  </Flex>
+                ) : (
+                  <Flex gap={4} alignItems="center">
+                    <Text style={{ display: "block", fontSize: 14 }}>{slo.direction === "above" ? "\u2265" : "\u2264"} {slo.format(slo.target)}</Text>
+                    <span onClick={() => startEdit(slo.name)} style={{ cursor: "pointer", fontSize: 13, opacity: 0.5 }} title="Edit target">\u270e</span>
+                    {targets[slo.name] !== DEFAULT_SLO_TARGETS[slo.name] && <span onClick={() => resetTarget(slo.name)} style={{ cursor: "pointer", fontSize: 11, opacity: 0.4 }} title="Reset to default">\u21ba</span>}
+                  </Flex>
+                )}
+              </div>
               <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Compliance</Text><Strong style={{ display: "block", fontSize: 14, color: slo.compliancePct >= 95 ? GREEN : slo.compliancePct >= 80 ? YELLOW : RED }}>{slo.compliancePct.toFixed(1)}%</Strong></div>
             </Flex>
             <Flex gap={24} style={{ marginTop: 8 }}>
