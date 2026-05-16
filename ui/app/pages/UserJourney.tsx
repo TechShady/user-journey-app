@@ -260,7 +260,7 @@ function tfParam(): string {
 }
 
 function sessionReplayUrl(sessionId: string, startTs?: string): string {
-  return `${ENV_URL}/ui/apps/dynatrace.users.sessions/session-viewer/${sessionId}/${startTs ?? ''}?tf=${tfParam()}&perspective=general`;
+  return `${ENV_URL}/ui/apps/dynatrace.users.sessions/session-viewer/${sessionId}/${startTs ?? ''}?tf=%40d%3Bnow&df=1&perspective=general&sort=navigationCount%3Adescending`;
 }
 
 function appEntityQuery(frontend: string): string {
@@ -10907,6 +10907,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, sessionDrillData, isL
           dur: Number(r.res_dur_ms ?? 0),
           step: String(r.step_tag ?? ""),
           ts: r.timestamp ? new Date(r.timestamp).toLocaleString() : "",
+          rawTs: r.timestamp ? new Date(r.timestamp).toISOString() : "",
         }));
         if (top10.length === 0) return <div className="uj-table-tile" style={{ padding: 24, textAlign: "center" }}><Text style={{ opacity: 0.5 }}>No individual resource data available.</Text></div>;
         return (
@@ -10919,6 +10920,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, sessionDrillData, isL
               Step: r.step,
               Time: r.ts,
               Session: r.sid,
+              _rawTs: r.rawTs,
             }))} columns={[
               { id: "#", header: "#", accessor: "#", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
               { id: "Resource", header: "Resource", accessor: "Resource", cell: ({ value }: any) => <Text style={{ fontSize: 12, wordBreak: "break-all" as const }}>{value}</Text> },
@@ -10926,7 +10928,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, sessionDrillData, isL
               { id: "Duration", header: "Duration", accessor: "Duration", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 2000 ? RED : value > 1000 ? ORANGE : GREEN }}>{fmt(value)}</Strong> },
               { id: "Step", header: "Step", accessor: "Step" },
               { id: "Time", header: "Time", accessor: "Time", cell: ({ value }: any) => <Text style={{ fontSize: 12, opacity: 0.6 }}>{value}</Text> },
-              { id: "Session", header: "Session", accessor: "Session", cell: ({ value }: any) => value ? <a href={sessionReplayUrl(value)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, fontSize: 12, textDecoration: "none" }} onMouseEnter={(e: any) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e: any) => (e.currentTarget.style.textDecoration = "none")} title="Open session">{value.slice(0, 8)}...</a> : <Text style={{ opacity: 0.3 }}>{"\u2014"}</Text> },
+              { id: "Session", header: "Session", accessor: "Session", cell: ({ value, row }: any) => value ? <a href={sessionReplayUrl(value, row?._rawTs)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, fontSize: 12, textDecoration: "none" }} onMouseEnter={(e: any) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e: any) => (e.currentTarget.style.textDecoration = "none")} title="Open session">{value.slice(0, 8)}...</a> : <Text style={{ opacity: 0.3 }}>{"\u2014"}</Text> },
             ]} />
           </div>
         );
@@ -10960,7 +10962,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, sessionDrillData, isL
               <Flex flexDirection="column" gap={8}>
                 <Flex gap={8} alignItems="center">
                   <Strong style={{ fontSize: 13 }}>Session: {drillSession.slice(0, 16)}...</Strong>
-                  <a href={sessionReplayUrl(drillSession)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+                  <a href={sessionReplayUrl(drillSession, sessionResources.length > 0 ? (sessionRecords.find((r: any) => String(r.sid) === drillSession)?.timestamp ? new Date(sessionRecords.find((r: any) => String(r.sid) === drillSession).timestamp).toISOString() : undefined) : undefined)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
                     <Button variant="emphasized" style={{ fontSize: 11, padding: "2px 8px" }}>{"\u25B6"} View Full Session</Button>
                   </a>
                   <Text style={{ fontSize: 12, opacity: 0.5 }}>{sessionResources.length} resource{sessionResources.length !== 1 ? "s" : ""}</Text>
