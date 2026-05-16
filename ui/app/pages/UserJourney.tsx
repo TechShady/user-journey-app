@@ -11,6 +11,7 @@ import { ProgressBar } from "@dynatrace/strato-components/content";
 import { Button } from "@dynatrace/strato-components/buttons";
 import { Sheet } from "@dynatrace/strato-components/overlays";
 import { Switch } from "@dynatrace/strato-components/forms";
+import { MaximizeIcon, MinimizeIcon } from "@dynatrace/strato-icons";
 import { DataTable } from "@dynatrace/strato-components-preview/tables";
 import "./UserJourney.css";
 import { useSettings, DEFAULT_FRONTEND, DEFAULT_FUNNEL_STEPS, MIN_STEPS, MAX_STEPS, DEFAULT_AOV } from "../SettingsContext";
@@ -332,6 +333,35 @@ function Delta({ current, previous, inverted = false, suffix = "" }: { current: 
   const color = Math.abs(pct) < 1 ? "rgba(255,255,255,0.4)" : improving ? GREEN : RED;
   const arrow = delta > 0 ? "▲" : delta < 0 ? "▼" : "●";
   return <span style={{ fontSize: 13, color, fontWeight: 600 }}>{arrow} {Math.abs(pct).toFixed(1)}%{suffix}</span>;
+}
+
+// Polished chart card with maximize/minimize
+function ChartTile({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  const [maximized, setMaximized] = useState(false);
+  return (
+    <>
+      {maximized && (
+        <div className="uj-chart-overlay" onClick={() => setMaximized(false)}>
+          <div className="uj-chart-maximized" onClick={(e) => e.stopPropagation()}>
+            <div className="uj-chart-title-row">
+              <div className="uj-chart-title">{title}</div>
+              <button className="uj-chart-toggle" onClick={() => setMaximized(false)}><MinimizeIcon /></button>
+            </div>
+            {description && <div className="uj-chart-description">{description}</div>}
+            <div className="uj-chart-body">{children}</div>
+          </div>
+        </div>
+      )}
+      <div className="uj-chart-tile">
+        <div className="uj-chart-title-row">
+          <div className="uj-chart-title">{title}</div>
+          <button className="uj-chart-toggle" onClick={() => setMaximized(true)}><MaximizeIcon /></button>
+        </div>
+        {description && <div className="uj-chart-description">{description}</div>}
+        <div className="uj-chart-body">{children}</div>
+      </div>
+    </>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -3979,13 +4009,8 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         const projLine = `M${xS(last.min).toFixed(1)},${yS(smoothed[smoothed.length - 1]).toFixed(1)} L${xS(1425).toFixed(1)},${yS(projectedEod).toFixed(1)}`;
         const areaD = `${actualLine} L${xS(last.min).toFixed(1)},${yS(rateMin).toFixed(1)} L${xS(hourlyPoints[0].min).toFixed(1)},${yS(rateMin).toFixed(1)} Z`;
         return (
-          <div className="uj-table-tile" style={{ padding: 16 }}>
-            <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 12 }}>
-              <Flex alignItems="center" gap={8}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke={BLUE} strokeWidth="1.2"/><path d="M4 10l2.5-3 2 2 3-4" stroke={BLUE} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                <Strong style={{ fontSize: 14 }}>Predictive Funnel Model</Strong>
-                <Text style={{ fontSize: 12, opacity: 0.45 }}>Today's conversion trajectory to EOD</Text>
-              </Flex>
+          <ChartTile title="Predictive Funnel Model" description="Today's conversion trajectory to EOD">
+            <Flex alignItems="center" justifyContent="flex-end" style={{ marginBottom: 12 }}>
               <Text style={{ fontSize: 12, opacity: 0.35 }}>{predConfidence}% confidence · {predN} data point{predN !== 1 ? "s" : ""}</Text>
             </Flex>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, marginBottom: 20 }}>
@@ -4037,12 +4062,12 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
                 {[0, 360, 720, 1080, 1380].map(m => <text key={m} x={xS(m)} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.28)" fontSize={7}>{Math.floor(m/60)}:00</text>)}
               </svg>
             </div>
-          </div>
+          </ChartTile>
         );
       })() : (
-        <div className="uj-table-tile" style={{ padding: 24, textAlign: "center" }}>
-          <Text style={{ opacity: 0.5 }}>Predictive model requires ≥2 data points for today. Check back after more data accumulates.</Text>
-        </div>
+        <ChartTile title="Predictive Funnel Model" description="Today's conversion trajectory to EOD">
+          <Text style={{ opacity: 0.5, textAlign: "center", padding: 24 }}>Predictive model requires ≥2 data points for today. Check back after more data accumulates.</Text>
+        </ChartTile>
       )}
         </Flex>
       )}
@@ -4408,10 +4433,7 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId }: {
 
       {/* CWV Trend Chart */}
       {trendSorted.length > 1 && (
-        <>
-          <SectionHeader title="CWV Trend" />
-          <div className="uj-table-tile" style={{ padding: 16 }}>
-            <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 8, display: "block" }}>Daily averages over the selected timeframe. Dashed lines = Google thresholds (good).</Text>
+          <ChartTile title="CWV Trend" description="Daily averages over the selected timeframe. Dashed lines = Google thresholds (good).">
             {(() => {
               const svgW = 600, svgH = 160, padL = 50, padR = 20, padT = 16, padB = 28;
               const metrics = [
@@ -4515,8 +4537,7 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId }: {
                 </Flex>
               );
             })()}
-          </div>
-        </>
+          </ChartTile>
       )}
 
       {/* Automated Remediation Recommendations */}
@@ -10508,9 +10529,8 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
       </Flex>
 
       {/* Hourly correlation timeline SVG */}
-      <SectionHeader title="Hourly Correlation Timeline" />
-      <Text style={{ fontSize: 13, opacity: 0.5, marginBottom: 4 }}>Conversion rate (green), avg duration (blue), error rate (red). Red-shaded hours = conversion dip + technical signal detected.</Text>
-      <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
+      <ChartTile title="Hourly Correlation Timeline" description="Conversion rate (green), avg duration (blue), error rate (red). Red-shaded hours = conversion dip + technical signal detected.">
+        <div style={{ overflowX: "auto" }}>
         <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`}>
           {/* Background for impact hours */}
           {signals.map((s, i) => {
@@ -10562,7 +10582,8 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
             <text key={`h-${h}`} x={padL + (h / 23) * plotW} y={chartH - 4} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={9}>{h}:00</text>
           ))}
         </svg>
-      </div>
+        </div>
+      </ChartTile>
 
       {/* Ranked root cause signals */}
       <SectionHeader title="Root Cause Signals" />
@@ -10905,10 +10926,10 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
       })()}
 
       {/* Forecast cards per metric */}
-      <SectionHeader title="Metric Forecasts" />
-      <Flex gap={12} flexWrap="wrap">
-        {budgets.map((b) => (
-          <div key={b.metric} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(b.severity), minWidth: 420, flex: 1 }}>
+      <ChartTile title="Metric Forecasts" description="Budget tracking with 7-day forecast projections per metric">
+        <Flex gap={12} flexWrap="wrap">
+          {budgets.map((b) => (
+            <div key={b.metric} className="uj-anomaly-card" style={{ borderLeftColor: severityColor(b.severity), minWidth: 420, flex: 1 }}>
             <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
               <Strong style={{ fontSize: 14 }}>{b.metric}</Strong>
               <span style={{ fontSize: 12, padding: "2px 10px", borderRadius: 4, background: `${severityColor(b.severity)}18`, color: severityColor(b.severity), fontWeight: 700, textTransform: "uppercase" as const }}>{severityLabel(b.severity)}</span>
@@ -11007,9 +11028,10 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
               </svg>
               );
             })()}
-          </div>
-        ))}
-      </Flex>
+            </div>
+          ))}
+        </Flex>
+      </ChartTile>
 
       {/* Daily trend table */}
       <SectionHeader title="Trend Data" />
@@ -11675,9 +11697,8 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
       </Flex>
 
       {/* Timeline chart */}
-      <SectionHeader title="Performance Timeline with Deploy Markers" />
-      <Text style={{ fontSize: 13, opacity: 0.5, marginBottom: 4 }}>Green = Apdex, blue dashed = avg duration (normalized). Red vertical lines = deployment events.</Text>
-      <div className="uj-table-tile" style={{ padding: 16, overflowX: "auto" }}>
+      <ChartTile title="Performance Timeline with Deploy Markers" description="Green = Apdex, blue dashed = avg duration (normalized). Red vertical lines = deployment events.">
+        <div style={{ overflowX: "auto" }}>
         {totalHours > 0 ? (
           <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`}>
             {/* Grid */}
@@ -11743,7 +11764,8 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
         ) : (
           <Text style={{ textAlign: "center", padding: 24, opacity: 0.4 }}>No hourly data available for the selected timeframe.</Text>
         )}
-      </div>
+        </div>
+      </ChartTile>
 
       {/* Deployment analysis cards */}
       <SectionHeader title="Deployment Impact Analysis" />
@@ -13303,9 +13325,7 @@ function ErrorClusteringTab({ data, trendData, isLoading, frontend, deployData }
 
       {/* Error trend over time */}
       {hourly.length > 1 && (
-        <>
-          <SectionHeader title="Error Trend Over Time" />
-          <div className="uj-table-tile" style={{ padding: 16 }}>
+          <ChartTile title="Error Trend Over Time" description="Hourly error count distribution across the selected timeframe">
             <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
               <text x={PAD.left} y={PAD.top - 10} fill="rgba(255,255,255,0.4)" fontSize={10}>Errors</text>
               {/* Area fill */}
@@ -13333,8 +13353,7 @@ function ErrorClusteringTab({ data, trendData, isLoading, frontend, deployData }
                 return <text key={i} x={x} y={H - PAD.bottom + 14} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={8}>{h.hour.substring(11, 16)}</text>;
               })}
             </svg>
-          </div>
-        </>
+          </ChartTile>
       )}
 
       {/* Top error clusters chart */}
