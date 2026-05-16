@@ -12,7 +12,7 @@ import { Button } from "@dynatrace/strato-components/buttons";
 import { Sheet } from "@dynatrace/strato-components/overlays";
 import { Switch } from "@dynatrace/strato-components/forms";
 import { MaximizeIcon, MinimizeIcon } from "@dynatrace/strato-icons";
-import { TimeseriesChart } from "@dynatrace/strato-components/charts";
+import { TimeseriesChart, TimeseriesAnnotations } from "@dynatrace/strato-components/charts";
 import type { Timeseries } from "@dynatrace/strato-components/charts";
 import { DataTable } from "@dynatrace/strato-components-preview/tables";
 import "./UserJourney.css";
@@ -372,12 +372,13 @@ function buildTimeseries(
   points: { time: Date; value: number }[],
   unit?: string
 ): Timeseries {
+  const interval = points.length > 1 ? Math.abs(points[1].time.getTime() - points[0].time.getTime()) : 60000;
   return {
     name: [name],
     ...(unit ? { unit } : {}),
     datapoints: points.map((p, i) => ({
       start: p.time,
-      end: i < points.length - 1 ? points[i + 1].time : new Date(p.time.getTime() + 60000),
+      end: i < points.length - 1 ? points[i + 1].time : new Date(p.time.getTime() + interval),
       value: p.value,
     })),
   } as Timeseries;
@@ -4040,11 +4041,21 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
                 <Text style={{ fontSize: 12, opacity: 0.45 }}>until end of day</Text>
               </div>
             </div>
-            <TimeseriesChart gapPolicy="connect" curve="linear">
-              <TimeseriesChart.Area data={actualTs} color={BLUE} />
-              <TimeseriesChart.Line data={projTs} color={velocityClr} />
-              <TimeseriesChart.Legend hidden />
-            </TimeseriesChart>
+            {(() => {
+              const forecastStart = new Date(new Date().setHours(0, 0, 0, 0) + hourlyPoints[hourlyPoints.length - 1].min * 60000);
+              return (
+                <TimeseriesChart gapPolicy="connect" curve="linear">
+                  <TimeseriesChart.Area data={actualTs} color={BLUE} />
+                  <TimeseriesChart.Line data={projTs} color={velocityClr} />
+                  <TimeseriesChart.Legend hidden />
+                  <TimeseriesChart.Annotations>
+                    <TimeseriesAnnotations.Track>
+                      <TimeseriesAnnotations.Marker start={forecastStart} title="Forecast" symbol="▸" />
+                    </TimeseriesAnnotations.Track>
+                  </TimeseriesChart.Annotations>
+                </TimeseriesChart>
+              );
+            })()}
           </ChartTile>
         );
       })() : (
@@ -10877,11 +10888,17 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
                 forecastPts.push({ time: new Date(now.getTime() + d * 86400000), value: val });
               }
               const forecastTs = buildTimeseries("Forecast", forecastPts);
+              const markerTime = new Date(now.getTime());
               return (
                 <TimeseriesChart gapPolicy="connect" curve="linear" height={100}>
                   <TimeseriesChart.Area data={actualTs} color={BLUE} />
                   <TimeseriesChart.Line data={forecastTs} color={PURPLE} />
                   <TimeseriesChart.Legend hidden />
+                  <TimeseriesChart.Annotations>
+                    <TimeseriesAnnotations.Track>
+                      <TimeseriesAnnotations.Marker start={markerTime} title="Forecast" symbol="▸" />
+                    </TimeseriesAnnotations.Track>
+                  </TimeseriesChart.Annotations>
                 </TimeseriesChart>
               );
             })()}
@@ -11013,10 +11030,10 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
       <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 8 }}>Probability of breaching SLO thresholds within 7 days based on current trends.</Text>
       {(() => {
         // Simple trend extrapolation for breach probability
-        const trendRecords = (trendData?.data?.records ?? []) as any[];
+        const trendRecords = (apdexTrendData?.data?.records ?? []) as any[];
         if (trendRecords.length < 3) return <div className="uj-table-tile" style={{ padding: 16 }}><Text style={{ opacity: 0.5 }}>Insufficient trend data for breach prediction.</Text></div>;
         const apdexTrend = trendRecords.map((r: any) => {
-          const total = Number(r.actions ?? 0);
+          const total = Number(r.total ?? 0);
           const sat = Number(r.satisfied ?? 0);
           const tol = Number(r.tolerating ?? 0);
           return calcApdex(sat, tol, total);
@@ -11567,6 +11584,15 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
               <TimeseriesChart.Line data={apdexTs} color={GREEN} />
               <TimeseriesChart.Line data={durTs} color={BLUE} />
               <TimeseriesChart.Legend hidden />
+              {deployments.length > 0 && (
+                <TimeseriesChart.Annotations>
+                  <TimeseriesAnnotations.Track>
+                    {deployments.map((dep, i) => (
+                      <TimeseriesAnnotations.Marker key={i} start={new Date(dep.timestamp)} title={dep.name} description={dep.version || dep.source} />
+                    ))}
+                  </TimeseriesAnnotations.Track>
+                </TimeseriesChart.Annotations>
+              )}
             </TimeseriesChart>
           );
         })() : (
