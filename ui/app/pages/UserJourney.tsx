@@ -1118,7 +1118,7 @@ function resourceSessionDrillQuery(days: number, frontend: string, steps: StepDe
 | fieldsAdd sid = dt.rum.session.id
 | sort res_dur_ms desc
 | limit 50
-| fields sid, res_name, res_type, res_dur_ms, step_tag, timestamp`;
+| fields sid, res_name, res_type, res_dur_ms, step_tag, timestamp, start_time`;
 }
 
 // ---------------------------------------------------------------------------
@@ -10907,7 +10907,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, sessionDrillData, isL
           dur: Number(r.res_dur_ms ?? 0),
           step: String(r.step_tag ?? ""),
           ts: r.timestamp ? new Date(r.timestamp).toLocaleString() : "",
-          rawTs: r.timestamp ? new Date(r.timestamp).toISOString() : "",
+          rawTs: r.start_time ? String(r.start_time) : r.timestamp ? new Date(r.timestamp).toISOString() : "",
         }));
         if (top10.length === 0) return <div className="uj-table-tile" style={{ padding: 24, textAlign: "center" }}><Text style={{ opacity: 0.5 }}>No individual resource data available.</Text></div>;
         return (
@@ -10919,7 +10919,8 @@ function ResourceWaterfallTab({ waterfallData, byStepData, sessionDrillData, isL
               Duration: r.dur,
               Step: r.step,
               Time: r.ts,
-              Session: r.sid + (r.rawTs ? "|" + r.rawTs : ""),
+              Session: r.sid,
+              _rawTs: r.rawTs,
             }))} columns={[
               { id: "#", header: "#", accessor: "#", cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}</Strong> },
               { id: "Resource", header: "Resource", accessor: "Resource", cell: ({ value }: any) => <Text style={{ fontSize: 12, wordBreak: "break-all" as const }}>{value}</Text> },
@@ -10927,7 +10928,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, sessionDrillData, isL
               { id: "Duration", header: "Duration", accessor: "Duration", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 2000 ? RED : value > 1000 ? ORANGE : GREEN }}>{fmt(value)}</Strong> },
               { id: "Step", header: "Step", accessor: "Step" },
               { id: "Time", header: "Time", accessor: "Time", cell: ({ value }: any) => <Text style={{ fontSize: 12, opacity: 0.6 }}>{value}</Text> },
-              { id: "Session", header: "Session", accessor: "Session", cell: ({ value }: any) => { const [sid, rawTs] = (value || "").split("|"); return sid ? <a href={sessionReplayUrl(sid, rawTs)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, fontSize: 12, textDecoration: "none" }} onMouseEnter={(e: any) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e: any) => (e.currentTarget.style.textDecoration = "none")} title="Open session">{sid.slice(0, 8)}...</a> : <Text style={{ opacity: 0.3 }}>{"\u2014"}</Text>; } },
+              { id: "Session", header: "Session", accessor: "Session", cell: ({ value, rowData }: any) => { const sid = value; const rawTs = rowData?._rawTs; return sid ? <a href={sessionReplayUrl(sid, rawTs)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, fontSize: 12, textDecoration: "none" }} onMouseEnter={(e: any) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e: any) => (e.currentTarget.style.textDecoration = "none")} title="Open session">{sid.slice(0, 8)}...</a> : <Text style={{ opacity: 0.3 }}>{"\u2014"}</Text>; } },
             ]} />
           </div>
         );
