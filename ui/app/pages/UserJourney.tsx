@@ -10962,7 +10962,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, sessionDrillData, isL
               <Flex flexDirection="column" gap={8}>
                 <Flex gap={8} alignItems="center">
                   <Strong style={{ fontSize: 13 }}>Session: {drillSession.slice(0, 16)}...</Strong>
-                  <a href={sessionReplayUrl(drillSession, sessionResources.length > 0 ? (sessionRecords.find((r: any) => String(r.sid) === drillSession)?.timestamp ? new Date(sessionRecords.find((r: any) => String(r.sid) === drillSession).timestamp).toISOString() : undefined) : undefined)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+                  <a href={sessionReplayUrl(drillSession, (() => { const rec = sessionRecords.find((r: any) => String(r.sid) === drillSession); return rec?.start_time ? String(rec.start_time) : rec?.timestamp ? new Date(rec.timestamp).toISOString() : undefined; })())} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
                     <Button variant="emphasized" style={{ fontSize: 11, padding: "2px 8px" }}>{"\u25B6"} View Full Session</Button>
                   </a>
                   <Text style={{ fontSize: 12, opacity: 0.5 }}>{sessionResources.length} resource{sessionResources.length !== 1 ? "s" : ""}</Text>
