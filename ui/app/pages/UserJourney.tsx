@@ -12,6 +12,8 @@ import { Button } from "@dynatrace/strato-components/buttons";
 import { Sheet } from "@dynatrace/strato-components/overlays";
 import { Switch } from "@dynatrace/strato-components/forms";
 import { MaximizeIcon, MinimizeIcon } from "@dynatrace/strato-icons";
+import { TimeseriesChart } from "@dynatrace/strato-components/charts";
+import type { Timeseries } from "@dynatrace/strato-components/charts";
 import { DataTable } from "@dynatrace/strato-components-preview/tables";
 import "./UserJourney.css";
 import { useSettings, DEFAULT_FRONTEND, DEFAULT_FUNNEL_STEPS, MIN_STEPS, MAX_STEPS, DEFAULT_AOV } from "../SettingsContext";
@@ -362,6 +364,23 @@ function ChartTile({ title, description, children }: { title: string; descriptio
       </div>
     </>
   );
+}
+
+// Build Timeseries[] from computed arrays for TimeseriesChart
+function buildTimeseries(
+  name: string,
+  points: { time: Date; value: number }[],
+  unit?: string
+): Timeseries {
+  return {
+    name: [name],
+    ...(unit ? { unit } : {}),
+    datapoints: points.map((p, i) => ({
+      start: p.time,
+      end: i < points.length - 1 ? points[i + 1].time : new Date(p.time.getTime() + 60000),
+      value: p.value,
+    })),
+  } as Timeseries;
 }
 
 // ---------------------------------------------------------------------------
@@ -3989,25 +4008,16 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
       {funnelSubTab === "predictive" && (
         <Flex flexDirection="column" gap={20}>
       {predN >= 2 ? (() => {
-        const W = 300, H = 80, padL = 28, padT = 8, padB = 22, padR = 16;
-        const plotW = W - padL - padR;
-        const plotH = H - padT - padB;
-        const allRates = hourlyPoints.map(p => p.rate);
-        const rateMin = Math.max(0, Math.min(...allRates, projectedEod) - 3);
-        const rateMax = Math.min(100, Math.max(...allRates, projectedEod) + 3);
-        const rateRange = rateMax - rateMin || 1;
-        const xS = (m: number) => padL + (m / 1440) * plotW;
-        const yS = (r: number) => padT + plotH - ((r - rateMin) / rateRange) * plotH;
-        // 3-point weighted moving average for smoother line
-        const smoothed = hourlyPoints.map((p, i) => {
-          const w0 = i > 0 ? hourlyPoints[i - 1].rate : p.rate;
-          const w2 = i < hourlyPoints.length - 1 ? hourlyPoints[i + 1].rate : p.rate;
-          return (w0 + 2 * p.rate + w2) / 4;
-        });
-        const actualLine = hourlyPoints.map((p, i) => `${i === 0 ? "M" : "L"}${xS(p.min).toFixed(1)},${yS(smoothed[i]).toFixed(1)}`).join(" ");
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const actualTs = buildTimeseries("Conversion Rate", hourlyPoints.map(p => ({
+          time: new Date(today.getTime() + p.min * 60000),
+          value: p.rate,
+        })), "percent");
         const last = hourlyPoints[hourlyPoints.length - 1];
-        const projLine = `M${xS(last.min).toFixed(1)},${yS(smoothed[smoothed.length - 1]).toFixed(1)} L${xS(1425).toFixed(1)},${yS(projectedEod).toFixed(1)}`;
-        const areaD = `${actualLine} L${xS(last.min).toFixed(1)},${yS(rateMin).toFixed(1)} L${xS(hourlyPoints[0].min).toFixed(1)},${yS(rateMin).toFixed(1)} Z`;
+        const projTs = buildTimeseries("Projected", [
+          { time: new Date(today.getTime() + last.min * 60000), value: last.rate },
+          { time: new Date(today.getTime() + 1425 * 60000), value: projectedEod },
+        ], "percent");
         return (
           <ChartTile title="Predictive Funnel Model" description="Today's conversion trajectory to EOD">
             <Flex alignItems="center" justifyContent="flex-end" style={{ marginBottom: 12 }}>
@@ -4030,38 +4040,11 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
                 <Text style={{ fontSize: 12, opacity: 0.45 }}>until end of day</Text>
               </div>
             </div>
-            <div style={{ width: "100%" }}>
-              <Text style={{ fontSize: 11, opacity: 0.4, marginBottom: 4, display: "block" }}>15-min conv rate · actual (solid, smoothed) vs projected (dashed)</Text>
-              <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
-                {/* Horizontal grid lines at 25% intervals */}
-                {[0, 0.25, 0.5, 0.75, 1].map(t => {
-                  const gy = padT + plotH * t;
-                  const gVal = rateMax - (rateMax - rateMin) * t;
-                  return (
-                    <g key={t}>
-                      <line x1={padL} y1={gy} x2={padL + plotW} y2={gy} stroke="rgba(255,255,255,0.05)" strokeWidth={1} />
-                      <text x={padL - 6} y={gy + 3} textAnchor="end" fill="rgba(255,255,255,0.22)" fontSize={7}>{gVal.toFixed(0)}%</text>
-                    </g>
-                  );
-                })}
-                {/* Vertical axis border */}
-                <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="rgba(255,255,255,0.1)" strokeWidth={1} />
-                <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="rgba(255,255,255,0.1)" strokeWidth={1} />
-                {/* "now" marker */}
-                <line x1={xS(currentMin)} y1={padT} x2={xS(currentMin)} y2={padT + plotH} stroke="rgba(255,255,255,0.15)" strokeWidth={1} strokeDasharray="3 3" />
-                <text x={xS(currentMin)} y={padT - 3} textAnchor="middle" fill="rgba(255,255,255,0.35)" fontSize={7} fontWeight="500">now</text>
-                {/* Area fill */}
-                <path d={areaD} fill={BLUE} fillOpacity={0.07} />
-                {/* Actual line — thinner, clean */}
-                <path d={actualLine} fill="none" stroke={BLUE} strokeWidth={1.4} strokeLinejoin="round" strokeLinecap="round" strokeOpacity={0.9} />
-                {/* Projected dashed line */}
-                <path d={projLine} fill="none" stroke={velocityClr} strokeWidth={1.3} strokeDasharray="5 4" strokeOpacity={0.85} />
-                {/* EOD target dot */}
-                <circle cx={xS(1425)} cy={yS(projectedEod)} r={4} fill={velocityClr} stroke="rgba(0,0,0,0.6)" strokeWidth={1.2}><title>Projected EOD: {fmtPct(projectedEod)}</title></circle>
-                {/* Time labels */}
-                {[0, 360, 720, 1080, 1380].map(m => <text key={m} x={xS(m)} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.28)" fontSize={7}>{Math.floor(m/60)}:00</text>)}
-              </svg>
-            </div>
+            <TimeseriesChart gapPolicy="connect" curve="linear">
+              <TimeseriesChart.Area data={actualTs} color={BLUE} />
+              <TimeseriesChart.Line data={projTs} color={velocityClr} />
+              <TimeseriesChart.Legend hidden />
+            </TimeseriesChart>
           </ChartTile>
         );
       })() : (
@@ -4435,75 +4418,32 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId }: {
       {trendSorted.length > 1 && (
           <ChartTile title="CWV Trend" description="Daily averages over the selected timeframe. Dashed lines = Google thresholds (good).">
             {(() => {
-              const svgW = 600, svgH = 160, padL = 50, padR = 20, padT = 16, padB = 28;
-              const metrics = [
-                { key: "lcp_val", label: "LCP", color: BLUE, threshold: CWV.lcp.good, unit: "ms" },
-                { key: "inp_val", label: "INP", color: PURPLE, threshold: CWV.inp.good, unit: "ms" },
-                { key: "ttfb_val", label: "TTFB", color: CYAN, threshold: CWV.ttfb.good, unit: "ms" },
+              const cwvMetrics = [
+                { key: "lcp_val", label: "LCP", color: BLUE },
+                { key: "inp_val", label: "INP", color: PURPLE },
+                { key: "ttfb_val", label: "TTFB", color: CYAN },
               ];
-              // Compute bounds across all time-based metrics (skip CLS, separate scale)
-              const allVals = trendSorted.flatMap(r => metrics.map(m => Number(r[m.key] ?? 0)));
-              const thresholds = metrics.map(m => m.threshold);
-              const vMin = 0;
-              const vMax = Math.max(...allVals, ...thresholds) * 1.1 || 1;
-              const valToY = (val: number) => padT + (svgH - padT - padB) * (1 - (val - vMin) / (vMax - vMin));
-              const n = trendSorted.length;
-              const xStep = (svgW - padL - padR) / Math.max(n - 1, 1);
-
-              return (
-                <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ display: "block" }}>
-                  {/* Y-axis labels */}
-                  <text x={padL - 4} y={padT + 4} textAnchor="end" fontSize={9} fill="rgba(128,128,128,0.6)">{Math.round(vMax)}ms</text>
-                  <text x={padL - 4} y={svgH - padB} textAnchor="end" fontSize={9} fill="rgba(128,128,128,0.6)">0</text>
-                  {/* X-axis labels (first, mid, last) */}
-                  {[0, Math.floor(n / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i).map(idx => (
-                    <text key={idx} x={padL + idx * xStep} y={svgH - padB + 14} textAnchor="middle" fontSize={8} fill="rgba(128,128,128,0.5)">{String(trendSorted[idx]?.bucket_key ?? "").slice(5)}</text>
-                  ))}
-                  {/* Threshold lines */}
-                  {metrics.map(m => (
-                    <line key={m.key + "_th"} x1={padL} y1={valToY(m.threshold)} x2={svgW - padR} y2={valToY(m.threshold)} stroke={m.color} strokeWidth={1} strokeDasharray="4 3" opacity={0.3} />
-                  ))}
-                  {/* Data lines */}
-                  {metrics.map(m => {
-                    const pts = trendSorted.map((r, i) => `${padL + i * xStep},${valToY(Number(r[m.key] ?? 0))}`).join(" ");
-                    return <polyline key={m.key} fill="none" stroke={m.color} strokeWidth={2} points={pts} />;
-                  })}
-                  {/* Dots on last point */}
-                  {metrics.map(m => {
-                    const lastVal = Number(trendSorted[n - 1]?.[m.key] ?? 0);
-                    return <circle key={m.key + "_dot"} cx={padL + (n - 1) * xStep} cy={valToY(lastVal)} r={3.5} fill={m.color}><title>{m.label}: {Math.round(lastVal)}ms</title></circle>;
-                  })}
-                  {/* Legend */}
-                  {metrics.map((m, i) => (
-                    <g key={m.key + "_leg"} transform={`translate(${padL + i * 80}, ${svgH - 6})`}>
-                      <line x1={0} y1={0} x2={14} y2={0} stroke={m.color} strokeWidth={2} />
-                      <text x={18} y={3} fontSize={9} fill={m.color}>{m.label}</text>
-                    </g>
-                  ))}
-                </svg>
+              const cwvTimeseries = cwvMetrics.map(m => buildTimeseries(m.label,
+                trendSorted.map(r => ({ time: new Date(String(r.bucket_key ?? "")), value: Number(r[m.key] ?? 0) })),
+                "millisecond"
+              ));
+              const clsTs = buildTimeseries("CLS",
+                trendSorted.map(r => ({ time: new Date(String(r.bucket_key ?? "")), value: Number(r.cls_val ?? 0) }))
               );
-            })()}
-            {/* CLS separate (different scale) */}
-            {(() => {
-              const svgW = 600, svgH = 80, padL = 50, padR = 20, padT = 12, padB = 20;
-              const clsVals = trendSorted.map(r => Number(r.cls_val ?? 0));
-              const vMax = Math.max(...clsVals, CWV.cls.good) * 1.3 || 0.3;
-              const valToY = (val: number) => padT + (svgH - padT - padB) * (1 - val / vMax);
-              const n = trendSorted.length;
-              const xStep = (svgW - padL - padR) / Math.max(n - 1, 1);
-              const pts = trendSorted.map((r, i) => `${padL + i * xStep},${valToY(Number(r.cls_val ?? 0))}`).join(" ");
               return (
-                <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ display: "block", marginTop: 8 }}>
-                  <text x={padL - 4} y={padT + 4} textAnchor="end" fontSize={9} fill="rgba(128,128,128,0.6)">{vMax.toFixed(2)}</text>
-                  <text x={padL - 4} y={svgH - padB} textAnchor="end" fontSize={9} fill="rgba(128,128,128,0.6)">0</text>
-                  <line x1={padL} y1={valToY(CWV.cls.good)} x2={svgW - padR} y2={valToY(CWV.cls.good)} stroke={ORANGE} strokeWidth={1} strokeDasharray="4 3" opacity={0.3} />
-                  <polyline fill="none" stroke={ORANGE} strokeWidth={2} points={pts} />
-                  <circle cx={padL + (n - 1) * xStep} cy={valToY(clsVals[n - 1])} r={3.5} fill={ORANGE}><title>CLS: {clsVals[n - 1]?.toFixed(3)}</title></circle>
-                  <g transform={`translate(${padL}, ${svgH - 4})`}>
-                    <line x1={0} y1={0} x2={14} y2={0} stroke={ORANGE} strokeWidth={2} />
-                    <text x={18} y={3} fontSize={9} fill={ORANGE}>CLS</text>
-                  </g>
-                </svg>
+                <>
+                  <TimeseriesChart gapPolicy="connect" curve="linear">
+                    {cwvTimeseries.map((ts, i) => (
+                      <TimeseriesChart.Line key={cwvMetrics[i].key} data={ts} color={cwvMetrics[i].color} />
+                    ))}
+                    <TimeseriesChart.Legend hidden />
+                  </TimeseriesChart>
+                  <Text style={{ fontSize: 11, opacity: 0.4, marginTop: 8, display: "block" }}>CLS (separate scale)</Text>
+                  <TimeseriesChart gapPolicy="connect" curve="linear" height={120}>
+                    <TimeseriesChart.Line data={clsTs} color={ORANGE} />
+                    <TimeseriesChart.Legend hidden />
+                  </TimeseriesChart>
+                </>
               );
             })()}
             {/* Trend direction indicators */}
@@ -10528,61 +10468,28 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
         })()}
       </Flex>
 
-      {/* Hourly correlation timeline SVG */}
-      <ChartTile title="Hourly Correlation Timeline" description="Conversion rate (green), avg duration (blue), error rate (red). Red-shaded hours = conversion dip + technical signal detected.">
-        <div style={{ overflowX: "auto" }}>
-        <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`}>
-          {/* Background for impact hours */}
-          {signals.map((s, i) => {
-            if (!s.isConvDrop || s.causes.length === 0) return null;
-            const barW = plotW / 24;
-            const x = padL + s.hour * barW;
-            return <rect key={`bg-${i}`} x={x} y={padT} width={barW} height={plotH} fill={RED} opacity={0.08} />;
-          })}
-          {/* Y axis labels */}
-          <text x={padL - 4} y={padT + 4} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>100%</text>
-          <text x={padL - 4} y={padT + plotH / 2} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>50%</text>
-          <text x={padL - 4} y={padT + plotH} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>0%</text>
-          {/* Grid lines */}
-          <line x1={padL} y1={padT} x2={padL + plotW} y2={padT} stroke="rgba(255,255,255,0.05)" />
-          <line x1={padL} y1={padT + plotH / 2} x2={padL + plotW} y2={padT + plotH / 2} stroke="rgba(255,255,255,0.05)" />
-          <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="rgba(255,255,255,0.08)" />
-          {/* Conversion line */}
-          {signals.length > 1 && (
-            <polyline fill="none" stroke={GREEN} strokeWidth={2} points={signals.map((s) => {
-              const x = padL + (s.hour / 23) * plotW;
-              const y = padT + plotH - (s.convRate / Math.max(maxConv, 1)) * plotH;
-              return `${x},${y}`;
-            }).join(" ")} />
-          )}
-          {/* Duration line (normalized) */}
-          {signals.length > 1 && (
-            <polyline fill="none" stroke={BLUE} strokeWidth={1.5} strokeDasharray="4 3" points={signals.map((s) => {
-              const x = padL + (s.hour / 23) * plotW;
-              const y = padT + plotH - (s.avgDuration / Math.max(maxDur, 1)) * plotH;
-              return `${x},${y}`;
-            }).join(" ")} />
-          )}
-          {/* Error rate line (normalized) */}
-          {signals.length > 1 && (
-            <polyline fill="none" stroke={RED} strokeWidth={1.5} strokeDasharray="2 2" points={signals.map((s) => {
-              const x = padL + (s.hour / 23) * plotW;
-              const y = padT + plotH - (s.errorRate / Math.max(maxErr, 1)) * plotH;
-              return `${x},${y}`;
-            }).join(" ")} />
-          )}
-          {/* Data points */}
-          {signals.map((s, i) => {
-            const x = padL + (s.hour / 23) * plotW;
-            const yConv = padT + plotH - (s.convRate / Math.max(maxConv, 1)) * plotH;
-            return <circle key={`pt-${i}`} cx={x} cy={yConv} r={s.isConvDrop ? 4 : 2.5} fill={s.causes.length > 0 ? RED : GREEN} opacity={0.8}><title>{`${s.hour}:00 — Conv: ${s.convRate.toFixed(1)}% | Dur: ${fmt(s.avgDuration)} | Err: ${s.errorRate.toFixed(1)}%${s.causes.length > 0 ? ` | ${s.causes.join(", ")}` : ""}`}</title></circle>;
-          })}
-          {/* X axis */}
-          {[0, 3, 6, 9, 12, 15, 18, 21].map((h) => (
-            <text key={`h-${h}`} x={padL + (h / 23) * plotW} y={chartH - 4} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={9}>{h}:00</text>
-          ))}
-        </svg>
-        </div>
+      {/* Hourly correlation timeline */}
+      <ChartTile title="Hourly Correlation Timeline" description="Conversion rate (green), avg duration (blue), error rate (red).">
+        {signals.length > 1 ? (() => {
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const convTs = buildTimeseries("Conversion Rate", signals.map(s => ({
+            time: new Date(today.getTime() + s.hour * 3600000), value: s.convRate,
+          })), "percent");
+          const durTs = buildTimeseries("Avg Duration", signals.map(s => ({
+            time: new Date(today.getTime() + s.hour * 3600000), value: (s.avgDuration / maxDur) * maxConv,
+          })), "percent");
+          const errTs = buildTimeseries("Error Rate", signals.map(s => ({
+            time: new Date(today.getTime() + s.hour * 3600000), value: (s.errorRate / maxErr) * maxConv,
+          })), "percent");
+          return (
+            <TimeseriesChart gapPolicy="connect" curve="linear">
+              <TimeseriesChart.Line data={convTs} color={GREEN} />
+              <TimeseriesChart.Line data={durTs} color={BLUE} />
+              <TimeseriesChart.Line data={errTs} color={RED} />
+              <TimeseriesChart.Legend hidden />
+            </TimeseriesChart>
+          );
+        })() : null}
       </ChartTile>
 
       {/* Ranked root cause signals */}
@@ -10959,73 +10866,23 @@ function PredictiveForecastingTab({ trendData, apdexTrendData, vitalsTrendData, 
             )}
             {/* Mini trend chart */}
             {(() => {
-              const svgW = 300;
-              const svgH = 100;
-              const rightPad = 40;
-              // Build combined series: [current, ...daily values] for actual, then forecast
               const chartValues = [b.current, ...b.values];
-              const chartN = chartValues.length;
-              const totalPts = chartN + FORECAST_DAYS;
-              const allVals = [...chartValues, b.threshold, b.projected7d];
-              const vMin = Math.min(...allVals);
-              const vMax = Math.max(...allVals);
-              const range = vMax - vMin || 1;
-              const valToY = (v: number) => (svgH - 6) - ((v - vMin) / range) * (svgH - 12);
-              const thY = valToY(b.threshold);
-              const actW = (chartN / totalPts) * (svgW - 10 - rightPad);
-              const fmtVal = (v: number) => b.format(v);
+              const now = new Date();
+              const actualTs = buildTimeseries("Actual", chartValues.map((v, i) => ({
+                time: new Date(now.getTime() - (chartValues.length - 1 - i) * 86400000), value: v,
+              })));
+              const forecastPts: { time: Date; value: number }[] = [];
+              for (let d = 0; d <= FORECAST_DAYS; d++) {
+                const val = d === 0 ? chartValues[chartValues.length - 1] : b.reg.predict(b.values.length - 1 + d);
+                forecastPts.push({ time: new Date(now.getTime() + d * 86400000), value: val });
+              }
+              const forecastTs = buildTimeseries("Forecast", forecastPts);
               return (
-              <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ marginTop: 4 }}>
-                {/* Y-axis labels on right */}
-                <text x={svgW - 2} y={valToY(vMax) + 3} textAnchor="end" fill="rgba(255,255,255,0.35)" fontSize={7}>{fmtVal(vMax)}</text>
-                <text x={svgW - 2} y={valToY(vMin) - 1} textAnchor="end" fill="rgba(255,255,255,0.35)" fontSize={7}>{fmtVal(vMin)}</text>
-                {Math.abs(thY - valToY(vMax)) > 12 && Math.abs(thY - valToY(vMin)) > 12 && (
-                  <text x={svgW - 2} y={thY < 14 ? thY + 10 : thY - 2} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={7}>{fmtVal(b.threshold)}</text>
-                )}
-                {/* Threshold line */}
-                <line x1={0} y1={thY} x2={svgW - rightPad} y2={thY} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 3" />
-                <text x={svgW - rightPad - 2} y={thY < 14 ? thY + 12 : thY - 3} textAnchor="end" fill="rgba(255,255,255,0.25)" fontSize={7}>budget</text>
-                {/* Actual data line: current → daily values */}
-                {chartValues.length > 1 ? (
-                  <>
-                    <polygon fill={`${BLUE}12`} points={`5,${svgH - 6} ${chartValues.map((v, i) => `${5 + (i / (chartN - 1)) * actW},${valToY(v)}`).join(" ")} ${5 + actW},${svgH - 6}`} />
-                    <polyline fill="none" stroke={BLUE} strokeWidth={2} points={chartValues.map((v, i) => `${5 + (i / (chartN - 1)) * actW},${valToY(v)}`).join(" ")} />
-                    {chartValues.map((v, i) => (
-                      <circle key={i} cx={5 + (i / (chartN - 1)) * actW} cy={valToY(v)} r={i === 0 ? 3.5 : 2.5} fill={i === 0 ? GREEN : BLUE} style={{ cursor: "pointer" }}><title>{fmtVal(v)}</title></circle>
-                    ))}
-                  </>
-                ) : chartValues.length === 1 ? (
-                  <>
-                    <line x1={5} y1={valToY(chartValues[0])} x2={5 + actW} y2={valToY(chartValues[0])} stroke={BLUE} strokeWidth={2} />
-                    <circle cx={5} cy={valToY(chartValues[0])} r={3} fill={BLUE} style={{ cursor: "pointer" }}><title>{fmtVal(chartValues[0])}</title></circle>
-                  </>
-                ) : null}
-                {/* Forecast extension */}
-                {chartValues.length > 0 && (() => {
-                  const lastActual = chartValues[chartValues.length - 1];
-                  const forecastPts: string[] = [];
-                  const forecastVals: number[] = [];
-                  for (let d = 0; d <= FORECAST_DAYS; d++) {
-                    const val = d === 0 ? lastActual : b.reg.predict(b.values.length - 1 + d);
-                    const x = 5 + actW + (d / FORECAST_DAYS) * (svgW - 10 - rightPad - actW);
-                    forecastPts.push(`${x},${valToY(val)}`);
-                    forecastVals.push(val);
-                  }
-                  return (
-                    <>
-                      <polygon fill={`${PURPLE}08`} points={`${5 + actW},${svgH - 6} ${forecastPts.join(" ")} ${svgW - 5 - rightPad},${svgH - 6}`} />
-                      <polyline fill="none" stroke={PURPLE} strokeWidth={2} strokeDasharray="6 3" points={forecastPts.join(" ")} />
-                      {forecastVals.map((val, d) => {
-                        const x = 5 + actW + (d / FORECAST_DAYS) * (svgW - 10 - rightPad - actW);
-                        return d > 0 ? <circle key={`f${d}`} cx={x} cy={valToY(val)} r={1.5} fill={PURPLE} style={{ cursor: "pointer" }}><title>+{d}d: {fmtVal(val)}</title></circle> : null;
-                      })}
-                    </>
-                  );
-                })()}
-                {/* Vertical divider between actual & forecast */}
-                <line x1={5 + actW} y1={0} x2={5 + actW} y2={svgH} stroke="rgba(255,255,255,0.1)" strokeDasharray="2 2" />
-                <text x={5 + actW + 3} y={12} fill="rgba(255,255,255,0.2)" fontSize={7}>forecast</text>
-              </svg>
+                <TimeseriesChart gapPolicy="connect" curve="linear" height={100}>
+                  <TimeseriesChart.Area data={actualTs} color={BLUE} />
+                  <TimeseriesChart.Line data={forecastTs} color={PURPLE} />
+                  <TimeseriesChart.Legend hidden />
+                </TimeseriesChart>
               );
             })()}
             </div>
@@ -11698,73 +11555,23 @@ function ChangeIntelligenceTab({ deployData, impactData, quality, qualityPrev, o
 
       {/* Timeline chart */}
       <ChartTile title="Performance Timeline with Deploy Markers" description="Green = Apdex, blue dashed = avg duration (normalized). Red vertical lines = deployment events.">
-        <div style={{ overflowX: "auto" }}>
-        {totalHours > 0 ? (
-          <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`}>
-            {/* Grid */}
-            <line x1={padL} y1={padT} x2={padL + plotW} y2={padT} stroke="rgba(255,255,255,0.05)" />
-            <line x1={padL} y1={padT + plotH / 2} x2={padL + plotW} y2={padT + plotH / 2} stroke="rgba(255,255,255,0.05)" />
-            <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="rgba(255,255,255,0.08)" />
-
-            {/* Deploy marker lines */}
-            {Array.from(deployHourIdxSet).map((idx) => {
-              const x = padL + (idx / Math.max(totalHours - 1, 1)) * plotW;
-              const depInfo = deployHourMap.get(idx);
-              const h = hourlyImpact[idx];
-              const tip = depInfo ? `🚀 ${depInfo.names.join(", ")}\nTime: ${depInfo.tsStr}\nEvents: ${depInfo.count}${h ? `\nApdex: ${h.apdex.toFixed(2)} | Dur: ${fmt(h.avgDur)} | Err: ${h.errorRate.toFixed(1)}%` : ""}` : "";
-              return (
-                <g key={`dep-${idx}`}>
-                  <line x1={x} y1={padT} x2={x} y2={padT + plotH} stroke={RED} strokeWidth={2} opacity={0.6} strokeDasharray="4 2" />
-                  <polygon points={`${x - 5},${padT - 2} ${x + 5},${padT - 2} ${x},${padT + 6}`} fill={RED} opacity={0.8} />
-                  <rect x={x - 8} y={padT - 4} width={16} height={plotH + 8} fill="transparent"><title>{tip}</title></rect>
-                </g>
-              );
-            })}
-
-            {/* Apdex line */}
-            {hourlyImpact.length > 1 && (
-              <polyline fill="none" stroke={GREEN} strokeWidth={2} points={hourlyImpact.map((h, i) => {
-                const x = padL + (i / (totalHours - 1)) * plotW;
-                const y = padT + plotH - (h.apdex / maxApdex) * plotH;
-                return `${x},${y}`;
-              }).join(" ")} />
-            )}
-
-            {/* Duration line (normalized) */}
-            {hourlyImpact.length > 1 && (
-              <polyline fill="none" stroke={BLUE} strokeWidth={1.5} strokeDasharray="4 3" points={hourlyImpact.map((h, i) => {
-                const x = padL + (i / (totalHours - 1)) * plotW;
-                const y = padT + plotH - (h.avgDur / maxDur) * plotH;
-                return `${x},${y}`;
-              }).join(" ")} />
-            )}
-
-            {/* Data points */}
-            {hourlyImpact.map((h, i) => {
-              const x = padL + (i / Math.max(totalHours - 1, 1)) * plotW;
-              const yApdex = padT + plotH - (h.apdex / maxApdex) * plotH;
-              const isDeploy = deployHourIdxSet.has(i);
-              const depTip = isDeploy ? `\n🚀 ${deployHourMap.get(i)?.names.join(", ") ?? "Deploy"} (${deployHourMap.get(i)?.count ?? 1} events)` : "";
-              return <circle key={`pt-${i}`} cx={x} cy={yApdex} r={isDeploy ? 4 : 2} fill={isDeploy ? RED : GREEN} opacity={0.8}><title>{`${h.hourTs}\nApdex: ${h.apdex.toFixed(2)} | Dur: ${fmt(h.avgDur)} | Err: ${h.errorRate.toFixed(1)}%${depTip}`}</title></circle>;
-            })}
-
-            {/* Y axis labels */}
-            <text x={padL - 4} y={padT + 4} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>1.0</text>
-            <text x={padL - 4} y={padT + plotH / 2} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>0.5</text>
-            <text x={padL - 4} y={padT + plotH} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>0</text>
-
-            {/* X axis - first/last timestamps */}
-            {hourlyImpact.length > 0 && (
-              <>
-                <text x={padL} y={chartH - 4} textAnchor="start" fill="rgba(255,255,255,0.4)" fontSize={8}>{hourlyImpact[0].hourTs}</text>
-                <text x={padL + plotW} y={chartH - 4} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={8}>{hourlyImpact[hourlyImpact.length - 1].hourTs}</text>
-              </>
-            )}
-          </svg>
-        ) : (
+        {totalHours > 0 && hourlyImpact.length > 1 ? (() => {
+          const apdexTs = buildTimeseries("Apdex", hourlyImpact.map(h => ({
+            time: new Date(h.hourTs), value: h.apdex,
+          })));
+          const durTs = buildTimeseries("Avg Duration (normalized)", hourlyImpact.map(h => ({
+            time: new Date(h.hourTs), value: (h.avgDur / maxDur) * maxApdex,
+          })));
+          return (
+            <TimeseriesChart gapPolicy="connect" curve="linear">
+              <TimeseriesChart.Line data={apdexTs} color={GREEN} />
+              <TimeseriesChart.Line data={durTs} color={BLUE} />
+              <TimeseriesChart.Legend hidden />
+            </TimeseriesChart>
+          );
+        })() : (
           <Text style={{ textAlign: "center", padding: 24, opacity: 0.4 }}>No hourly data available for the selected timeframe.</Text>
         )}
-        </div>
       </ChartTile>
 
       {/* Deployment analysis cards */}
@@ -13326,33 +13133,17 @@ function ErrorClusteringTab({ data, trendData, isLoading, frontend, deployData }
       {/* Error trend over time */}
       {hourly.length > 1 && (
           <ChartTile title="Error Trend Over Time" description="Hourly error count distribution across the selected timeframe">
-            <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
-              <text x={PAD.left} y={PAD.top - 10} fill="rgba(255,255,255,0.4)" fontSize={10}>Errors</text>
-              {/* Area fill */}
-              <path fill={RED} fillOpacity={0.1} stroke="none" d={`M${PAD.left},${PAD.top + iH} ${hourly.map((h, i) => {
-                const x = PAD.left + (i / Math.max(1, hourly.length - 1)) * iW;
-                const y = PAD.top + iH - (h.count / maxCount) * iH;
-                return `L${x},${y}`;
-              }).join(" ")} L${PAD.left + iW},${PAD.top + iH} Z`} />
-              {/* Line */}
-              <polyline fill="none" stroke={RED} strokeWidth={2} opacity={0.8} points={hourly.map((h, i) => {
-                const x = PAD.left + (i / Math.max(1, hourly.length - 1)) * iW;
-                const y = PAD.top + iH - (h.count / maxCount) * iH;
-                return `${x},${y}`;
-              }).join(" ")} />
-              {/* Dots */}
-              {hourly.map((h, i) => {
-                const x = PAD.left + (i / Math.max(1, hourly.length - 1)) * iW;
-                const y = PAD.top + iH - (h.count / maxCount) * iH;
-                return <circle key={i} cx={x} cy={y} r={2.5} fill={RED}><title>{h.hour}: {h.count} errors</title></circle>;
-              })}
-              {/* X-axis labels */}
-              {hourly.filter((_, i) => i % Math.max(1, Math.floor(hourly.length / 8)) === 0).map((h, i) => {
-                const idx = hourly.indexOf(h);
-                const x = PAD.left + (idx / Math.max(1, hourly.length - 1)) * iW;
-                return <text key={i} x={x} y={H - PAD.bottom + 14} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={8}>{h.hour.substring(11, 16)}</text>;
-              })}
-            </svg>
+            {(() => {
+              const errTs = buildTimeseries("Errors", hourly.map(h => ({
+                time: new Date(h.hour), value: h.count,
+              })));
+              return (
+                <TimeseriesChart gapPolicy="connect" curve="linear">
+                  <TimeseriesChart.Area data={errTs} color={RED} />
+                  <TimeseriesChart.Legend hidden />
+                </TimeseriesChart>
+              );
+            })()}
           </ChartTile>
       )}
 
