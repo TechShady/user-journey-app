@@ -18,6 +18,7 @@ import { DataTable } from "@dynatrace/strato-components-preview/tables";
 import "./UserJourney.css";
 import { useSettings, DEFAULT_FRONTEND, DEFAULT_FUNNEL_STEPS, MIN_STEPS, MAX_STEPS, DEFAULT_AOV } from "../SettingsContext";
 import type { StepDef } from "../SettingsContext";
+import { HyperlyzerTab } from "./HyperlyzerTab";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -91,6 +92,7 @@ const TAB_KEYS = [
   "SLO Tracker", "Session Replay Spotlight", "A/B Comparison",
   "Revenue Intelligence", "Cohort Retention", "Session Engagement",
   "Third-Party Impact", "Error Clustering",
+  "Hyperlyzer",
 ] as const;
 type TabKey = typeof TAB_KEYS[number];
 const DEFAULT_TAB_VISIBILITY: Record<TabKey, boolean> = Object.fromEntries(TAB_KEYS.map(k => [k, true])) as Record<TabKey, boolean>;
@@ -2270,6 +2272,17 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 17, 2026</Paragraph>
+            <Paragraph><Strong>Hyperlyzer — Multidimensional Radial Performance Explorer</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Radial chart visualization</Strong> with 4 quadrants (OS, Geolocation, User Action, Browser) — bar length proportional to selected metric value with log-scaled axis</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>8 selectable metrics</Strong>: Action Duration (median), Apdex, LCP (P75), INP (P75), CLS (P75), TTFB (P75), Load Event End (P75), FCP (P75)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Cross-dimensional filtering</Strong>: Click any slice or table row to apply a filter — stack multiple filters for progressive drill-down (e.g. Chrome + US + specific page)</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Finding cards</Strong>: Auto-identifies top outliers per dimension vs. the application median with ratio indicators</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Side table</Strong> with paginated list, color-coded metric ratings (good/needs-improvement/poor per industry thresholds), text filter, and one-click drilldown to Sessions or Vitals apps</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Application median shown in the chart center; dashed reference line on each quadrant indicates the median position relative to per-dimension bars</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• Tab count: 30 → 31</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 15, 2026</Paragraph>
             <Paragraph><Strong>Step Details — Page Drop-off Funnel &amp; Core Web Vitals</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Page Drop-off Contributors</Strong> funnel: For multi-page steps, a visual bar chart shows which pages within each step have the highest vs. lowest traffic — bars are color-coded by Apdex quality and sorted by event count, with drop percentage indicators</Paragraph>
@@ -2417,12 +2430,13 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Session Engagement</Strong>: Assigns an engagement score (0-100) to each session based on actions taken (30%), funnel depth reached (40%), and error penalty (30%). Visualizes score distribution histogram with conversion overlay, shows conversion rate by engagement tier (high/medium/low), and surfaces high-intent non-converters — engaged users who didn't convert, representing the biggest optimization opportunity.</Paragraph>
         <Paragraph><Strong>Third-Party Impact</Strong>: Analyzes first-party vs. third-party resource loading. Shows request counts, payload sizes, and average durations per domain. Identifies third-party domains that may be slowing down pages. Includes page-level CWV data for correlation analysis — helps determine if third-party scripts are degrading Core Web Vitals.</Paragraph>
         <Paragraph><Strong>Error Clustering</Strong>: Groups JavaScript errors by type/pattern to help prioritize fixes. Shows occurrence count, affected sessions, and impact percentage per error cluster. Includes hourly error trend chart for detecting spikes, top clusters bar chart, and sample error messages for quick identification. Focus on high-impact clusters first.</Paragraph>
+        <Paragraph><Strong>Hyperlyzer</Strong>: Multidimensional radial visualization for frontend performance analysis. Displays a radial chart with 4 quadrants (OS, Geolocation, User Action, Browser) showing metric values as proportional bar segments. Select from 8 metrics (Action Duration, Apdex, LCP, INP, CLS, TTFB, Load Event End, FCP). Click dimension labels to focus, click slices to apply cross-dimensional filters. Side table shows full list with color-coded metric ratings and drilldown links to Sessions or Vitals apps. Finding cards highlight outliers vs. the application median. Supports stacked filters for progressive drill-down analysis.</Paragraph>
       </HelpSection>
       <HelpSection title="Auto-Refresh">
         <Paragraph>The <Strong>Auto-Refresh</Strong> selector in the header controls automatic data re-fetching. Options: <Strong>Off</Strong> (manual only), <Strong>30 seconds</Strong>, <Strong>1 minute</Strong>, <Strong>5 minutes</Strong>, <Strong>10 minutes</Strong>. When active, all DQL queries across every tab re-execute at the chosen interval. Data updates seamlessly in-place — existing values remain visible during refresh (no loading spinners). A status indicator shows "Refreshing…" with a spinner during fetch, and "Last refreshed Xs ago" when idle. Use for wall displays, NOC dashboards, or continuous incident monitoring.</Paragraph>
       </HelpSection>
       <HelpSection title="Tab Settings">
-        <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Settings. Each of the 30 tabs can be toggled on or off individually. Drag to reorder. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
+        <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Settings. Each of the 31 tabs can be toggled on or off individually. Drag to reorder. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes. All tabs default to visible. Hiding a tab does not affect data collection, only display.</Paragraph>
         <Paragraph><Strong>Frontend Application</Strong>: Searchable dropdown listing all applications with session data in the last 30 days. Selecting a different app immediately re-queries all data and updates the Pages / Identifiers dropdowns for the new app.</Paragraph>
         <Paragraph><Strong>Funnel Steps — Pages / Identifiers</Strong>: Each identifier is a searchable dropdown showing all distinct page names seen for the selected app in the last 7 days. Current saved values (including wildcard patterns such as <code>/home*</code>) appear as valid options even if they are not in the fetched list. Use the search filter to narrow long lists. Both dropdowns load only when Settings is open.</Paragraph>
         <Paragraph><Strong>Average Order Value</Strong>: Set in Settings to enable revenue metrics across What-If Analysis, Revenue Intelligence, Errors &amp; Drop-offs, Conversion Attribution, Map, Root Cause Correlation, Trends, Executive Summary, Anomaly Detection, and Change Intelligence tabs. This value represents the average revenue per conversion (final funnel step completion). Set to 0 to hide revenue metrics.</Paragraph>
@@ -2463,6 +2477,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• Click <Strong>AI Insights</Strong> (✦) in the header bar to get instant, data-driven analysis for whichever tab you're viewing — Summary, Insights, and Recommendations powered by industry benchmarks.</Paragraph>
         <Paragraph>• The <Strong>Predictive Model</Strong> sub-tab is most reliable after 6+ hours of today's data. Early-morning projections have wide confidence intervals — check again at midday for a stable EOD forecast.</Paragraph>
         <Paragraph>• The <Strong>Step Analysis</Strong> sub-tab's sortable table is the fastest way to find which funnel step has the worst Apdex or highest abandon count — sort by "Conv %" ascending or "Abandons" descending.</Paragraph>
+        <Paragraph>• <Strong>Hyperlyzer</Strong> lets you visually compare performance across OS, geo, browser, and user action dimensions simultaneously — click slices to stack filters and isolate problem segments (e.g. "Chrome + Germany + /checkout" to find a geo-specific performance issue).</Paragraph>
       </HelpSection>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16, marginTop: 8 }}>
         <Paragraph><span style={{ color: "rgba(128,128,128,0.8)" }}>Source code &amp; issue tracker: </span><Link href="https://github.com/TechShady/user-journey-app" target="_blank" rel="noopener noreferrer">github.com/TechShady/user-journey-app</Link></Paragraph>
@@ -3048,6 +3063,7 @@ export function UserJourney() {
             case "Session Engagement": content = <SessionEngagementTab data={sessionEngagementData} isLoading={sessionEngagementData.isLoading} steps={steps} aov={aov} overallConv={overallConv} />; break;
             case "Third-Party Impact": content = <ThirdPartyImpactTab data={thirdPartyData} cwvData={thirdPartyCwvData} isLoading={thirdPartyData.isLoading || thirdPartyCwvData.isLoading} frontend={frontend} />; break;
             case "Error Clustering": content = <ErrorClusteringTab deployData={deploymentEventsData} data={errorClusterData} trendData={errorTrendData} isLoading={errorClusterData.isLoading || errorTrendData.isLoading} frontend={frontend} />; break;
+            case "Hyperlyzer": content = <HyperlyzerTab frontend={frontend} periodStr={periodClause(timeframeDays)} appEntityId={appEntityId} refetchOpts={refetchOpts} />; break;
           }
           return <Tab key={tabId} title={tabId}>{content}</Tab>;
         })}
@@ -3060,10 +3076,10 @@ export function UserJourney() {
 // ===========================================================================
 // AI INSIGHTS — Sparkle Button, Panel & Analysis Engine
 // ===========================================================================
-type InsightSeverity = "good" | "warning" | "critical" | "info";
-type InsightItem = { severity: InsightSeverity; icon: string; text: string };
-type RecommendationItem = { impact: "high" | "medium" | "low"; text: string };
-type AIInsightsData = { summary: string; insights: InsightItem[]; recommendations: RecommendationItem[] };
+export type InsightSeverity = "good" | "warning" | "critical" | "info";
+export type InsightItem = { severity: InsightSeverity; icon: string; text: string };
+export type RecommendationItem = { impact: "high" | "medium" | "low"; text: string };
+export type AIInsightsData = { summary: string; insights: InsightItem[]; recommendations: RecommendationItem[] };
 
 function SparkleIcon() {
   return (
@@ -3168,10 +3184,10 @@ function AIInsightsPanel({ data, onClose }: { data: AIInsightsData; onClose: () 
 }
 
 /** Context: shares AI Insights open/close state from header to all tabs */
-const AIInsightsContext = React.createContext({ open: false, close: () => {} });
+export const AIInsightsContext = React.createContext({ open: false, close: () => {} });
 
 /** Hook: reads AI open state from context, returns panel only */
-function useAIInsights(analysisFn: () => AIInsightsData): { panel: React.ReactNode } {
+export function useAIInsights(analysisFn: () => AIInsightsData): { panel: React.ReactNode } {
   const { open, close } = React.useContext(AIInsightsContext);
   const data = useMemo(() => open ? analysisFn() : null, [open, analysisFn]);
   return {

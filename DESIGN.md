@@ -2,7 +2,7 @@
 
 ## Overview
 
-The User Journey & Experience App is a 30-tab frontend observability suite built as a Dynatrace Platform App. It provides comprehensive Real User Monitoring (RUM) analysis including funnel tracking, Web Vitals, geographic heatmaps, predictive forecasting, and automated anomaly detection — all powered by DQL (Dynatrace Query Language).
+The User Journey & Experience App is a 31-tab frontend observability suite built as a Dynatrace Platform App. It provides comprehensive Real User Monitoring (RUM) analysis including funnel tracking, Web Vitals, geographic heatmaps, predictive forecasting, automated anomaly detection, and multidimensional radial performance exploration — all powered by DQL (Dynatrace Query Language).
 
 **Architecture**: Single-page React app using Strato Design System components, `@dynatrace-sdk/react-hooks` (`useDql`) for data fetching, and SVG-based custom visualizations. All queries are parameterized by a user-selectable frontend application, funnel step definitions, and timeframe.
 
@@ -944,6 +944,54 @@ fetch user.events, from: now() - {timeframe}
 
 ---
 
+### 31. Hyperlyzer
+
+**Purpose**: Multidimensional radial performance explorer that visualizes frontend metrics across 4 orthogonal dimensions simultaneously, enabling cross-dimensional filtering and outlier detection.
+
+**Key Features**:
+- Custom SVG radial chart with 4 quadrants: Operating System, Geolocation, User Action, Browser
+- Bar length proportional to metric value (log-scaled) with application median reference line
+- 8 selectable metrics: Action Duration (median), Apdex, LCP (P75), INP (P75), CLS (P75), TTFB (P75), Load Event End (P75), FCP (P75)
+- Click-to-focus dimension highlighting (dims non-focused quadrants)
+- Click-to-filter: stack multiple cross-dimensional filters (e.g. Chrome + US + specific page)
+- Finding cards auto-identify top outliers per dimension vs. application median
+- Paginated side table with color-coded metric ratings (good/needs-improvement/poor)
+- Text search filter within focused dimension
+- Drilldown links to Dynatrace Sessions or Vitals Experience apps
+- Filter chips with remove/clear-all capability
+- Responsive chart sizing based on viewport
+- AI Insights integration with outlier analysis and metric health assessment
+
+**Component files**: `ui/app/pages/HyperlyzerTab.tsx`, `ui/app/components/RadialHyperChart.tsx`
+
+**Queries**:
+
+```dql
+-- buildDimQuery: Per-dimension top-N metric values
+fetch user.events, {periodStr}
+| filter characteristics.has_navigation == true
+| filter dt.rum.user_type != "robot"
+| filter frontend.name == "{frontend}"
+{appliedFilters}
+| fieldsAdd label = {dimFieldExpr}
+| filter isNotNull(label) and label != ""
+| summarize {metricSummarize}, by: {label}
+| sort cnt desc
+| limit {topN}
+```
+
+```dql
+-- buildMedianQuery: Application-wide metric median
+fetch user.events, {periodStr}
+| filter characteristics.has_navigation == true
+| filter dt.rum.user_type != "robot"
+| filter frontend.name == "{frontend}"
+{appliedFilters}
+| summarize {metricSummarize}
+```
+
+---
+
 ## Architecture Notes
 
 ### Query Infrastructure
@@ -1047,6 +1095,7 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------||
+| 2026-05-17 | 4.47.90 | **Hyperlyzer Tab — Multidimensional Radial Performance Explorer**: New tab (31st) ported from standalone Hyperlyzer app. Radial SVG chart with 4 quadrants (OS, Geo, User Action, Browser), 8 selectable metrics (Duration/Apdex/LCP/INP/CLS/TTFB/Load Event End/FCP), cross-dimensional click-to-filter stacking, finding cards with outlier detection, paginated side table with color-coded ratings and drilldown links. Component split: `RadialHyperChart.tsx` (reusable SVG chart) + `HyperlyzerTab.tsx` (tab wrapper with DQL queries). AI Insights integration. Help, Settings, and DESIGN.md updated. Tab count 30→31. |
 | 2026-05-15 | 4.47.88 | **Resource Waterfall — Session Drill-Down & Top 10 Slowest**: Added "Top 10 Slowest Resources" section showing individual resource requests ranked by duration with clickable session links. Added "Session Drill-Down" panel with session selector buttons — click to see all resources loaded in that specific session with a "View Full Session" replay link. New `resourceSessionDrillQuery` fetches per-session resource data (top 50 by duration). Help and AI Insights updated. |
 | 2026-05-15 | 4.47.86 | **SLO Tracker — Editable Targets & Create Dynatrace SLO**: SLO target values now user-editable inline (✎ icon per metric, persisted via `useUserAppState`). Reset button (↺) restores defaults. Added one-click "Create SLO" button per metric that opens Dynatrace SLO management app. |
 | 2026-05-15 | 4.47.85 | **Perf Budgets — Configurable Thresholds, Time-to-Breach & Alerts**: Thresholds now user-configurable inline (✎ icon per metric, persisted via `useUserAppState`). Added projected time-to-breach per metric using period-over-period trend rate. Near-breach alerting (within 10% of threshold) with yellow "NEAR" badge and alert banner. Workflow Trigger Suggestion section provides DQL condition template for Dynatrace Workflow automation. Cards compacted to grid layout with Period Δ indicator. Budget Summary Table gains "Breach" column. "Near Breach" KPI added. Previous-period quality data passed to component for trend computation. |
