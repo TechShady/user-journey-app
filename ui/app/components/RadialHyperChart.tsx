@@ -119,6 +119,7 @@ interface QuadrantProps {
   appMedianMs: number;
   focused: boolean;
   dimmed: boolean;
+  quadrantIndex: number;
   onHover: (h: { dimension: DimensionData; item: DimensionItem } | null) => void;
   onTitleClick: () => void;
   onSliceClick?: (dim: DimensionKey, item: DimensionItem) => void;
@@ -126,7 +127,7 @@ interface QuadrantProps {
 
 const Quadrant: React.FC<QuadrantProps> = ({
   cx, cy, rInner, rOuterMax, startDeg, endDeg, dim, appMedianMs,
-  focused, dimmed, onHover, onTitleClick, onSliceClick,
+  focused, dimmed, quadrantIndex, onHover, onTitleClick, onSliceClick,
 }) => {
   const items = dim.items;
   const span = endDeg - startDeg;
@@ -197,8 +198,10 @@ const Quadrant: React.FC<QuadrantProps> = ({
     return rInner + t * maxBarRange;
   })();
 
+  const quadDelay = quadrantIndex * 150; // stagger each quadrant by 150ms
+
   return (
-    <g style={{ opacity: dimmed ? 0.55 : 1, transition: "opacity 150ms" }}>
+    <g className="hyper-quadrant" style={{ opacity: dimmed ? 0.55 : 1, transition: "opacity 150ms", animationDelay: `${quadDelay}ms` }}>
       {backdrop}
       {refRadius !== null && (
         <path
@@ -228,7 +231,9 @@ const Quadrant: React.FC<QuadrantProps> = ({
           </path>
         );
       })}
-      {titleText}
+      <g className="hyper-label" style={{ animationDelay: `${quadDelay + 300}ms` }}>
+        {titleText}
+      </g>
     </g>
   );
 };
@@ -258,12 +263,15 @@ export const RadialHyperChart: React.FC<RadialHyperChartProps> = ({
       .filter((d): d is DimensionData => Boolean(d));
   }, [dimensions]);
 
+  // Unique key to re-trigger animation when data meaningfully changes
+  const animKey = useMemo(() => dimensions.map(d => d.items.length).join("-") + "-" + appMedianMs.toFixed(0), [dimensions, appMedianMs]);
+
   return (
-    <div style={{ position: "relative", width: size, height: size }}>
+    <div style={{ position: "relative", width: size, height: size }} className="hyper-chart-enter" key={animKey}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Hyperlyzer radial chart">
         <circle cx={cx} cy={cy} r={rOuterMax + 1} fill="none" stroke="var(--dt-colors-border-neutral-default, rgba(128,128,128,0.25))" strokeDasharray="2,3" />
-        <circle cx={cx} cy={cy} r={rInner} fill="var(--dt-colors-background-surface-default)" stroke="var(--dt-colors-border-neutral-default, rgba(128,128,128,0.25))" />
-        {orderedDims.map((d) => (
+        <circle className="hyper-center" cx={cx} cy={cy} r={rInner} fill="var(--dt-colors-background-surface-default)" stroke="var(--dt-colors-border-neutral-default, rgba(128,128,128,0.25))" />
+        {orderedDims.map((d, idx) => (
           <Quadrant
             key={d.key}
             cx={cx} cy={cy} rInner={rInner} rOuterMax={rOuterMax}
@@ -271,13 +279,16 @@ export const RadialHyperChart: React.FC<RadialHyperChartProps> = ({
             dim={d} appMedianMs={appMedianMs}
             focused={focusDim === d.key}
             dimmed={focusDim !== undefined && focusDim !== d.key}
+            quadrantIndex={idx}
             onHover={setHovered}
             onTitleClick={() => onDimensionFocus && onDimensionFocus(d.key)}
             onSliceClick={onSliceClick}
           />
         ))}
-        <text x={cx} y={cy - 4} textAnchor="middle" fontSize={22} fontWeight={500} fill="var(--dt-colors-text-neutral-default)">{fmt(appMedianMs)}</text>
-        <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="var(--dt-colors-text-neutral-subdued)">{metricLabel ?? "Application median"}</text>
+        <g className="hyper-center" style={{ animationDelay: "0.3s" }}>
+          <text x={cx} y={cy - 4} textAnchor="middle" fontSize={22} fontWeight={500} fill="var(--dt-colors-text-neutral-default)">{fmt(appMedianMs)}</text>
+          <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="var(--dt-colors-text-neutral-subdued)">{metricLabel ?? "Application median"}</text>
+        </g>
       </svg>
       {hovered && (
         <div style={{ position: "absolute", top: 12, left: 12, background: "var(--dt-colors-background-surface-default)", color: "var(--dt-colors-text-neutral-default)", border: "1px solid var(--dt-colors-border-neutral-default, rgba(0,0,0,0.1))", borderRadius: 4, padding: "8px 12px", fontSize: 12, pointerEvents: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}>

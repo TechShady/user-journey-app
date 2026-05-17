@@ -126,6 +126,58 @@
   animation: sankeyWipeIn 2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
+/* Hyperlyzer radial bloom animation */
+@keyframes hyperRadialBloom {
+  from { transform: scale(0.3); opacity: 0; }
+  30%  { transform: scale(1.04); opacity: 0.9; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+@keyframes hyperBarGrow {
+  from { transform-origin: center; transform: scaleX(0) scaleY(0); opacity: 0; }
+  to   { transform-origin: center; transform: scaleX(1) scaleY(1); opacity: 1; }
+}
+
+@keyframes hyperLabelOrbit {
+  from { opacity: 0; letter-spacing: 6px; }
+  to   { opacity: 1; letter-spacing: 1px; }
+}
+
+@keyframes hyperCenterPulse {
+  0%   { transform: scale(0); opacity: 0; }
+  50%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes hyperFindingSlide {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.hyper-chart-enter {
+  animation: hyperRadialBloom 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.hyper-quadrant {
+  opacity: 0;
+  animation: hyperBarGrow 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.hyper-label {
+  opacity: 0;
+  animation: hyperLabelOrbit 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.hyper-center {
+  opacity: 0;
+  animation: hyperCenterPulse 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.3s forwards;
+}
+
+.hyper-finding {
+  opacity: 0;
+  animation: hyperFindingSlide 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
 .uj-funnel-row {
   display: grid;
   grid-template-columns: 180px 1fr 280px;

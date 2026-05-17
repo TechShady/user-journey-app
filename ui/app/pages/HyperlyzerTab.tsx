@@ -289,10 +289,11 @@ interface FindingCardProps {
   dimensionLabel: string;
   title: string;
   description: React.ReactNode;
+  animIndex?: number;
 }
 
-const FindingCard: React.FC<FindingCardProps> = ({ color, dimensionLabel, title, description }) => (
-  <div style={{ flex: "1 1 240px", minWidth: 240, border: "1px solid var(--dt-colors-border-neutral-default, rgba(0,0,0,0.08))", borderTop: `4px solid ${color}`, padding: "14px 18px 16px", background: "var(--dt-colors-background-surface-default)", color: "var(--dt-colors-text-neutral-default)", borderRadius: 6, display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+const FindingCard: React.FC<FindingCardProps> = ({ color, dimensionLabel, title, description, animIndex = 0 }) => (
+  <div className="hyper-finding" style={{ flex: "1 1 240px", minWidth: 240, border: "1px solid var(--dt-colors-border-neutral-default, rgba(0,0,0,0.08))", borderTop: `4px solid ${color}`, padding: "14px 18px 16px", background: "var(--dt-colors-background-surface-default)", color: "var(--dt-colors-text-neutral-default)", borderRadius: 6, display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", animationDelay: `${animIndex * 80}ms` }}>
     <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.7, color, fontWeight: 700 }}>{dimensionLabel}</div>
     <div style={{ fontWeight: 600, fontSize: 18, lineHeight: 1.25 }}>{title}</div>
     <div style={{ fontSize: 14, lineHeight: 1.45, color: "var(--dt-colors-text-neutral-default)" }}>{description}</div>
@@ -317,6 +318,27 @@ const FilterChip: React.FC<FilterChipProps> = ({ filter, onRemove }) => {
 
 // ─── Drilldown URL builder ──────────────────────────────────────────────────
 
+/** Parse periodStr (e.g. `from: now() - 7d` or `from: "ISO", to: "ISO"`) into {from, to} for URL params */
+function parsePeriodStr(periodStr: string): { from: string; to: string } {
+  // Absolute: from: "2026-05-10T...", to: "2026-05-17T..."
+  const absMatch = periodStr.match(/from:\s*"([^"]+)",\s*to:\s*"([^"]+)"/);
+  if (absMatch) return { from: absMatch[1], to: absMatch[2] };
+  // Relative: from: now() - 7d  (no "to" means "to now()")
+  const relMatch = periodStr.match(/from:\s*(.+?)(?:,\s*to:\s*(.+))?$/);
+  if (relMatch) {
+    const from = relMatch[1].trim();
+    const to = relMatch[2]?.trim() || "now()";
+    return { from, to };
+  }
+  return { from: "now()-2h", to: "now()" };
+}
+
+/** Convert DQL timeframe expressions to the compact tf param format: "now-7d;now" */
+function toTfParam(from: string, to: string): string {
+  const clean = (v: string) => v.replace(/\(\)/g, "").replace(/\s+/g, "").replace(/^now\(\)/, "now");
+  return `${clean(from)};${clean(to)}`;
+}
+
 function buildDrilldownUrl(
   frontend: string,
   dim: DimensionKey,
@@ -326,9 +348,13 @@ function buildDrilldownUrl(
 ): string {
   let envUrl = "";
   try { envUrl = getEnvironmentUrl(); } catch { /* dev */ }
+  const { from, to } = parsePeriodStr(periodStr);
+
   if (dim === "user_action" && appEntityId) {
     const pageEncoded = encodeURIComponent(btoa(label));
-    return `${envUrl}/ui/apps/dynatrace.experience.vitals/performance/web/${appEntityId}/pages/${pageEncoded}`;
+    const fromParam = encodeURIComponent(from);
+    const toParam = encodeURIComponent(to);
+    return `${envUrl}/ui/apps/dynatrace.experience.vitals/performance/web/${appEntityId}/pages/${pageEncoded}?from=${fromParam}&to=${toParam}`;
   }
   const base = `${envUrl}/ui/apps/dynatrace.users.sessions/sessions/finished-sessions/finished-sessions`;
   const dimFilter = DIM_SESSION_FILTER[dim];
@@ -336,8 +362,9 @@ function buildDrilldownUrl(
   const needsQuotes = dimFilter.alwaysQuoteValue || displayVal.includes(" ");
   const valStr = needsQuotes ? `"${displayVal}"` : displayVal;
   const filterStr = `Frontends = ${frontend} ${dimFilter.name} = ${valStr} `;
+  const tfParam = encodeURIComponent(toTfParam(from, to));
   const hash = `#filtering=${encodeURIComponent(filterStr).replace(/%20/g, "+")}`;
-  return `${base}?perspective=general&sort=navigationCount%3Adescending${hash}`;
+  return `${base}?perspective=general&sort=navigationCount%3Adescending&tf=${tfParam}${hash}`;
 }
 
 // ─── AI Insights analysis ───────────────────────────────────────────────────
@@ -530,7 +557,7 @@ export function HyperlyzerTab({ frontend, periodStr, appEntityId, refetchOpts }:
           const worseLabel = metric.higherIsBetter ? "lower" : "higher";
           const betterLabel = metric.higherIsBetter ? "higher" : "lower";
           return (
-            <FindingCard key={idx} color={DIM_BASE_COLOR[f.dim.key]} dimensionLabel={f.dim.title} title={f.item.displayLabel ?? f.item.label}
+            <FindingCard key={idx} animIndex={idx} color={DIM_BASE_COLOR[f.dim.key]} dimensionLabel={f.dim.title} title={f.item.displayLabel ?? f.item.label}
               description={<>{metric.label} is <strong>{factor}×</strong> {slower ? worseLabel : betterLabel} than the app median (<strong>{formatMetricValue(f.item.durationMs, metric)}</strong> vs {formatMetricValue(appMedianMs, metric)}).</>}
             />
           );
