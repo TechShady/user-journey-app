@@ -1,0 +1,6 @@
+fetch dt.entity.application
+| filter entity.name == "helios.clearwateranalytics.com"
+| expand svc = calls[dt.entity.service]
+| lookup [fetch dt.entity.service | fields id, entity.name], sourceField:svc, lookupField:id, prefix:"svc."
+| fields id, entity.name, svc, svc.entity.name
+| limit 30

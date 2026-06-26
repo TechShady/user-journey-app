@@ -1,0 +1,125 @@
+{
+  "name": "SRE Operations Dashboard",
+  "type": "dashboard",
+  "content": {
+    "version": 21,
+    "variables": [],
+    "tiles": {
+      "1": {
+        "type": "markdown",
+        "content": "## SRE Operations Dashboard\nReal-time service reliability — active problems, service health, infrastructure metrics, and log errors."
+      },
+      "2": {
+        "type": "data",
+        "title": "Open Problems",
+        "query": "fetch dt.davis.problems\n| filter event.status == \"ACTIVE\"\n| summarize open_problems = count()",
+        "visualization": "singleValue",
+        "visualizationSettings": {},
+        "querySettings": {}
+      },
+      "3": {
+        "type": "data",
+        "title": "Error Problems",
+        "query": "fetch dt.davis.problems\n| filter event.status == \"ACTIVE\" and event.category == \"ERROR\"\n| summarize errors = count()",
+        "visualization": "singleValue",
+        "visualizationSettings": {},
+        "querySettings": {}
+      },
+      "4": {
+        "type": "data",
+        "title": "Availability Problems",
+        "query": "fetch dt.davis.problems\n| filter event.status == \"ACTIVE\" and event.category == \"AVAILABILITY\"\n| summarize availability = count()",
+        "visualization": "singleValue",
+        "visualizationSettings": {},
+        "querySettings": {}
+      },
+      "5": {
+        "type": "data",
+        "title": "Resource Contention",
+        "query": "fetch dt.davis.problems\n| filter event.status == \"ACTIVE\" and event.category == \"RESOURCE_CONTENTION\"\n| summarize resource_contention = count()",
+        "visualization": "singleValue",
+        "visualizationSettings": {},
+        "querySettings": {}
+      },
+      "6": {
+        "type": "data",
+        "title": "Slowdowns",
+        "query": "fetch dt.davis.problems\n| filter event.status == \"ACTIVE\" and event.category == \"SLOWDOWN\"\n| summarize slowdowns = count()",
+        "visualization": "singleValue",
+        "visualizationSettings": {},
+        "querySettings": {}
+      },
+      "7": {
+        "type": "data",
+        "title": "Service Response Time (avg)",
+        "query": "timeseries rt = avg(dt.service.request.response_time), interval: 5m",
+        "visualization": "areaChart",
+        "visualizationSettings": {},
+        "querySettings": {}
+      },
+      "8": {
+        "type": "data",
+        "title": "Service Failures",
+        "query": "timeseries failures = sum(dt.service.request.failure_count), interval: 5m",
+        "visualization": "areaChart",
+        "visualizationSettings": {},
+        "querySettings": {}
+      },
+      "9": {
+        "type": "data",
+        "title": "Host CPU Usage (%)",
+        "query": "timeseries cpu = avg(dt.host.cpu.usage), interval: 5m",
+        "visualization": "lineChart",
+        "visualizationSettings": {},
+        "querySettings": {}
+      },
+      "10": {
+        "type": "data",
+        "title": "Host Memory Available (%)",
+        "query": "timeseries mem = avg(dt.host.memory.avail.percent), interval: 5m",
+        "visualization": "lineChart",
+        "visualizationSettings": {},
+        "querySettings": {}
+      },
+      "11": {
+        "type": "data",
+        "title": "Log Errors Over Time",
+        "query": "fetch logs\n| filter loglevel == \"ERROR\"\n| makeTimeseries errors = count(), interval: 5m",
+        "visualization": "areaChart",
+        "visualizationSettings": {},
+        "querySettings": {}
+      },
+      "12": {
+        "type": "data",
+        "title": "Active Problems",
+        "query": "fetch dt.davis.problems\n| filter event.status == \"ACTIVE\"\n| fields display_id, event.name, event.category, event.start, root_cause_entity_name, affected_entity_names\n| sort event.start desc\n| limit 50",
+        "visualization": "table",
+        "visualizationSettings": {},
+        "querySettings": {}
+      },
+      "13": {
+        "type": "data",
+        "title": "Problems by Category",
+        "query": "fetch dt.davis.problems\n| filter event.status == \"ACTIVE\"\n| summarize problems = count(), by: {event.category}\n| sort problems desc",
+        "visualization": "donutChart",
+        "visualizationSettings": {},
+        "querySettings": {}
+      }
+    },
+    "layouts": {
+      "1":  {"x": 0,  "y": 0,  "w": 20, "h": 2},
+      "2":  {"x": 0,  "y": 2,  "w": 4,  "h": 4},
+      "3":  {"x": 4,  "y": 2,  "w": 4,  "h": 4},
+      "4":  {"x": 8,  "y": 2,  "w": 4,  "h": 4},
+      "5":  {"x": 12, "y": 2,  "w": 4,  "h": 4},
+      "6":  {"x": 16, "y": 2,  "w": 4,  "h": 4},
+      "7":  {"x": 0,  "y": 6,  "w": 10, "h": 6},
+      "8":  {"x": 10, "y": 6,  "w": 10, "h": 6},
+      "9":  {"x": 0,  "y": 12, "w": 10, "h": 6},
+      "10": {"x": 10, "y": 12, "w": 10, "h": 6},
+      "11": {"x": 0,  "y": 18, "w": 20, "h": 6},
+      "12": {"x": 0,  "y": 24, "w": 14, "h": 9},
+      "13": {"x": 14, "y": 24, "w": 6,  "h": 9}
+    }
+  }
+}

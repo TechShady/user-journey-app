@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const m = require\\('./node_modules/@dynatrace/strato-components-preview/forms/index.js'\\); console.log\\(Object.keys\\(m\\).slice\\(0,50\\).join\\('\\\\n'\\)\\)\")",
+      "Bash(where bdp *)",
+      "Read(//usr/local/bin/**)",
+      "Bash(where bdp.bat)",
+      "Bash(ls \"c:\\\\Users\\\\john.kelly\\\\Documents\\\\GitHub\\\\user-journey-app\" | grep -i bdp 2>/dev/null; ls \"c:\\\\Users\\\\john.kelly\\\\.claude\" | head -20 2>/dev/null; ls \"c:\\\\Users\\\\john.kelly\\\\Documents\\\\GitHub\" | grep -i bdp 2>/dev/null)",
+      "Read(//c/Users/john.kelly/.claude/**)",
+      "Read(//c/Users/john.kelly/Documents/GitHub/**)",
+      "Bash(powershell -Command \"Get-ChildItem -Path 'C:\\\\Users\\\\john.kelly' -Filter 'bdp*' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 10 FullName\")",
+      "Bash(npm run *)",
+      "Bash(NODE_OPTIONS=--max-old-space-size=8192 npm run build)",
+      "Bash(NODE_OPTIONS=--max-old-space-size=8192 npm run deploy)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\john.kelly\\\\Documents\\\\GitHub\\\\user-journey-app\" -Force)",
+      "Skill(dtctl)",
+      "Skill(dtctl:*)",
+      "Bash(dtctl config *)",
+      "Bash(dtctl auth *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\john.kelly\\\\Documents\\\\GitHub\\\\user-journey-app\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(dtctl query *)",
+      "Bash(dtctl get *)",
+      "Bash(npx dt-app *)",
+      "Bash(dt-app --version)",
+      "Bash(Get-Content \"C:\\\\Users\\\\JOHN~1.KEL\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-john-kelly-Documents-GitHub-user-journey-app\\\\10975ae8-415d-49dd-83c2-4cd5e0e0fea0\\\\tasks\\\\b4gbsolse.output\" -Tail 20)",
+      "Bash(grep -v \"^\\\\s*//\")",
+      "Bash(npx --prefix ui tsc --noEmit -p ui/tsconfig.json)",
+      "Bash(git push *)",
+      "Bash(node -e ' *)",
+      "Bash(node scripts/restructure-funnel-tabs.js)"
+    ]
+  }
+}

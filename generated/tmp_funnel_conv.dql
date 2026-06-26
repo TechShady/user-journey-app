@@ -1,0 +1,12 @@
+fetch user.events, from:now()-2h
+| filter frontend.name == "www.angular.easytravel.com"
+| filter isNotNull(view.name)
+| sort timestamp asc
+| summarize path = collectDistinct(view.name), by:{dt.rum.session.id}
+| fieldsAdd reached_book = iAny(path[] == "/easytravel/journeys/:id:/book")
+| summarize 
+    total = count(),
+    converters = countIf(reached_book == true),
+    by:{path}
+| sort converters desc
+| limit 20

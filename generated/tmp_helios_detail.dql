@@ -1,0 +1,3 @@
+fetch dt.entity.application, from: -30d
+| filter entity.name == "helios.clearwateranalytics.com"
+| fields id, entity.name, applicationType
