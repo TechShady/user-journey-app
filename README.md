@@ -51,6 +51,11 @@ A 31-tab frontend observability suite built as a Dynatrace Platform App. Provide
 - A Dynatrace environment with RUM enabled
 - `dt-app` CLI (`npx dt-app`)
 
+### Pre-Install
+
+- Fork the repo
+- Modify app.config.json and update environmentUrl with your Dynatrace tenant URL
+
 ### Install
 
 ```bash
