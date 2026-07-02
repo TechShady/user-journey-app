@@ -428,6 +428,12 @@ fetch user.events, from: now() - {timeframe}
 - Transition counts and average session depth
 - Direct links to Vitals app per page
 - **Navigation Flow Diagram**: Sankey-like SVG visualization — pages arranged in columns by funnel step (BFS-based layer assignment, no MAX_PER_LAYER limit), curved links whose thickness represents traffic volume. Nodes are 220×52px with page name, transition count, and conversion probability. Horizontally scrollable when paths exceed viewport width.
+- **Session triage filters**: Optional user tag filter and optional direct session filter (session can be selected without user tag). Session picker includes converted/error/apdex/duration/action metadata.
+- **Quick presets + ranking**: Presets for all sessions, issues-first, converted-only, and low-apdex-only. Sessions are impact-ranked for faster investigation.
+- **Timeline scrubber**: Lightweight session timeline visualization (start/actions/errors/converted-exit) to quickly understand session progression.
+- **Compare overlay**: Side-by-side compare of two sessions with delta context (impact, errors, apdex).
+- **Scoped backend alignment**: Backend tiers are expanded by default and backend services/edges are filtered by active session/user scope so frontend and backend analysis stay aligned.
+- **Persisted filters**: Navigation user/session/preset and compare selections are persisted per-user via app state.
 - **Conversion Probability**: Graph-based iterative relaxation with drop-off rates — computes probability per page factoring in incoming vs outgoing traffic ratios. Avoids closed-graph 100% convergence by modeling session exits. Shown as "Conv Prob %" column in All Transitions table and a dedicated "Conversion Probability by Page" ranked table.
 - **AI Path Optimization**: Card at the top automatically identifies which page sequences correlate with higher conversion probability and surfaces actionable recommendations.
 

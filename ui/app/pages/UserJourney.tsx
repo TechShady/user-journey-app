@@ -28,6 +28,11 @@ import type { MetricEntry, CorrelationOpener } from "../components/CorrelationsP
 // ---------------------------------------------------------------------------
 const SANKEY_STYLE_STATE_KEY = "uj-sankey-style";
 const MAP_VIEW_STATE_KEY = "uj-map-view";
+const NAV_FILTER_USER_STATE_KEY = "uj-nav-filter-user";
+const NAV_FILTER_SESSION_STATE_KEY = "uj-nav-filter-session";
+const NAV_FILTER_PRESET_STATE_KEY = "uj-nav-filter-preset";
+const NAV_COMPARE_A_STATE_KEY = "uj-nav-compare-a";
+const NAV_COMPARE_B_STATE_KEY = "uj-nav-compare-b";
 type SankeyStyle = "classic" | "gradient" | "directed" | "alluvial" | "stateMachine" | "chord" | "heatmap";
 const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "classic", label: "Classic Sankey" },
@@ -1105,11 +1110,18 @@ function geoPerformanceQuery(days: number, frontend: string, steps: StepDef[], p
 }
 
 // NEW: Navigation paths — actual user page flows
-function navigationPathsQuery(days: number, frontend: string): string {
+const NAV_USER_ID_EXPR = 'coalesce(user.id, dt.user.id, user.userId, dt.client.id, user.anonymized_id, "unknown")';
+
+function navigationPathsQuery(days: number, frontend: string, sessionId?: string, userId?: string): string {
   const period = periodClause(days);
+  const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
+  const userFilter = !sessionId && userId ? `| filter nav_user_id == "${userId}"` : "";
   return `fetch user.events, ${period}
 | filter frontend.name == "${frontend}"
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
+${sessionFilter}
+${userFilter}
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | sort timestamp asc
 | summarize path = collectArray(pageName), by: {dt.rum.session.id}
@@ -1123,6 +1135,57 @@ function navigationPathsQuery(days: number, frontend: string): string {
     by: {transition, step1, step2}
 | sort occurrences desc
 | limit 30`;
+}
+
+function navigationSessionCandidatesQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const lastStepExpr = stepFilter(steps[steps.length - 1]);
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| fieldsAdd user_id = ${NAV_USER_ID_EXPR}
+| fieldsAdd user_tag = if(user_id == "unknown", "unknown", else: concat(substring(user_id, from: 0, to: 12), "…"))
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd satisfaction = coalesce(
+    if(dur_ms <= ${APDEX_T}.0, "satisfied"),
+    if(dur_ms <= ${APDEX_4T}.0, "tolerating"),
+    "frustrated")
+| fieldsAdd conv_hit = ${lastStepExpr}
+| summarize
+    start_ts = min(timestamp),
+    end_ts = max(timestamp),
+    actions = count(),
+    errors = countIf(characteristics.has_error == true),
+    conv_hits = countIf(conv_hit == true),
+    avg_dur = avg(dur_ms),
+    satisfied = countIf(satisfaction == "satisfied"),
+    tolerating = countIf(satisfaction == "tolerating"),
+    by: {dt.rum.session.id, user_id, user_tag}
+| fieldsAdd converted = conv_hits > 0
+| fieldsAdd apdex = if(actions > 0, (toDouble(satisfied) + toDouble(tolerating) / 2.0) / toDouble(actions), else: 0.0)
+| sort end_ts desc
+| limit 500`;
+}
+
+function navigationBackendRequestEdgesQuery(days: number, frontend: string, sessionId?: string, userId?: string): string {
+  const period = periodClause(days);
+  const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
+  const userFilter = !sessionId && userId ? `| filter nav_user_id == "${userId}"` : "";
+  return `fetch user.events, ${period}
+| filter frontend.name == "${frontend}"
+| filter characteristics.has_request == true
+| fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
+${sessionFilter}
+${userFilter}
+| fieldsAdd from_service = coalesce(service.name, dt.entity.service.name, "frontend")
+| fieldsAdd to_service = coalesce(peer.service.name, request.service.name, url.domain, "unknown")
+| fieldsAdd duration_ms = toDouble(duration) / 1000000.0
+| summarize
+    requests = count(),
+    errors = countIf(characteristics.has_error == true),
+    avg_duration = avg(duration_ms),
+    by: {from_service, to_service}
+| sort requests desc
+| limit 300`;
 }
 
 // NEW: Sankey — multi-step page flow for Sankey diagram
@@ -2714,6 +2777,15 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>July 2, 2026</Paragraph>
+            <Paragraph><Strong>Navigation Paths — Session Triage Workflow</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Optional user/session filters</Strong>: Filter by user tag and then session, or select a session directly without user filtering. Session picker includes converted, errors, apdex, duration, and actions</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Preset + ranking mode</Strong>: Quick filters for issues-first, converted-only, and low-apdex-only sessions with impact-based sorting for faster triage</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Timeline + compare</Strong>: Lightweight timeline scrubber plus side-by-side compare for two sessions with delta context</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Backend scope alignment</Strong>: Backend tiers expand by default and session-scoped backend services are filtered to the selected scope</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>State persistence</Strong>: Navigation filters and compare picks are saved per user via app state</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>June 12, 2026</Paragraph>
             <Paragraph><Strong>Multi-Funnel Management & Funnel Discovery</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Multiple funnels</Strong>: Create up to 10 named funnels. A global <Strong>Funnel</Strong> dropdown in the header lets you switch the active funnel — all tabs instantly update to reflect the selected funnel's steps</Paragraph>
@@ -2946,7 +3018,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Perf Budgets</Strong>: User-configurable budget thresholds (click ✎ to edit, persisted per user). Tracks actual vs target with pass/fail/near-breach status. Projected time-to-breach per metric based on period-over-period trend. Alert banners when within 10% of breach with workflow trigger DQL suggestions. Hourly Apdex distribution for peak-hour analysis.</Paragraph>
         <Paragraph><Strong>Geo Heatmap</Strong>: Country and city-level performance with Apdex color-coding and satisfaction bars. Identifies regions with poor user experience for targeted CDN placement or infrastructure optimization. Includes city-level drill-down for granular insights. Country cards are clickable and open <Strong>User Sessions</Strong> filtered to that location.</Paragraph>
         <Paragraph><Strong>Maps</Strong>: Interactive geographic visualizations with three views: <Strong>World</Strong> (2D choropleth), <Strong>United States</Strong> (state-level), and <Strong>Globe</Strong> (3D sphere with data spikes). All views are colorized by 9 metrics: session count, average duration, Apdex, error rate, LCP, CLS, INP, estimated revenue (when AOV is set), and Conversion Rate. The Globe view displays data magnitude as colored spikes emanating from country positions on a rotatable 3D sphere — hold the ◀/▶ arrows to spin, or double-click to lock continuous rotation (double-click again to stop). World view includes a <Strong>Time-Lapse</Strong> animation mode with a configurable bucket size (1 min, 5 min, 10 min, 30 min, 1 hour). Clicking a country during Time-Lapse drills into <Strong>User Sessions</Strong> scoped to that country AND the exact time bucket. Clicking countries/states/spikes in any view links to User Sessions.</Paragraph>
-        <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Includes a <Strong>Navigation Flow Diagram</Strong> — a Sankey-like SVG visualization showing pages arranged in columns by funnel step with curved links whose thickness represents traffic volume (scrollable horizontally). <Strong>AI Path Optimization</Strong> card at the top automatically identifies which page sequences correlate with higher conversion probability and surfaces actionable recommendations. <Strong>Conversion Probability</Strong> per page is computed client-side from the navigation graph using iterative relaxation with drop-off rates — shown as a "Conv Prob %" column in the All Transitions table and as a dedicated "Conversion Probability by Page" table. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
+        <Paragraph><Strong>Navigation Paths</Strong>: Shows actual user navigation flows (not just the expected funnel). Reveals unexpected paths, loops, and exit points. Includes a <Strong>Navigation Flow Diagram</Strong> — a Sankey-like SVG visualization showing pages arranged in columns by funnel step with curved links whose thickness represents traffic volume (scrollable horizontally). Includes optional user/session filters (session can be selected directly), preset triage modes, impact-ranked sessions, timeline scrubber, and compare-two-session overlay. <Strong>AI Path Optimization</Strong> card at the top automatically identifies which page sequences correlate with higher conversion probability and surfaces actionable recommendations. <Strong>Conversion Probability</Strong> per page is computed client-side from the navigation graph using iterative relaxation with drop-off rates — shown as a "Conv Prob %" column in the All Transitions table and as a dedicated "Conversion Probability by Page" table. Backend tiers are expanded by default and backend services are filtered by the active scope. Page names are clickable and open the <Strong>Vitals</Strong> app for detailed analysis.</Paragraph>
         <Paragraph><Strong>Sankey</Strong>: Interactive Sankey flow diagram with 9 analysis sub-tabs organized above the chart. <Strong>Flow Chart</Strong> (default): 7 chart styles — Classic, Gradient, Directed Flow, Alluvial, State Machine, <Strong>Chord Diagram</Strong> (circular arc layout with clickable arcs for path highlighting, focus mode support, center label display), and <Strong>Transition Heatmap</Strong> (NxN grid with clickable row/column highlighting, selection summary, 52px cells). All styles support funnel highlighting, exit detection, and focus mode. <Strong>Conversion Paths</Strong>: Compares converted vs. abandoned session paths — shows differentiating pages, path lengths, and top transitions for each group. <Strong>Loop Analysis</Strong>: Detects A→B→A back-and-forth navigation patterns indicating user confusion, with error/LCP correlation. <Strong>Page Timing</Strong>: Average and P90 duration per page with health scores — identifies slow funnel bottlenecks. <Strong>Session Endpoints</Strong>: Where sessions end (browser close), bounce rate, and terminal page analysis with error correlation. <Strong>Revenue Paths</Strong> (AOV required): Top revenue-generating navigation paths and page touch rates for converting sessions. <Strong>Path Trends</Strong>: Period-over-period comparison of navigation patterns — detects new/dropped pages, frequency shifts, and transition changes. <Strong>Funnel Leakage</Strong>: Deep analysis of users who navigate away from the funnel — classifies sessions into recoverers (returned) vs lost users, compares their behavior, identifies exit step hotspots, maps off-funnel destinations, and correlates exit pages with CWV/errors for performance-driven optimization. <Strong>Funnel Velocity</Strong>: Measures time between funnel step transitions — shows median, P90, and average per step pair, journey time distribution histogram, and identifies the slowest transitions causing friction.</Paragraph>
         <Paragraph><Strong>Anomaly Detection</Strong>: Flags metrics with significant deviation from baseline (previous period). Shows stability score, per-metric severity (normal/medium/high/critical), per-step traffic anomalies, and a duration distribution histogram. Includes automated diagnosis with actionable recommendations. When AOV is set, shows Revenue at Risk from anomalous conversion drops.</Paragraph>
         <Paragraph><Strong>Conversion Attribution</Strong>: Correlates conversion rates with performance factors. Shows how session speed, device type, and browser affect conversion. Speed buckets (fast/medium/slow) quantify the revenue impact of performance, with full device x browser cross-section. When AOV is set, adds revenue columns to device and browser tables and revenue totals to speed buckets. Multi-Touch Attribution modeling shows which funnel steps have the highest influence on final conversion using 5 models (First Touch, Last Touch, Linear, Position-Based, Time-Decay, Influence-Based). Step influence cards show conditional conversion rate, drop-off rate, downstream value, and drop-off cost per step.</Paragraph>
@@ -4279,7 +4351,7 @@ export function UserJourney() {
             case "Perf Budgets": content = <PerfBudgetsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading || qualityDataPrev.isLoading} saveState={saveState} savedThresholds={savedBudgetThresholds} onDrillToForecast={openForecast} />; break;
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} networkData={geoNetworkData} conversionData={geoConversionData} onDrillToForecast={openForecast} />; break;
             case "Maps": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} timelapseData={mapTimelapseData} conversionData={geoConversionData} funnelBounceData={geoFunnelBounceData} tlBucket={mapTlBucket} onBucketChange={setMapTlBucket} onDrillToForecast={openForecast} priorData={geoPriorPerformanceData} />; break;
-            case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} navPathConvData={navPathConvData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} backendServicesData={backendServicesData} serviceToServiceData={serviceToServiceData} onDrillToForecast={openForecast} />; break;
+            case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} navPathConvData={navPathConvData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} backendServicesData={backendServicesData} serviceToServiceData={serviceToServiceData} frontend={frontend} timeframeDays={timeframeDays} onDrillToForecast={openForecast} />; break;
             case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} onDrillToForecast={openForecast} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov}  davisProblemsData={davisProblemsData} onDrillToForecast={openForecast} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} steps={steps} />; break;
@@ -5227,7 +5299,7 @@ function analyzeNavigationPaths(data: any, convRows: any[], steps: StepDef[]): A
     insights.push({ severity: "good", icon: "✅", text: `${fmtPct(100 - offFunnelPct)} of transitions stay on funnel-aligned pages — good navigation focus.` });
   }
 
-  const summary = `Navigation Paths reveals actual user navigation flows and includes AI-driven path optimization recommendations plus a Navigation Flow Diagram (Sankey-like SVG with pages arranged in columns by funnel step, curved links proportional to traffic, horizontally scrollable). The tab automatically identifies which page sequences correlate with higher conversion rates and surfaces actionable insights at the top — telling you which paths convert better without manual filtering. Conversion Probability per page is computed from the navigation graph using iterative relaxation with drop-off rates (incoming vs outgoing traffic per page). Currently tracking ${fmtCount(totalTransitions)} transitions across ${paths.length} unique paths. ${pageConv.length > 0 ? `Average page conversion is ${avgConv.toFixed(1)}% with a ${(highConv.length > 0 && lowConv.length > 0 ? (highConv[0].convRate / Math.max(0.1, lowConv[0].convRate)).toFixed(1) : "N/A")}x spread between best and worst pages.` : "No conversion data available."} Conversion rate overlay is shown inline on each path segment. This tab is designed for Information Architects optimizing site structure, CRO specialists identifying high-converting paths, and Product Managers discovering which organic user journeys outperform the designed funnel.`;
+  const summary = `Navigation Paths reveals actual user navigation flows and includes AI-driven path optimization recommendations plus a Navigation Flow Diagram (Sankey-like SVG with pages arranged in columns by funnel step, curved links proportional to traffic, horizontally scrollable). The tab now supports session-scoped triage end-to-end: optional user/session filters, quick presets, impact-ranked sessions, timeline scrubber, and compare-session overlay. Backend tiers are expanded by default and backend visibility follows the selected scope so frontend and backend analysis stay aligned. Conversion Probability per page is computed from the navigation graph using iterative relaxation with drop-off rates (incoming vs outgoing traffic per page). Currently tracking ${fmtCount(totalTransitions)} transitions across ${paths.length} unique paths. ${pageConv.length > 0 ? `Average page conversion is ${avgConv.toFixed(1)}% with a ${(highConv.length > 0 && lowConv.length > 0 ? (highConv[0].convRate / Math.max(0.1, lowConv[0].convRate)).toFixed(1) : "N/A")}x spread between best and worst pages.` : "No conversion data available."} This tab is designed for Information Architects optimizing site structure, CRO specialists identifying high-converting paths, and Product Managers discovering which organic user journeys outperform the designed funnel.`;
   return { summary, insights, recommendations: recs };
 }
 
@@ -5235,7 +5307,7 @@ function analyzeGenericTab(tabName: string): AIInsightsData {
   const tabDescriptions: Record<string, string> = {
     "Executive Summary": "Executive Summary provides a report-card style overview designed for stakeholders, executives, and non-technical leadership. It delivers a weighted letter grade (A-F), key metric trends, funnel summary, bottleneck alerts, CWV snapshot, and a full performance table. This tab answers: What is the overall health of our frontend? Is performance improving or declining? What are the top issues? Use Export PDF for presentations or Copy Text for Slack/Teams. It is designed for VPs of Engineering reviewing platform health, C-level executives needing quick status checks, and Product Directors preparing quarterly business reviews.",
     "Maps": "Maps provides interactive geographic visualizations of user performance data. Three views: World (2D choropleth), United States (state-level), and Globe (3D sphere with data spikes). All views support 9 colorize-by metrics: session count, average duration, Apdex, error rate, LCP, CLS, INP, estimated revenue, and Conversion Rate. The Globe view shows data magnitude as colored spikes emanating from country positions on a rotatable 3D sphere — hold left/right arrows to spin, or double-click to lock continuous rotation (double-click again to stop). Time-Lapse mode available in World view with configurable bucket sizes. Clicking countries drills into User Sessions.",
-    "Navigation Paths": "Navigation Paths reveals actual user navigation flows across your site — not just the expected funnel, but the real paths users take including unexpected routes, loops, re-visits, and exit points. Features a Sankey-like Navigation Flow Diagram showing pages arranged in columns by funnel step with curved links proportional to traffic volume (scrollable). AI Path Optimization card at the top automatically identifies which page sequences correlate with higher conversion probability — no manual filtering needed. Conversion Probability per page is computed from the navigation graph using iterative relaxation with drop-off rates, shown inline on flow cards and in dedicated tables. This tab is designed for Information Architects optimizing site structure, CRO Specialists identifying high-converting paths, UX Researchers studying user wayfinding behavior, and Product Managers discovering organic user journeys that differ from the designed funnel.",
+    "Navigation Paths": "Navigation Paths reveals actual user navigation flows across your site — not just the expected funnel, but the real paths users take including unexpected routes, loops, re-visits, and exit points. Features a Sankey-like Navigation Flow Diagram showing pages arranged in columns by funnel step with curved links proportional to traffic volume (scrollable). It now includes session-scoped triage controls: optional user tag filter, optional direct session filter, quick presets (all/issues/converted/low apdex), impact-ranked session ordering, timeline scrubber, and compare-two-session overlay. Backend tiers are expanded by default and backend service visibility follows the active session scope. AI Path Optimization card at the top automatically identifies which page sequences correlate with higher conversion probability. Conversion Probability per page is computed from the navigation graph using iterative relaxation with drop-off rates, shown inline on flow cards and in dedicated tables. This tab is designed for Information Architects optimizing site structure, CRO Specialists identifying high-converting paths, UX Researchers studying user wayfinding behavior, and Product Managers discovering organic user journeys that differ from the designed funnel.",
     "What-If Analysis": "What-If Analysis models the impact of traffic increases on your application's performance, projecting how Apdex, latency, conversion, and error rate would change under higher load. This tab is built for Capacity Planning Engineers preparing for traffic events (Black Friday, product launches), Performance Engineers setting scaling thresholds, and Business Stakeholders understanding the revenue risk of traffic spikes. It answers: What happens if traffic doubles? At what point will performance degrade below acceptable thresholds? What is the projected revenue impact of performance degradation under load? When AOV is set, it shows a full Revenue Impact section with projected revenue, net change, conversion degradation loss, and a Perf Tax breakdown.",
     "Session Replay Spotlight": "Session Replay Spotlight surfaces the highest-impact session replays ranked by a composite impact score combining errors, crashes, bounces, and interaction density. This tab is designed for QA Engineers reproducing bugs, UX Researchers observing real user behavior, and Support Teams investigating customer-reported issues. It answers: Which sessions had the most problems? What devices and browsers are most affected? Each session links directly to Dynatrace Session Replay for instant visual debugging — watch exactly what the user saw, clicked, and experienced. Start debugging with the sessions that matter most instead of manually searching.",
     "A/B Comparison": "A/B Comparison enables side-by-side performance analysis of two user segments across all key metrics. It includes pre-built segments (Desktop vs. Mobile, Chrome vs. Firefox, US vs. non-US) and supports custom DQL filter expressions for any segmentation you need. This tab is designed for CRO Specialists quantifying platform-specific gaps, Product Managers justifying mobile optimization investments, and Performance Engineers comparing browser rendering performance. It answers: How does performance differ between two segments? Which segment converts better? What is the Apdex, error rate, duration, and CWV comparison? Use the delta indicators to identify which segment underperforms and by how much.",
@@ -9328,8 +9400,14 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
 // ===========================================================================
 // TAB: Navigation Paths — NEW
 // ===========================================================================
-function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvData, backendServicesData, serviceToServiceData, onDrillToForecast }: { data: any; isLoading: boolean; appEntityId: string; steps: StepDef[]; navPathConvData?: any; backendServicesData?: any; serviceToServiceData?: any; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
+function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvData, backendServicesData, serviceToServiceData, frontend, timeframeDays, onDrillToForecast }: { data: any; isLoading: boolean; appEntityId: string; steps: StepDef[]; navPathConvData?: any; backendServicesData?: any; serviceToServiceData?: any; frontend: string; timeframeDays: number; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeNavigationPaths(data, [], steps), [data, steps]));
+  const savedNavUser = useUserAppState({ key: NAV_FILTER_USER_STATE_KEY });
+  const savedNavSession = useUserAppState({ key: NAV_FILTER_SESSION_STATE_KEY });
+  const savedNavPreset = useUserAppState({ key: NAV_FILTER_PRESET_STATE_KEY });
+  const savedCompareA = useUserAppState({ key: NAV_COMPARE_A_STATE_KEY });
+  const savedCompareB = useUserAppState({ key: NAV_COMPARE_B_STATE_KEY });
+  const { execute: saveState } = useSetUserAppState();
   const [selectedFlow, setSelectedFlow] = useState<{ src: string; tgt: string } | null>(null);
   const [draggingNode, setDraggingNode] = useState<string | null>(null);
   const [dragStart, setDragStart] = useState<{ mx: number; my: number; nx: number; ny: number } | null>(null);
@@ -9337,12 +9415,64 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [wasDragging, setWasDragging] = useState(false);
   const [showBackend, setShowBackend] = useState(true);
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
-  const [maxVisibleDepth, setMaxVisibleDepth] = useState(2);
-  React.useEffect(() => { setManualNodePos(new Map()); }, [data]);
-  React.useEffect(() => { setMaxVisibleDepth(2); }, [backendServicesData, serviceToServiceData]);
-  if (isLoading) return <Loading />;
+  const [maxVisibleDepth, setMaxVisibleDepth] = useState(7);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [selectedSessionId, setSelectedSessionId] = useState<string>("");
+  const [filterPreset, setFilterPreset] = useState<"all" | "issues" | "converted" | "low_apdex">("all");
+  const [timelineSessionId, setTimelineSessionId] = useState<string>("");
+  const [compareSessionA, setCompareSessionA] = useState<string>("");
+  const [compareSessionB, setCompareSessionB] = useState<string>("");
 
-  const paths = (data.data?.records ?? []) as any[];
+  const sessionCandidatesData = useDql({ query: navigationSessionCandidatesQuery(timeframeDays, frontend, steps) });
+  const hasSessionScope = selectedSessionId !== "" || selectedUserId !== "";
+  const scopedNavData = useDql({ query: hasSessionScope ? navigationPathsQuery(timeframeDays, frontend, selectedSessionId || undefined, selectedUserId || undefined) : "fetch user.events | limit 0" });
+  const scopedBackendReqData = useDql({ query: navigationBackendRequestEdgesQuery(timeframeDays, frontend, selectedSessionId || undefined, selectedUserId || undefined) });
+
+  React.useEffect(() => { setManualNodePos(new Map()); }, [data]);
+  React.useEffect(() => { setMaxVisibleDepth(7); }, [backendServicesData, serviceToServiceData]);
+  React.useEffect(() => {
+    if (!selectedSessionId) return;
+    const rows = (sessionCandidatesData.data?.records ?? []) as any[];
+    if (!rows.some((r: any) => String(r["dt.rum.session.id"] ?? "") === selectedSessionId)) setSelectedSessionId("");
+  }, [sessionCandidatesData.data, selectedSessionId]);
+  React.useEffect(() => {
+    if (!selectedSessionId) return;
+    if (!selectedUserId) return;
+    const rows = (sessionCandidatesData.data?.records ?? []) as any[];
+    const hit = rows.find((r: any) => String(r["dt.rum.session.id"] ?? "") === selectedSessionId);
+    if (hit && String(hit.user_id ?? "") !== selectedUserId) setSelectedSessionId("");
+  }, [selectedUserId, selectedSessionId, sessionCandidatesData.data]);
+  React.useEffect(() => {
+    const v = String(savedNavUser.data?.value ?? "");
+    if (v) setSelectedUserId(v);
+  }, [savedNavUser.data?.value]);
+  React.useEffect(() => {
+    const v = String(savedNavSession.data?.value ?? "");
+    if (v) setSelectedSessionId(v);
+  }, [savedNavSession.data?.value]);
+  React.useEffect(() => {
+    const v = String(savedNavPreset.data?.value ?? "all");
+    if (v === "all" || v === "issues" || v === "converted" || v === "low_apdex") setFilterPreset(v);
+  }, [savedNavPreset.data?.value]);
+  React.useEffect(() => {
+    const v = String(savedCompareA.data?.value ?? "");
+    if (v) setCompareSessionA(v);
+  }, [savedCompareA.data?.value]);
+  React.useEffect(() => {
+    const v = String(savedCompareB.data?.value ?? "");
+    if (v) setCompareSessionB(v);
+  }, [savedCompareB.data?.value]);
+  React.useEffect(() => { saveState({ key: NAV_FILTER_USER_STATE_KEY, body: { value: selectedUserId } }); }, [selectedUserId, saveState]);
+  React.useEffect(() => { saveState({ key: NAV_FILTER_SESSION_STATE_KEY, body: { value: selectedSessionId } }); }, [selectedSessionId, saveState]);
+  React.useEffect(() => { saveState({ key: NAV_FILTER_PRESET_STATE_KEY, body: { value: filterPreset } }); }, [filterPreset, saveState]);
+  React.useEffect(() => { saveState({ key: NAV_COMPARE_A_STATE_KEY, body: { value: compareSessionA } }); }, [compareSessionA, saveState]);
+  React.useEffect(() => { saveState({ key: NAV_COMPARE_B_STATE_KEY, body: { value: compareSessionB } }); }, [compareSessionB, saveState]);
+
+  const navData = hasSessionScope ? scopedNavData : data;
+  const loadingNow = isLoading || (hasSessionScope && scopedNavData.isLoading);
+  if (loadingNow) return <Loading />;
+
+  const paths = (navData.data?.records ?? []) as any[];
   const totalTransitions = paths.reduce((a: number, p: any) => a + Number(p.occurrences ?? 0), 0);
   const uniquePaths = paths.length;
   const avgDepth = paths.length > 0 ? paths.reduce((a: number, p: any) => a + Number(p.avg_depth ?? 0), 0) / paths.length : 0;
@@ -9402,11 +9532,75 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     .map(([name, d]) => ({ name, ...d, targets: d.targets.sort((a, b) => b.count - a.count) }))
     .sort((a, b) => b.total - a.total);
 
+  const sessionRows = (sessionCandidatesData.data?.records ?? []) as any[];
+  const sessionOptions = sessionRows.map((r: any) => {
+    const sid = String(r["dt.rum.session.id"] ?? "");
+    const userId = String(r.user_id ?? "unknown");
+    const userTag = String(r.user_tag ?? "unknown");
+    const converted = Boolean(r.converted);
+    const errors = Number(r.errors ?? 0);
+    const apdex = Number(r.apdex ?? 0);
+    const avgDur = Number(r.avg_dur ?? 0);
+    const actions = Number(r.actions ?? 0);
+    const endTs = String(r.end_ts ?? "");
+    const startTs = String(r.start_ts ?? "");
+    const impactScore = (errors * 4) + (converted ? 0 : 10) + Math.max(0, (0.85 - apdex) * 80) + Math.max(0, (avgDur - 1500) / 250);
+    return { sid, userId, userTag, converted, errors, apdex, avgDur, actions, endTs, startTs, impactScore };
+  }).filter(s => s.sid !== "");
+
+  const presetFilteredSessions = sessionOptions.filter((s) => {
+    if (filterPreset === "issues") return s.errors > 0 || s.apdex < 0.7 || s.avgDur > 3000;
+    if (filterPreset === "converted") return s.converted;
+    if (filterPreset === "low_apdex") return s.apdex < 0.7;
+    return true;
+  });
+
+  const userTagGroups = Array.from(sessionOptions.reduce((m, s) => {
+    const key = `${s.userTag}||${s.userId}`;
+    m.set(key, (m.get(key) ?? 0) + 1);
+    return m;
+  }, new Map<string, number>()).entries()).map(([k, count]) => {
+    const [tag, userId] = k.split("||");
+    return { tag, userId, count };
+  }).sort((a, b) => b.count - a.count);
+
+  const sessionsForPicker = (selectedUserId
+    ? presetFilteredSessions.filter(s => s.userId === selectedUserId)
+    : presetFilteredSessions)
+    .sort((a, b) => b.impactScore - a.impactScore);
+
+  const compareA = sessionOptions.find(s => s.sid === compareSessionA) ?? null;
+  const compareB = sessionOptions.find(s => s.sid === compareSessionB) ?? null;
+  const compareSparkA = compareA ? [compareA.actions, Math.max(0, compareA.actions - compareA.errors), compareA.converted ? compareA.actions : Math.round(compareA.actions * 0.4)] : [];
+  const compareSparkB = compareB ? [compareB.actions, Math.max(0, compareB.actions - compareB.errors), compareB.converted ? compareB.actions : Math.round(compareB.actions * 0.4)] : [];
+
+  const backendReqRows = (scopedBackendReqData.data?.records ?? []) as any[];
+  const reqByServiceName = new Map<string, number>();
+  const reqByPair = new Map<string, number>();
+  const norm = (s: string) => s.toLowerCase().trim();
+  backendReqRows.forEach((r: any) => {
+    const src = String(r.from_service ?? "");
+    const tgt = String(r.to_service ?? "");
+    const req = Number(r.requests ?? 0);
+    if (!src || !tgt) return;
+    reqByServiceName.set(norm(src), (reqByServiceName.get(norm(src)) ?? 0) + req);
+    reqByServiceName.set(norm(tgt), (reqByServiceName.get(norm(tgt)) ?? 0) + req);
+    reqByPair.set(`${norm(src)}->${norm(tgt)}`, (reqByPair.get(`${norm(src)}->${norm(tgt)}`) ?? 0) + req);
+  });
+
   // --- AI Path Recommendations: find best/worst converting paths ---
   const pageConvList = [...convMap.entries()].filter(([, v]) => v > 0 && v < 100).map(([page, convRate]) => ({ page, convRate, sessions: graphOut.get(page)?.total ?? 0 }));
   const highConv = pageConvList.filter(p => p.convRate > avgConv * 1.5).sort((a, b) => b.convRate - a.convRate).slice(0, 5);
   const lowConv = pageConvList.filter(p => p.convRate < avgConv * 0.5 && p.sessions >= 3).sort((a, b) => a.convRate - b.convRate).slice(0, 5);
   const pathRecs: { text: string; type: "positive" | "negative" | "info" }[] = [];
+  const frontendReqByPage = new Map<string, number>();
+  for (const [page, d] of sourceMap.entries()) frontendReqByPage.set(page, d.total);
+  for (const p of paths) {
+    const tgt = String(p.step2 ?? "");
+    const c = Number(p.occurrences ?? 0);
+    if (!tgt) continue;
+    frontendReqByPage.set(tgt, (frontendReqByPage.get(tgt) ?? 0) + c);
+  }
   // Find multi-step path insights
   if (highConv.length > 0 && sources.length > 1) {
     const topPage = highConv[0].page;
@@ -9456,7 +9650,12 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   }
   const allBeServices = Array.from(beServiceMap.values());
   const maxDataDepth = allBeServices.reduce((m, s) => Math.max(m, s.depth), 0);
-  const beServices = allBeServices.filter(s => s.depth <= maxVisibleDepth).slice(0, 40);
+  const visibleDepth = Math.min(maxVisibleDepth, Math.max(1, maxDataDepth || 1));
+  const scopedBackendNames = new Set(Array.from(reqByServiceName.keys()));
+  const beServices = allBeServices
+    .filter(s => s.depth <= visibleDepth)
+    .filter(s => !hasSessionScope || scopedBackendNames.has(norm(s.name)))
+    .slice(0, 40);
   const visibleBeIds = new Set(beServices.map(s => s.id));
   const beEdges = s2sEdges.filter(e => visibleBeIds.has(e.src) && visibleBeIds.has(e.tgt));
 
@@ -9491,6 +9690,145 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 
       <SectionHeader title="Navigation Paths Analysis" />
       <Text style={{ fontSize: 12, opacity: 0.5 }}>Actual user navigation flows. Reveals unexpected paths, loops, and exit points outside the intended funnel.</Text>
+
+      <div className="uj-table-tile" style={{ padding: 12 }}>
+        <Flex alignItems="flex-end" gap={12} flexWrap="wrap">
+          <div style={{ minWidth: 170 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Quick Preset</Text>
+            <Select value={filterPreset} onChange={(val) => setFilterPreset((val as any) ?? "all")}>
+              <Select.Trigger />
+              <Select.Content>
+                <Select.Option value="all">All sessions</Select.Option>
+                <Select.Option value="issues">Issues first</Select.Option>
+                <Select.Option value="converted">Converted only</Select.Option>
+                <Select.Option value="low_apdex">Low apdex only</Select.Option>
+              </Select.Content>
+            </Select>
+          </div>
+          <div style={{ minWidth: 220 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>User Tag (optional)</Text>
+            <Select value={selectedUserId || "__all_users__"} onChange={(val) => { const next = val === "__all_users__" ? "" : String(val ?? ""); setSelectedUserId(next); }}>
+              <Select.Trigger />
+              <Select.Content>
+                <Select.Filter />
+                <Select.Option value="__all_users__">All users</Select.Option>
+                {userTagGroups.map((u) => (
+                  <Select.Option key={u.userId} value={u.userId}>{u.tag} ({u.count} sessions)</Select.Option>
+                ))}
+              </Select.Content>
+            </Select>
+          </div>
+          <div style={{ minWidth: 420, flex: 1 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Session ID (optional, can be used without user tag)</Text>
+            <Select value={selectedSessionId || "__all_sessions__"} onChange={(val) => setSelectedSessionId(val === "__all_sessions__" ? "" : String(val ?? ""))}>
+              <Select.Trigger />
+              <Select.Content>
+                <Select.Filter />
+                <Select.Option value="__all_sessions__">All sessions</Select.Option>
+                {sessionsForPicker.map((s) => (
+                  <Select.Option key={s.sid} value={s.sid}>
+                    {`${s.sid.slice(0, 12)}... | score ${s.impactScore.toFixed(0)} | ${s.converted ? "Converted" : "No Conv"} | err ${s.errors} | apdex ${s.apdex.toFixed(2)} | ${Math.round(s.avgDur)}ms | ${s.actions} actions`}
+                  </Select.Option>
+                ))}
+              </Select.Content>
+            </Select>
+          </div>
+          <Button variant="default" onClick={() => { setSelectedUserId(""); setSelectedSessionId(""); }} style={{ height: 32 }}>Clear Filters</Button>
+        </Flex>
+        <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 8, display: "block" }}>
+          Scope: {selectedSessionId ? `session ${selectedSessionId.slice(0, 12)}...` : selectedUserId ? "selected user" : "all sessions"}
+        </Text>
+      </div>
+
+      <div className="uj-table-tile" style={{ padding: 12 }}>
+        <Flex alignItems="flex-end" gap={12} flexWrap="wrap">
+          <div style={{ minWidth: 360, flex: 1 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Timeline Scrubber Session</Text>
+            <Select value={timelineSessionId || "__none_tl__"} onChange={(val) => setTimelineSessionId(val === "__none_tl__" ? "" : String(val ?? ""))}>
+              <Select.Trigger />
+              <Select.Content>
+                <Select.Filter />
+                <Select.Option value="__none_tl__">None</Select.Option>
+                {sessionsForPicker.slice(0, 120).map((s) => (
+                  <Select.Option key={`tl-${s.sid}`} value={s.sid}>{`${s.sid.slice(0, 12)}... | err ${s.errors} | apdex ${s.apdex.toFixed(2)} | ${Math.round(s.avgDur)}ms`}</Select.Option>
+                ))}
+              </Select.Content>
+            </Select>
+          </div>
+          <div style={{ minWidth: 260 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Compare Session A</Text>
+            <Select value={compareSessionA || "__none_cmp_a__"} onChange={(val) => setCompareSessionA(val === "__none_cmp_a__" ? "" : String(val ?? ""))}>
+              <Select.Trigger />
+              <Select.Content>
+                <Select.Filter />
+                <Select.Option value="__none_cmp_a__">None</Select.Option>
+                {sessionsForPicker.slice(0, 120).map((s) => (
+                  <Select.Option key={`cmp-a-${s.sid}`} value={s.sid}>{`${s.sid.slice(0, 12)}... | score ${s.impactScore.toFixed(0)}`}</Select.Option>
+                ))}
+              </Select.Content>
+            </Select>
+          </div>
+          <div style={{ minWidth: 260 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Compare Session B</Text>
+            <Select value={compareSessionB || "__none_cmp_b__"} onChange={(val) => setCompareSessionB(val === "__none_cmp_b__" ? "" : String(val ?? ""))}>
+              <Select.Trigger />
+              <Select.Content>
+                <Select.Filter />
+                <Select.Option value="__none_cmp_b__">None</Select.Option>
+                {sessionsForPicker.slice(0, 120).map((s) => (
+                  <Select.Option key={`cmp-b-${s.sid}`} value={s.sid}>{`${s.sid.slice(0, 12)}... | score ${s.impactScore.toFixed(0)}`}</Select.Option>
+                ))}
+              </Select.Content>
+            </Select>
+          </div>
+        </Flex>
+        {timelineSessionId && (() => {
+          const ts = sessionOptions.find(s => s.sid === timelineSessionId);
+          if (!ts) return null;
+          const timelinePts = [
+            { l: "Start", v: 1 },
+            { l: "Actions", v: Math.max(1, ts.actions) },
+            { l: "Errors", v: Math.max(0, ts.errors) },
+            { l: ts.converted ? "Converted" : "Exit", v: ts.converted ? 1 : 0 },
+          ];
+          const maxV = Math.max(...timelinePts.map(p => p.v), 1);
+          return (
+            <div style={{ marginTop: 10, padding: 10, borderRadius: 6, background: "rgba(128,128,128,0.06)", border: "1px solid rgba(128,128,128,0.15)" }}>
+              <Text style={{ fontSize: 11, opacity: 0.6, display: "block", marginBottom: 6 }}>Session timeline: {ts.sid.slice(0, 16)}...</Text>
+              <svg width="100%" height={66} viewBox="0 0 520 66" preserveAspectRatio="none">
+                {timelinePts.map((p, i) => {
+                  const x = 20 + i * 155;
+                  const h = (p.v / maxV) * 34;
+                  return (
+                    <g key={p.l}>
+                      {i > 0 && <line x1={x - 90} y1={52 - ((timelinePts[i - 1].v / maxV) * 34)} x2={x} y2={52 - h} stroke="rgba(69,137,255,0.55)" strokeWidth={2} />}
+                      <circle cx={x} cy={52 - h} r={4} fill={p.l === "Errors" ? RED : p.l === "Converted" ? GREEN : BLUE} />
+                      <text x={x} y={64} textAnchor="middle" fontSize={9} fill="rgba(255,255,255,0.7)">{p.l}</text>
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+          );
+        })()}
+        {(compareA && compareB) && (
+          <div style={{ marginTop: 10, padding: 10, borderRadius: 6, background: "rgba(128,128,128,0.06)", border: "1px solid rgba(128,128,128,0.15)" }}>
+            <Text style={{ fontSize: 11, opacity: 0.6, display: "block", marginBottom: 8 }}>Session Compare Overlay</Text>
+            <Flex gap={12} flexWrap="wrap">
+              <KpiCard label={`A ${compareA.sid.slice(0, 8)}...`} value={`${compareA.converted ? "Converted" : "No Conv"}`} color={compareA.converted ? GREEN : ORANGE} rawValue={compareA.impactScore} prevRawValue={null} sparkline={compareSparkA} />
+              <KpiCard label={`B ${compareB.sid.slice(0, 8)}...`} value={`${compareB.converted ? "Converted" : "No Conv"}`} color={compareB.converted ? GREEN : ORANGE} rawValue={compareB.impactScore} prevRawValue={null} sparkline={compareSparkB} />
+              <div style={{ minWidth: 220 }}>
+                <Text style={{ fontSize: 11, opacity: 0.5 }}>Delta</Text>
+                <Strong style={{ display: "block", fontSize: 14, color: compareA.impactScore >= compareB.impactScore ? RED : GREEN }}>
+                  Impact {(compareA.impactScore - compareB.impactScore >= 0 ? "+" : "") + (compareA.impactScore - compareB.impactScore).toFixed(1)}
+                </Strong>
+                <Text style={{ fontSize: 12, opacity: 0.7 }}>Errors {(compareA.errors - compareB.errors >= 0 ? "+" : "") + (compareA.errors - compareB.errors)}</Text>
+                <Text style={{ fontSize: 12, opacity: 0.7 }}>Apdex {(compareA.apdex - compareB.apdex >= 0 ? "+" : "") + (compareA.apdex - compareB.apdex).toFixed(2)}</Text>
+              </div>
+            </Flex>
+          </div>
+        )}
+      </div>
 
       {/* KPIs */}
       <Flex gap={16} flexWrap="wrap">
@@ -9846,10 +10184,13 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const cx1 = x1 + (x2 - x1) * 0.4; const cx2 = x1 + (x2 - x1) * 0.6;
                     const beEdgeFocused = !!focusedSvcId && svcFocusSet.has(edge.src) && svcFocusSet.has(edge.tgt);
                     const pageSvcEdgeFocused = pageSvcFocusSet.has(edge.src) && pageSvcFocusSet.has(edge.tgt);
+                    const edgeReq = reqByPair.get(`${norm(edge.srcName)}->${norm(edge.tgtName)}`) ?? 0;
                     const beEdgeOp = focusedSvcId ? (beEdgeFocused ? 0.75 : 0.05) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcEdgeFocused ? 0.75 : 0.05) : 0.07) : 0.22;
                     return (
                       <path key={`be-${ei}`} d={`M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}`}
-                        fill="none" stroke={`rgba(255,255,255,${beEdgeOp})`} strokeWidth={beEdgeFocused || pageSvcEdgeFocused ? 2.5 : 1.5} style={{ transition: "all 0.2s" }} />
+                        fill="none" stroke={`rgba(255,255,255,${beEdgeOp})`} strokeWidth={beEdgeFocused || pageSvcEdgeFocused ? 2.5 : Math.max(1.5, Math.min(6, 1.2 + edgeReq / 120))} style={{ transition: "all 0.2s" }}>
+                        <title>{`${edge.srcName} → ${edge.tgtName}: ${fmtCount(edgeReq)} req`}</title>
+                      </path>
                     );
                   })}
 
@@ -9890,6 +10231,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const nodeType = inferPageNodeType(name, isFunnel, entryPages, exitPages);
                     const meta = FLOW_NODE_META[nodeType];
                     const conv = convMap.get(name);
+                    const reqCount = frontendReqByPage.get(name) ?? 0;
                     const shortName = name.length > 32 ? name.substring(0, 30) + "…" : name;
                     const isHighlightedNode = !hasFocus || highlightedNodes.has(name);
                     const nodeOpacity = hasFocus ? (isHighlightedNode ? 1 : 0.12) : focusedPageName ? (pageFocusSet.has(name) ? 1 : 0.1) : focusedSvcId ? (svcFocusIncludesFrontend ? (svcFocusPageSet.has(name) ? 1 : 0.12) : 0.12) : 1;
@@ -9905,11 +10247,9 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                         <text x={pos.x + 10} y={pos.y + 18} fontSize={12} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
                           {shortName}
                         </text>
-                        {conv !== undefined && conv < 100 && (
-                          <text x={pos.x + 10} y={pos.y + 38} fontSize={10} fill={conv > avgConv ? GREEN : YELLOW} opacity={0.85}>
-                            {fmtPct(conv)} conv prob
-                          </text>
-                        )}
+                        <text x={pos.x + 10} y={pos.y + 38} fontSize={10} fill="rgba(255,255,255,0.75)" opacity={0.9}>
+                          Req {fmtCount(reqCount)}{conv !== undefined && conv < 100 ? ` · Conv ${fmtPct(conv)}` : ""}
+                        </text>
                       </g>
                     );
                   })}
@@ -9921,6 +10261,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const nodeType = inferSvcNodeType(svc.name, bePos.depth);
                     const meta = FLOW_NODE_META[nodeType];
                     const shortName = svc.name.length > 26 ? svc.name.substring(0, 24) + "…" : svc.name;
+                    const svcReq = reqByServiceName.get(norm(svc.name)) ?? 0;
                     const isActive = activeTooltip === `svc:${svcId}`;
                     return (
                       <g key={svcId}
@@ -9934,7 +10275,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           {shortName}
                         </text>
                         <text x={bePos.x + 8} y={bePos.y + 34} fontSize={9} fill="rgba(255,255,255,0.4)" style={{ dominantBaseline: "middle" } as any}>
-                          {meta.label} · Tier {bePos.depth}
+                          Tier {bePos.depth} · Req {fmtCount(svcReq)}
                         </text>
                       </g>
                     );
@@ -10046,28 +10387,28 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                 {/* Expand / collapse deeper backend tiers */}
                 {showBackend && maxDataDepth > 0 && (
                   <Flex alignItems="center" gap={8} style={{ marginTop: 8, flexWrap: "wrap" as any }}>
-                    {maxDataDepth > maxVisibleDepth && (
+                    {maxDataDepth > visibleDepth && (
                       <button
                         onClick={() => setMaxVisibleDepth(d => d + 1)}
                         style={{ background: "rgba(156,39,176,0.12)", border: "1px solid rgba(156,39,176,0.5)", borderRadius: 6, color: FLOW_NODE_META["svc-direct"].color, cursor: "pointer", padding: "5px 14px", fontSize: 12, fontWeight: 600, transition: "background 0.15s" }}
                         onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(156,39,176,0.28)")}
                         onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(156,39,176,0.12)")}
                       >
-                        ▶ Expand Tier {maxVisibleDepth + 1} downstream
+                        ▶ Expand Tier {visibleDepth + 1} downstream
                       </button>
                     )}
-                    {maxVisibleDepth > 1 && (
+                    {visibleDepth > 1 && (
                       <button
-                        onClick={() => setMaxVisibleDepth(d => Math.max(1, d - 1))}
+                        onClick={() => setMaxVisibleDepth(visibleDepth - 1)}
                         style={{ background: "none", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, color: "rgba(255,255,255,0.45)", cursor: "pointer", padding: "5px 14px", fontSize: 12, transition: "background 0.15s" }}
                         onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
                         onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
                       >
-                        ◀ Collapse Tier {maxVisibleDepth}
+                        ◀ Collapse Tier {visibleDepth}
                       </button>
                     )}
                     <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>
-                      {maxDataDepth > 0 ? `Showing Tier 1–${maxVisibleDepth} of ${maxDataDepth} available` : ""}
+                      {maxDataDepth > 0 ? `Showing Tier 1–${visibleDepth} of ${maxDataDepth} available` : ""}
                     </span>
                   </Flex>
                 )}
