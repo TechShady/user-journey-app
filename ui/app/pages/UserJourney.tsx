@@ -1189,6 +1189,28 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
 | fields dt.rum.session.id = sid, user_id, user_tag, converted, errors = ev.errors, apdex, avg_dur = ev.avg_dur, actions = ev.actions, start_ts = ev.start_ts, end_ts = ev.end_ts`;
 }
 
+function navigationUserTagOptionsQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  return `fetch user.sessions, ${period}
+| filter ${frontendFilter(steps, frontend)}
+| filter dt.system.bucket != "default_synthetic_user_sessions"
+| fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
+| filter not(isNull(sid))
+| lookup [
+    fetch user.events, ${period}
+    | filter ${frontendFilter(steps, frontend)}
+    | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true OR characteristics.has_error == true
+    | fields sid = dt.rum.session.id
+    | filter not(isNull(sid))
+    | summarize actions = count(), by:{sid}
+  ], sourceField:sid, lookupField:sid, prefix:"ev."
+| filter coalesce(ev.actions, 0) > 0
+| fieldsAdd user_id = coalesce(session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
+| summarize sessions = count(), by:{user_id}
+| sort sessions desc
+| limit 200`;
+}
+
 function navigationBackendRequestEdgesQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string): string {
   const period = periodClause(days);
   const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
@@ -1230,8 +1252,9 @@ function navigationSessionTimelineQuery(days: number, frontend: string, steps: S
 | fieldsAdd page_name = coalesce(view.name, page.name, url.path, "unknown")
 | fieldsAdd event_name = coalesce(event.name, event.type, user_action.name, "event")
 | fieldsAdd has_error = coalesce(characteristics.has_error, false)
-| sort timestamp asc
-| fields ts = timestamp, page_name, event_name, has_error
+| fieldsAdd event_ts = coalesce(start_time, end_time, timestamp)
+| sort event_ts asc
+| fields ts = event_ts, page_name, event_name, has_error
 | limit 400`;
 }
 
@@ -9530,6 +9553,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [compareSessionB, setCompareSessionB] = useState<string>("");
 
   const sessionCandidatesData = useDql({ query: navigationSessionCandidatesQuery(timeframeDays, frontend, steps) });
+  const userTagOptionsData = useDql({ query: navigationUserTagOptionsQuery(timeframeDays, frontend, steps) });
   const hasSessionScope = selectedSessionId !== "" || selectedUserId !== "";
   const scopedNavData = useDql({ query: hasSessionScope ? navigationPathsQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, selectedUserId || undefined) : "fetch user.events | limit 0" });
   const scopedBackendReqData = useDql({ query: navigationBackendRequestEdgesQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, selectedUserId || undefined) });
@@ -9728,24 +9752,29 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     return true;
   });
 
-  const buildUserTagGroups = (rows: typeof sessionOptions, isSessionFallback: boolean) => Array.from(rows.reduce((m, s) => {
-    const key = `${s.userTag}||${s.userId}`;
-    m.set(key, (m.get(key) ?? 0) + 1);
+  const userTagRows = ((userTagOptionsData.data?.records ?? []) as any[]).map((r: any) => ({
+    userId: String(r.user_id ?? "session:unknown"),
+    count: Number(r.sessions ?? 0),
+  })).filter((r) => r.count > 0);
+
+  const buildUserTagGroups = (rows: { userId: string; count: number }[], isSessionFallback: boolean) => Array.from(rows.reduce((m, s) => {
+    const key = s.userId;
+    m.set(key, (m.get(key) ?? 0) + s.count);
     return m;
   }, new Map<string, number>()).entries()).map(([k, count]) => {
-    const [tag, userId] = k.split("||");
+    const userId = k;
     const shortSession = userId.startsWith("session:") ? userId.replace("session:", "").slice(0, 12) : "";
     return {
-      tag,
+      tag: userId,
       userId,
       count,
       isSessionFallback,
-      displayTag: isSessionFallback ? `Session ${shortSession}${shortSession.length >= 12 ? "..." : ""}` : tag,
+      displayTag: isSessionFallback ? `Session ${shortSession}${shortSession.length >= 12 ? "..." : ""}` : userId,
     };
   }).sort((a, b) => b.count - a.count);
 
-  const realUserTagGroups = buildUserTagGroups(sessionOptions.filter((s) => !s.userId.startsWith("session:")), false);
-  const sessionFallbackTagGroups = buildUserTagGroups(sessionOptions.filter((s) => s.userId.startsWith("session:")), true);
+  const realUserTagGroups = buildUserTagGroups(userTagRows.filter((s) => !s.userId.startsWith("session:")), false);
+  const sessionFallbackTagGroups = buildUserTagGroups(userTagRows.filter((s) => s.userId.startsWith("session:")), true);
   const userTagGroups = realUserTagGroups.length > 0 ? realUserTagGroups : sessionFallbackTagGroups;
   const selectedUserGroup = userTagGroups.find((u) => u.userId === selectedUserId) ?? null;
   const selectedSessionOption = sessionOptions.find((s) => s.sid === selectedSessionId) ?? null;
@@ -9761,7 +9790,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const compareSparkB = compareB ? [compareB.actions, Math.max(0, compareB.actions - compareB.errors), compareB.converted ? compareB.actions : Math.round(compareB.actions * 0.4)] : [];
   const timelineEvents = ((timelineEventsData.data?.records ?? []) as any[])
     .map((r: any) => ({
-      ts: Number(r.ts ?? 0),
+      ts: typeof r.ts === "number" ? r.ts : Date.parse(String(r.ts ?? "")),
       page: String(r.page_name ?? "unknown"),
       event: String(r.event_name ?? "event"),
       hasError: Boolean(r.has_error),
@@ -10173,7 +10202,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               </Select.Content>
             </Select>
           </div>
-          <div style={{ minWidth: 220 }}>
+          <div style={{ minWidth: 260 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>User Tag (optional)</Text>
             <Select value={selectedUserId || "__all_users__"} onChange={(val) => { const next = val === "__all_users__" ? "" : String(val ?? ""); setSelectedUserId(next); }}>
               <Select.Trigger />
@@ -10186,7 +10215,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               </Select.Content>
             </Select>
           </div>
-          <div style={{ minWidth: 420, flex: 1 }}>
+          <div style={{ minWidth: 620, flex: 1.4 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Session ID (optional, can be used without user tag)</Text>
             <Select value={selectedSessionId || "__all_sessions__"} onChange={(val) => setSelectedSessionId(val === "__all_sessions__" ? "" : String(val ?? ""))}>
               <Select.Trigger />
@@ -10215,7 +10244,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 
       <div className="uj-table-tile" style={{ padding: 12 }}>
         <Flex alignItems="flex-end" gap={12} flexWrap="wrap">
-          <div style={{ minWidth: 360, flex: 1 }}>
+          <div style={{ minWidth: 520, flex: 1.2 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Timeline Scrubber Session</Text>
             <Select value={timelineSessionId || "__none_tl__"} onChange={(val) => setTimelineSessionId(val === "__none_tl__" ? "" : String(val ?? ""))}>
               <Select.Trigger />
@@ -10657,8 +10686,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 
             return (
               <div className="uj-table-tile" style={{ padding: 16, overflow: "auto", maxWidth: "100%", maxHeight: "78vh", position: "relative" }}>
-                <Flex alignItems="center" justifyContent="space-between" gap={12} flexWrap="wrap" style={{ marginBottom: 10 }}>
-                  <Flex alignItems="center" gap={12} flexWrap="wrap" style={{ flex: 1, minWidth: 320 }}>
+                <Flex alignItems="center" justifyContent="space-between" gap={12} flexWrap="nowrap" style={{ marginBottom: 10, overflowX: "auto", paddingBottom: 4 }}>
+                  <Flex alignItems="center" gap={8} flexWrap="nowrap" style={{ flex: "0 0 auto" }}>
                     <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
                       <input type="checkbox" checked={showBackend} onChange={e => setShowBackend(e.target.checked)} style={{ cursor: "pointer" }} />
                       <span>Show backend service topology</span>
@@ -10672,7 +10701,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       <input type="range" min={-600} max={600} step={10} value={backendPanX} onChange={(e) => setBackendPanX(Number(e.target.value))} />
                     </label>
                   </Flex>
-                  <Flex alignItems="center" gap={8} flexWrap="wrap" style={{ flex: 1, minWidth: 260, justifyContent: "center" }}>
+                  <Flex alignItems="center" gap={8} flexWrap="nowrap" style={{ flex: "0 0 auto", justifyContent: "center" }}>
                     <span style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: 0.6 }}>Active scope</span>
                     <span style={{ fontSize: 12, padding: "4px 10px", borderRadius: 999, background: selectedUserGroup ? "rgba(69,137,255,0.15)" : "rgba(128,128,128,0.12)", border: selectedUserGroup ? "1px solid rgba(69,137,255,0.35)" : "1px solid rgba(128,128,128,0.28)", color: "rgba(255,255,255,0.88)" }}>
                       User: {selectedUserGroup ? selectedUserGroup.displayTag : "all"}
@@ -10681,7 +10710,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       Session: {selectedSessionOption ? `${selectedSessionOption.sid.slice(0, 12)}...` : "all"}
                     </span>
                   </Flex>
-                  <Flex alignItems="center" gap={8} flexWrap="wrap" style={{ minWidth: 250, justifyContent: "flex-end" }}>
+                  <Flex alignItems="center" gap={8} flexWrap="nowrap" style={{ flex: "0 0 auto", justifyContent: "flex-end" }}>
                     <span style={{ fontSize: 12, color: "rgba(255,255,255,0.65)" }}>Zoom</span>
                     <button onClick={() => setNavZoom((z) => Math.max(0.6, Number((z - 0.1).toFixed(2))))} style={{ fontSize: 12, minWidth: 30, height: 28, cursor: "pointer", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.85)" }}>−</button>
                     <span style={{ fontSize: 12, minWidth: 48, textAlign: "center", color: "rgba(255,255,255,0.85)" }}>{Math.round(navZoom * 100)}%</span>
