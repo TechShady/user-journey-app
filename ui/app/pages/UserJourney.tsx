@@ -364,7 +364,8 @@ function sessionReplayUrl(sessionId: string, startTs?: string): string {
 /** Build a DQL filter clause for potentially multiple frontend apps across steps.
  *  Always returns `in(frontend.name, {...})` and includes fallback app to avoid
  *  empty datasets when a step app is misconfigured (for example, set to funnel name). */
-function frontendFilter(steps: StepDef[], fallback: string): string {
+function frontendFilter(steps: StepDef[], fallback: string, appFilter?: string): string {
+  if (appFilter && appFilter !== "__all__") return `frontend.name == "${appFilter}"`;
   const apps = [...new Set([fallback, ...steps.map(s => s.app)].filter(Boolean))];
   if (apps.length === 0) return `in(frontend.name, {"${fallback}"})`;
   return `in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
@@ -1115,20 +1116,20 @@ function geoPerformanceQuery(days: number, frontend: string, steps: StepDef[], p
 
 // NEW: Navigation paths — actual user page flows
 const NAV_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, user.identifier, user.id, dt.user.id, user.userId, dt.client.id, user.anonymized_id, user.name)';
-const NAV_SESSION_USER_ID_EXPR = 'coalesce(user.identifier, user.id, dt.user.id, user.userId, user.name)';
+const NAV_SESSION_USER_ID_EXPR = 'coalesce(user.identifier, user.userId, user.name)';
 
-function navigationPathsQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string): string {
+function navigationPathsQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string, appFilter?: string): string {
   const period = periodClause(days);
   const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
   const userFilter = !sessionId && userId ? `| filter effective_user_id == "${userId}"` : "";
   return `fetch user.events, ${period}
-| filter ${frontendFilter(steps, frontend)}
+| filter ${frontendFilter(steps, frontend, appFilter)}
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
 | fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
 | fieldsAdd sid = dt.rum.session.id
 | lookup [
     fetch user.sessions, ${period}
-    | filter ${frontendFilter(steps, frontend)}
+    | filter ${frontendFilter(steps, frontend, appFilter)}
     | filter dt.system.bucket != "default_synthetic_user_sessions"
     | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
     | filter not(isNull(sid))
@@ -1146,17 +1147,19 @@ ${userFilter}
 | limit 2000`;
 }
 
-function navigationSessionCandidatesQuery(days: number, frontend: string, steps: StepDef[]): string {
+function navigationSessionCandidatesQuery(days: number, frontend: string, steps: StepDef[], userId?: string, appFilter?: string): string {
   const period = periodClause(days);
   const lastStepExpr = stepFilter(steps[steps.length - 1]);
+  const safeUserId = userId ? userId.replace(/"/g, "\\\"") : "";
+  const userFilter = userId ? `| filter user_id == "${safeUserId}"` : "";
   return `fetch user.sessions, ${period}
-| filter ${frontendFilter(steps, frontend)}
+| filter ${frontendFilter(steps, frontend, appFilter)}
 | filter dt.system.bucket != "default_synthetic_user_sessions"
 | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
 | filter not(isNull(sid))
 | lookup [
     fetch user.events, ${period}
-    | filter ${frontendFilter(steps, frontend)}
+    | filter ${frontendFilter(steps, frontend, appFilter)}
   | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true OR characteristics.has_error == true
     | fieldsAdd sid = dt.rum.session.id
     | filter not(isNull(sid))
@@ -1181,24 +1184,25 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
   ], sourceField:sid, lookupField:sid, prefix:"ev."
 | filter coalesce(ev.actions, 0) > 0
 | fieldsAdd user_id = coalesce(session_user_id, ev.event_user_id, concat("session:", substring(sid, from: 0, to: 16)))
+${userFilter}
 | fieldsAdd user_tag = if(stringLength(user_id) > 16, concat(substring(user_id, from: 0, to: 12), "…"), else: user_id)
 | fieldsAdd converted = ev.conv_hits > 0
 | fieldsAdd apdex = if(ev.actions > 0, (toDouble(ev.satisfied) + toDouble(ev.tolerating) / 2.0) / toDouble(ev.actions), else: 0.0)
 | sort ev.end_ts desc
-| limit 1000
+| limit ${userId ? 5000 : 1000}
 | fields dt.rum.session.id = sid, user_id, user_tag, converted, errors = ev.errors, apdex, avg_dur = ev.avg_dur, actions = ev.actions, start_ts = ev.start_ts, end_ts = ev.end_ts`;
 }
 
-function navigationUserTagOptionsQuery(days: number, frontend: string, steps: StepDef[]): string {
+function navigationUserTagOptionsQuery(days: number, frontend: string, steps: StepDef[], appFilter?: string): string {
   const period = periodClause(days);
   return `fetch user.sessions, ${period}
-| filter ${frontendFilter(steps, frontend)}
+| filter ${frontendFilter(steps, frontend, appFilter)}
 | filter dt.system.bucket != "default_synthetic_user_sessions"
 | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
 | filter not(isNull(sid))
 | lookup [
     fetch user.events, ${period}
-    | filter ${frontendFilter(steps, frontend)}
+    | filter ${frontendFilter(steps, frontend, appFilter)}
     | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true OR characteristics.has_error == true
     | fields sid = dt.rum.session.id
     | filter not(isNull(sid))
@@ -1211,18 +1215,18 @@ function navigationUserTagOptionsQuery(days: number, frontend: string, steps: St
 | limit 200`;
 }
 
-function navigationBackendRequestEdgesQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string): string {
+function navigationBackendRequestEdgesQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string, appFilter?: string): string {
   const period = periodClause(days);
   const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
   const userFilter = !sessionId && userId ? `| filter effective_user_id == "${userId}"` : "";
   return `fetch user.events, ${period}
-| filter ${frontendFilter(steps, frontend)}
+| filter ${frontendFilter(steps, frontend, appFilter)}
 | filter characteristics.has_request == true
 | fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
 | fieldsAdd sid = dt.rum.session.id
 | lookup [
     fetch user.sessions, ${period}
-    | filter ${frontendFilter(steps, frontend)}
+    | filter ${frontendFilter(steps, frontend, appFilter)}
     | filter dt.system.bucket != "default_synthetic_user_sessions"
     | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
     | filter not(isNull(sid))
@@ -1243,11 +1247,11 @@ ${userFilter}
 | limit 1000`;
 }
 
-function navigationSessionTimelineQuery(days: number, frontend: string, steps: StepDef[], sessionId: string): string {
+function navigationSessionTimelineQuery(days: number, frontend: string, steps: StepDef[], sessionId: string, appFilter?: string): string {
   const period = periodClause(days);
   const safeSessionId = sessionId.replace(/"/g, "\\\"");
   return `fetch user.events, ${period}
-| filter ${frontendFilter(steps, frontend)}
+| filter ${frontendFilter(steps, frontend, appFilter)}
 | filter dt.rum.session.id == "${safeSessionId}"
 | fieldsAdd page_name = coalesce(view.name, page.name, url.path, "unknown")
 | fieldsAdd event_name = coalesce(event.name, event.type, user_action.name, "event")
@@ -2428,7 +2432,7 @@ function CountUpText({ value, delay = 0, suffix = "", ...props }: { value: numbe
   return <text {...props}>{fmtCount(animated)}{suffix}</text>;
 }
 
-function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0 }: { steps: FunnelStep[]; prevSteps?: FunnelStep[]; appEntityId?: string; stepDefs: StepDef[]; aov?: number }) {
+function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0, onStepSelect }: { steps: FunnelStep[]; prevSteps?: FunnelStep[]; appEntityId?: string; stepDefs: StepDef[]; aov?: number; onStepSelect?: (stepIndex: number) => void }) {
   const maxCount = Math.max(1, ...steps.map((s) => s.count), ...(prevSteps ?? []).map((s) => s.count));
   const W = 720;
   const stepH = 80;
@@ -2487,18 +2491,25 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0 }: { ste
 
         const primaryId = stepDefs[i] ? stepPrimaryIdentifier(stepDefs[i]) : null;
         const stepUrl = appEntityId && primaryId ? vitalsUrl(appEntityId, primaryId) : undefined;
+        const stepClickable = Boolean(onStepSelect || stepUrl);
         const stagger = i * 400;
 
         return (
           <g key={i} className="uj-funnel-label" style={{ animationDelay: `${stagger + 60}ms` }}>
             {i > 0 && <line x1={cx - widths[i] / 2} y1={y} x2={cx + widths[i] / 2} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />}
-            {stepUrl ? (
-              <g style={{ cursor: "pointer" }} onClick={() => openLink(stepUrl)}>
+            {stepClickable ? (
+              <g style={{ cursor: "pointer" }} onClick={() => {
+                if (onStepSelect) {
+                  onStepSelect(i);
+                } else if (stepUrl) {
+                  openLink(stepUrl);
+                }
+              }}>
                 <circle cx={24} cy={midY} r={13} fill={`${sClr}1A`} stroke={sClr} strokeWidth="1.5" />
                 <text x={24} y={midY + 4} textAnchor="middle" fill={sClr} fontSize="12" fontWeight="700">{i + 1}</text>
                 <text x={cx} y={midY - 10} textAnchor="middle" fill="rgba(255,255,255,0.95)" fontSize="14" fontWeight="600" textDecoration="underline">{step.label}</text>
                 <CountUpText value={step.count} delay={stagger + 200} suffix=" sessions" x={cx} y={midY + 8} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="12" />
-                <title>Open in Vitals: {stepDefs[i]?.identifiers.join(", ") ?? step.label}</title>
+                <title>{onStepSelect ? `Choose drill page: ${stepDefs[i]?.identifiers.join(", ") ?? step.label}` : `Open in Vitals: ${stepDefs[i]?.identifiers.join(", ") ?? step.label}`}</title>
               </g>
             ) : (
               <>
@@ -3781,7 +3792,11 @@ export function UserJourney() {
   const sankeyPathsData = useDql({ query: sankeyExtendedPathsQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const sankeyDurationData = useDql({ query: sankeyPageDurationQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const sankeyPrevPaths = useDql({ query: sankeyPrevPathsQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const appEntityData = useDql({ query: appEntityQuery(frontend) });
+  const funnelDrillFrontend = useMemo(() => {
+    const stepApp = steps.find((s) => (s.app ?? "").trim() !== "")?.app;
+    return stepApp || frontend;
+  }, [steps, frontend]);
+  const appEntityData = useDql({ query: appEntityQuery(funnelDrillFrontend) });
   const appEntityId = (appEntityData.data?.records?.[0] as any)?.['id'] ?? '';
   const settingsAppsData = useDql({ query: showSettings ? availableAppsQuery() : "fetch user.events | limit 0" });
   const stepsApps = useMemo(() => uniqueApps(steps, frontend), [steps, frontend]);
@@ -6103,6 +6118,11 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     return () => clearInterval(id);
   }, [refreshIntervalMs]);
   const [funnelSubTab, setFunnelSubTab] = React.useState<"funnel"|"predictive"|"steps"|"pages">("funnel");
+  const [stepDrillPicker, setStepDrillPicker] = React.useState<{
+    stepIndex: number;
+    stepLabel: string;
+    pages: Array<{ name: string; sessions: number; apdex: number; avgMs: number; p90Ms: number; errors: number; errorRate: number }>;
+  } | null>(null);
 
   // Parse sparkline series for KPI cards (must be before early return — Rules of Hooks)
   const sparkSeries = useMemo(() => {
@@ -6145,6 +6165,65 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
   const prevFunnelSteps = compareMode ? makeFunnelSteps(funnelCountsPrev) : undefined;
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
   const errorRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
+
+  const buildStepDrillCandidates = React.useCallback((stepIndex: number) => {
+    const step = steps[stepIndex];
+    if (!step) return [] as Array<{ name: string; sessions: number; apdex: number; avgMs: number; p90Ms: number; errors: number; errorRate: number }>;
+    const byName = new Map<string, { name: string; sessions: number; apdex: number; avgMs: number; p90Ms: number; errors: number; errorRate: number }>();
+
+    for (const [pageName, raw] of pageMap) {
+      if (!step.identifiers.some((id) => identifierMatchesLabel(id, pageName))) continue;
+      const sessions = Number((raw as any)?.sessions ?? 0);
+      const avgMs = Number((raw as any)?.avg_duration_ms ?? 0);
+      const p90Ms = Number((raw as any)?.p90_duration_ms ?? 0);
+      const errors = Number((raw as any)?.error_count ?? 0);
+      const sat = Number((raw as any)?.satisfied ?? 0);
+      const tol = Number((raw as any)?.tolerating ?? 0);
+      const total = Number((raw as any)?.total_actions ?? 0);
+      const apdex = calcApdex(sat, tol, total);
+      const errorRatePct = total > 0 ? (errors / total) * 100 : 0;
+      byName.set(pageName, { name: pageName, sessions, apdex, avgMs, p90Ms, errors, errorRate: errorRatePct });
+    }
+
+    for (const id of step.identifiers) {
+      if (isWildcard(id)) continue;
+      if (byName.has(id)) continue;
+      const raw = pageMap.get(id) as any;
+      const sessions = Number(raw?.sessions ?? 0);
+      const avgMs = Number(raw?.avg_duration_ms ?? 0);
+      const p90Ms = Number(raw?.p90_duration_ms ?? 0);
+      const errors = Number(raw?.error_count ?? 0);
+      const sat = Number(raw?.satisfied ?? 0);
+      const tol = Number(raw?.tolerating ?? 0);
+      const total = Number(raw?.total_actions ?? 0);
+      const apdex = calcApdex(sat, tol, total);
+      const errorRatePct = total > 0 ? (errors / total) * 100 : 0;
+      byName.set(id, { name: id, sessions, apdex, avgMs, p90Ms, errors, errorRate: errorRatePct });
+    }
+
+    return Array.from(byName.values()).sort((a, b) => {
+      if (b.sessions !== a.sessions) return b.sessions - a.sessions;
+      if (b.errors !== a.errors) return b.errors - a.errors;
+      return b.avgMs - a.avgMs;
+    });
+  }, [steps, pageMap]);
+
+  const handleFunnelStepDrill = React.useCallback((stepIndex: number) => {
+    const step = steps[stepIndex];
+    if (!step) return;
+    const candidates = buildStepDrillCandidates(stepIndex);
+    const isComplex = step.identifiers.length > 1 || step.identifiers.some((id) => isWildcard(id));
+
+    if (isComplex && candidates.length > 1) {
+      setStepDrillPicker({ stepIndex, stepLabel: step.label, pages: candidates.slice(0, 60) });
+      return;
+    }
+
+    const directTarget = candidates.find((p) => !isWildcard(p.name))?.name ?? stepPrimaryIdentifier(step);
+    if (appEntityId && directTarget && !isWildcard(directTarget)) {
+      openLink(vitalsUrl(appEntityId, directTarget));
+    }
+  }, [steps, buildStepDrillCandidates, appEntityId]);
 
   // Predictive EOD model — linear regression on today's 10-min conv rates
   const todayRecords = (todayHourlyData?.data?.records ?? []) as any[];
@@ -6326,7 +6405,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         </Flex>
       </Flex>
       <div className="uj-funnel-container">
-        {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} />}
+        {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} onStepSelect={handleFunnelStepDrill} />}
         {funnelStyle === "horizontal" && <HorizontalBarFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
         {funnelStyle === "cohort" && <StackedCohortFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
         {funnelStyle === "elapsed" && <ElapsedTimeFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} stepMap={stepMap} stepDefs={steps} />}
@@ -6338,6 +6417,39 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           </Flex>
         )}
       </div>
+      <Sheet
+        title={stepDrillPicker ? `Select a page to drill: ${stepDrillPicker.stepLabel}` : "Select a page to drill"}
+        show={stepDrillPicker != null}
+        onDismiss={() => setStepDrillPicker(null)}
+        actions={<Button variant="emphasized" onClick={() => setStepDrillPicker(null)}>Close</Button>}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Text style={{ fontSize: 12, opacity: 0.6 }}>Choose the page with the most concerning performance or error profile.</Text>
+          {(stepDrillPicker?.pages ?? []).map((p) => {
+            const canDrill = Boolean(appEntityId) && !isWildcard(p.name);
+            return (
+              <div key={p.name} style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 10, background: "rgba(128,128,128,0.05)" }}>
+                <Flex justifyContent="space-between" alignItems="center" gap={8} flexWrap="wrap">
+                  <Strong style={{ color: BLUE }}>{p.name}</Strong>
+                  {canDrill && (
+                    <Button variant="accent" onClick={() => openLink(vitalsUrl(appEntityId!, p.name))}>Drill to Vitals</Button>
+                  )}
+                </Flex>
+                <Flex gap={12} flexWrap="wrap" style={{ marginTop: 6 }}>
+                  <Text style={{ fontSize: 12 }}>Sessions: <Strong>{fmtCount(p.sessions)}</Strong></Text>
+                  <Text style={{ fontSize: 12 }}>Apdex: <Strong style={{ color: apdexClr(p.apdex) }}>{p.apdex.toFixed(2)}</Strong></Text>
+                  <Text style={{ fontSize: 12 }}>Avg: <Strong style={{ color: p.avgMs > 3000 ? RED : p.avgMs > 1000 ? YELLOW : GREEN }}>{fmt(p.avgMs)}</Strong></Text>
+                  <Text style={{ fontSize: 12 }}>P90: <Strong style={{ color: p.p90Ms > 3000 ? RED : p.p90Ms > 1500 ? YELLOW : GREEN }}>{fmt(p.p90Ms)}</Strong></Text>
+                  <Text style={{ fontSize: 12 }}>Errors: <Strong style={{ color: p.errors > 0 ? RED : GREEN }}>{fmtCount(p.errors)}</Strong> ({fmtPct(p.errorRate)})</Text>
+                </Flex>
+              </div>
+            );
+          })}
+          {(stepDrillPicker?.pages.length ?? 0) === 0 && (
+            <Text style={{ fontSize: 12, opacity: 0.55 }}>No matched pages were found for this step in the current timeframe.</Text>
+          )}
+        </div>
+      </Sheet>
         </Flex>
       )}
 
@@ -9547,17 +9659,22 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const [filterPreset, setFilterPreset] = useState<"all" | "issues" | "converted" | "low_apdex">("all");
+  const [navAppFilter, setNavAppFilter] = useState<string>("__all__");
   const [timelineSessionId, setTimelineSessionId] = useState<string>("");
   const [timelineViewMode, setTimelineViewMode] = useState<"summary" | "chronological">("summary");
   const [compareSessionA, setCompareSessionA] = useState<string>("");
   const [compareSessionB, setCompareSessionB] = useState<string>("");
 
-  const sessionCandidatesData = useDql({ query: navigationSessionCandidatesQuery(timeframeDays, frontend, steps) });
-  const userTagOptionsData = useDql({ query: navigationUserTagOptionsQuery(timeframeDays, frontend, steps) });
+  const funnelApps = useMemo(() => uniqueApps(steps, frontend), [steps, frontend]);
+  const navAppFilterOverride = navAppFilter === "__all__" ? undefined : navAppFilter;
+
+  const sessionCandidatesData = useDql({ query: navigationSessionCandidatesQuery(timeframeDays, frontend, steps, selectedUserId || undefined, navAppFilterOverride) });
+  const userTagOptionsData = useDql({ query: navigationUserTagOptionsQuery(timeframeDays, frontend, steps, navAppFilterOverride) });
   const hasSessionScope = selectedSessionId !== "" || selectedUserId !== "";
-  const scopedNavData = useDql({ query: hasSessionScope ? navigationPathsQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, selectedUserId || undefined) : "fetch user.events | limit 0" });
-  const scopedBackendReqData = useDql({ query: navigationBackendRequestEdgesQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, selectedUserId || undefined) });
-  const timelineEventsData = useDql({ query: timelineSessionId ? navigationSessionTimelineQuery(timeframeDays, frontend, steps, timelineSessionId) : "fetch user.events | limit 0" });
+  const hasScopedNavQuery = hasSessionScope || navAppFilterOverride !== undefined;
+  const scopedNavData = useDql({ query: hasScopedNavQuery ? navigationPathsQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, selectedUserId || undefined, navAppFilterOverride) : "fetch user.events | limit 0" });
+  const scopedBackendReqData = useDql({ query: navigationBackendRequestEdgesQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, selectedUserId || undefined, navAppFilterOverride) });
+  const timelineEventsData = useDql({ query: timelineSessionId ? navigationSessionTimelineQuery(timeframeDays, frontend, steps, timelineSessionId, navAppFilterOverride) : "fetch user.events | limit 0" });
 
   const navDirectServiceIds = React.useMemo(() => {
     return ((backendServicesData?.data?.records ?? []) as any[])
@@ -9635,14 +9752,18 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     const v = String(savedCompareB.data?.value ?? "");
     if (v) setCompareSessionB(v);
   }, [savedCompareB.data?.value]);
+  React.useEffect(() => {
+    if (navAppFilter === "__all__") return;
+    if (!funnelApps.includes(navAppFilter)) setNavAppFilter("__all__");
+  }, [navAppFilter, funnelApps]);
   React.useEffect(() => { saveState({ key: NAV_FILTER_USER_STATE_KEY, body: { value: selectedUserId } }); }, [selectedUserId, saveState]);
   React.useEffect(() => { saveState({ key: NAV_FILTER_SESSION_STATE_KEY, body: { value: selectedSessionId } }); }, [selectedSessionId, saveState]);
   React.useEffect(() => { saveState({ key: NAV_FILTER_PRESET_STATE_KEY, body: { value: filterPreset } }); }, [filterPreset, saveState]);
   React.useEffect(() => { saveState({ key: NAV_COMPARE_A_STATE_KEY, body: { value: compareSessionA } }); }, [compareSessionA, saveState]);
   React.useEffect(() => { saveState({ key: NAV_COMPARE_B_STATE_KEY, body: { value: compareSessionB } }); }, [compareSessionB, saveState]);
 
-  const navData = hasSessionScope ? scopedNavData : data;
-  const loadingNow = isLoading || (hasSessionScope && scopedNavData.isLoading);
+  const navData = hasScopedNavQuery ? scopedNavData : data;
+  const loadingNow = (hasScopedNavQuery ? scopedNavData.isLoading : isLoading);
   if (loadingNow) return <Loading />;
 
   const navRows = (navData.data?.records ?? []) as any[];
@@ -9778,6 +9899,18 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const userTagGroups = realUserTagGroups.length > 0 ? realUserTagGroups : sessionFallbackTagGroups;
   const selectedUserGroup = userTagGroups.find((u) => u.userId === selectedUserId) ?? null;
   const selectedSessionOption = sessionOptions.find((s) => s.sid === selectedSessionId) ?? null;
+  const drillFrontend = navAppFilter === "__all__"
+    ? (steps.find((s) => (s.app ?? "").trim() !== "")?.app || frontend)
+    : navAppFilter;
+
+  React.useEffect(() => {
+    if (!selectedUserId || userTagGroups.length === 0) return;
+    if (selectedUserId.startsWith("session:") && realUserTagGroups.length > 0) {
+      setSelectedUserId("");
+      return;
+    }
+    if (!userTagGroups.some((u) => u.userId === selectedUserId)) setSelectedUserId("");
+  }, [selectedUserId, userTagGroups, realUserTagGroups.length]);
 
   const sessionsForPicker = (selectedUserId
     ? presetFilteredSessions.filter(s => s.userId === selectedUserId)
@@ -10202,6 +10335,18 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               </Select.Content>
             </Select>
           </div>
+          <div style={{ minWidth: 240 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>App Filter</Text>
+            <Select value={navAppFilter} onChange={(val) => setNavAppFilter(String(val ?? "__all__"))}>
+              <Select.Trigger />
+              <Select.Content>
+                <Select.Option value="__all__">All funnel apps</Select.Option>
+                {funnelApps.map((app) => (
+                  <Select.Option key={app} value={app}>{app}</Select.Option>
+                ))}
+              </Select.Content>
+            </Select>
+          </div>
           <div style={{ minWidth: 260 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>User Tag (optional)</Text>
             <Select value={selectedUserId || "__all_users__"} onChange={(val) => { const next = val === "__all_users__" ? "" : String(val ?? ""); setSelectedUserId(next); }}>
@@ -10328,10 +10473,21 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                   ) : ev.length === 0 ? (
                     <Text style={{ fontSize: 12, opacity: 0.6 }}>No event timeline available for this session in the selected timeframe.</Text>
                   ) : (
-                    <svg width="100%" height={120} viewBox="0 0 860 120" preserveAspectRatio="none">
+                    (() => {
+                      const plotX0 = 18;
+                      const plotW = 824;
+                      const rawXs = ev.map((e) => plotX0 + (((e.ts - firstTs) / span) * plotW));
+                      const adjustedXs = rawXs.map((x, idx) => idx === 0 ? x : 0);
+                      const minGapPx = ev.length > 120 ? 3 : ev.length > 60 ? 5 : 7;
+                      for (let i = 1; i < rawXs.length; i++) adjustedXs[i] = Math.max(rawXs[i], adjustedXs[i - 1] + minGapPx);
+                      const overflow = adjustedXs[adjustedXs.length - 1] - (plotX0 + plotW);
+                      const finalXs = overflow > 0
+                        ? adjustedXs.map((x) => plotX0 + (((x - plotX0) / Math.max(1, adjustedXs[adjustedXs.length - 1] - plotX0)) * plotW))
+                        : adjustedXs;
+                      return <svg width="100%" height={120} viewBox="0 0 860 120" preserveAspectRatio="none">
                       <line x1={18} y1={72} x2={842} y2={72} stroke="rgba(128,128,128,0.35)" strokeWidth={2} />
                       {ev.map((e, idx) => {
-                        const x = 18 + (((e.ts - firstTs) / span) * 824);
+                        const x = finalXs[idx] ?? plotX0;
                         const y = e.hasError ? 54 : 72;
                         const fill = e.hasError ? RED : BLUE;
                         const label = idx % Math.max(1, Math.ceil(ev.length / 14)) === 0;
@@ -10347,7 +10503,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       <text x={842} y={102} textAnchor="end" fontSize={10} fill="rgba(128,128,128,0.75)">{new Date(lastTs).toLocaleTimeString()}</text>
                       <text x={18} y={18} fontSize={11} fill="rgba(128,128,128,0.75)">Events: {ev.length}</text>
                       <text x={120} y={18} fontSize={11} fill="rgba(128,128,128,0.75)">Errors: {ev.filter(x => x.hasError).length}</text>
-                    </svg>
+                    </svg>;
+                    })()
                   )}
                 </div>
               )}
@@ -10939,7 +11096,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       perfSpark = syntheticSparkline(ttDur, 8, svcId + "_lat");
                       errSpark = syntheticSparkline(ttErrRate, 8, svcId + "_err");
                       ttLink = (selectedSessionId || selectedUserId)
-                        ? sessionsFilterUrl(frontend, undefined, { sessionId: selectedSessionId || undefined, userId: selectedUserId || undefined, serviceName: svc.name })
+                        ? sessionsFilterUrl(drillFrontend, undefined, { sessionId: selectedSessionId || undefined, userId: selectedUserId || undefined, serviceName: svc.name })
                         : `${ENV_URL}/ui/apps/dynatrace.services/explorer/services?detailsId=${encodeURIComponent(svcId)}&sidebarOpen=false&tf=${tfParam()}`;
                     }
 
