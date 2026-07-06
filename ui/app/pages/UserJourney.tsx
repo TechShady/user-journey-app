@@ -69,7 +69,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.56.80";
+const APP_VERSION_LABEL = "4.56.81";
 
 type FlowNodeType = "page-funnel" | "page-normal" | "page-entry" | "page-exit" | "svc-direct" | "svc-micro" | "svc-db" | "svc-cache" | "svc-external";
 const FLOW_NODE_META: Record<FlowNodeType, { color: string; label: string; borderWidth: number }> = {
@@ -1195,10 +1195,9 @@ ${userFilter}
 }
 
 function navigationUserTagOptionsQuery(days: number, frontend: string, steps: StepDef[], appFilter?: string): string {
-  const period = periodClause(days);
   const appName = ((appFilter && appFilter !== "__all__") ? appFilter : frontend).replace(/"/g, "\\\"");
   const appFilterClause = (appFilter && appFilter !== "__all__") ? `| filter in(frontend.name, {"${appName}"})` : "";
-  return `fetch user.sessions, ${period}
+  return `fetch user.sessions
 | fields user.identifier = coalesce(user.identifier, dt.rum.user_tag), frontend.name
 ${appFilterClause}
 | filter not(isNull(user.identifier))
@@ -9855,6 +9854,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     return true;
   });
 
+  const rawUserTagRecords = (userTagOptionsData.data?.records ?? []) as any[];
   const sessionTagRows = sessionOptions.filter((s) => String(s.tagUserId ?? "").trim() !== "");
   const userTagCountMap = sessionTagRows.reduce<Map<string, number>>((m, s) => {
     const rawUserId = String(s.tagUserId ?? "").trim();
@@ -9864,6 +9864,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   }, new Map<string, number>());
   const userTagRows: { userId: string; count: number }[] = Array.from(userTagCountMap.entries()).map(([userId, count]) => ({ userId, count }));
   const userTagDebugSample = sessionTagRows.slice(0, 5).map((s) => String(s.tagUserId ?? "")).filter(Boolean);
+  const userTagQueryError = String((userTagOptionsData as any)?.error?.message ?? (userTagOptionsData as any)?.error ?? "").trim();
 
   const buildUserTagGroups = (rows: { userId: string; count: number }[], isSessionFallback: boolean) => Array.from(rows.reduce((m, s) => {
     const key = s.userId;
@@ -10387,7 +10388,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
           Scope: {selectedSessionId ? `session ${selectedSessionId.slice(0, 12)}...` : selectedUserId ? "selected user" : "all sessions"}
         </Text>
         <Text style={{ fontSize: 11, opacity: 0.5, marginTop: 4, display: "block" }}>
-          User tag debug: session rows {sessionOptions.length} | tagged sessions {sessionTagRows.length} | groups {userTagGroups.length}{userTagDebugSample.length > 0 ? ` | sample ${userTagDebugSample.join(" | ")}` : ""}
+          User tag debug: query {userTagOptionsData.isLoading ? "loading" : userTagQueryError ? `error ${userTagQueryError}` : `rows ${rawUserTagRecords.length}`} | session rows {sessionOptions.length} | tagged sessions {sessionTagRows.length} | groups {userTagGroups.length}{userTagDebugSample.length > 0 ? ` | sample ${userTagDebugSample.join(" | ")}` : ""}
         </Text>
         {useScopedFallback && (
           <Text style={{ fontSize: 11, opacity: 0.55, marginTop: 4, display: "block" }}>
