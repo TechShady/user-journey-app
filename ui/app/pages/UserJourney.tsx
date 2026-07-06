@@ -69,7 +69,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.56.74";
+const APP_VERSION_LABEL = "4.56.75";
 
 type FlowNodeType = "page-funnel" | "page-normal" | "page-entry" | "page-exit" | "svc-direct" | "svc-micro" | "svc-db" | "svc-cache" | "svc-external";
 const FLOW_NODE_META: Record<FlowNodeType, { color: string; label: string; borderWidth: number }> = {
@@ -1150,29 +1150,21 @@ ${userFilter}
 function navigationSessionCandidatesQuery(days: number, frontend: string, steps: StepDef[], userId?: string, appFilter?: string): string {
   const period = periodClause(days);
   const lastStepExpr = stepFilter(steps[steps.length - 1]);
+  const appName = (appFilter && appFilter !== "__all__") ? appFilter : frontend;
   const safeUserId = userId ? userId.replace(/"/g, "\\\"") : "";
-  const userFilter = userId ? `| filter coalesce(tag_user_id, user_id) == "${safeUserId}"` : "";
+  const userFilter = userId ? `| filter tag_user_id == "${safeUserId}"` : "";
   return `fetch user.sessions, ${period}
 | filter dt.system.bucket != "default_synthetic_user_sessions"
-| fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}, session_tag_raw = coalesce(dt.rum.user_tag, dt.rum.userTag, user.tag, user.userTag), session_tag = coalesce(dt.rum.user_tag, dt.rum.userTag, user.tag, user.userTag, user.identifier, user.userId, user.email, user.name)
+| fields sid = coalesce(dt.rum.session.id, id), tag_user_id = coalesce(user.identifier, dt.rum.user_tag), session_user_id = ${NAV_SESSION_USER_ID_EXPR}, session_tag = coalesce(dt.rum.user_tag, dt.rum.userTag, user.tag, user.userTag, user.identifier, user.userId, user.email, user.name), frontend_name = frontend.name
+| filter frontend_name == "${appName}"
 | filter not(isNull(sid))
+| filter not(isNull(tag_user_id)) and tag_user_id != ""
 | lookup [
     fetch user.events, ${period}
+    | filter frontend.name == "${appName}"
     | fieldsAdd sid = dt.rum.session.id
     | filter not(isNull(sid))
-    | fieldsAdd any_user_tag = coalesce(dt.rum.user_tag, dt.rum.userTag, user.tag, user.userTag)
-    | fieldsAdd any_user_id = ${NAV_USER_ID_EXPR}
-    | filter not(isNull(any_user_id)) and any_user_id != ""
-    | summarize any_user_id = takeFirst(any_user_id), any_user_tag = takeFirst(any_user_tag), by:{sid}
-  ], sourceField:sid, lookupField:sid, prefix:"uid."
-| lookup [
-    fetch user.events, ${period}
-    | filter ${frontendFilter(steps, frontend, appFilter)}
   | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true OR characteristics.has_error == true
-    | fieldsAdd sid = dt.rum.session.id
-    | filter not(isNull(sid))
-    | fieldsAdd event_user_tag = coalesce(dt.rum.user_tag, dt.rum.userTag, user.tag, user.userTag)
-    | fieldsAdd event_user_id = ${NAV_USER_ID_EXPR}
     | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
     | fieldsAdd satisfaction = coalesce(
         if(dur_ms <= ${APDEX_T}.0, "satisfied"),
@@ -1188,39 +1180,27 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
         avg_dur = avg(dur_ms),
         satisfied = countIf(satisfaction == "satisfied"),
         tolerating = countIf(satisfaction == "tolerating"),
-        event_user_tag = takeFirst(event_user_tag),
-        event_user_id = takeFirst(event_user_id),
         by: {sid}
   ], sourceField:sid, lookupField:sid, prefix:"ev."
 | filter coalesce(ev.actions, 0) > 0
-      | fieldsAdd tag_user_id = coalesce(uid.any_user_tag, ev.event_user_tag, session_tag_raw)
-      | fieldsAdd user_id = coalesce(tag_user_id, uid.any_user_id, ev.event_user_id, session_tag, session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
+| fieldsAdd user_id = coalesce(tag_user_id, session_tag, session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
 ${userFilter}
 | fieldsAdd user_tag = if(stringLength(user_id) > 16, concat(substring(user_id, from: 0, to: 12), "…"), else: user_id)
 | fieldsAdd converted = ev.conv_hits > 0
 | fieldsAdd apdex = if(ev.actions > 0, (toDouble(ev.satisfied) + toDouble(ev.tolerating) / 2.0) / toDouble(ev.actions), else: 0.0)
 | sort ev.end_ts desc
 | limit ${userId ? 5000 : 1000}
-      | fields dt.rum.session.id = sid, user_id, tag_user_id, user_tag, converted, errors = ev.errors, apdex, avg_dur = ev.avg_dur, actions = ev.actions, start_ts = ev.start_ts, end_ts = ev.end_ts`;
+| fields dt.rum.session.id = sid, user_id, tag_user_id, user_tag, converted, errors = ev.errors, apdex, avg_dur = ev.avg_dur, actions = ev.actions, start_ts = ev.start_ts, end_ts = ev.end_ts`;
 }
 
 function navigationUserTagOptionsQuery(days: number, frontend: string, steps: StepDef[], appFilter?: string): string {
   const period = periodClause(days);
+  const appName = (appFilter && appFilter !== "__all__") ? appFilter : frontend;
   return `fetch user.sessions, ${period}
 | filter dt.system.bucket != "default_synthetic_user_sessions"
-| fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
-| filter not(isNull(sid))
-| lookup [
-    fetch user.events, ${period}
-    | filter ${frontendFilter(steps, frontend, appFilter)}
-    | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true OR characteristics.has_error == true
-    | fields sid = dt.rum.session.id
-    | filter not(isNull(sid))
-    | fieldsAdd event_user_id = ${NAV_USER_ID_EXPR}
-    | summarize actions = count(), event_user_id = takeFirst(event_user_id), by:{sid}
-  ], sourceField:sid, lookupField:sid, prefix:"ev."
-| filter coalesce(ev.actions, 0) > 0
-| fieldsAdd user_id = coalesce(ev.event_user_id, session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
+| fields user_id = coalesce(user.identifier, dt.rum.user_tag), frontend_name = frontend.name
+| filter frontend_name == "${appName}"
+| filter not(isNull(user_id)) and user_id != ""
 | summarize sessions = count(), by:{user_id}
 | sort sessions desc
 | limit 200`;
@@ -9678,6 +9658,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const funnelApps = useMemo(() => uniqueApps(steps, frontend), [steps, frontend]);
   const navAppFilterOverride = navAppFilter === "__all__" ? undefined : navAppFilter;
 
+  const userTagOptionsData = useDql({ query: navigationUserTagOptionsQuery(timeframeDays, frontend, steps, navAppFilterOverride) });
   const sessionCandidatesData = useDql({ query: navigationSessionCandidatesQuery(timeframeDays, frontend, steps, selectedUserId || undefined, navAppFilterOverride) });
   const hasSessionScope = selectedSessionId !== "" || selectedUserId !== "";
   const hasScopedNavQuery = hasSessionScope || navAppFilterOverride !== undefined;
@@ -9874,11 +9855,9 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     return true;
   });
 
-  const userTagRows = Array.from(sessionOptions.reduce((m, s) => {
-    const key = String(s.tagUserId || s.userId || "session:unknown");
-    m.set(key, (m.get(key) ?? 0) + 1);
-    return m;
-  }, new Map<string, number>()).entries()).map(([userId, count]) => ({ userId, count }));
+  const userTagRows = ((userTagOptionsData.data?.records ?? []) as any[])
+    .map((r: any) => ({ userId: String(r.user_id ?? ""), count: Number(r.sessions ?? 0) }))
+    .filter((r) => r.userId !== "" && r.count > 0);
 
   const buildUserTagGroups = (rows: { userId: string; count: number }[], isSessionFallback: boolean) => Array.from(rows.reduce((m, s) => {
     const key = s.userId;
