@@ -1115,8 +1115,8 @@ function geoPerformanceQuery(days: number, frontend: string, steps: StepDef[], p
 }
 
 // NEW: Navigation paths — actual user page flows
-const NAV_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, dt.rum.user.id, user.identifier, user.id, dt.user.id, user.userId, dt.client.id, user.anonymized_id, user.name)';
-const NAV_SESSION_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, dt.rum.user.id, user.identifier, user.userId, user.name, user.id, dt.user.id, dt.client.id, user.anonymized_id)';
+const NAV_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, dt.rum.user.id, user.tag, user.userTag, user.identifier, user.id, dt.user.id, user.userId, user.email, user.name, dt.client.id, user.anonymized_id)';
+const NAV_SESSION_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, dt.rum.user.id, user.tag, user.userTag, user.identifier, user.userId, user.email, user.name, user.id, dt.user.id, dt.client.id, user.anonymized_id)';
 
 function navigationPathsQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string, appFilter?: string): string {
   const period = periodClause(days);
@@ -1157,7 +1157,6 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
 | filter not(isNull(sid))
 | lookup [
     fetch user.events, ${period}
-    | filter ${frontendFilter(steps, frontend, appFilter)}
     | fieldsAdd sid = dt.rum.session.id
     | filter not(isNull(sid))
     | fieldsAdd any_user_id = ${NAV_USER_ID_EXPR}
@@ -10248,7 +10247,10 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     }
     if (!changed) break;
   }
-  const serviceReqById = (id: string, name: string) => Math.max(serviceReqCount(name), edgeReqById.get(id) ?? 0, propagatedReqById.get(id) ?? 0);
+  const strictSessionMode = selectedSessionId !== "";
+  const serviceReqById = (id: string, name: string) => strictSessionMode
+    ? (reqByServiceName.get(norm(name)) ?? 0)
+    : Math.max(serviceReqCount(name), edgeReqById.get(id) ?? 0, propagatedReqById.get(id) ?? 0);
   const visibleDepth = Math.min(maxVisibleDepth, Math.max(1, maxDataDepth || 1));
   const scopedBackendNames = new Set(Array.from(reqByServiceName.keys()));
   const backendVisibleByDepth = allBeServices.filter(s => s.depth <= visibleDepth);
@@ -10276,8 +10278,22 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   }
   const scopedAcrossTiers = backendVisibleByDepth.filter(s => scopedGraphIds.has(s.id));
   const useScopedFallback = hasSessionScope && scopedAcrossTiers.length === 0;
+  const strictReqEdges = backendReqRows
+    .map((r: any) => {
+      const srcName = String(r.from_service ?? "").trim();
+      const tgtName = String(r.to_service ?? "").trim();
+      if (!srcName || !tgtName || srcName === "unknown" || tgtName === "unknown") return null;
+      const srcId = ensureReqNode(srcName);
+      const tgtId = ensureReqNode(tgtName);
+      return { src: srcId, tgt: tgtId, srcName, tgtName };
+    })
+    .filter((e): e is { src: string; tgt: string; srcName: string; tgtName: string } => e !== null);
+  const strictReqNodeIds = new Set<string>();
+  strictReqEdges.forEach((e) => { strictReqNodeIds.add(e.src); strictReqNodeIds.add(e.tgt); });
   const tierScopedServices = (hasSessionScope
-    ? (scopedAcrossTiers.length > 0 ? scopedAcrossTiers : backendVisibleByDepth.filter(s => s.depth === 1))
+    ? (strictSessionMode
+      ? backendVisibleByDepth.filter(s => strictReqNodeIds.has(s.id))
+      : (scopedAcrossTiers.length > 0 ? scopedAcrossTiers : backendVisibleByDepth.filter(s => s.depth === 1)))
     : backendVisibleByDepth);
   const beServices = tierScopedServices
     .filter(s => serviceReqById(s.id, s.name) > 0)
@@ -10286,7 +10302,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const db1Shown = beServices.filter(s => norm(s.name).includes("db1"));
   const dbLikeShown = beServices.filter(s => /db|postgres|mysql|maria|oracle|sql|redis/i.test(s.name));
   const visibleBeIds = new Set(beServices.map(s => s.id));
-  const beEdges = s2sEdges.filter(e => visibleBeIds.has(e.src) && visibleBeIds.has(e.tgt));
+  const beEdges = (strictSessionMode ? strictReqEdges : s2sEdges).filter(e => visibleBeIds.has(e.src) && visibleBeIds.has(e.tgt));
 
   // Entry/exit page classification
   const step1Pages = new Set<string>(); const step2Pages = new Set<string>();
@@ -10634,15 +10650,16 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 
             // Build links (between visible nodes — forward and same-layer)
             const links: { src: string; tgt: string; value: number }[] = [];
+            const allowBackwardFrontendLinks = hasSessionScope;
             paths.forEach((p: any) => {
               const s = String(p.step1 ?? ""); const t = String(p.step2 ?? ""); const v = Number(p.occurrences ?? 0);
               if (visiblePages.has(s) && visiblePages.has(t) && s !== t) {
                 const sl = pageLayer.get(s) ?? 0; const tl = pageLayer.get(t) ?? 0;
-                if (tl >= sl) links.push({ src: s, tgt: t, value: v }); // forward + same-layer links
+                if (allowBackwardFrontendLinks || tl >= sl) links.push({ src: s, tgt: t, value: v });
               }
             });
             const maxLinkVal = Math.max(...links.map(l => l.value), 1);
-            const sortedLinks = [...links].sort((a, b) => b.value - a.value).slice(0, 40);
+            const sortedLinks = [...links].sort((a, b) => b.value - a.value).slice(0, hasSessionScope ? 240 : 40);
 
             // Compute highlighted nodes/links for the selected flow path
             const highlightedNodes = new Set<string>();
