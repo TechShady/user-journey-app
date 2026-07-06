@@ -1203,10 +1203,11 @@ function navigationUserTagOptionsQuery(days: number, frontend: string, steps: St
     | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true OR characteristics.has_error == true
     | fields sid = dt.rum.session.id
     | filter not(isNull(sid))
-    | summarize actions = count(), by:{sid}
+    | fieldsAdd event_user_id = ${NAV_USER_ID_EXPR}
+    | summarize actions = count(), event_user_id = takeFirst(event_user_id), by:{sid}
   ], sourceField:sid, lookupField:sid, prefix:"ev."
 | filter coalesce(ev.actions, 0) > 0
-| fieldsAdd user_id = coalesce(session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
+| fieldsAdd user_id = coalesce(ev.event_user_id, session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
 | summarize sessions = count(), by:{user_id}
 | sort sessions desc
 | limit 200`;
@@ -9728,14 +9729,6 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     const hit = rows.find((r: any) => String(r["dt.rum.session.id"] ?? "") === selectedSessionId);
     if (hit && String(hit.user_id ?? "") !== selectedUserId) setSelectedSessionId("");
   }, [selectedUserId, selectedSessionId, sessionCandidatesData.data]);
-  React.useEffect(() => {
-    const v = String(savedNavUser.data?.value ?? "");
-    if (v) setSelectedUserId(v);
-  }, [savedNavUser.data?.value]);
-  React.useEffect(() => {
-    const v = String(savedNavSession.data?.value ?? "");
-    if (v) setSelectedSessionId(v);
-  }, [savedNavSession.data?.value]);
   React.useEffect(() => {
     const v = String(savedNavPreset.data?.value ?? "all");
     if (v === "all" || v === "issues" || v === "converted" || v === "low_apdex") setFilterPreset(v);
