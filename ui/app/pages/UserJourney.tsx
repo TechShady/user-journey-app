@@ -6215,8 +6215,8 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
       return;
     }
 
-    const directTarget = candidates.find((p) => !isWildcard(p.name))?.name ?? stepPrimaryIdentifier(step);
-    if (appEntityId && directTarget && !isWildcard(directTarget)) {
+    const directTarget = candidates[0]?.name ?? stepPrimaryIdentifier(step);
+    if (appEntityId && directTarget) {
       openLink(vitalsUrl(appEntityId, directTarget));
     }
   }, [steps, buildStepDrillCandidates, appEntityId]);
@@ -6426,7 +6426,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <Text style={{ fontSize: 12, opacity: 0.6 }}>Choose the page with the most concerning performance or error profile.</Text>
           {(stepDrillPicker?.pages ?? []).map((p) => {
-            const canDrill = Boolean(appEntityId) && !isWildcard(p.name);
+            const canDrill = Boolean(appEntityId);
             return (
               <div key={p.name} style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 10, background: "rgba(128,128,128,0.05)" }}>
                 <Flex justifyContent="space-between" alignItems="center" gap={8} flexWrap="wrap">
@@ -9764,7 +9764,6 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 
   const navData = hasScopedNavQuery ? scopedNavData : data;
   const loadingNow = (hasScopedNavQuery ? scopedNavData.isLoading : isLoading);
-  if (loadingNow) return <Loading />;
 
   const navRows = (navData.data?.records ?? []) as any[];
   const sessionPaths = navRows
@@ -9911,6 +9910,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     }
     if (!userTagGroups.some((u) => u.userId === selectedUserId)) setSelectedUserId("");
   }, [selectedUserId, userTagGroups, realUserTagGroups.length]);
+
+  if (loadingNow) return <Loading />;
 
   const sessionsForPicker = (selectedUserId
     ? presetFilteredSessions.filter(s => s.userId === selectedUserId)
