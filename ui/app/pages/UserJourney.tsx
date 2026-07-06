@@ -1158,6 +1158,15 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
 | lookup [
     fetch user.events, ${period}
     | filter ${frontendFilter(steps, frontend, appFilter)}
+    | fieldsAdd sid = dt.rum.session.id
+    | filter not(isNull(sid))
+    | fieldsAdd any_user_id = ${NAV_USER_ID_EXPR}
+    | filter not(isNull(any_user_id)) and any_user_id != ""
+    | summarize any_user_id = takeFirst(any_user_id), by:{sid}
+  ], sourceField:sid, lookupField:sid, prefix:"uid."
+| lookup [
+    fetch user.events, ${period}
+    | filter ${frontendFilter(steps, frontend, appFilter)}
   | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true OR characteristics.has_error == true
     | fieldsAdd sid = dt.rum.session.id
     | filter not(isNull(sid))
@@ -1181,7 +1190,7 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
         by: {sid}
   ], sourceField:sid, lookupField:sid, prefix:"ev."
 | filter coalesce(ev.actions, 0) > 0
-| fieldsAdd user_id = coalesce(ev.event_user_id, session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
+| fieldsAdd user_id = coalesce(uid.any_user_id, ev.event_user_id, session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
 ${userFilter}
 | fieldsAdd user_tag = if(stringLength(user_id) > 16, concat(substring(user_id, from: 0, to: 12), "…"), else: user_id)
 | fieldsAdd converted = ev.conv_hits > 0
