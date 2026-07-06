@@ -1115,8 +1115,8 @@ function geoPerformanceQuery(days: number, frontend: string, steps: StepDef[], p
 }
 
 // NEW: Navigation paths — actual user page flows
-const NAV_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, dt.rum.user.id, user.tag, user.userTag, user.identifier, user.id, dt.user.id, user.userId, user.email, user.name, dt.client.id, user.anonymized_id)';
-const NAV_SESSION_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, dt.rum.user.id, user.tag, user.userTag, user.identifier, user.userId, user.email, user.name, user.id, dt.user.id, dt.client.id, user.anonymized_id)';
+const NAV_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, dt.rum.userTag, dt.rum.user.id, usr.tag, usr.identifier, usr.id, usr.email, usr.name, user.tag, user.userTag, user.identifier, user.id, dt.user.id, user.userId, user.email, user.name, dt.client.id, user.anonymized_id)';
+const NAV_SESSION_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, dt.rum.userTag, dt.rum.user.id, usr.tag, usr.identifier, usr.id, usr.email, usr.name, user.tag, user.userTag, user.identifier, user.userId, user.email, user.name, user.id, dt.user.id, dt.client.id, user.anonymized_id)';
 
 function navigationPathsQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string, appFilter?: string): string {
   const period = periodClause(days);
