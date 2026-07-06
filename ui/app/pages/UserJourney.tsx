@@ -1115,15 +1115,26 @@ function geoPerformanceQuery(days: number, frontend: string, steps: StepDef[], p
 
 // NEW: Navigation paths — actual user page flows
 const NAV_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, user.identifier, user.id, dt.user.id, user.userId, dt.client.id, user.anonymized_id, user.name)';
+const NAV_SESSION_USER_ID_EXPR = 'coalesce(user.identifier, user.id, dt.user.id, user.userId, user.name)';
 
 function navigationPathsQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string): string {
   const period = periodClause(days);
   const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
-  const userFilter = !sessionId && userId ? `| filter nav_user_id == "${userId}"` : "";
+  const userFilter = !sessionId && userId ? `| filter effective_user_id == "${userId}"` : "";
   return `fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
 | fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
+| fieldsAdd sid = dt.rum.session.id
+| lookup [
+    fetch user.sessions, ${period}
+    | filter ${frontendFilter(steps, frontend)}
+    | filter dt.system.bucket != "default_synthetic_user_sessions"
+    | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
+    | filter not(isNull(sid))
+    | fields sid, session_user_id
+  ], sourceField:sid, lookupField:sid, prefix:"sess."
+| fieldsAdd effective_user_id = coalesce(sess.session_user_id, nav_user_id, concat("session:", substring(sid, from: 0, to: 16)))
 ${sessionFilter}
 ${userFilter}
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
@@ -1141,7 +1152,7 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
   return `fetch user.sessions, ${period}
 | filter ${frontendFilter(steps, frontend)}
 | filter dt.system.bucket != "default_synthetic_user_sessions"
-| fields sid = coalesce(dt.rum.session.id, id), session_user_id = coalesce(dt.rum.user_tag, user.identifier, user.id, dt.user.id, user.userId, dt.client.id, user.anonymized_id, user.name)
+| fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
 | filter not(isNull(sid))
 | lookup [
     fetch user.events, ${period}
@@ -1169,7 +1180,7 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
         by: {sid}
   ], sourceField:sid, lookupField:sid, prefix:"ev."
 | filter coalesce(ev.actions, 0) > 0
-| fieldsAdd user_id = coalesce(ev.event_user_id, session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
+| fieldsAdd user_id = coalesce(session_user_id, ev.event_user_id, concat("session:", substring(sid, from: 0, to: 16)))
 | fieldsAdd user_tag = if(stringLength(user_id) > 16, concat(substring(user_id, from: 0, to: 12), "…"), else: user_id)
 | fieldsAdd converted = ev.conv_hits > 0
 | fieldsAdd apdex = if(ev.actions > 0, (toDouble(ev.satisfied) + toDouble(ev.tolerating) / 2.0) / toDouble(ev.actions), else: 0.0)
@@ -1181,11 +1192,21 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
 function navigationBackendRequestEdgesQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string): string {
   const period = periodClause(days);
   const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
-  const userFilter = !sessionId && userId ? `| filter nav_user_id == "${userId}"` : "";
+  const userFilter = !sessionId && userId ? `| filter effective_user_id == "${userId}"` : "";
   return `fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_request == true
 | fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
+| fieldsAdd sid = dt.rum.session.id
+| lookup [
+    fetch user.sessions, ${period}
+    | filter ${frontendFilter(steps, frontend)}
+    | filter dt.system.bucket != "default_synthetic_user_sessions"
+    | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
+    | filter not(isNull(sid))
+    | fields sid, session_user_id
+  ], sourceField:sid, lookupField:sid, prefix:"sess."
+| fieldsAdd effective_user_id = coalesce(sess.session_user_id, nav_user_id, concat("session:", substring(sid, from: 0, to: 16)))
 ${sessionFilter}
 ${userFilter}
 | fieldsAdd from_service = coalesce(service.name, dt.entity.service.name, "frontend")
@@ -9498,6 +9519,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [dividerDragStart, setDividerDragStart] = useState<{ mx: number; offset: number } | null>(null);
   const [frontendPanX, setFrontendPanX] = useState(0);
   const [backendPanX, setBackendPanX] = useState(0);
+  const [navZoom, setNavZoom] = useState(1);
   const navSvgRef = useRef<SVGSVGElement | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
@@ -9555,7 +9577,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const navTier5DbEdges = useDql({ query: serviceToDatabaseFromSourceIdsQuery(navTier5SourceIds) });
   const navTier5ExtEdges = useDql({ query: serviceToExternalFromSourceIdsQuery(navTier5SourceIds) });
 
-  React.useEffect(() => { setManualNodePos(new Map()); setBackendDividerOffset(0); setFrontendPanX(0); setBackendPanX(0); }, [data]);
+  React.useEffect(() => { setManualNodePos(new Map()); setBackendDividerOffset(0); setFrontendPanX(0); setBackendPanX(0); setNavZoom(1); }, [data]);
   React.useEffect(() => { setMaxVisibleDepth(999); }, [backendServicesData, serviceToServiceData]);
   React.useEffect(() => {
     if (!selectedSessionId) return;
@@ -9725,6 +9747,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const realUserTagGroups = buildUserTagGroups(sessionOptions.filter((s) => !s.userId.startsWith("session:")), false);
   const sessionFallbackTagGroups = buildUserTagGroups(sessionOptions.filter((s) => s.userId.startsWith("session:")), true);
   const userTagGroups = realUserTagGroups.length > 0 ? realUserTagGroups : sessionFallbackTagGroups;
+  const selectedUserGroup = userTagGroups.find((u) => u.userId === selectedUserId) ?? null;
+  const selectedSessionOption = sessionOptions.find((s) => s.sid === selectedSessionId) ?? null;
 
   const sessionsForPicker = (selectedUserId
     ? presetFilteredSessions.filter(s => s.userId === selectedUserId)
@@ -10633,26 +10657,43 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 
             return (
               <div className="uj-table-tile" style={{ padding: 16, overflow: "auto", maxWidth: "100%", maxHeight: "78vh", position: "relative" }}>
-                {/* Backend toggle */}
-                <Flex alignItems="center" gap={12} style={{ marginBottom: 10 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
-                    <input type="checkbox" checked={showBackend} onChange={e => setShowBackend(e.target.checked)} style={{ cursor: "pointer" }} />
-                    <span>Show backend service topology</span>
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
-                    <span>Frontend pan</span>
-                    <input type="range" min={-600} max={600} step={10} value={frontendPanX} onChange={(e) => setFrontendPanX(Number(e.target.value))} />
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
-                    <span>Backend pan</span>
-                    <input type="range" min={-600} max={600} step={10} value={backendPanX} onChange={(e) => setBackendPanX(Number(e.target.value))} />
-                  </label>
-                  {activeTooltip && (
-                    <button onClick={() => setActiveTooltip(null)} style={{ fontSize: 12, padding: "2px 10px", cursor: "pointer", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.7)" }}>✕ Close tooltip</button>
-                  )}
+                <Flex alignItems="center" justifyContent="space-between" gap={12} flexWrap="wrap" style={{ marginBottom: 10 }}>
+                  <Flex alignItems="center" gap={12} flexWrap="wrap" style={{ flex: 1, minWidth: 320 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
+                      <input type="checkbox" checked={showBackend} onChange={e => setShowBackend(e.target.checked)} style={{ cursor: "pointer" }} />
+                      <span>Show backend service topology</span>
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
+                      <span>Frontend pan</span>
+                      <input type="range" min={-600} max={600} step={10} value={frontendPanX} onChange={(e) => setFrontendPanX(Number(e.target.value))} />
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
+                      <span>Backend pan</span>
+                      <input type="range" min={-600} max={600} step={10} value={backendPanX} onChange={(e) => setBackendPanX(Number(e.target.value))} />
+                    </label>
+                  </Flex>
+                  <Flex alignItems="center" gap={8} flexWrap="wrap" style={{ flex: 1, minWidth: 260, justifyContent: "center" }}>
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: 0.6 }}>Active scope</span>
+                    <span style={{ fontSize: 12, padding: "4px 10px", borderRadius: 999, background: selectedUserGroup ? "rgba(69,137,255,0.15)" : "rgba(128,128,128,0.12)", border: selectedUserGroup ? "1px solid rgba(69,137,255,0.35)" : "1px solid rgba(128,128,128,0.28)", color: "rgba(255,255,255,0.88)" }}>
+                      User: {selectedUserGroup ? selectedUserGroup.displayTag : "all"}
+                    </span>
+                    <span style={{ fontSize: 12, padding: "4px 10px", borderRadius: 999, background: selectedSessionOption ? "rgba(8,189,186,0.14)" : "rgba(128,128,128,0.12)", border: selectedSessionOption ? "1px solid rgba(8,189,186,0.35)" : "1px solid rgba(128,128,128,0.28)", color: "rgba(255,255,255,0.88)" }}>
+                      Session: {selectedSessionOption ? `${selectedSessionOption.sid.slice(0, 12)}...` : "all"}
+                    </span>
+                  </Flex>
+                  <Flex alignItems="center" gap={8} flexWrap="wrap" style={{ minWidth: 250, justifyContent: "flex-end" }}>
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.65)" }}>Zoom</span>
+                    <button onClick={() => setNavZoom((z) => Math.max(0.6, Number((z - 0.1).toFixed(2))))} style={{ fontSize: 12, minWidth: 30, height: 28, cursor: "pointer", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.85)" }}>−</button>
+                    <span style={{ fontSize: 12, minWidth: 48, textAlign: "center", color: "rgba(255,255,255,0.85)" }}>{Math.round(navZoom * 100)}%</span>
+                    <button onClick={() => setNavZoom((z) => Math.min(2, Number((z + 0.1).toFixed(2))))} style={{ fontSize: 12, minWidth: 30, height: 28, cursor: "pointer", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.85)" }}>+</button>
+                    <button onClick={() => setNavZoom(1)} style={{ fontSize: 12, padding: "2px 10px", height: 28, cursor: "pointer", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.7)" }}>Reset</button>
+                    {activeTooltip && (
+                      <button onClick={() => setActiveTooltip(null)} style={{ fontSize: 12, padding: "2px 10px", height: 28, cursor: "pointer", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.7)" }}>Close tooltip</button>
+                    )}
+                  </Flex>
                 </Flex>
-                <svg ref={navSvgRef} width={totalSvgW} height={totalSvgH}
-                  style={{ display: "block", minWidth: totalSvgW, cursor: draggingDivider || draggingNode ? "grabbing" : (hasFocus ? "pointer" : "default") }}
+                <svg ref={navSvgRef} width={totalSvgW * navZoom} height={totalSvgH * navZoom} viewBox={`0 0 ${totalSvgW} ${totalSvgH}`}
+                  style={{ display: "block", minWidth: totalSvgW * navZoom, cursor: draggingDivider || draggingNode ? "grabbing" : (hasFocus ? "pointer" : "default") }}
                   onMouseMove={(e) => {
                     if (draggingDivider && dividerDragStart) {
                       const dx = e.clientX - dividerDragStart.mx;
