@@ -9706,14 +9706,25 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     return true;
   });
 
-  const userTagGroups = Array.from(sessionOptions.filter((s) => !s.userId.startsWith("session:")).reduce((m, s) => {
+  const buildUserTagGroups = (rows: typeof sessionOptions, isSessionFallback: boolean) => Array.from(rows.reduce((m, s) => {
     const key = `${s.userTag}||${s.userId}`;
     m.set(key, (m.get(key) ?? 0) + 1);
     return m;
   }, new Map<string, number>()).entries()).map(([k, count]) => {
     const [tag, userId] = k.split("||");
-    return { tag, userId, count };
+    const shortSession = userId.startsWith("session:") ? userId.replace("session:", "").slice(0, 12) : "";
+    return {
+      tag,
+      userId,
+      count,
+      isSessionFallback,
+      displayTag: isSessionFallback ? `Session ${shortSession}${shortSession.length >= 12 ? "..." : ""}` : tag,
+    };
   }).sort((a, b) => b.count - a.count);
+
+  const realUserTagGroups = buildUserTagGroups(sessionOptions.filter((s) => !s.userId.startsWith("session:")), false);
+  const sessionFallbackTagGroups = buildUserTagGroups(sessionOptions.filter((s) => s.userId.startsWith("session:")), true);
+  const userTagGroups = realUserTagGroups.length > 0 ? realUserTagGroups : sessionFallbackTagGroups;
 
   const sessionsForPicker = (selectedUserId
     ? presetFilteredSessions.filter(s => s.userId === selectedUserId)
@@ -10146,7 +10157,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                 <Select.Filter />
                 <Select.Option value="__all_users__">All users</Select.Option>
                 {userTagGroups.map((u) => (
-                  <Select.Option key={u.userId} value={u.userId}>{u.tag} ({u.count} sessions)</Select.Option>
+                  <Select.Option key={u.userId} value={u.userId}>{u.displayTag} ({u.count} sessions)</Select.Option>
                 ))}
               </Select.Content>
             </Select>
