@@ -69,7 +69,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.56.76";
+const APP_VERSION_LABEL = "4.56.77";
 
 type FlowNodeType = "page-funnel" | "page-normal" | "page-entry" | "page-exit" | "svc-direct" | "svc-micro" | "svc-db" | "svc-cache" | "svc-external";
 const FLOW_NODE_META: Record<FlowNodeType, { color: string; label: string; borderWidth: number }> = {
@@ -1151,16 +1151,17 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
   const period = periodClause(days);
   const lastStepExpr = stepFilter(steps[steps.length - 1]);
   const appName = ((appFilter && appFilter !== "__all__") ? appFilter : frontend).replace(/"/g, "\\\"");
-  const appClause = `in(frontend.name, {"${appName}"})`;
+  const sessionAppFilter = (appFilter && appFilter !== "__all__") ? `| filter in(frontend_name, {"${appName}"})` : "";
+  const eventAppFilter = (appFilter && appFilter !== "__all__") ? `| filter in(frontend.name, {"${appName}"})` : "";
   const safeUserId = userId ? userId.replace(/"/g, "\\\"") : "";
   const userFilter = userId ? `| filter tag_user_id == "${safeUserId}"` : "";
   return `fetch user.sessions, ${period}
 | fields sid = coalesce(dt.rum.session.id, id), tag_user_id = coalesce(user.identifier, dt.rum.user_tag), session_user_id = ${NAV_SESSION_USER_ID_EXPR}, session_tag = coalesce(dt.rum.user_tag, dt.rum.userTag, user.tag, user.userTag, user.identifier, user.userId, user.email, user.name), frontend_name = frontend.name
-| filter ${appClause}
+${sessionAppFilter}
 | filter not(isNull(sid))
 | lookup [
     fetch user.events, ${period}
-    | filter ${appClause}
+${eventAppFilter}
     | fieldsAdd sid = dt.rum.session.id
     | filter not(isNull(sid))
   | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true OR characteristics.has_error == true
@@ -1195,10 +1196,10 @@ ${userFilter}
 function navigationUserTagOptionsQuery(days: number, frontend: string, steps: StepDef[], appFilter?: string): string {
   const period = periodClause(days);
   const appName = ((appFilter && appFilter !== "__all__") ? appFilter : frontend).replace(/"/g, "\\\"");
-  const appClause = `in(frontend.name, {"${appName}"})`;
+  const sessionAppFilter = (appFilter && appFilter !== "__all__") ? `| filter in(frontend_name, {"${appName}"})` : "";
   return `fetch user.sessions, ${period}
 | fields user_id = coalesce(user.identifier, dt.rum.user_tag), frontend_name = frontend.name
-| filter ${appClause}
+${sessionAppFilter}
 | filter not(isNull(user_id))
 | summarize sessions = count(), by:{user_id}
 | sort sessions desc
