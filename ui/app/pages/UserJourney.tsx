@@ -1116,7 +1116,7 @@ function geoPerformanceQuery(days: number, frontend: string, steps: StepDef[], p
 
 // NEW: Navigation paths — actual user page flows
 const NAV_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, user.identifier, user.id, dt.user.id, user.userId, dt.client.id, user.anonymized_id, user.name)';
-const NAV_SESSION_USER_ID_EXPR = 'coalesce(user.identifier, user.userId, user.name)';
+const NAV_SESSION_USER_ID_EXPR = 'coalesce(user.identifier, user.userId, user.name, user.id, dt.user.id, dt.client.id, dt.rum.user_tag, user.anonymized_id)';
 
 function navigationPathsQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string, appFilter?: string): string {
   const period = periodClause(days);
@@ -1129,7 +1129,6 @@ function navigationPathsQuery(days: number, frontend: string, steps: StepDef[], 
 | fieldsAdd sid = dt.rum.session.id
 | lookup [
     fetch user.sessions, ${period}
-    | filter ${frontendFilter(steps, frontend, appFilter)}
     | filter dt.system.bucket != "default_synthetic_user_sessions"
     | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
     | filter not(isNull(sid))
@@ -1153,7 +1152,6 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
   const safeUserId = userId ? userId.replace(/"/g, "\\\"") : "";
   const userFilter = userId ? `| filter user_id == "${safeUserId}"` : "";
   return `fetch user.sessions, ${period}
-| filter ${frontendFilter(steps, frontend, appFilter)}
 | filter dt.system.bucket != "default_synthetic_user_sessions"
 | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
 | filter not(isNull(sid))
@@ -1196,7 +1194,6 @@ ${userFilter}
 function navigationUserTagOptionsQuery(days: number, frontend: string, steps: StepDef[], appFilter?: string): string {
   const period = periodClause(days);
   return `fetch user.sessions, ${period}
-| filter ${frontendFilter(steps, frontend, appFilter)}
 | filter dt.system.bucket != "default_synthetic_user_sessions"
 | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
 | filter not(isNull(sid))
@@ -1226,7 +1223,6 @@ function navigationBackendRequestEdgesQuery(days: number, frontend: string, step
 | fieldsAdd sid = dt.rum.session.id
 | lookup [
     fetch user.sessions, ${period}
-    | filter ${frontendFilter(steps, frontend, appFilter)}
     | filter dt.system.bucket != "default_synthetic_user_sessions"
     | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
     | filter not(isNull(sid))
@@ -11096,8 +11092,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       ttErrRate = 0.2 + (sHash % 7) * 0.3;
                       perfSpark = syntheticSparkline(ttDur, 8, svcId + "_lat");
                       errSpark = syntheticSparkline(ttErrRate, 8, svcId + "_err");
-                      ttLink = (selectedSessionId || selectedUserId)
-                        ? sessionsFilterUrl(drillFrontend, undefined, { sessionId: selectedSessionId || undefined, userId: selectedUserId || undefined, serviceName: svc.name })
+                      ttLink = svcId.startsWith("REQ:")
+                        ? `${ENV_URL}/ui/apps/dynatrace.services/explorer/services?perspective=performance&sort=entity%3Aascending&sidebarOpen=false&tf=${tfParam()}#filtering=dt.entity.service.name+%3D+${encodeURIComponent(svc.name)}+`
                         : `${ENV_URL}/ui/apps/dynatrace.services/explorer/services?detailsId=${encodeURIComponent(svcId)}&sidebarOpen=false&tf=${tfParam()}`;
                     }
 
