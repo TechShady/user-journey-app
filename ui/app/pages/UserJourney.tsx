@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
+import { createPortal } from "react-dom";
 import { useDql, useUserAppState, useSetUserAppState } from "@dynatrace-sdk/react-hooks";
 import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment";
 import { Flex } from "@dynatrace/strato-components/layouts";
@@ -425,9 +426,12 @@ function errorInspectorUrl(errorId: string, frontend: string): string {
   return `${ENV_URL}/ui/apps/dynatrace.error.inspector/explorer?tf=${tfParam()}&sort=affected_users%3Adescending&perspective=impact&detailsId=${encodeURIComponent(errorId)}&sidebarOpen=true#filtering=${filter}`;
 }
 
-function sessionsFilterUrl(frontend: string, locationName?: string): string {
+function sessionsFilterUrl(frontend: string, locationName?: string, opts?: { sessionId?: string; userId?: string; serviceName?: string }): string {
   let filter = `Frontends = ${frontend}`;
   if (locationName) filter += ` Location = "${locationName}"`;
+  if (opts?.sessionId) filter += ` Session ID = "${opts.sessionId}"`;
+  if (opts?.userId) filter += ` User ID = "${opts.userId}"`;
+  if (opts?.serviceName) filter += ` Service = "${opts.serviceName}"`;
   return `${ENV_URL}/ui/apps/dynatrace.users.sessions/sessions/sessions?tf=${tfParam()}&perspective=general#filtering=${encodeURIComponent(filter)}`;
 }
 
@@ -777,10 +781,10 @@ fetch user.events, ${period}
     by: {${field}}`;
 }
 
-function cwvQuery(days: number, frontend: string): string {
+function cwvQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_page_summary == true
 | fieldsAdd
     lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
@@ -796,10 +800,10 @@ function cwvQuery(days: number, frontend: string): string {
     load_avg = avg(load_ms)`;
 }
 
-function cwvByPageQuery(days: number, frontend: string): string {
+function cwvByPageQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_page_summary == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | fieldsAdd
@@ -1033,7 +1037,7 @@ function worstSessionsQuery(days: number, frontend: string, steps: StepDef[]): s
 }
 
 // Exceptions query
-function jsErrorsQuery(days: number, frontend: string, prev = false): string {
+function jsErrorsQuery(days: number, frontend: string, steps: StepDef[], prev = false): string {
   const period = periodClause(days, prev);
   return `fetch user.events, samplingRatio: 1, ${period}
 | filter characteristics.has_error
@@ -1043,7 +1047,7 @@ function jsErrorsQuery(days: number, frontend: string, prev = false): string {
     entityName(dt.rum.application.entity, type: "dt.entity.application"),
     entityName(dt.rum.application.entity, type: "dt.entity.mobile_application")
   )
-| filter frontend_name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter error.type == "exception"
 | fieldsAdd errorName = error.display_name
 | fieldsAdd pageName = view.name
@@ -1062,10 +1066,10 @@ function jsErrorsQuery(days: number, frontend: string, prev = false): string {
 }
 
 // NEW: Rage/Dead Clicks query
-function clickIssuesQuery(days: number, frontend: string): string {
+function clickIssuesQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter in(event.type, "rageClick", "deadClick")
 | fieldsAdd eventType = event.type
 | fieldsAdd pageName = view.name
@@ -1110,14 +1114,14 @@ function geoPerformanceQuery(days: number, frontend: string, steps: StepDef[], p
 }
 
 // NEW: Navigation paths — actual user page flows
-const NAV_USER_ID_EXPR = 'coalesce(user.id, dt.user.id, user.userId, dt.client.id, user.anonymized_id, "unknown")';
+const NAV_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, user.identifier, user.id, dt.user.id, user.userId, dt.client.id, user.anonymized_id, user.name)';
 
-function navigationPathsQuery(days: number, frontend: string, sessionId?: string, userId?: string): string {
+function navigationPathsQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string): string {
   const period = periodClause(days);
   const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
   const userFilter = !sessionId && userId ? `| filter nav_user_id == "${userId}"` : "";
   return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
 | fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
 ${sessionFilter}
@@ -1127,51 +1131,59 @@ ${userFilter}
 | summarize path = collectArray(pageName), by: {dt.rum.session.id}
 | fieldsAdd pathLen = arraySize(path)
 | filter pathLen >= 2
-| fieldsAdd step1 = path[0], step2 = path[1], step3 = if(pathLen >= 3, path[2], else: "(exit)")
-| fieldsAdd transition = concat(step1, " → ", step2)
-| summarize
-    occurrences = count(),
-    avg_depth = avg(toDouble(pathLen)),
-    by: {transition, step1, step2}
-| sort occurrences desc
-| limit 30`;
+| fields dt.rum.session.id, path, pathLen
+| limit 2000`;
 }
 
 function navigationSessionCandidatesQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   const lastStepExpr = stepFilter(steps[steps.length - 1]);
-  return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
-| fieldsAdd user_id = ${NAV_USER_ID_EXPR}
-| fieldsAdd user_tag = if(user_id == "unknown", "unknown", else: concat(substring(user_id, from: 0, to: 12), "…"))
-| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
-| fieldsAdd satisfaction = coalesce(
-    if(dur_ms <= ${APDEX_T}.0, "satisfied"),
-    if(dur_ms <= ${APDEX_4T}.0, "tolerating"),
-    "frustrated")
-| fieldsAdd conv_hit = ${lastStepExpr}
-| summarize
-    start_ts = min(timestamp),
-    end_ts = max(timestamp),
-    actions = count(),
-    errors = countIf(characteristics.has_error == true),
-    conv_hits = countIf(conv_hit == true),
-    avg_dur = avg(dur_ms),
-    satisfied = countIf(satisfaction == "satisfied"),
-    tolerating = countIf(satisfaction == "tolerating"),
-    by: {dt.rum.session.id, user_id, user_tag}
-| fieldsAdd converted = conv_hits > 0
-| fieldsAdd apdex = if(actions > 0, (toDouble(satisfied) + toDouble(tolerating) / 2.0) / toDouble(actions), else: 0.0)
-| sort end_ts desc
-| limit 500`;
+  return `fetch user.sessions, ${period}
+| filter ${frontendFilter(steps, frontend)}
+| filter dt.system.bucket != "default_synthetic_user_sessions"
+| fields sid = coalesce(dt.rum.session.id, id), session_user_id = coalesce(dt.rum.user_tag, user.identifier, user.id, dt.user.id, user.userId, dt.client.id, user.anonymized_id, user.name)
+| filter not(isNull(sid))
+| lookup [
+    fetch user.events, ${period}
+    | filter ${frontendFilter(steps, frontend)}
+    | filter ${anyStepFilter(steps)}
+    | fieldsAdd sid = dt.rum.session.id
+    | filter not(isNull(sid))
+    | fieldsAdd event_user_id = ${NAV_USER_ID_EXPR}
+    | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+    | fieldsAdd satisfaction = coalesce(
+        if(dur_ms <= ${APDEX_T}.0, "satisfied"),
+        if(dur_ms <= ${APDEX_4T}.0, "tolerating"),
+        "frustrated")
+    | fieldsAdd conv_hit = ${lastStepExpr}
+    | summarize
+        start_ts = min(timestamp),
+        end_ts = max(timestamp),
+        actions = count(),
+        errors = countIf(characteristics.has_error == true),
+        conv_hits = countIf(conv_hit == true),
+        avg_dur = avg(dur_ms),
+        satisfied = countIf(satisfaction == "satisfied"),
+        tolerating = countIf(satisfaction == "tolerating"),
+        event_user_id = takeFirst(event_user_id),
+        by: {sid}
+  ], sourceField:sid, lookupField:sid, prefix:"ev."
+| filter coalesce(ev.actions, 0) > 0
+| fieldsAdd user_id = coalesce(ev.event_user_id, session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
+| fieldsAdd user_tag = if(stringLength(user_id) > 16, concat(substring(user_id, from: 0, to: 12), "…"), else: user_id)
+| fieldsAdd converted = ev.conv_hits > 0
+| fieldsAdd apdex = if(ev.actions > 0, (toDouble(ev.satisfied) + toDouble(ev.tolerating) / 2.0) / toDouble(ev.actions), else: 0.0)
+| sort ev.end_ts desc
+| limit 1000
+| fields dt.rum.session.id = sid, user_id, user_tag, converted, errors = ev.errors, apdex, avg_dur = ev.avg_dur, actions = ev.actions, start_ts = ev.start_ts, end_ts = ev.end_ts`;
 }
 
-function navigationBackendRequestEdgesQuery(days: number, frontend: string, sessionId?: string, userId?: string): string {
+function navigationBackendRequestEdgesQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string): string {
   const period = periodClause(days);
   const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
   const userFilter = !sessionId && userId ? `| filter nav_user_id == "${userId}"` : "";
   return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_request == true
 | fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
 ${sessionFilter}
@@ -1185,14 +1197,28 @@ ${userFilter}
     avg_duration = avg(duration_ms),
     by: {from_service, to_service}
 | sort requests desc
-| limit 300`;
+| limit 1000`;
+}
+
+function navigationSessionTimelineQuery(days: number, frontend: string, steps: StepDef[], sessionId: string): string {
+  const period = periodClause(days);
+  const safeSessionId = sessionId.replace(/"/g, "\\\"");
+  return `fetch user.events, ${period}
+| filter ${frontendFilter(steps, frontend)}
+| filter dt.rum.session.id == "${safeSessionId}"
+| fieldsAdd page_name = coalesce(view.name, page.name, url.path, "unknown")
+| fieldsAdd event_name = coalesce(event.name, event.type, user_action.name, "event")
+| fieldsAdd has_error = coalesce(characteristics.has_error, false)
+| sort timestamp asc
+| fields ts = timestamp, page_name, event_name, has_error
+| limit 400`;
 }
 
 // NEW: Sankey — multi-step page flow for Sankey diagram
-function sankeyQuery(days: number, frontend: string): string {
+function sankeyQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | sort timestamp asc
@@ -1211,10 +1237,10 @@ function sankeyQuery(days: number, frontend: string): string {
 }
 
 // NEW: Sankey CWV per page — web vitals health for funnel exit analysis
-function sankeyCwvPerPageQuery(days: number, frontend: string): string {
+function sankeyCwvPerPageQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_page_summary == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | fieldsAdd
@@ -1232,10 +1258,10 @@ function sankeyCwvPerPageQuery(days: number, frontend: string): string {
 }
 
 // NEW: Sankey errors per page — error counts for exit correlation
-function sankeyErrorsPerPageQuery(days: number, frontend: string): string {
+function sankeyErrorsPerPageQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_error == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | summarize
@@ -1247,10 +1273,10 @@ function sankeyErrorsPerPageQuery(days: number, frontend: string): string {
 }
 
 // NEW: Sankey extended paths — full session paths for return analysis
-function sankeyExtendedPathsQuery(days: number, frontend: string): string {
+function sankeyExtendedPathsQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | sort timestamp asc
@@ -1261,10 +1287,10 @@ function sankeyExtendedPathsQuery(days: number, frontend: string): string {
 }
 
 // NEW: Sankey avg duration per page — for Page Timing sub-tab
-function sankeyPageDurationQuery(days: number, frontend: string): string {
+function sankeyPageDurationQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
@@ -1278,10 +1304,10 @@ function sankeyPageDurationQuery(days: number, frontend: string): string {
 }
 
 // NEW: Sankey previous-period paths — for Path Trends sub-tab
-function sankeyPrevPathsQuery(days: number, frontend: string): string {
+function sankeyPrevPathsQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days, true);
   return `fetch user.events, ${period}
-| filter frontend.name == "${frontend}"
+| filter ${frontendFilter(steps, frontend)}
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | sort timestamp asc
@@ -1792,7 +1818,7 @@ function backendServicesQuery(days: number, frontend: string): string {
 | filter isNotNull(service_id)
 | lookup [fetch dt.entity.service | fields id, entity.name, entity.detected_name], sourceField:service_id, lookupField:id, prefix:"svc."
 | fields id = service_id, entity.name = svc.entity.name, entity.detected_name = svc.entity.detected_name
-| limit 30`;
+| limit 500`;
 }
 
 // NEW: Service-to-Service calls (downstream topology via entity relationships)
@@ -1803,7 +1829,58 @@ function serviceToServiceQuery(days: number, frontend: string): string {
 | filter isNotNull(downstream_id)
 | lookup [fetch dt.entity.service | fields id, entity.name], sourceField:downstream_id, lookupField:id, prefix:"tgt."
 | fields source_id = id, source_name = entity.name, target_id = downstream_id, target_name = tgt.entity.name
-| limit 500`;
+| limit 5000`;
+}
+
+function serviceToServiceFromSourceIdsQuery(sourceIds: string[]): string {
+  if (sourceIds.length === 0) return "fetch dt.entity.service | limit 0";
+  const ids = sourceIds
+    .filter(Boolean)
+    .slice(0, 180)
+    .map((id) => `"${id.replace(/"/g, '\\"')}"`)
+    .join(", ");
+  return `fetch dt.entity.service
+| filter in(id, {${ids}})
+| fields id, entity.name, downstream = calls[dt.entity.service]
+| expand downstream_id = downstream
+| filter isNotNull(downstream_id)
+| lookup [fetch dt.entity.service | fields id, entity.name], sourceField:downstream_id, lookupField:id, prefix:"tgt."
+| fields source_id = id, source_name = entity.name, target_id = downstream_id, target_name = tgt.entity.name
+| limit 20000`;
+}
+
+function serviceToDatabaseFromSourceIdsQuery(sourceIds: string[]): string {
+  if (sourceIds.length === 0) return "fetch dt.entity.service | limit 0";
+  const ids = sourceIds
+    .filter(Boolean)
+    .slice(0, 180)
+    .map((id) => `"${id.replace(/"/g, '\\"')}"`)
+    .join(", ");
+  return `fetch dt.entity.service
+| filter in(id, {${ids}})
+| fields id, entity.name, deps = calls[dt.entity.database_service]
+| expand dep_id = deps
+| filter isNotNull(dep_id)
+| lookup [fetch dt.entity.database_service | fields id, entity.name], sourceField:dep_id, lookupField:id, prefix:"dep."
+| fields source_id = id, source_name = entity.name, target_id = dep_id, target_name = dep.entity.name
+| limit 20000`;
+}
+
+function serviceToExternalFromSourceIdsQuery(sourceIds: string[]): string {
+  if (sourceIds.length === 0) return "fetch dt.entity.service | limit 0";
+  const ids = sourceIds
+    .filter(Boolean)
+    .slice(0, 180)
+    .map((id) => `"${id.replace(/"/g, '\\"')}"`)
+    .join(", ");
+  return `fetch dt.entity.service
+| filter in(id, {${ids}})
+| fields id, entity.name, deps = calls[dt.entity.external_service]
+| expand dep_id = deps
+| filter isNotNull(dep_id)
+| lookup [fetch dt.entity.external_service | fields id, entity.name], sourceField:dep_id, lookupField:id, prefix:"dep."
+| fields source_id = id, source_name = entity.name, target_id = dep_id, target_name = dep.entity.name
+| limit 20000`;
 }
 
 // NEW: Davis problems on backend services
@@ -3625,8 +3702,8 @@ export function UserJourney() {
   const pageMetrics = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, refetchOpts);
   const pageMetricsPrev = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps, 1, true) : "fetch user.events | limit 0" }, refetchOpts);
   const pageSparklineData = useDql({ query: hasMultiPageSteps ? pageSparklineQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, refetchOpts);
-  const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend) }, refetchOpts);
-  const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays, frontend) }, refetchOpts);
+  const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const deviceData = useDql({ query: deviceQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const browserData = useDql({ query: browserQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const geoData = useDql({ query: geoQuery(timeframeDays, frontend, steps) }, refetchOpts);
@@ -3645,21 +3722,21 @@ export function UserJourney() {
 
   // NEW: Worst Sessions + Exceptions
   const worstSessionsData = useDql({ query: worstSessionsQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const jsErrorsData = useDql({ query: jsErrorsQuery(timeframeDays, frontend) }, refetchOpts);
-  const jsErrorsPrevData = useDql({ query: jsErrorsQuery(timeframeDays, frontend, true) }, refetchOpts);
+  const jsErrorsData = useDql({ query: jsErrorsQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const jsErrorsPrevData = useDql({ query: jsErrorsQuery(timeframeDays, frontend, steps, true) }, refetchOpts);
 
   // NEW: Rage/Dead Clicks
-  const clickIssuesData = useDql({ query: clickIssuesQuery(timeframeDays, frontend) }, refetchOpts);
+  const clickIssuesData = useDql({ query: clickIssuesQuery(timeframeDays, frontend, steps) }, refetchOpts);
 
   // NEW: Geo Performance, Navigation Paths, Hourly Distribution
   const geoPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const navigationPathsData = useDql({ query: navigationPathsQuery(timeframeDays, frontend) }, refetchOpts);
-  const sankeyData = useDql({ query: sankeyQuery(timeframeDays, frontend) }, refetchOpts);
-  const sankeyCwvData = useDql({ query: sankeyCwvPerPageQuery(timeframeDays, frontend) }, refetchOpts);
-  const sankeyErrorData = useDql({ query: sankeyErrorsPerPageQuery(timeframeDays, frontend) }, refetchOpts);
-  const sankeyPathsData = useDql({ query: sankeyExtendedPathsQuery(timeframeDays, frontend) }, refetchOpts);
-  const sankeyDurationData = useDql({ query: sankeyPageDurationQuery(timeframeDays, frontend) }, refetchOpts);
-  const sankeyPrevPaths = useDql({ query: sankeyPrevPathsQuery(timeframeDays, frontend) }, refetchOpts);
+  const navigationPathsData = useDql({ query: navigationPathsQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const sankeyData = useDql({ query: sankeyQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const sankeyCwvData = useDql({ query: sankeyCwvPerPageQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const sankeyErrorData = useDql({ query: sankeyErrorsPerPageQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const sankeyPathsData = useDql({ query: sankeyExtendedPathsQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const sankeyDurationData = useDql({ query: sankeyPageDurationQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const sankeyPrevPaths = useDql({ query: sankeyPrevPathsQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const appEntityData = useDql({ query: appEntityQuery(frontend) });
   const appEntityId = (appEntityData.data?.records?.[0] as any)?.['id'] ?? '';
   const settingsAppsData = useDql({ query: showSettings ? availableAppsQuery() : "fetch user.events | limit 0" });
@@ -9415,21 +9492,71 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [wasDragging, setWasDragging] = useState(false);
   const [showBackend, setShowBackend] = useState(true);
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
-  const [maxVisibleDepth, setMaxVisibleDepth] = useState(7);
+  const [maxVisibleDepth, setMaxVisibleDepth] = useState(999);
+  const [backendDividerOffset, setBackendDividerOffset] = useState(0);
+  const [draggingDivider, setDraggingDivider] = useState(false);
+  const [dividerDragStart, setDividerDragStart] = useState<{ mx: number; offset: number } | null>(null);
+  const [frontendPanX, setFrontendPanX] = useState(0);
+  const [backendPanX, setBackendPanX] = useState(0);
+  const navSvgRef = useRef<SVGSVGElement | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const [filterPreset, setFilterPreset] = useState<"all" | "issues" | "converted" | "low_apdex">("all");
   const [timelineSessionId, setTimelineSessionId] = useState<string>("");
+  const [timelineViewMode, setTimelineViewMode] = useState<"summary" | "chronological">("summary");
   const [compareSessionA, setCompareSessionA] = useState<string>("");
   const [compareSessionB, setCompareSessionB] = useState<string>("");
 
   const sessionCandidatesData = useDql({ query: navigationSessionCandidatesQuery(timeframeDays, frontend, steps) });
   const hasSessionScope = selectedSessionId !== "" || selectedUserId !== "";
-  const scopedNavData = useDql({ query: hasSessionScope ? navigationPathsQuery(timeframeDays, frontend, selectedSessionId || undefined, selectedUserId || undefined) : "fetch user.events | limit 0" });
-  const scopedBackendReqData = useDql({ query: navigationBackendRequestEdgesQuery(timeframeDays, frontend, selectedSessionId || undefined, selectedUserId || undefined) });
+  const scopedNavData = useDql({ query: hasSessionScope ? navigationPathsQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, selectedUserId || undefined) : "fetch user.events | limit 0" });
+  const scopedBackendReqData = useDql({ query: navigationBackendRequestEdgesQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, selectedUserId || undefined) });
+  const timelineEventsData = useDql({ query: timelineSessionId ? navigationSessionTimelineQuery(timeframeDays, frontend, steps, timelineSessionId) : "fetch user.events | limit 0" });
 
-  React.useEffect(() => { setManualNodePos(new Map()); }, [data]);
-  React.useEffect(() => { setMaxVisibleDepth(7); }, [backendServicesData, serviceToServiceData]);
+  const navDirectServiceIds = React.useMemo(() => {
+    return ((backendServicesData?.data?.records ?? []) as any[])
+      .map((r: any) => String(r.id ?? ""))
+      .filter((id: string) => id !== "")
+      .slice(0, 180);
+  }, [backendServicesData?.data?.records]);
+  const navTier1Edges = useDql({ query: serviceToServiceFromSourceIdsQuery(navDirectServiceIds) });
+  const navTier1DbEdges = useDql({ query: serviceToDatabaseFromSourceIdsQuery(navDirectServiceIds) });
+  const navTier1ExtEdges = useDql({ query: serviceToExternalFromSourceIdsQuery(navDirectServiceIds) });
+  const navTier2SourceIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    ((navTier1Edges.data?.records ?? []) as any[]).forEach((r: any) => { const id = String(r.target_id ?? ""); if (id) ids.add(id); });
+    return Array.from(ids).slice(0, 180);
+  }, [navTier1Edges.data?.records]);
+  const navTier2Edges = useDql({ query: serviceToServiceFromSourceIdsQuery(navTier2SourceIds) });
+  const navTier2DbEdges = useDql({ query: serviceToDatabaseFromSourceIdsQuery(navTier2SourceIds) });
+  const navTier2ExtEdges = useDql({ query: serviceToExternalFromSourceIdsQuery(navTier2SourceIds) });
+  const navTier3SourceIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    ((navTier2Edges.data?.records ?? []) as any[]).forEach((r: any) => { const id = String(r.target_id ?? ""); if (id) ids.add(id); });
+    return Array.from(ids).slice(0, 180);
+  }, [navTier2Edges.data?.records]);
+  const navTier3Edges = useDql({ query: serviceToServiceFromSourceIdsQuery(navTier3SourceIds) });
+  const navTier3DbEdges = useDql({ query: serviceToDatabaseFromSourceIdsQuery(navTier3SourceIds) });
+  const navTier3ExtEdges = useDql({ query: serviceToExternalFromSourceIdsQuery(navTier3SourceIds) });
+  const navTier4SourceIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    ((navTier3Edges.data?.records ?? []) as any[]).forEach((r: any) => { const id = String(r.target_id ?? ""); if (id) ids.add(id); });
+    return Array.from(ids).slice(0, 180);
+  }, [navTier3Edges.data?.records]);
+  const navTier4Edges = useDql({ query: serviceToServiceFromSourceIdsQuery(navTier4SourceIds) });
+  const navTier4DbEdges = useDql({ query: serviceToDatabaseFromSourceIdsQuery(navTier4SourceIds) });
+  const navTier4ExtEdges = useDql({ query: serviceToExternalFromSourceIdsQuery(navTier4SourceIds) });
+  const navTier5SourceIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    ((navTier4Edges.data?.records ?? []) as any[]).forEach((r: any) => { const id = String(r.target_id ?? ""); if (id) ids.add(id); });
+    return Array.from(ids).slice(0, 180);
+  }, [navTier4Edges.data?.records]);
+  const navTier5Edges = useDql({ query: serviceToServiceFromSourceIdsQuery(navTier5SourceIds) });
+  const navTier5DbEdges = useDql({ query: serviceToDatabaseFromSourceIdsQuery(navTier5SourceIds) });
+  const navTier5ExtEdges = useDql({ query: serviceToExternalFromSourceIdsQuery(navTier5SourceIds) });
+
+  React.useEffect(() => { setManualNodePos(new Map()); setBackendDividerOffset(0); setFrontendPanX(0); setBackendPanX(0); }, [data]);
+  React.useEffect(() => { setMaxVisibleDepth(999); }, [backendServicesData, serviceToServiceData]);
   React.useEffect(() => {
     if (!selectedSessionId) return;
     const rows = (sessionCandidatesData.data?.records ?? []) as any[];
@@ -9472,10 +9599,34 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const loadingNow = isLoading || (hasSessionScope && scopedNavData.isLoading);
   if (loadingNow) return <Loading />;
 
-  const paths = (navData.data?.records ?? []) as any[];
+  const navRows = (navData.data?.records ?? []) as any[];
+  const sessionPaths = navRows
+    .map((r: any) => {
+      const arr = Array.isArray(r.path) ? r.path.map((x: any) => String(x ?? "")).filter((x: string) => x !== "") : [];
+      const pathLen = Number(r.pathLen ?? arr.length ?? 0);
+      return { path: arr, pathLen };
+    })
+    .filter((s) => s.path.length >= 2);
+  const transitionAgg = new Map<string, { step1: string; step2: string; occurrences: number; depthSum: number; depthN: number }>();
+  sessionPaths.forEach((s) => {
+    for (let i = 0; i < s.path.length - 1; i++) {
+      const step1 = s.path[i];
+      const step2 = s.path[i + 1];
+      if (!step1 || !step2) continue;
+      const k = `${step1}\u0000${step2}`;
+      const cur = transitionAgg.get(k) ?? { step1, step2, occurrences: 0, depthSum: 0, depthN: 0 };
+      cur.occurrences += 1;
+      cur.depthSum += s.pathLen;
+      cur.depthN += 1;
+      transitionAgg.set(k, cur);
+    }
+  });
+  const paths = Array.from(transitionAgg.values())
+    .map((t) => ({ step1: t.step1, step2: t.step2, occurrences: t.occurrences, avg_depth: t.depthN > 0 ? t.depthSum / t.depthN : 0 }))
+    .sort((a, b) => b.occurrences - a.occurrences);
   const totalTransitions = paths.reduce((a: number, p: any) => a + Number(p.occurrences ?? 0), 0);
   const uniquePaths = paths.length;
-  const avgDepth = paths.length > 0 ? paths.reduce((a: number, p: any) => a + Number(p.avg_depth ?? 0), 0) / paths.length : 0;
+  const avgDepth = sessionPaths.length > 0 ? sessionPaths.reduce((a, s) => a + s.pathLen, 0) / sessionPaths.length : 0;
 
   // Compute conversion rate per page from the path graph
   // "Conversion probability": accounts for drop-offs (sessions that visited but didn't continue)
@@ -9555,7 +9706,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     return true;
   });
 
-  const userTagGroups = Array.from(sessionOptions.reduce((m, s) => {
+  const userTagGroups = Array.from(sessionOptions.filter((s) => !s.userId.startsWith("session:")).reduce((m, s) => {
     const key = `${s.userTag}||${s.userId}`;
     m.set(key, (m.get(key) ?? 0) + 1);
     return m;
@@ -9573,6 +9724,16 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const compareB = sessionOptions.find(s => s.sid === compareSessionB) ?? null;
   const compareSparkA = compareA ? [compareA.actions, Math.max(0, compareA.actions - compareA.errors), compareA.converted ? compareA.actions : Math.round(compareA.actions * 0.4)] : [];
   const compareSparkB = compareB ? [compareB.actions, Math.max(0, compareB.actions - compareB.errors), compareB.converted ? compareB.actions : Math.round(compareB.actions * 0.4)] : [];
+  const timelineEvents = ((timelineEventsData.data?.records ?? []) as any[])
+    .map((r: any) => ({
+      ts: Number(r.ts ?? 0),
+      page: String(r.page_name ?? "unknown"),
+      event: String(r.event_name ?? "event"),
+      hasError: Boolean(r.has_error),
+    }))
+    .filter(e => Number.isFinite(e.ts) && e.ts > 0)
+    .sort((a, b) => a.ts - b.ts)
+    .slice(0, 200);
 
   const backendReqRows = (scopedBackendReqData.data?.records ?? []) as any[];
   const reqByServiceName = new Map<string, number>();
@@ -9587,6 +9748,33 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     reqByServiceName.set(norm(tgt), (reqByServiceName.get(norm(tgt)) ?? 0) + req);
     reqByPair.set(`${norm(src)}->${norm(tgt)}`, (reqByPair.get(`${norm(src)}->${norm(tgt)}`) ?? 0) + req);
   });
+  const serviceReqCount = (name: string) => {
+    const n = norm(name);
+    const exact = reqByServiceName.get(n);
+    if ((exact ?? 0) > 0) return exact ?? 0;
+    let best = 0;
+    for (const [k, v] of reqByServiceName.entries()) {
+      if (k.includes(n) || n.includes(k)) best = Math.max(best, v);
+    }
+    return best;
+  };
+  const reqForPair = (srcName: string, tgtName: string) => {
+    const ns = norm(srcName);
+    const nt = norm(tgtName);
+    const exact = reqByPair.get(`${ns}->${nt}`);
+    if ((exact ?? 0) > 0) return exact ?? 0;
+    let best = 0;
+    for (const [k, v] of reqByPair.entries()) {
+      const arrow = k.indexOf("->");
+      if (arrow <= 0) continue;
+      const ks = k.slice(0, arrow);
+      const kt = k.slice(arrow + 2);
+      const srcMatch = ks.includes(ns) || ns.includes(ks);
+      const tgtMatch = kt.includes(nt) || nt.includes(kt);
+      if (srcMatch && tgtMatch) best = Math.max(best, v);
+    }
+    return best;
+  };
 
   // --- AI Path Recommendations: find best/worst converting paths ---
   const pageConvList = [...convMap.entries()].filter(([, v]) => v > 0 && v < 100).map(([page, convRate]) => ({ page, convRate, sessions: graphOut.get(page)?.total ?? 0 }));
@@ -9621,41 +9809,286 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     pathRecs.push({ text: `Top converting pages (${highConv.slice(0, 3).map(p => p.page.substring(0, 30)).join(", ")}) share a common trait: users who visit them are ${((highConv[0].convRate / avgConv)).toFixed(1)}x more likely to complete the funnel. Optimize navigation to guide users toward these pages.`, type: "positive" });
   }
 
-  // Backend topology — BFS from direct services (up to 4 tiers)
-  const rawBeServices: { id: string; name: string; depth: number }[] = [];
-  (backendServicesData?.data?.records ?? []).forEach((r: any) => {
-    rawBeServices.push({ id: String(r.id ?? ""), name: String(r["entity.name"] ?? r.id ?? "Unknown"), depth: 1 });
-  });
-  const beServiceMap = new Map<string, { id: string; name: string; depth: number }>();
-  rawBeServices.forEach(s => { if (s.id) beServiceMap.set(s.id, s); });
+  // Backend topology — root-based graph layering (uncapped depth)
   const s2sEdges: { src: string; tgt: string; srcName: string; tgtName: string }[] = [];
-  (serviceToServiceData?.data?.records ?? []).forEach((r: any) => {
-    const srcId = String(r.source_id ?? ""); const tgtId = String(r.target_id ?? "");
-    const srcName = String(r.source_name ?? srcId); const tgtName = String(r.target_name ?? tgtId);
-    if (srcId && tgtId) s2sEdges.push({ src: srcId, tgt: tgtId, srcName, tgtName });
+  const beNameById = new Map<string, string>();
+  const beIdByNormName = new Map<string, string>();
+  const edgeSeen = new Set<string>();
+  const addNode = (id: string, name: string) => {
+    if (!id) return;
+    if (!beNameById.has(id)) beNameById.set(id, name || id);
+    const key = norm(name || id);
+    if (key && !beIdByNormName.has(key)) beIdByNormName.set(key, id);
+  };
+  const addEdge = (srcId: string, tgtId: string, srcName: string, tgtName: string) => {
+    if (!srcId || !tgtId || srcId === tgtId) return;
+    const edgeKey = `${srcId}->${tgtId}`;
+    if (edgeSeen.has(edgeKey)) return;
+    edgeSeen.add(edgeKey);
+    s2sEdges.push({ src: srcId, tgt: tgtId, srcName, tgtName });
+    addNode(srcId, srcName);
+    addNode(tgtId, tgtName);
+  };
+
+  const rawBeServiceIds = new Set<string>();
+  (backendServicesData?.data?.records ?? []).forEach((r: any) => {
+    const id = String(r.id ?? "");
+    const name = String(r["entity.name"] ?? r.id ?? "Unknown");
+    if (!id) return;
+    rawBeServiceIds.add(id);
+    addNode(id, name);
   });
-  // Multi-pass BFS: expand depth tier by tier until no new nodes are discovered
-  let bfsChanged = true;
-  while (bfsChanged) {
-    bfsChanged = false;
-    for (const edge of s2sEdges) {
-      if (beServiceMap.has(edge.src) && !beServiceMap.has(edge.tgt)) {
-        const parentDepth = beServiceMap.get(edge.src)!.depth;
-        if (parentDepth < 6) {
-          beServiceMap.set(edge.tgt, { id: edge.tgt, name: edge.tgtName, depth: parentDepth + 1 });
-          bfsChanged = true;
-        }
+
+  const allS2sRecords = [
+    ...((serviceToServiceData?.data?.records ?? []) as any[]),
+    ...((navTier1Edges.data?.records ?? []) as any[]),
+    ...((navTier1DbEdges.data?.records ?? []) as any[]),
+    ...((navTier1ExtEdges.data?.records ?? []) as any[]),
+    ...((navTier2Edges.data?.records ?? []) as any[]),
+    ...((navTier2DbEdges.data?.records ?? []) as any[]),
+    ...((navTier2ExtEdges.data?.records ?? []) as any[]),
+    ...((navTier3Edges.data?.records ?? []) as any[]),
+    ...((navTier3DbEdges.data?.records ?? []) as any[]),
+    ...((navTier3ExtEdges.data?.records ?? []) as any[]),
+    ...((navTier4Edges.data?.records ?? []) as any[]),
+    ...((navTier4DbEdges.data?.records ?? []) as any[]),
+    ...((navTier4ExtEdges.data?.records ?? []) as any[]),
+    ...((navTier5Edges.data?.records ?? []) as any[]),
+    ...((navTier5DbEdges.data?.records ?? []) as any[]),
+    ...((navTier5ExtEdges.data?.records ?? []) as any[]),
+  ];
+  allS2sRecords.forEach((r: any) => {
+    const srcId = String(r.source_id ?? "");
+    const tgtId = String(r.target_id ?? "");
+    const srcName = String(r.source_name ?? srcId);
+    const tgtName = String(r.target_name ?? tgtId);
+    addEdge(srcId, tgtId, srcName, tgtName);
+  });
+
+  // Merge request-observed links so scoped sessions can still expand deeply even if entity links are sparse.
+  const reqRootIds = new Set<string>();
+  const reqSrcNames = new Set<string>();
+  const reqTgtNames = new Set<string>();
+  const ensureReqNode = (name: string) => {
+    const key = norm(name);
+    const existing = beIdByNormName.get(key);
+    if (existing) return existing;
+    const id = `REQ:${key}`;
+    addNode(id, name);
+    return id;
+  };
+  backendReqRows.forEach((r: any) => {
+    const srcName = String(r.from_service ?? "").trim();
+    const tgtName = String(r.to_service ?? "").trim();
+    if (!srcName || !tgtName || srcName === "unknown" || tgtName === "unknown") return;
+    const srcId = ensureReqNode(srcName);
+    const tgtId = ensureReqNode(tgtName);
+    addEdge(srcId, tgtId, srcName, tgtName);
+    reqSrcNames.add(norm(srcName));
+    reqTgtNames.add(norm(tgtName));
+  });
+  for (const srcName of reqSrcNames) {
+    if (!reqTgtNames.has(srcName)) {
+      const id = beIdByNormName.get(srcName);
+      if (id) reqRootIds.add(id);
+    }
+  }
+
+  const outAdj = new Map<string, string[]>();
+  const inAdj = new Map<string, string[]>();
+  const indeg = new Map<string, number>();
+  const outdeg = new Map<string, number>();
+  for (const id of beNameById.keys()) {
+    indeg.set(id, 0);
+    outdeg.set(id, 0);
+  }
+  for (const e of s2sEdges) {
+    const out = outAdj.get(e.src) ?? [];
+    out.push(e.tgt);
+    outAdj.set(e.src, out);
+    const inc = inAdj.get(e.tgt) ?? [];
+    inc.push(e.src);
+    inAdj.set(e.tgt, inc);
+    outdeg.set(e.src, (outdeg.get(e.src) ?? 0) + 1);
+    indeg.set(e.tgt, (indeg.get(e.tgt) ?? 0) + 1);
+    if (!indeg.has(e.src)) indeg.set(e.src, indeg.get(e.src) ?? 0);
+    if (!outdeg.has(e.tgt)) outdeg.set(e.tgt, outdeg.get(e.tgt) ?? 0);
+  }
+
+  // Seed depth from frontend-direct services plus request-observed services.
+  const seedIds = new Set<string>();
+  for (const id of rawBeServiceIds) {
+    if (beNameById.has(id)) seedIds.add(id);
+  }
+  reqRootIds.forEach(id => seedIds.add(id));
+  for (const reqName of reqByServiceName.keys()) {
+    const reqId = beIdByNormName.get(reqName);
+    if (reqId) seedIds.add(reqId);
+  }
+  if (seedIds.size === 0) {
+    for (const [id, deg] of indeg.entries()) {
+      if (deg === 0 && (outdeg.get(id) ?? 0) > 0) seedIds.add(id);
+    }
+  }
+  if (seedIds.size === 0) {
+    const rawMatched = Array.from(rawBeServiceIds).filter(id => (outdeg.get(id) ?? 0) > 0);
+    rawMatched.slice(0, 60).forEach(id => seedIds.add(id));
+  }
+  if (seedIds.size === 0) {
+    Array.from(beNameById.keys()).slice(0, 20).forEach(id => seedIds.add(id));
+  }
+
+  const depthById = new Map<string, number>();
+  const reachableFromSeeds = new Set<string>();
+  const seed = (id: string, depth: number, q: string[]) => {
+    const prev = depthById.get(id);
+    if (prev === undefined || depth < prev) {
+      depthById.set(id, depth);
+      q.push(id);
+    }
+    reachableFromSeeds.add(id);
+  };
+  const q: string[] = [];
+  seedIds.forEach(id => seed(id, 1, q));
+  while (q.length > 0) {
+    const cur = q.shift()!;
+    const curDepth = depthById.get(cur) ?? 1;
+    const next = outAdj.get(cur) ?? [];
+    for (const tgt of next) {
+      seed(tgt, curDepth + 1, q);
+    }
+  }
+  // Some environments report certain dependencies with reversed orientation.
+  // Fold in connected nodes bidirectionally so DB-like services are not accidentally excluded.
+  let bridgeChanged = true;
+  while (bridgeChanged) {
+    bridgeChanged = false;
+    for (const e of s2sEdges) {
+      const srcDepth = depthById.get(e.src);
+      const tgtDepth = depthById.get(e.tgt);
+      if (srcDepth !== undefined && tgtDepth === undefined) {
+        depthById.set(e.tgt, srcDepth + 1);
+        reachableFromSeeds.add(e.tgt);
+        bridgeChanged = true;
+      }
+      if (tgtDepth !== undefined && srcDepth === undefined) {
+        depthById.set(e.src, tgtDepth + 1);
+        reachableFromSeeds.add(e.src);
+        bridgeChanged = true;
       }
     }
   }
-  const allBeServices = Array.from(beServiceMap.values());
-  const maxDataDepth = allBeServices.reduce((m, s) => Math.max(m, s.depth), 0);
+
+  const beServiceMap = new Map<string, { id: string; name: string; depth: number }>();
+  for (const [id, name] of beNameById.entries()) {
+    if (reachableFromSeeds.size > 0 && !reachableFromSeeds.has(id) && seedIds.size > 0) continue;
+    beServiceMap.set(id, { id, name, depth: depthById.get(id) ?? 1 });
+  }
+  let allBeServices = Array.from(beServiceMap.values());
+  let maxDataDepth = allBeServices.reduce((m, s) => Math.max(m, s.depth), 0);
+  if (maxDataDepth <= 2 && beNameById.size > 0) {
+    const rootLike = Array.from(beNameById.keys()).filter((id) => (indeg.get(id) ?? 0) === 0 && (outdeg.get(id) ?? 0) > 0);
+    const fallbackSeeds = rootLike.length > 0 ? rootLike : Array.from(beNameById.keys()).slice(0, 100);
+    const fbDepth = new Map<string, number>();
+    const fbReach = new Set<string>();
+    const fbQ: string[] = [];
+    const fbSeed = (id: string, d: number) => {
+      const prev = fbDepth.get(id);
+      if (prev === undefined || d < prev) {
+        fbDepth.set(id, d);
+        fbQ.push(id);
+      }
+      fbReach.add(id);
+    };
+    fallbackSeeds.forEach((id) => fbSeed(id, 1));
+    while (fbQ.length > 0) {
+      const cur = fbQ.shift()!;
+      const d = fbDepth.get(cur) ?? 1;
+      for (const tgt of (outAdj.get(cur) ?? [])) fbSeed(tgt, d + 1);
+    }
+    const fallbackServices = Array.from(beNameById.entries())
+      .filter(([id]) => fbReach.has(id))
+      .map(([id, name]) => ({ id, name, depth: fbDepth.get(id) ?? 1 }));
+    const fallbackDepth = fallbackServices.reduce((m, s) => Math.max(m, s.depth), 0);
+    if (fallbackDepth > maxDataDepth) {
+      allBeServices = fallbackServices;
+      maxDataDepth = fallbackDepth;
+      beServiceMap.clear();
+      allBeServices.forEach((s) => beServiceMap.set(s.id, s));
+    }
+  }
+  const edgeReqById = new Map<string, number>();
+  allBeServices.forEach((s) => edgeReqById.set(s.id, 0));
+  for (const e of s2sEdges) {
+    const er = reqForPair(e.srcName, e.tgtName);
+    if (er <= 0) continue;
+    edgeReqById.set(e.src, (edgeReqById.get(e.src) ?? 0) + er);
+    edgeReqById.set(e.tgt, (edgeReqById.get(e.tgt) ?? 0) + er * 0.8);
+  }
+  const propagatedReqById = new Map<string, number>();
+  allBeServices.forEach((s) => propagatedReqById.set(s.id, Math.max(serviceReqCount(s.name), edgeReqById.get(s.id) ?? 0)));
+  const propRounds = Math.max(2, maxDataDepth + 2);
+  for (let i = 0; i < propRounds; i++) {
+    let changed = false;
+    for (const e of s2sEdges) {
+      const srcBase = propagatedReqById.get(e.src) ?? 0;
+      const tgtBase = propagatedReqById.get(e.tgt) ?? 0;
+      if (srcBase > 0) {
+        const currentT = propagatedReqById.get(e.tgt) ?? 0;
+        const candidateT = Math.max(currentT, srcBase * 0.85);
+        if (candidateT > currentT + 0.5) {
+          propagatedReqById.set(e.tgt, candidateT);
+          changed = true;
+        }
+      }
+      if (tgtBase > 0) {
+        const currentS = propagatedReqById.get(e.src) ?? 0;
+        const candidateS = Math.max(currentS, tgtBase * 0.7);
+        if (candidateS > currentS + 0.5) {
+          propagatedReqById.set(e.src, candidateS);
+          changed = true;
+        }
+      }
+    }
+    if (!changed) break;
+  }
+  const serviceReqById = (id: string, name: string) => Math.max(serviceReqCount(name), edgeReqById.get(id) ?? 0, propagatedReqById.get(id) ?? 0);
   const visibleDepth = Math.min(maxVisibleDepth, Math.max(1, maxDataDepth || 1));
   const scopedBackendNames = new Set(Array.from(reqByServiceName.keys()));
-  const beServices = allBeServices
-    .filter(s => s.depth <= visibleDepth)
-    .filter(s => !hasSessionScope || scopedBackendNames.has(norm(s.name)))
-    .slice(0, 40);
+  const backendVisibleByDepth = allBeServices.filter(s => s.depth <= visibleDepth);
+  const matchesScopedName = (serviceName: string) => {
+    const n = norm(serviceName);
+    if (scopedBackendNames.has(n)) return true;
+    for (const scoped of scopedBackendNames) {
+      if (scoped.includes(n) || n.includes(scoped)) return true;
+    }
+    return false;
+  };
+  const scopedByName = backendVisibleByDepth.filter(s => matchesScopedName(s.name));
+  const scopedSeedIds = new Set(scopedByName.map(s => s.id));
+  const scopedGraphIds = new Set<string>();
+  if (scopedSeedIds.size > 0) {
+    const q = Array.from(scopedSeedIds);
+    q.forEach(id => scopedGraphIds.add(id));
+    while (q.length > 0) {
+      const cur = q.shift()!;
+      for (const e of s2sEdges) {
+        if (e.src === cur && !scopedGraphIds.has(e.tgt)) { scopedGraphIds.add(e.tgt); q.push(e.tgt); }
+        if (e.tgt === cur && !scopedGraphIds.has(e.src)) { scopedGraphIds.add(e.src); q.push(e.src); }
+      }
+    }
+  }
+  const scopedAcrossTiers = backendVisibleByDepth.filter(s => scopedGraphIds.has(s.id));
+  const useScopedFallback = hasSessionScope && scopedAcrossTiers.length === 0;
+  const tierScopedServices = (hasSessionScope
+    ? (scopedAcrossTiers.length > 0 ? scopedAcrossTiers : backendVisibleByDepth.filter(s => s.depth === 1))
+    : backendVisibleByDepth);
+  const beServices = tierScopedServices
+    .filter(s => serviceReqById(s.id, s.name) > 0)
+    .slice(0, 1000);
+  const db1All = allBeServices.filter(s => norm(s.name).includes("db1"));
+  const db1Shown = beServices.filter(s => norm(s.name).includes("db1"));
+  const dbLikeShown = beServices.filter(s => /db|postgres|mysql|maria|oracle|sql|redis/i.test(s.name));
   const visibleBeIds = new Set(beServices.map(s => s.id));
   const beEdges = s2sEdges.filter(e => visibleBeIds.has(e.src) && visibleBeIds.has(e.tgt));
 
@@ -9738,6 +10171,11 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
         <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 8, display: "block" }}>
           Scope: {selectedSessionId ? `session ${selectedSessionId.slice(0, 12)}...` : selectedUserId ? "selected user" : "all sessions"}
         </Text>
+        {useScopedFallback && (
+          <Text style={{ fontSize: 11, opacity: 0.55, marginTop: 4, display: "block" }}>
+            Backend scope fallback: no exact scoped service-name matches found, showing tier-1 backend services.
+          </Text>
+        )}
       </div>
 
       <div className="uj-table-tile" style={{ padding: 12 }}>
@@ -9754,6 +10192,13 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                 ))}
               </Select.Content>
             </Select>
+          </div>
+          <div style={{ minWidth: 210 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Scrubber View</Text>
+            <Flex gap={6}>
+              <Button variant="default" onClick={() => setTimelineViewMode("summary")} style={{ height: 32, borderColor: timelineViewMode === "summary" ? BLUE : undefined, background: timelineViewMode === "summary" ? "rgba(69,137,255,0.15)" : undefined }}>Summary Strip</Button>
+              <Button variant="default" onClick={() => setTimelineViewMode("chronological")} style={{ height: 32, borderColor: timelineViewMode === "chronological" ? BLUE : undefined, background: timelineViewMode === "chronological" ? "rgba(69,137,255,0.15)" : undefined }}>Chronological</Button>
+            </Flex>
           </div>
           <div style={{ minWidth: 260 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Compare Session A</Text>
@@ -9785,29 +10230,63 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
         {timelineSessionId && (() => {
           const ts = sessionOptions.find(s => s.sid === timelineSessionId);
           if (!ts) return null;
-          const timelinePts = [
-            { l: "Start", v: 1 },
-            { l: "Actions", v: Math.max(1, ts.actions) },
-            { l: "Errors", v: Math.max(0, ts.errors) },
-            { l: ts.converted ? "Converted" : "Exit", v: ts.converted ? 1 : 0 },
+          const summaryItems = [
+            { label: "Actions", value: fmtCount(ts.actions), ratio: 1, color: BLUE },
+            { label: "Errors", value: fmtCount(ts.errors), ratio: ts.actions > 0 ? Math.max(0, Math.min(1, ts.errors / ts.actions)) : 0, color: ts.errors > 0 ? RED : GREEN },
+            { label: "Apdex", value: ts.apdex.toFixed(2), ratio: Math.max(0, Math.min(1, ts.apdex)), color: ts.apdex < 0.7 ? ORANGE : GREEN },
+            { label: "Outcome", value: ts.converted ? "Converted" : "Exit", ratio: ts.converted ? 1 : 0, color: ts.converted ? GREEN : ORANGE },
           ];
-          const maxV = Math.max(...timelinePts.map(p => p.v), 1);
+          const ev = timelineEvents;
+          const firstTs = ev.length > 0 ? ev[0].ts : Number(ts.startTs ?? 0);
+          const lastTs = ev.length > 0 ? ev[ev.length - 1].ts : Number(ts.endTs ?? firstTs + 1);
+          const span = Math.max(1, lastTs - firstTs);
           return (
             <div style={{ marginTop: 10, padding: 10, borderRadius: 6, background: "rgba(128,128,128,0.06)", border: "1px solid rgba(128,128,128,0.15)" }}>
-              <Text style={{ fontSize: 11, opacity: 0.6, display: "block", marginBottom: 6 }}>Session timeline: {ts.sid.slice(0, 16)}...</Text>
-              <svg width="100%" height={66} viewBox="0 0 520 66" preserveAspectRatio="none">
-                {timelinePts.map((p, i) => {
-                  const x = 20 + i * 155;
-                  const h = (p.v / maxV) * 34;
-                  return (
-                    <g key={p.l}>
-                      {i > 0 && <line x1={x - 90} y1={52 - ((timelinePts[i - 1].v / maxV) * 34)} x2={x} y2={52 - h} stroke="rgba(69,137,255,0.55)" strokeWidth={2} />}
-                      <circle cx={x} cy={52 - h} r={4} fill={p.l === "Errors" ? RED : p.l === "Converted" ? GREEN : BLUE} />
-                      <text x={x} y={64} textAnchor="middle" fontSize={9} fill="rgba(255,255,255,0.7)">{p.l}</text>
-                    </g>
-                  );
-                })}
-              </svg>
+              <Text style={{ fontSize: 11, opacity: 0.6, display: "block", marginBottom: 8 }}>
+                Session scrubber: {ts.sid.slice(0, 16)}... ({timelineViewMode === "summary" ? "summary strip" : "chronological events"})
+              </Text>
+              {timelineViewMode === "summary" ? (
+                <Flex gap={8} flexWrap="wrap">
+                  {summaryItems.map((it) => (
+                    <div key={it.label} style={{ minWidth: 170, flex: 1, borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", padding: "8px 10px" }}>
+                      <Text style={{ fontSize: 11, opacity: 0.6 }}>{it.label}</Text>
+                      <Strong style={{ fontSize: 15, color: it.color }}>{it.value}</Strong>
+                      <div style={{ marginTop: 6, height: 6, borderRadius: 4, background: "rgba(128,128,128,0.2)", overflow: "hidden" }}>
+                        <div style={{ width: `${Math.round(it.ratio * 100)}%`, height: "100%", background: it.color }} />
+                      </div>
+                    </div>
+                  ))}
+                </Flex>
+              ) : (
+                <div>
+                  {timelineEventsData.isLoading ? (
+                    <Text style={{ fontSize: 12, opacity: 0.6 }}>Loading session events...</Text>
+                  ) : ev.length === 0 ? (
+                    <Text style={{ fontSize: 12, opacity: 0.6 }}>No event timeline available for this session in the selected timeframe.</Text>
+                  ) : (
+                    <svg width="100%" height={120} viewBox="0 0 860 120" preserveAspectRatio="none">
+                      <line x1={18} y1={72} x2={842} y2={72} stroke="rgba(128,128,128,0.35)" strokeWidth={2} />
+                      {ev.map((e, idx) => {
+                        const x = 18 + (((e.ts - firstTs) / span) * 824);
+                        const y = e.hasError ? 54 : 72;
+                        const fill = e.hasError ? RED : BLUE;
+                        const label = idx % Math.max(1, Math.ceil(ev.length / 14)) === 0;
+                        return (
+                          <g key={`${e.ts}-${idx}`}>
+                            <circle cx={x} cy={y} r={4} fill={fill} opacity={0.9} />
+                            <title>{`${new Date(e.ts).toLocaleTimeString()} | ${e.hasError ? "error" : "event"} | ${e.page} | ${e.event}`}</title>
+                            {label && <line x1={x} y1={72} x2={x} y2={84} stroke="rgba(128,128,128,0.35)" strokeWidth={1} />}
+                          </g>
+                        );
+                      })}
+                      <text x={18} y={102} fontSize={10} fill="rgba(128,128,128,0.75)">{new Date(firstTs).toLocaleTimeString()}</text>
+                      <text x={842} y={102} textAnchor="end" fontSize={10} fill="rgba(128,128,128,0.75)">{new Date(lastTs).toLocaleTimeString()}</text>
+                      <text x={18} y={18} fontSize={11} fill="rgba(128,128,128,0.75)">Events: {ev.length}</text>
+                      <text x={120} y={18} fontSize={11} fill="rgba(128,128,128,0.75)">Errors: {ev.filter(x => x.hasError).length}</text>
+                    </svg>
+                  )}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -9915,7 +10394,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               const totalH = arr.length * nodeH + (arr.length - 1) * padY;
               const startY = (H - totalH) / 2;
               arr.forEach((p, pi) => {
-                nodePos.set(p.name, { x: padX + li * colWidth, y: startY + pi * (nodeH + padY), h: nodeH, vol: p.volume });
+                nodePos.set(p.name, { x: padX + li * colWidth + frontendPanX, y: startY + pi * (nodeH + padY), h: nodeH, vol: p.volume });
               });
             });
 
@@ -10020,8 +10499,31 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             const maxBePerDepth = Math.max(...Array.from(beByDepth.values()).map(a => a.length), 1);
             const beH = Math.max(200, maxBePerDepth * (beNodeH + bePadY) + 80);
             const beTotalW = showBackend && beServices.length > 0 ? beDepths.length * beColW + 40 : 0;
-            const beStartX = svgW + (showBackend && beServices.length > 0 ? bePad : 0);
-            let totalSvgW = svgW + beTotalW + (showBackend && beServices.length > 0 ? bePad : 0);
+            let frontMinX = Number.POSITIVE_INFINITY;
+            let frontMaxX = 0;
+            for (const [, p] of nodePos) {
+              frontMinX = Math.min(frontMinX, p.x);
+              frontMaxX = Math.max(frontMaxX, p.x + nodeW);
+            }
+            if (!Number.isFinite(frontMinX)) frontMinX = padX;
+            const baseDividerX = Math.max(svgW + bePad / 2, frontMaxX + 40);
+            let dividerX = baseDividerX + (showBackend && beServices.length > 0 ? backendDividerOffset : 0);
+            if (showBackend && beServices.length > 0) {
+              const minDivider = frontMaxX + 26;
+              if (dividerX < minDivider) {
+                const shiftNeed = minDivider - dividerX;
+                const canShift = Math.max(0, frontMinX - padX);
+                const shiftApplied = Math.min(shiftNeed, canShift);
+                if (shiftApplied > 0) {
+                  for (const [n, p] of nodePos.entries()) nodePos.set(n, { ...p, x: p.x - shiftApplied });
+                  frontMinX -= shiftApplied;
+                  frontMaxX -= shiftApplied;
+                }
+                dividerX = Math.max(dividerX, frontMaxX + 26);
+              }
+            }
+            const beStartX = dividerX + bePad / 2;
+            let totalSvgW = Math.max(svgW, beStartX) + beTotalW + (showBackend && beServices.length > 0 ? bePad / 2 : 0);
             let totalSvgH = Math.max(svgH, showBackend && beServices.length > 0 ? beH : svgH);
 
             // Backend node positions
@@ -10032,7 +10534,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                 const totalBeH = arr.length * beNodeH + (arr.length - 1) * bePadY;
                 const startY = (totalSvgH - totalBeH) / 2;
                 arr.forEach((svc, si) => {
-                  beNodePos.set(svc.id, { x: beStartX + di * beColW, y: startY + si * (beNodeH + bePadY), depth, name: svc.name });
+                  beNodePos.set(svc.id, { x: beStartX + backendPanX + di * beColW, y: startY + si * (beNodeH + bePadY), depth, name: svc.name });
                 });
               });
             }
@@ -10119,41 +10621,70 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             };
 
             return (
-              <div className="uj-table-tile" style={{ padding: 16, overflowX: "scroll", maxWidth: "100%", position: "relative" }}>
+              <div className="uj-table-tile" style={{ padding: 16, overflow: "auto", maxWidth: "100%", maxHeight: "78vh", position: "relative" }}>
                 {/* Backend toggle */}
                 <Flex alignItems="center" gap={12} style={{ marginBottom: 10 }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
                     <input type="checkbox" checked={showBackend} onChange={e => setShowBackend(e.target.checked)} style={{ cursor: "pointer" }} />
                     <span>Show backend service topology</span>
                   </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
+                    <span>Frontend pan</span>
+                    <input type="range" min={-600} max={600} step={10} value={frontendPanX} onChange={(e) => setFrontendPanX(Number(e.target.value))} />
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
+                    <span>Backend pan</span>
+                    <input type="range" min={-600} max={600} step={10} value={backendPanX} onChange={(e) => setBackendPanX(Number(e.target.value))} />
+                  </label>
                   {activeTooltip && (
                     <button onClick={() => setActiveTooltip(null)} style={{ fontSize: 12, padding: "2px 10px", cursor: "pointer", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.7)" }}>✕ Close tooltip</button>
                   )}
                 </Flex>
-                <svg width={totalSvgW} height={totalSvgH}
-                  style={{ display: "block", minWidth: totalSvgW, cursor: draggingNode ? "grabbing" : (hasFocus ? "pointer" : "default") }}
+                <svg ref={navSvgRef} width={totalSvgW} height={totalSvgH}
+                  style={{ display: "block", minWidth: totalSvgW, cursor: draggingDivider || draggingNode ? "grabbing" : (hasFocus ? "pointer" : "default") }}
                   onMouseMove={(e) => {
+                    if (draggingDivider && dividerDragStart) {
+                      const dx = e.clientX - dividerDragStart.mx;
+                      if (!wasDragging && Math.abs(dx) > 3) setWasDragging(true);
+                      setBackendDividerOffset(dividerDragStart.offset + dx);
+                      return;
+                    }
                     if (!draggingNode || !dragStart) return;
                     const dx = e.clientX - dragStart.mx;
                     const dy = e.clientY - dragStart.my;
                     if (!wasDragging && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) setWasDragging(true);
                     setManualNodePos(prev => { const next = new Map(prev); next.set(draggingNode, { x: dragStart.nx + dx, y: dragStart.ny + dy }); return next; });
                   }}
-                  onMouseUp={() => { setDraggingNode(null); setDragStart(null); }}
-                  onMouseLeave={() => { setDraggingNode(null); setDragStart(null); }}
+                  onMouseUp={() => { setDraggingNode(null); setDragStart(null); setDraggingDivider(false); setDividerDragStart(null); }}
+                  onMouseLeave={() => { setDraggingNode(null); setDragStart(null); setDraggingDivider(false); setDividerDragStart(null); }}
                   onClick={(e) => { if (wasDragging) { setWasDragging(false); return; } setSelectedFlow(null); setActiveTooltip(null); }}
                 >
                   {/* Section divider */}
                   {showBackend && beServices.length > 0 && (
-                    <line x1={svgW + bePad / 2} y1={10} x2={svgW + bePad / 2} y2={totalSvgH - 10}
+                    <line x1={dividerX} y1={10} x2={dividerX} y2={totalSvgH - 10}
                       stroke="rgba(255,255,255,0.15)" strokeWidth={1} strokeDasharray="5,4" />
                   )}
                   {/* Section labels */}
                   {showBackend && beServices.length > 0 && (
-                    <text x={svgW / 2} y={16} fontSize={10} fill="rgba(255,255,255,0.35)" textAnchor="middle" style={{ fontWeight: 700, letterSpacing: 1 } as any}>FRONTEND</text>
+                    <text x={Math.max(80, dividerX / 2)} y={16} fontSize={10} fill="rgba(255,255,255,0.35)" textAnchor="middle" style={{ fontWeight: 700, letterSpacing: 1 } as any}>FRONTEND</text>
                   )}
                   {showBackend && beServices.length > 0 && (
-                    <text x={beStartX + beTotalW / 2} y={16} fontSize={10} fill="rgba(255,255,255,0.35)" textAnchor="middle" style={{ fontWeight: 700, letterSpacing: 1 } as any}>BACKEND SERVICES</text>
+                    <text x={beStartX + backendPanX + beTotalW / 2} y={16} fontSize={10} fill="rgba(255,255,255,0.35)" textAnchor="middle" style={{ fontWeight: 700, letterSpacing: 1 } as any}>BACKEND SERVICES</text>
+                  )}
+                  {showBackend && beServices.length > 0 && (
+                    <g
+                      style={{ cursor: draggingDivider ? "grabbing" : "ew-resize" }}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        setDraggingDivider(true);
+                        setDividerDragStart({ mx: e.clientX, offset: backendDividerOffset });
+                        setWasDragging(false);
+                      }}
+                    >
+                      <rect x={dividerX - 7} y={Math.max(30, totalSvgH / 2 - 28)} width={14} height={56} rx={6} fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.25)" />
+                      <line x1={dividerX - 2} y1={Math.max(38, totalSvgH / 2 - 12)} x2={dividerX - 2} y2={Math.max(70, totalSvgH / 2 + 20)} stroke="rgba(255,255,255,0.45)" strokeWidth={1.2} />
+                      <line x1={dividerX + 2} y1={Math.max(38, totalSvgH / 2 - 12)} x2={dividerX + 2} y2={Math.max(70, totalSvgH / 2 + 20)} stroke="rgba(255,255,255,0.45)" strokeWidth={1.2} />
+                    </g>
                   )}
 
                   {/* Frontend → Backend connector edges (dashed) */}
@@ -10184,7 +10715,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const cx1 = x1 + (x2 - x1) * 0.4; const cx2 = x1 + (x2 - x1) * 0.6;
                     const beEdgeFocused = !!focusedSvcId && svcFocusSet.has(edge.src) && svcFocusSet.has(edge.tgt);
                     const pageSvcEdgeFocused = pageSvcFocusSet.has(edge.src) && pageSvcFocusSet.has(edge.tgt);
-                    const edgeReq = reqByPair.get(`${norm(edge.srcName)}->${norm(edge.tgtName)}`) ?? 0;
+                    const edgeReq = reqForPair(edge.srcName, edge.tgtName);
                     const beEdgeOp = focusedSvcId ? (beEdgeFocused ? 0.75 : 0.05) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcEdgeFocused ? 0.75 : 0.05) : 0.07) : 0.22;
                     return (
                       <path key={`be-${ei}`} d={`M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}`}
@@ -10261,7 +10792,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const nodeType = inferSvcNodeType(svc.name, bePos.depth);
                     const meta = FLOW_NODE_META[nodeType];
                     const shortName = svc.name.length > 26 ? svc.name.substring(0, 24) + "…" : svc.name;
-                    const svcReq = reqByServiceName.get(norm(svc.name)) ?? 0;
+                    const svcReq = serviceReqById(svc.id, svc.name);
                     const isActive = activeTooltip === `svc:${svcId}`;
                     return (
                       <g key={svcId}
@@ -10326,7 +10857,9 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       ttErrRate = 0.2 + (sHash % 7) * 0.3;
                       perfSpark = syntheticSparkline(ttDur, 8, svcId + "_lat");
                       errSpark = syntheticSparkline(ttErrRate, 8, svcId + "_err");
-                      ttLink = `${ENV_URL}/ui/apps/dynatrace.services/explorer/services?detailsId=${encodeURIComponent(svcId)}&sidebarOpen=false&tf=${tfParam()}`;
+                      ttLink = (selectedSessionId || selectedUserId)
+                        ? sessionsFilterUrl(frontend, undefined, { sessionId: selectedSessionId || undefined, userId: selectedUserId || undefined, serviceName: svc.name })
+                        : `${ENV_URL}/ui/apps/dynatrace.services/explorer/services?detailsId=${encodeURIComponent(svcId)}&sidebarOpen=false&tf=${tfParam()}`;
                     }
 
                     if (!tNode) return null;
@@ -10334,12 +10867,17 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     let tx = tNode.x;
                     let ty = tNode.y - TH - 8;
                     if (ty < 0) ty = tNode.y + tNode.h + 8;
+                    if (ty + TH > totalSvgH) ty = Math.max(0, totalSvgH - TH - 8);
                     if (tx + TW > totalSvgW) tx = Math.max(0, totalSvgW - TW - 8);
                     const spW = (TW - 28) / 2;
+                    const svgRect = navSvgRef.current?.getBoundingClientRect();
+                    if (!svgRect) return null;
+                    const vpPad = 8;
+                    const vx = Math.min(Math.max(vpPad, svgRect.left + tx), Math.max(vpPad, window.innerWidth - TW - vpPad));
+                    const vy = Math.min(Math.max(vpPad, svgRect.top + ty), Math.max(vpPad, window.innerHeight - TH - vpPad));
 
-                    return (
-                      <foreignObject x={tx} y={ty} width={TW} height={TH} style={{ overflow: "visible" }}>
-                        <div style={{ background: "rgba(14,14,24,0.97)", border: `1.5px solid ${ttColor}`, borderRadius: 8, padding: "10px 12px", fontSize: 11, color: "#e0e0e0", boxShadow: "0 4px 24px rgba(0,0,0,0.65)", fontFamily: "inherit", width: TW, boxSizing: "border-box" } as any}
+                    return createPortal(
+                        <div style={{ position: "fixed", left: vx, top: vy, zIndex: 9999, background: "rgba(14,14,24,0.97)", border: `1.5px solid ${ttColor}`, borderRadius: 8, padding: "10px 12px", fontSize: 11, color: "#e0e0e0", boxShadow: "0 4px 24px rgba(0,0,0,0.65)", fontFamily: "inherit", width: TW, boxSizing: "border-box" } as any}
                           onClick={(e) => e.stopPropagation()}>
                           <div style={{ fontWeight: 700, fontSize: 12, color: ttColor, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ttTitle}</div>
                           <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>{ttSub}</div>
@@ -10365,8 +10903,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           </div>
                           {isSvc && <div style={{ marginTop: 6, fontSize: 9, color: "rgba(255,255,255,0.28)", fontStyle: "italic" }}>Connect APM instrumentation for live metrics</div>}
                           {ttLink && <a href={ttLink} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ display: "block", marginTop: 7, fontSize: 10, color: ttColor, textDecoration: "none", fontWeight: 700, letterSpacing: 0.2 }}>{isSvc ? "View in Gen3 Services ↗" : "View in Gen3 Pages ↗"}</a>}
-                        </div>
-                      </foreignObject>
+                        </div>,
+                      document.body
                     );
                   })()}
                 </svg>
@@ -10411,6 +10949,11 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       {maxDataDepth > 0 ? `Showing Tier 1–${visibleDepth} of ${maxDataDepth} available` : ""}
                     </span>
                   </Flex>
+                )}
+                {showBackend && (
+                  <div style={{ marginTop: 4, fontSize: 10, color: "rgba(255,255,255,0.38)" }}>
+                    Backend diagnostics: seeds {seedIds.size} | all {allBeServices.length} | shown {beServices.length} | edges {beEdges.length} | maxDepth {maxDataDepth} | DB1 all {db1All.length} shown {db1Shown.length} | DB-like shown {dbLikeShown.length}
+                  </div>
                 )}
 
                 {hasFocus && (
