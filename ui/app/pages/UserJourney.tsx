@@ -6144,10 +6144,6 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     };
   }, [sparklineRecords, convSparklineRecords]);
 
-  // On initial load (no data yet) show spinner; on auto-refresh keep existing data visible
-  const hasNoData = funnelCounts.every(c => c === 0) && quality.total === 0;
-  if (isLoading && hasNoData) return <Loading />;
-
   const makeFunnelSteps = (counts: number[]): FunnelStep[] => steps.map((step, i) => {
     const prev = i === 0 ? counts[0] : counts[i - 1];
     const m = stepMap.get(step.label);
@@ -6224,6 +6220,10 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
       openLink(vitalsUrl(appEntityId, directTarget));
     }
   }, [steps, buildStepDrillCandidates, appEntityId]);
+
+  // On initial load (no data yet) show spinner; on auto-refresh keep existing data visible
+  const hasNoData = funnelCounts.every(c => c === 0) && quality.total === 0;
+  if (isLoading && hasNoData) return <Loading />;
 
   // Predictive EOD model — linear regression on today's 10-min conv rates
   const todayRecords = (todayHourlyData?.data?.records ?? []) as any[];
