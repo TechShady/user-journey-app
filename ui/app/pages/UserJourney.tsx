@@ -362,11 +362,11 @@ function sessionReplayUrl(sessionId: string, startTs?: string): string {
 }
 
 /** Build a DQL filter clause for potentially multiple frontend apps across steps.
- *  Returns `frontend.name == "X"` for single app, `in(frontend.name, {"X","Y"})` for multiple. */
+ *  Always returns `in(frontend.name, {...})` and includes fallback app to avoid
+ *  empty datasets when a step app is misconfigured (for example, set to funnel name). */
 function frontendFilter(steps: StepDef[], fallback: string): string {
-  const apps = [...new Set(steps.map(s => s.app || fallback).filter(Boolean))];
-  if (apps.length === 0) return `frontend.name == "${fallback}"`;
-  if (apps.length === 1) return `frontend.name == "${apps[0]}"`;
+  const apps = [...new Set([fallback, ...steps.map(s => s.app)].filter(Boolean))];
+  if (apps.length === 0) return `in(frontend.name, {"${fallback}"})`;
   return `in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
 }
 
@@ -1146,7 +1146,7 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
 | lookup [
     fetch user.events, ${period}
     | filter ${frontendFilter(steps, frontend)}
-    | filter ${anyStepFilter(steps)}
+  | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true OR characteristics.has_error == true
     | fieldsAdd sid = dt.rum.session.id
     | filter not(isNull(sid))
     | fieldsAdd event_user_id = ${NAV_USER_ID_EXPR}
