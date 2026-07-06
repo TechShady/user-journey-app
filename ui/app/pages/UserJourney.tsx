@@ -1181,7 +1181,7 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
         by: {sid}
   ], sourceField:sid, lookupField:sid, prefix:"ev."
 | filter coalesce(ev.actions, 0) > 0
-| fieldsAdd user_id = coalesce(session_user_id, ev.event_user_id, concat("session:", substring(sid, from: 0, to: 16)))
+| fieldsAdd user_id = coalesce(ev.event_user_id, session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
 ${userFilter}
 | fieldsAdd user_tag = if(stringLength(user_id) > 16, concat(substring(user_id, from: 0, to: 12), "…"), else: user_id)
 | fieldsAdd converted = ev.conv_hits > 0
@@ -9666,7 +9666,6 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const navAppFilterOverride = navAppFilter === "__all__" ? undefined : navAppFilter;
 
   const sessionCandidatesData = useDql({ query: navigationSessionCandidatesQuery(timeframeDays, frontend, steps, selectedUserId || undefined, navAppFilterOverride) });
-  const userTagOptionsData = useDql({ query: navigationUserTagOptionsQuery(timeframeDays, frontend, steps, navAppFilterOverride) });
   const hasSessionScope = selectedSessionId !== "" || selectedUserId !== "";
   const hasScopedNavQuery = hasSessionScope || navAppFilterOverride !== undefined;
   const scopedNavData = useDql({ query: hasScopedNavQuery ? navigationPathsQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, selectedUserId || undefined, navAppFilterOverride) : "fetch user.events | limit 0" });
@@ -9861,10 +9860,11 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     return true;
   });
 
-  const userTagRows = ((userTagOptionsData.data?.records ?? []) as any[]).map((r: any) => ({
-    userId: String(r.user_id ?? "session:unknown"),
-    count: Number(r.sessions ?? 0),
-  })).filter((r) => r.count > 0);
+  const userTagRows = Array.from(sessionOptions.reduce((m, s) => {
+    const key = String(s.userId ?? "session:unknown");
+    m.set(key, (m.get(key) ?? 0) + 1);
+    return m;
+  }, new Map<string, number>()).entries()).map(([userId, count]) => ({ userId, count }));
 
   const buildUserTagGroups = (rows: { userId: string; count: number }[], isSessionFallback: boolean) => Array.from(rows.reduce((m, s) => {
     const key = s.userId;
@@ -10350,16 +10350,16 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               </Select.Content>
             </Select>
           </div>
-          <div style={{ minWidth: 620, flex: 1.4 }}>
+          <div style={{ minWidth: 760, flex: 1.8 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Session ID (optional, can be used without user tag)</Text>
             <Select value={selectedSessionId || "__all_sessions__"} onChange={(val) => setSelectedSessionId(val === "__all_sessions__" ? "" : String(val ?? ""))}>
-              <Select.Trigger />
-              <Select.Content>
+              <Select.Trigger style={{ width: "100%" }} />
+              <Select.Content style={{ minWidth: 860, maxWidth: 980 }}>
                 <Select.Filter />
                 <Select.Option value="__all_sessions__">All sessions</Select.Option>
                 {sessionsForPicker.map((s) => (
                   <Select.Option key={s.sid} value={s.sid}>
-                    {`${s.sid.slice(0, 12)}... | score ${s.impactScore.toFixed(0)} | ${s.converted ? "Converted" : "No Conv"} | err ${s.errors} | apdex ${s.apdex.toFixed(2)} | ${Math.round(s.avgDur)}ms | ${s.actions} actions`}
+                    {`${s.sid.slice(0, 12)}...  |  ${s.converted ? "Converted" : "No Conv"}  |  err ${s.errors}  |  apdex ${s.apdex.toFixed(2)}  |  avg ${Math.round(s.avgDur)}ms  |  actions ${s.actions}  |  score ${s.impactScore.toFixed(0)}`}
                   </Select.Option>
                 ))}
               </Select.Content>
@@ -10379,15 +10379,15 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 
       <div className="uj-table-tile" style={{ padding: 12 }}>
         <Flex alignItems="flex-end" gap={12} flexWrap="wrap">
-          <div style={{ minWidth: 520, flex: 1.2 }}>
+          <div style={{ minWidth: 760, flex: 1.6 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Timeline Scrubber Session</Text>
             <Select value={timelineSessionId || "__none_tl__"} onChange={(val) => setTimelineSessionId(val === "__none_tl__" ? "" : String(val ?? ""))}>
-              <Select.Trigger />
-              <Select.Content>
+              <Select.Trigger style={{ width: "100%" }} />
+              <Select.Content style={{ minWidth: 860, maxWidth: 980 }}>
                 <Select.Filter />
                 <Select.Option value="__none_tl__">None</Select.Option>
                 {sessionsForPicker.slice(0, 120).map((s) => (
-                  <Select.Option key={`tl-${s.sid}`} value={s.sid}>{`${s.sid.slice(0, 12)}... | err ${s.errors} | apdex ${s.apdex.toFixed(2)} | ${Math.round(s.avgDur)}ms`}</Select.Option>
+                  <Select.Option key={`tl-${s.sid}`} value={s.sid}>{`${s.sid.slice(0, 12)}...  |  err ${s.errors}  |  apdex ${s.apdex.toFixed(2)}  |  avg ${Math.round(s.avgDur)}ms  |  actions ${s.actions}`}</Select.Option>
                 ))}
               </Select.Content>
             </Select>
