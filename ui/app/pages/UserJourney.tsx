@@ -69,7 +69,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.56.79";
+const APP_VERSION_LABEL = "4.56.80";
 
 type FlowNodeType = "page-funnel" | "page-normal" | "page-entry" | "page-exit" | "svc-direct" | "svc-micro" | "svc-db" | "svc-cache" | "svc-external";
 const FLOW_NODE_META: Record<FlowNodeType, { color: string; label: string; borderWidth: number }> = {
@@ -1156,7 +1156,7 @@ function navigationSessionCandidatesQuery(days: number, frontend: string, steps:
   const safeUserId = userId ? userId.replace(/"/g, "\\\"") : "";
   const userFilter = userId ? `| filter tag_user_id == "${safeUserId}"` : "";
   return `fetch user.sessions, ${period}
-| fields sid = coalesce(dt.rum.session.id, id), tag_user_id = coalesce(user.identifier, dt.rum.user_tag), session_user_id = ${NAV_SESSION_USER_ID_EXPR}, session_tag = coalesce(dt.rum.user_tag, dt.rum.userTag, user.tag, user.userTag, user.identifier, user.userId, user.email, user.name), frontend_name = frontend.name
+| fields user.identifier = coalesce(user.identifier, dt.rum.user_tag), frontend.name, sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}, session_tag = coalesce(dt.rum.user_tag, dt.rum.userTag, user.tag, user.userTag, user.identifier, user.userId, user.email, user.name), frontend_name = frontend.name
 ${sessionAppFilter}
 | filter not(isNull(sid))
 | lookup [
@@ -1183,6 +1183,7 @@ ${eventAppFilter}
         by: {sid}
   ], sourceField:sid, lookupField:sid, prefix:"ev."
 | filter coalesce(ev.actions, 0) > 0
+| fieldsAdd tag_user_id = user.identifier
 | fieldsAdd user_id = coalesce(tag_user_id, session_tag, session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
 ${userFilter}
 | fieldsAdd user_tag = if(stringLength(user_id) > 16, concat(substring(user_id, from: 0, to: 12), "…"), else: user_id)
