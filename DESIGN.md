@@ -433,6 +433,8 @@ fetch user.events, from: now() - {timeframe}
 - **Timeline scrubber**: Lightweight session timeline visualization (start/actions/errors/converted-exit) to quickly understand session progression.
 - **Compare overlay**: Side-by-side compare of two sessions with delta context (impact, errors, apdex).
 - **Scoped backend alignment**: Backend tiers are expanded by default and backend services/edges are filtered by active session/user scope so frontend and backend analysis stay aligned.
+- **Session parity mode**: Navigation Paths can switch between the navigation model and a session-parity mode that counts the selected session's user actions rather than just navigation/page-summary records.
+- **Trace-based backend mapping**: For a selected session, frontend-to-backend connectors prefer trace/request edges from the actual session so the service flow reflects the services Dynatrace called, not a generic page-to-service heuristic.
 - **Persisted filters**: Navigation user/session/preset and compare selections are persisted per-user via app state.
 - **Conversion Probability**: Graph-based iterative relaxation with drop-off rates — computes probability per page factoring in incoming vs outgoing traffic ratios. Avoids closed-graph 100% convergence by modeling session exits. Shown as "Conv Prob %" column in All Transitions table and a dedicated "Conversion Probability by Page" ranked table.
 - **AI Path Optimization**: Card at the top automatically identifies which page sequences correlate with higher conversion probability and surfaces actionable recommendations.

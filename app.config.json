@@ -3,12 +3,13 @@
   "environmentUrl": "https://guu84124.apps.dynatrace.com",
   "app": {
     "name": "User Journey & Experience",
-    "version": "4.56.81",
+    "version": "4.57.6",
     "description": "Not an official Dynatrace app. https://github.com/TechShady/user-journey-app.",
     "id": "my.user.journey.app",
     "icon": "./assets/icon.png",
     "scopes": [
       { "name": "storage:events:read", "comment": "read user events" },
+      { "name": "storage:fieldsets:read", "comment": "read user tags" },
       { "name": "storage:user.events:read", "comment": "read RUM user events" },
       { "name": "storage:user.sessions:read", "comment": "read RUM sessions" },
       { "name": "storage:metrics:read", "comment": "read metrics" },

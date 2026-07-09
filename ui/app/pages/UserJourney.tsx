@@ -29,9 +29,10 @@ import type { MetricEntry, CorrelationOpener } from "../components/CorrelationsP
 // ---------------------------------------------------------------------------
 const SANKEY_STYLE_STATE_KEY = "uj-sankey-style";
 const MAP_VIEW_STATE_KEY = "uj-map-view";
-const NAV_FILTER_USER_STATE_KEY = "uj-nav-filter-user";
 const NAV_FILTER_SESSION_STATE_KEY = "uj-nav-filter-session";
 const NAV_FILTER_PRESET_STATE_KEY = "uj-nav-filter-preset";
+const NAV_FILTER_USER_TAG_STATE_KEY = "uj-nav-filter-user-tag";
+const NAV_COUNT_MODE_STATE_KEY = "uj-nav-count-mode";
 const NAV_COMPARE_A_STATE_KEY = "uj-nav-compare-a";
 const NAV_COMPARE_B_STATE_KEY = "uj-nav-compare-b";
 type SankeyStyle = "classic" | "gradient" | "directed" | "alluvial" | "stateMachine" | "chord" | "heatmap";
@@ -69,7 +70,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.56.81";
+const APP_VERSION_LABEL = "4.57.6";
 
 type FlowNodeType = "page-funnel" | "page-normal" | "page-entry" | "page-exit" | "svc-direct" | "svc-micro" | "svc-db" | "svc-cache" | "svc-external";
 const FLOW_NODE_META: Record<FlowNodeType, { color: string; label: string; borderWidth: number }> = {
@@ -338,6 +339,24 @@ function identifierMatchesLabel(id: string, label: string): boolean {
   return label === id;
 }
 
+function normalizePageForRollup(page: string): string {
+  if (!page) return page;
+  const trimmed = page.trim();
+  const qIdx = trimmed.indexOf("?");
+  const base = (qIdx >= 0 ? trimmed.slice(0, qIdx) : trimmed)
+    .replace(/;jsessionid=[^/?#;]*/ig, "")
+    .replace(/;sessionid=[^/?#;]*/ig, "")
+    .replace(/;phpsessid=[^/?#;]*/ig, "")
+    .replace(/;sid=[^/?#;]*/ig, "");
+  if (qIdx < 0) return base;
+  const query = trimmed.slice(qIdx + 1);
+  const kept = query
+    .split("&")
+    .map((p) => p.trim())
+    .filter((p) => p !== "" && !/^(jsessionid|sessionid|phpsessid|sid)=/i.test(p));
+  return kept.length > 0 ? `${base}?${kept.join("&")}` : base;
+}
+
 /** Build the Dynatrace `tf=` query-string value from the app's current
  *  timeframe so drilldown links open with the same window the user selected. */
 function tfParam(): string {
@@ -365,9 +384,9 @@ function sessionReplayUrl(sessionId: string, startTs?: string): string {
 /** Build a DQL filter clause for potentially multiple frontend apps across steps.
  *  Always returns `in(frontend.name, {...})` and includes fallback app to avoid
  *  empty datasets when a step app is misconfigured (for example, set to funnel name). */
-function frontendFilter(steps: StepDef[], fallback: string, appFilter?: string): string {
+function frontendFilter(steps: StepDef[], fallback: string, appFilter?: string, appFilters?: string[]): string {
   if (appFilter && appFilter !== "__all__") return `frontend.name == "${appFilter}"`;
-  const apps = [...new Set([fallback, ...steps.map(s => s.app)].filter(Boolean))];
+  const apps = [...new Set([...(appFilters ?? []), fallback, ...steps.map(s => s.app)].filter(Boolean))];
   if (apps.length === 0) return `in(frontend.name, {"${fallback}"})`;
   return `in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
 }
@@ -1118,13 +1137,14 @@ function geoPerformanceQuery(days: number, frontend: string, steps: StepDef[], p
 // NEW: Navigation paths — actual user page flows
 const NAV_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, dt.rum.userTag, dt.rum.user.id, usr.tag, usr.identifier, usr.id, usr.email, usr.name, user.tag, user.userTag, user.identifier, user.id, dt.user.id, user.userId, user.email, user.name, dt.client.id, user.anonymized_id)';
 const NAV_SESSION_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, dt.rum.userTag, dt.rum.user.id, usr.tag, usr.identifier, usr.id, usr.email, usr.name, user.tag, user.userTag, user.identifier, user.userId, user.email, user.name, user.id, dt.user.id, dt.client.id, user.anonymized_id)';
+const NAV_EVENT_USER_ID_EXPR = 'coalesce(dt.rum.user_tag, dt.rum.userTag, dt.rum.user.id, user.tag, user.userTag, user.identifier, user.userId, user.email, user.name, user.id, usr.tag, usr.identifier, usr.id, usr.email, usr.name, dt.user.id, dt.client.id, user.anonymized_id)';
 
-function navigationPathsQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string, appFilter?: string): string {
+function navigationPathsQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string, appFilter?: string, appFilters?: string[]): string {
   const period = periodClause(days);
   const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
   const userFilter = !sessionId && userId ? `| filter effective_user_id == "${userId}"` : "";
   return `fetch user.events, ${period}
-| filter ${frontendFilter(steps, frontend, appFilter)}
+| filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
 | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
 | fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
 | fieldsAdd sid = dt.rum.session.id
@@ -1147,7 +1167,7 @@ ${userFilter}
 | limit 2000`;
 }
 
-function navigationSessionCandidatesQuery(days: number, frontend: string, steps: StepDef[], userId?: string, appFilter?: string): string {
+function navigationSessionCandidatesQuery(days: number, frontend: string, steps: StepDef[], userId?: string, appFilter?: string, appFilters?: string[]): string {
   const period = periodClause(days);
   const lastStepExpr = stepFilter(steps[steps.length - 1]);
   const appName = ((appFilter && appFilter !== "__all__") ? appFilter : frontend).replace(/"/g, "\\\"");
@@ -1164,7 +1184,9 @@ ${sessionAppFilter}
 ${eventAppFilter}
     | fieldsAdd sid = dt.rum.session.id
     | filter not(isNull(sid))
-  | filter characteristics.has_navigation == true OR characteristics.has_page_summary == true OR characteristics.has_error == true
+    | filter isNotNull(user_action.name)
+    | fieldsAdd page_name = coalesce(view.name, page.name, url.path, "")
+    | fieldsAdd event_user_id = ${NAV_EVENT_USER_ID_EXPR}
     | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
     | fieldsAdd satisfaction = coalesce(
         if(dur_ms <= ${APDEX_T}.0, "satisfied"),
@@ -1175,16 +1197,19 @@ ${eventAppFilter}
         start_ts = min(timestamp),
         end_ts = max(timestamp),
         actions = count(),
+        page_count = countDistinctExact(page_name),
         errors = countIf(characteristics.has_error == true),
         conv_hits = countIf(conv_hit == true),
         avg_dur = avg(dur_ms),
         satisfied = countIf(satisfaction == "satisfied"),
         tolerating = countIf(satisfaction == "tolerating"),
+        event_user_id = takeAny(event_user_id),
         by: {sid}
   ], sourceField:sid, lookupField:sid, prefix:"ev."
 | filter coalesce(ev.actions, 0) > 0
-| fieldsAdd tag_user_id = user.identifier
-| fieldsAdd user_id = coalesce(tag_user_id, session_tag, session_user_id, concat("session:", substring(sid, from: 0, to: 16)))
+| filter coalesce(ev.page_count, 0) >= 2
+      | fieldsAdd tag_user_id = coalesce(ev.event_user_id, user.identifier, session_tag, session_user_id)
+      | fieldsAdd user_id = coalesce(tag_user_id, concat("session:", substring(sid, from: 0, to: 16)))
 ${userFilter}
 | fieldsAdd user_tag = if(stringLength(user_id) > 16, concat(substring(user_id, from: 0, to: 12), "…"), else: user_id)
 | fieldsAdd converted = ev.conv_hits > 0
@@ -1194,23 +1219,24 @@ ${userFilter}
 | fields dt.rum.session.id = sid, user_id, tag_user_id, user_tag, converted, errors = ev.errors, apdex, avg_dur = ev.avg_dur, actions = ev.actions, start_ts = ev.start_ts, end_ts = ev.end_ts`;
 }
 
-function navigationUserTagOptionsQuery(days: number, frontend: string, steps: StepDef[], appFilter?: string): string {
-  const appName = ((appFilter && appFilter !== "__all__") ? appFilter : frontend).replace(/"/g, "\\\"");
-  const appFilterClause = (appFilter && appFilter !== "__all__") ? `| filter in(frontend.name, {"${appName}"})` : "";
-  return `fetch user.sessions
-| fields user.identifier = coalesce(user.identifier, dt.rum.user_tag), frontend.name
-${appFilterClause}
-| filter not(isNull(user.identifier))
-| limit 1000
-| fields user.identifier`;
+function navigationSessionActionBreakdownQuery(days: number, frontend: string, steps: StepDef[], sessionId: string, appFilter?: string, appFilters?: string[]): string {
+  const period = periodClause(days);
+  const safeSessionId = sessionId.replace(/"/g, "\\\"");
+  return `fetch user.events, ${period}
+| filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
+| filter dt.rum.session.id == "${safeSessionId}"
+| filter isNotNull(user_action.name)
+| fieldsAdd page_name = coalesce(view.name, page.name, url.path, "unknown")
+| summarize actions = count(), by: {page_name}
+| sort actions desc`;
 }
 
-function navigationBackendRequestEdgesQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string, appFilter?: string): string {
+function navigationBackendRequestEdgesQuery(days: number, frontend: string, steps: StepDef[], sessionId?: string, userId?: string, appFilter?: string, appFilters?: string[]): string {
   const period = periodClause(days);
   const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
   const userFilter = !sessionId && userId ? `| filter effective_user_id == "${userId}"` : "";
   return `fetch user.events, ${period}
-| filter ${frontendFilter(steps, frontend, appFilter)}
+| filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
 | filter characteristics.has_request == true
 | fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
 | fieldsAdd sid = dt.rum.session.id
@@ -1236,11 +1262,35 @@ ${userFilter}
 | limit 1000`;
 }
 
-function navigationSessionTimelineQuery(days: number, frontend: string, steps: StepDef[], sessionId: string, appFilter?: string): string {
+function navigationFrontendBackendSessionEdgesQuery(days: number, frontend: string, steps: StepDef[], sessionId: string, appFilter?: string, appFilters?: string[]): string {
   const period = periodClause(days);
   const safeSessionId = sessionId.replace(/"/g, "\\\"");
   return `fetch user.events, ${period}
-| filter ${frontendFilter(steps, frontend, appFilter)}
+| filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
+| filter dt.rum.session.id == "${safeSessionId}"
+| filter characteristics.has_request == true
+| filter isNotNull(dt.rum.trace_id)
+| fieldsAdd trace_id = dt.rum.trace_id
+| fieldsAdd page_name = coalesce(view.name, page.name, url.path, "unknown")
+| summarize req = count(), by: {trace_id, page_name}
+| lookup [
+    fetch spans, ${period}
+    | filter span.kind == "server"
+    | fields trace.id, service_name = service.name
+    | filter isNotNull(service_name)
+    | dedup trace.id, service_name
+  ], sourceField:trace_id, lookupField:trace.id, prefix:"svc."
+| filter isNotNull(svc.service_name)
+| summarize requests = sum(req), by: {page_name, service_name = svc.service_name}
+| sort requests desc
+| limit 400`;
+}
+
+function navigationSessionTimelineQuery(days: number, frontend: string, steps: StepDef[], sessionId: string, appFilter?: string, appFilters?: string[]): string {
+  const period = periodClause(days);
+  const safeSessionId = sessionId.replace(/"/g, "\\\"");
+  return `fetch user.events, ${period}
+| filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
 | filter dt.rum.session.id == "${safeSessionId}"
 | fieldsAdd page_name = coalesce(view.name, page.name, url.path, "unknown")
 | fieldsAdd event_name = coalesce(event.name, event.type, user_action.name, "event")
@@ -2898,6 +2948,13 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>July 9, 2026</Paragraph>
+            <Paragraph><Strong>Navigation Paths — Session Parity + Trace-Based Backend Mapping</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Session parity mode</Strong>: The Navigation Paths tab can now switch between the navigation model and session-parity mode so the selected session matches Session Viewer-style user action counts.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Frontend-to-backend flow mapping</Strong>: Backend links now prefer session trace/request edges for the selected session so the service flow reflects the actual called services instead of a generic heuristic pairing.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Scope-aware backend alignment</Strong>: Service nodes and connector edges stay aligned to the active session/user scope so the backend view remains specific to the journey you selected.</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>July 2, 2026</Paragraph>
             <Paragraph><Strong>Navigation Paths — Session Triage Workflow</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Optional user/session filters</Strong>: Filter by user tag and then session, or select a session directly without user filtering. Session picker includes converted, errors, apdex, duration, and actions</Paragraph>
@@ -4476,7 +4533,7 @@ export function UserJourney() {
             case "Perf Budgets": content = <PerfBudgetsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading || qualityDataPrev.isLoading} saveState={saveState} savedThresholds={savedBudgetThresholds} onDrillToForecast={openForecast} />; break;
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} networkData={geoNetworkData} conversionData={geoConversionData} onDrillToForecast={openForecast} />; break;
             case "Maps": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} timelapseData={mapTimelapseData} conversionData={geoConversionData} funnelBounceData={geoFunnelBounceData} tlBucket={mapTlBucket} onBucketChange={setMapTlBucket} onDrillToForecast={openForecast} priorData={geoPriorPerformanceData} />; break;
-            case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} navPathConvData={navPathConvData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} backendServicesData={backendServicesData} serviceToServiceData={serviceToServiceData} frontend={frontend} timeframeDays={timeframeDays} onDrillToForecast={openForecast} />; break;
+            case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} navPathConvData={navPathConvData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} backendServicesData={backendServicesData} serviceToServiceData={serviceToServiceData} frontend={funnelDrillFrontend} timeframeDays={timeframeDays} onDrillToForecast={openForecast} />; break;
             case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} onDrillToForecast={openForecast} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov}  davisProblemsData={davisProblemsData} onDrillToForecast={openForecast} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} steps={steps} />; break;
@@ -9624,9 +9681,10 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
 // ===========================================================================
 function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvData, backendServicesData, serviceToServiceData, frontend, timeframeDays, onDrillToForecast }: { data: any; isLoading: boolean; appEntityId: string; steps: StepDef[]; navPathConvData?: any; backendServicesData?: any; serviceToServiceData?: any; frontend: string; timeframeDays: number; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeNavigationPaths(data, [], steps), [data, steps]));
-  const savedNavUser = useUserAppState({ key: NAV_FILTER_USER_STATE_KEY });
   const savedNavSession = useUserAppState({ key: NAV_FILTER_SESSION_STATE_KEY });
   const savedNavPreset = useUserAppState({ key: NAV_FILTER_PRESET_STATE_KEY });
+  const savedNavUserTag = useUserAppState({ key: NAV_FILTER_USER_TAG_STATE_KEY });
+  const savedNavCountMode = useUserAppState({ key: NAV_COUNT_MODE_STATE_KEY });
   const savedCompareA = useUserAppState({ key: NAV_COMPARE_A_STATE_KEY });
   const savedCompareB = useUserAppState({ key: NAV_COMPARE_B_STATE_KEY });
   const { execute: saveState } = useSetUserAppState();
@@ -9645,25 +9703,29 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [backendPanX, setBackendPanX] = useState(0);
   const [navZoom, setNavZoom] = useState(1);
   const navSvgRef = useRef<SVGSVGElement | null>(null);
-  const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
+  const [selectedRollupVariant, setSelectedRollupVariant] = useState<Record<string, string>>({});
   const [filterPreset, setFilterPreset] = useState<"all" | "issues" | "converted" | "low_apdex">("all");
+  const [navCountMode, setNavCountMode] = useState<"navigation" | "session_parity">("navigation");
   const [navAppFilter, setNavAppFilter] = useState<string>("__all__");
+  const [selectedUserTag, setSelectedUserTag] = useState<string>("__all_users__");
   const [timelineSessionId, setTimelineSessionId] = useState<string>("");
   const [timelineViewMode, setTimelineViewMode] = useState<"summary" | "chronological">("summary");
   const [compareSessionA, setCompareSessionA] = useState<string>("");
   const [compareSessionB, setCompareSessionB] = useState<string>("");
-
-  const funnelApps = useMemo(() => uniqueApps(steps, frontend), [steps, frontend]);
+  const navigationApps = useMemo(() => uniqueApps(steps, frontend), [steps, frontend]);
   const navAppFilterOverride = navAppFilter === "__all__" ? undefined : navAppFilter;
+  const navUserFilter = selectedUserTag === "__all_users__" ? undefined : selectedUserTag;
 
-  const userTagOptionsData = useDql({ query: navigationUserTagOptionsQuery(timeframeDays, frontend, steps, navAppFilterOverride) });
-  const sessionCandidatesData = useDql({ query: navigationSessionCandidatesQuery(timeframeDays, frontend, steps, selectedUserId || undefined, navAppFilterOverride) });
-  const hasSessionScope = selectedSessionId !== "" || selectedUserId !== "";
-  const hasScopedNavQuery = hasSessionScope || navAppFilterOverride !== undefined;
-  const scopedNavData = useDql({ query: hasScopedNavQuery ? navigationPathsQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, selectedUserId || undefined, navAppFilterOverride) : "fetch user.events | limit 0" });
-  const scopedBackendReqData = useDql({ query: navigationBackendRequestEdgesQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, selectedUserId || undefined, navAppFilterOverride) });
-  const timelineEventsData = useDql({ query: timelineSessionId ? navigationSessionTimelineQuery(timeframeDays, frontend, steps, timelineSessionId, navAppFilterOverride) : "fetch user.events | limit 0" });
+  const sessionCandidatesData = useDql({ query: navigationSessionCandidatesQuery(timeframeDays, frontend, steps, undefined, navAppFilterOverride, navigationApps) });
+  const hasSessionScope = selectedSessionId !== "";
+  const hasUserScope = navUserFilter !== undefined;
+  const hasScopedNavQuery = hasSessionScope || hasUserScope || navAppFilterOverride !== undefined;
+  const scopedNavData = useDql({ query: hasScopedNavQuery ? navigationPathsQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, navUserFilter, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
+  const scopedBackendReqData = useDql({ query: navigationBackendRequestEdgesQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, navUserFilter, navAppFilterOverride, navigationApps) });
+  const scopedFrontendBackendData = useDql({ query: selectedSessionId ? navigationFrontendBackendSessionEdgesQuery(timeframeDays, frontend, steps, selectedSessionId, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
+  const timelineEventsData = useDql({ query: timelineSessionId ? navigationSessionTimelineQuery(timeframeDays, frontend, steps, timelineSessionId, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
+  const sessionActionBreakdownData = useDql({ query: selectedSessionId ? navigationSessionActionBreakdownQuery(timeframeDays, frontend, steps, selectedSessionId, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
 
   const navDirectServiceIds = React.useMemo(() => {
     return ((backendServicesData?.data?.records ?? []) as any[])
@@ -9715,16 +9777,32 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     if (!rows.some((r: any) => String(r["dt.rum.session.id"] ?? "") === selectedSessionId)) setSelectedSessionId("");
   }, [sessionCandidatesData.data, selectedSessionId]);
   React.useEffect(() => {
-    if (!selectedSessionId) return;
-    if (!selectedUserId) return;
-    const rows = (sessionCandidatesData.data?.records ?? []) as any[];
-    const hit = rows.find((r: any) => String(r["dt.rum.session.id"] ?? "") === selectedSessionId);
-    if (hit && String(hit.user_id ?? "") !== selectedUserId) setSelectedSessionId("");
-  }, [selectedUserId, selectedSessionId, sessionCandidatesData.data]);
-  React.useEffect(() => {
     const v = String(savedNavPreset.data?.value ?? "all");
     if (v === "all" || v === "issues" || v === "converted" || v === "low_apdex") setFilterPreset(v);
   }, [savedNavPreset.data?.value]);
+  React.useEffect(() => {
+    const v = String(savedNavCountMode.data?.value ?? "navigation");
+    if (v === "navigation" || v === "session_parity") setNavCountMode(v);
+  }, [savedNavCountMode.data?.value]);
+  React.useEffect(() => {
+    const v = String(savedNavUserTag.data?.value ?? "__all_users__");
+    setSelectedUserTag(v || "__all_users__");
+  }, [savedNavUserTag.data?.value]);
+  React.useEffect(() => {
+    if (navAppFilter === "__all__") return;
+    if (!navigationApps.includes(navAppFilter)) setNavAppFilter("__all__");
+  }, [navAppFilter, navigationApps]);
+  React.useEffect(() => {
+    if (navigationApps.length === 0) {
+      if (navAppFilter !== "__all__") setNavAppFilter("__all__");
+      return;
+    }
+    if (navAppFilter === "__all__") {
+      setNavAppFilter(navigationApps[0]);
+      return;
+    }
+    if (!navigationApps.includes(navAppFilter)) setNavAppFilter(navigationApps[0]);
+  }, [navAppFilter, navigationApps]);
   React.useEffect(() => {
     const v = String(savedCompareA.data?.value ?? "");
     if (v) setCompareSessionA(v);
@@ -9733,13 +9811,10 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     const v = String(savedCompareB.data?.value ?? "");
     if (v) setCompareSessionB(v);
   }, [savedCompareB.data?.value]);
-  React.useEffect(() => {
-    if (navAppFilter === "__all__") return;
-    if (!funnelApps.includes(navAppFilter)) setNavAppFilter("__all__");
-  }, [navAppFilter, funnelApps]);
-  React.useEffect(() => { saveState({ key: NAV_FILTER_USER_STATE_KEY, body: { value: selectedUserId } }); }, [selectedUserId, saveState]);
   React.useEffect(() => { saveState({ key: NAV_FILTER_SESSION_STATE_KEY, body: { value: selectedSessionId } }); }, [selectedSessionId, saveState]);
   React.useEffect(() => { saveState({ key: NAV_FILTER_PRESET_STATE_KEY, body: { value: filterPreset } }); }, [filterPreset, saveState]);
+  React.useEffect(() => { saveState({ key: NAV_COUNT_MODE_STATE_KEY, body: { value: navCountMode } }); }, [navCountMode, saveState]);
+  React.useEffect(() => { saveState({ key: NAV_FILTER_USER_TAG_STATE_KEY, body: { value: selectedUserTag } }); }, [selectedUserTag, saveState]);
   React.useEffect(() => { saveState({ key: NAV_COMPARE_A_STATE_KEY, body: { value: compareSessionA } }); }, [compareSessionA, saveState]);
   React.useEffect(() => { saveState({ key: NAV_COMPARE_B_STATE_KEY, body: { value: compareSessionB } }); }, [compareSessionB, saveState]);
 
@@ -9749,11 +9824,33 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const navRows = (navData.data?.records ?? []) as any[];
   const sessionPaths = navRows
     .map((r: any) => {
-      const arr = Array.isArray(r.path) ? r.path.map((x: any) => String(x ?? "")).filter((x: string) => x !== "") : [];
-      const pathLen = Number(r.pathLen ?? arr.length ?? 0);
-      return { path: arr, pathLen };
+      const rawArr = Array.isArray(r.path) ? r.path.map((x: any) => String(x ?? "")).filter((x: string) => x !== "") : [];
+      const normArr = rawArr.map((x: string) => normalizePageForRollup(x));
+      const pathLen = Number(r.pathLen ?? normArr.length ?? 0);
+      return { path: normArr, rawPath: rawArr, pathLen };
     })
     .filter((s) => s.path.length >= 2);
+  const rolledPageVariants = new Map<string, { page: string; count: number }[]>();
+  const rolledPageVariantCount = new Map<string, number>();
+  sessionPaths.forEach((s) => {
+    const maxN = Math.min(s.path.length, s.rawPath.length);
+    for (let i = 0; i < maxN; i++) {
+      const roll = s.path[i];
+      const raw = s.rawPath[i];
+      const key = `${roll}\u0000${raw}`;
+      rolledPageVariantCount.set(key, (rolledPageVariantCount.get(key) ?? 0) + 1);
+    }
+  });
+  for (const [k, count] of rolledPageVariantCount.entries()) {
+    const sep = k.indexOf("\u0000");
+    if (sep < 0) continue;
+    const roll = k.slice(0, sep);
+    const raw = k.slice(sep + 1);
+    const arr = rolledPageVariants.get(roll) ?? [];
+    arr.push({ page: raw, count });
+    rolledPageVariants.set(roll, arr);
+  }
+  for (const [, arr] of rolledPageVariants) arr.sort((a, b) => b.count - a.count);
   const transitionAgg = new Map<string, { step1: string; step2: string; occurrences: number; depthSum: number; depthN: number }>();
   sessionPaths.forEach((s) => {
     for (let i = 0; i < s.path.length - 1; i++) {
@@ -9774,6 +9871,18 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const totalTransitions = paths.reduce((a: number, p: any) => a + Number(p.occurrences ?? 0), 0);
   const uniquePaths = paths.length;
   const avgDepth = sessionPaths.length > 0 ? sessionPaths.reduce((a, s) => a + s.pathLen, 0) / sessionPaths.length : 0;
+  const sessionActionBreakdownRows = (sessionActionBreakdownData.data?.records ?? []) as any[];
+  const sessionParityPageCounts = new Map<string, number>();
+  sessionActionBreakdownRows.forEach((r: any) => {
+    const page = normalizePageForRollup(String(r.page_name ?? "unknown"));
+    if (!page) return;
+    sessionParityPageCounts.set(page, (sessionParityPageCounts.get(page) ?? 0) + Number(r.actions ?? 0));
+  });
+  const sessionParityTotalActions = Array.from(sessionParityPageCounts.values()).reduce((sum, v) => sum + v, 0);
+  const useSessionParityCounts = navCountMode === "session_parity" && hasSessionScope && sessionParityTotalActions > 0;
+  const primaryCountValue = useSessionParityCounts ? sessionParityTotalActions : totalTransitions;
+  const primaryCountLabel = useSessionParityCounts ? "Total Actions" : "Total Transitions";
+  const nodeCountLabel = useSessionParityCounts ? "Actions" : "Views";
 
   // Compute conversion rate per page from the path graph
   // "Conversion probability": accounts for drop-offs (sessions that visited but didn't continue)
@@ -9833,6 +9942,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const sessionRows = (sessionCandidatesData.data?.records ?? []) as any[];
   const sessionOptions = sessionRows.map((r: any) => {
     const sid = String(r["dt.rum.session.id"] ?? "");
+    const frontendName = String(r.frontend_name ?? r.frontend?.name ?? "").trim();
     const tagUserIdRaw = String(r.tag_user_id ?? "").trim();
     const userId = String(r.user_id ?? "unknown");
     const userTag = String(r.user_tag ?? "unknown");
@@ -9844,67 +9954,40 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     const endTs = String(r.end_ts ?? "");
     const startTs = String(r.start_ts ?? "");
     const impactScore = (errors * 4) + (converted ? 0 : 10) + Math.max(0, (0.85 - apdex) * 80) + Math.max(0, (avgDur - 1500) / 250);
-    return { sid, userId, tagUserId: tagUserIdRaw, userTag, converted, errors, apdex, avgDur, actions, endTs, startTs, impactScore };
+    return { sid, frontendName, userId, tagUserId: tagUserIdRaw, userTag, converted, errors, apdex, avgDur, actions, endTs, startTs, impactScore };
   }).filter(s => s.sid !== "");
 
-  const presetFilteredSessions = sessionOptions.filter((s) => {
+  const userTagCount = new Map<string, number>();
+  for (const s of sessionOptions) {
+    const t = String(s.tagUserId ?? "").trim();
+    if (!t || t.startsWith("session:")) continue;
+    userTagCount.set(t, (userTagCount.get(t) ?? 0) + 1);
+  }
+  const userTagOptions = Array.from(userTagCount.entries())
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  const rawSessionFallbackCount = sessionOptions.filter((s) => String(s.tagUserId ?? "").startsWith("session:")).length;
+  const unknownTagCount = sessionOptions.filter((s) => String(s.tagUserId ?? "").trim() === "").length;
+  React.useEffect(() => {
+    if (selectedUserTag === "__all_users__") return;
+    if (!userTagOptions.some((t) => t.tag === selectedUserTag)) setSelectedUserTag("__all_users__");
+  }, [selectedUserTag, userTagOptions]);
+
+  const userScopedSessions = selectedUserTag === "__all_users__"
+    ? sessionOptions
+    : sessionOptions.filter((s) => String(s.tagUserId ?? "") === selectedUserTag);
+
+  const presetFilteredSessions = userScopedSessions.filter((s) => {
     if (filterPreset === "issues") return s.errors > 0 || s.apdex < 0.7 || s.avgDur > 3000;
     if (filterPreset === "converted") return s.converted;
     if (filterPreset === "low_apdex") return s.apdex < 0.7;
     return true;
   });
 
-  const rawUserTagRecords = (userTagOptionsData.data?.records ?? []) as any[];
-  const sessionTagRows = sessionOptions.filter((s) => String(s.tagUserId ?? "").trim() !== "");
-  const userTagCountMap = sessionTagRows.reduce<Map<string, number>>((m, s) => {
-    const rawUserId = String(s.tagUserId ?? "").trim();
-    if (!rawUserId) return m;
-    m.set(rawUserId, (m.get(rawUserId) ?? 0) + 1);
-    return m;
-  }, new Map<string, number>());
-  const userTagRows: { userId: string; count: number }[] = Array.from(userTagCountMap.entries()).map(([userId, count]) => ({ userId, count }));
-  const userTagDebugSample = sessionTagRows.slice(0, 5).map((s) => String(s.tagUserId ?? "")).filter(Boolean);
-  const userTagQueryError = String((userTagOptionsData as any)?.error?.message ?? (userTagOptionsData as any)?.error ?? "").trim();
-
-  const buildUserTagGroups = (rows: { userId: string; count: number }[], isSessionFallback: boolean) => Array.from(rows.reduce((m, s) => {
-    const key = s.userId;
-    m.set(key, (m.get(key) ?? 0) + s.count);
-    return m;
-  }, new Map<string, number>()).entries()).map(([k, count]) => {
-    const userId = k;
-    const shortSession = userId.startsWith("session:") ? userId.replace("session:", "").slice(0, 12) : "";
-    return {
-      tag: userId,
-      userId,
-      count,
-      isSessionFallback,
-      displayTag: isSessionFallback ? `Session ${shortSession}${shortSession.length >= 12 ? "..." : ""}` : userId,
-    };
-  }).sort((a, b) => b.count - a.count);
-
-  const realUserTagGroups = buildUserTagGroups(userTagRows.filter((s) => !s.userId.startsWith("session:")), false);
-  const sessionFallbackTagGroups = buildUserTagGroups(userTagRows.filter((s) => s.userId.startsWith("session:")), true);
-  const userTagGroups = realUserTagGroups.length > 0 ? realUserTagGroups : sessionFallbackTagGroups;
-  const selectedUserGroup = userTagGroups.find((u) => u.userId === selectedUserId) ?? null;
   const selectedSessionOption = sessionOptions.find((s) => s.sid === selectedSessionId) ?? null;
-  const drillFrontend = navAppFilter === "__all__"
-    ? (steps.find((s) => (s.app ?? "").trim() !== "")?.app || frontend)
-    : navAppFilter;
-
-  React.useEffect(() => {
-    if (!selectedUserId || userTagGroups.length === 0) return;
-    if (selectedUserId.startsWith("session:") && realUserTagGroups.length > 0) {
-      setSelectedUserId("");
-      return;
-    }
-    if (!userTagGroups.some((u) => u.userId === selectedUserId)) setSelectedUserId("");
-  }, [selectedUserId, userTagGroups, realUserTagGroups.length]);
-
   if (loadingNow) return <Loading />;
 
-  const sessionsForPicker = (selectedUserId
-    ? presetFilteredSessions.filter(s => (s.tagUserId || s.userId) === selectedUserId)
-    : presetFilteredSessions)
+  const sessionsForPicker = presetFilteredSessions
     .sort((a, b) => b.impactScore - a.impactScore);
 
   const compareA = sessionOptions.find(s => s.sid === compareSessionA) ?? null;
@@ -9923,18 +10006,44 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     .slice(0, 200);
 
   const backendReqRows = (scopedBackendReqData.data?.records ?? []) as any[];
+  const frontendBackendRows = (scopedFrontendBackendData.data?.records ?? []) as any[];
+  const frontendBackendPageSvcRows = frontendBackendRows
+    .map((r: any) => ({
+      pageName: normalizePageForRollup(String(r.page_name ?? "unknown")),
+      serviceName: String(r.service_name ?? "").trim(),
+      requests: Number(r.requests ?? 0),
+    }))
+    .filter((r) => r.pageName !== "" && r.serviceName !== "" && r.requests > 0);
   const reqByServiceName = new Map<string, number>();
+  const reqErrorsByServiceName = new Map<string, number>();
+  const reqLatencyWeightedByServiceName = new Map<string, number>();
+  const reqLatencyWeightByServiceName = new Map<string, number>();
   const reqByPair = new Map<string, number>();
   const norm = (s: string) => s.toLowerCase().trim();
   backendReqRows.forEach((r: any) => {
     const src = String(r.from_service ?? "");
     const tgt = String(r.to_service ?? "");
     const req = Number(r.requests ?? 0);
+    const err = Number(r.errors ?? 0);
+    const avgDur = Number(r.avg_duration ?? 0);
     if (!src || !tgt) return;
     reqByServiceName.set(norm(src), (reqByServiceName.get(norm(src)) ?? 0) + req);
     reqByServiceName.set(norm(tgt), (reqByServiceName.get(norm(tgt)) ?? 0) + req);
+    reqErrorsByServiceName.set(norm(src), (reqErrorsByServiceName.get(norm(src)) ?? 0) + err);
+    reqErrorsByServiceName.set(norm(tgt), (reqErrorsByServiceName.get(norm(tgt)) ?? 0) + err);
+    if (req > 0 && Number.isFinite(avgDur)) {
+      reqLatencyWeightedByServiceName.set(norm(src), (reqLatencyWeightedByServiceName.get(norm(src)) ?? 0) + (avgDur * req));
+      reqLatencyWeightedByServiceName.set(norm(tgt), (reqLatencyWeightedByServiceName.get(norm(tgt)) ?? 0) + (avgDur * req));
+      reqLatencyWeightByServiceName.set(norm(src), (reqLatencyWeightByServiceName.get(norm(src)) ?? 0) + req);
+      reqLatencyWeightByServiceName.set(norm(tgt), (reqLatencyWeightByServiceName.get(norm(tgt)) ?? 0) + req);
+    }
     reqByPair.set(`${norm(src)}->${norm(tgt)}`, (reqByPair.get(`${norm(src)}->${norm(tgt)}`) ?? 0) + req);
   });
+  if (selectedSessionId !== "") {
+    frontendBackendPageSvcRows.forEach((r) => {
+      reqByServiceName.set(norm(r.serviceName), (reqByServiceName.get(norm(r.serviceName)) ?? 0) + r.requests);
+    });
+  }
   const serviceReqCount = (name: string) => {
     const n = norm(name);
     const exact = reqByServiceName.get(n);
@@ -9962,20 +10071,32 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     }
     return best;
   };
+  const reqErrRateForService = (name: string) => {
+    const n = norm(name);
+    const req = reqByServiceName.get(n) ?? 0;
+    const err = reqErrorsByServiceName.get(n) ?? 0;
+    return req > 0 ? (err / req) * 100 : 0;
+  };
+  const reqAvgLatencyForService = (name: string) => {
+    const n = norm(name);
+    const weighted = reqLatencyWeightedByServiceName.get(n) ?? 0;
+    const weight = reqLatencyWeightByServiceName.get(n) ?? 0;
+    return weight > 0 ? (weighted / weight) : 0;
+  };
 
   // --- AI Path Recommendations: find best/worst converting paths ---
   const pageConvList = [...convMap.entries()].filter(([, v]) => v > 0 && v < 100).map(([page, convRate]) => ({ page, convRate, sessions: graphOut.get(page)?.total ?? 0 }));
   const highConv = pageConvList.filter(p => p.convRate > avgConv * 1.5).sort((a, b) => b.convRate - a.convRate).slice(0, 5);
   const lowConv = pageConvList.filter(p => p.convRate < avgConv * 0.5 && p.sessions >= 3).sort((a, b) => a.convRate - b.convRate).slice(0, 5);
   const pathRecs: { text: string; type: "positive" | "negative" | "info" }[] = [];
-  const frontendReqByPage = new Map<string, number>();
-  for (const [page, d] of sourceMap.entries()) frontendReqByPage.set(page, d.total);
-  for (const p of paths) {
-    const tgt = String(p.step2 ?? "");
-    const c = Number(p.occurrences ?? 0);
-    if (!tgt) continue;
-    frontendReqByPage.set(tgt, (frontendReqByPage.get(tgt) ?? 0) + c);
-  }
+  const frontendVisitsByPage = new Map<string, number>();
+  sessionPaths.forEach((s) => {
+    s.path.forEach((page: string) => {
+      if (!page) return;
+      frontendVisitsByPage.set(page, (frontendVisitsByPage.get(page) ?? 0) + 1);
+    });
+  });
+  const displayCountsByPage = useSessionParityCounts ? sessionParityPageCounts : frontendVisitsByPage;
   // Find multi-step path insights
   if (highConv.length > 0 && sources.length > 1) {
     const topPage = highConv[0].page;
@@ -10027,7 +10148,6 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   });
 
   const allS2sRecords = [
-    ...((serviceToServiceData?.data?.records ?? []) as any[]),
     ...((navTier1Edges.data?.records ?? []) as any[]),
     ...((navTier1DbEdges.data?.records ?? []) as any[]),
     ...((navTier1ExtEdges.data?.records ?? []) as any[]),
@@ -10280,11 +10400,62 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
       return { src: srcId, tgt: tgtId, srcName, tgtName };
     })
     .filter((e): e is { src: string; tgt: string; srcName: string; tgtName: string } => e !== null);
+  const resolveBackendIdByName = (serviceName: string): string | null => {
+    const n = norm(serviceName);
+    const exact = beIdByNormName.get(n);
+    if (exact) return exact;
+    let bestId: string | null = null;
+    let bestScore = 0;
+    for (const [id, name] of beNameById.entries()) {
+      const k = norm(name);
+      if (!k) continue;
+      if (k.includes(n) || n.includes(k)) {
+        const score = Math.min(k.length, n.length);
+        if (score > bestScore) {
+          bestScore = score;
+          bestId = id;
+        }
+      }
+    }
+    return bestId;
+  };
+  const strictFrontendBackendEdges = frontendBackendPageSvcRows
+    .map((r) => {
+      const serviceId = resolveBackendIdByName(r.serviceName);
+      if (!serviceId) return null;
+      return { pageName: r.pageName, serviceId, serviceName: r.serviceName, requests: r.requests };
+    })
+    .filter((e): e is { pageName: string; serviceId: string; serviceName: string; requests: number } => e !== null);
   const strictReqNodeIds = new Set<string>();
   strictReqEdges.forEach((e) => { strictReqNodeIds.add(e.src); strictReqNodeIds.add(e.tgt); });
+  strictFrontendBackendEdges.forEach((e) => strictReqNodeIds.add(e.serviceId));
+  const expandConnectedNodeIds = (seedIds: Set<string>, maxHops: number) => {
+    const expanded = new Set<string>();
+    const seen = new Set<string>();
+    const queue: Array<{ id: string; depth: number }> = [];
+    for (const id of seedIds) {
+      if (!beNameById.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      expanded.add(id);
+      queue.push({ id, depth: 0 });
+    }
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      if (cur.depth >= maxHops) continue;
+      for (const edge of s2sEdges) {
+        const next = edge.src === cur.id ? edge.tgt : edge.tgt === cur.id ? edge.src : null;
+        if (!next || seen.has(next) || !beNameById.has(next)) continue;
+        seen.add(next);
+        expanded.add(next);
+        queue.push({ id: next, depth: cur.depth + 1 });
+      }
+    }
+    return expanded;
+  };
+  const strictExpandedNodeIds = expandConnectedNodeIds(strictReqNodeIds, 2);
   const tierScopedServices = (hasSessionScope
     ? (strictSessionMode
-      ? backendVisibleByDepth.filter(s => strictReqNodeIds.has(s.id))
+      ? backendVisibleByDepth.filter(s => strictExpandedNodeIds.has(s.id))
       : (scopedAcrossTiers.length > 0 ? scopedAcrossTiers : backendVisibleByDepth.filter(s => s.depth === 1)))
     : backendVisibleByDepth);
   const beServices = tierScopedServices
@@ -10342,13 +10513,23 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               </Select.Content>
             </Select>
           </div>
+          <div style={{ minWidth: 210 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Count Mode</Text>
+            <Select value={navCountMode} onChange={(val) => setNavCountMode((val as "navigation" | "session_parity") ?? "navigation")}>
+              <Select.Trigger />
+              <Select.Content>
+                <Select.Option value="navigation">Navigation model</Select.Option>
+                <Select.Option value="session_parity">Session parity (selected session)</Select.Option>
+              </Select.Content>
+            </Select>
+          </div>
           <div style={{ minWidth: 240 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>App Filter</Text>
             <Select value={navAppFilter} onChange={(val) => setNavAppFilter(String(val ?? "__all__"))}>
               <Select.Trigger />
               <Select.Content>
                 <Select.Option value="__all__">All funnel apps</Select.Option>
-                {funnelApps.map((app) => (
+                {navigationApps.map((app) => (
                   <Select.Option key={app} value={app}>{app}</Select.Option>
                 ))}
               </Select.Content>
@@ -10356,19 +10537,19 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
           </div>
           <div style={{ minWidth: 260 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>User Tag (optional)</Text>
-            <Select value={selectedUserId || "__all_users__"} onChange={(val) => { const next = val === "__all_users__" ? "" : String(val ?? ""); setSelectedUserId(next); }}>
+            <Select value={selectedUserTag} onChange={(val) => setSelectedUserTag(String(val ?? "__all_users__"))}>
               <Select.Trigger />
-              <Select.Content>
+              <Select.Content style={{ minWidth: 380, maxWidth: 560 }}>
                 <Select.Filter />
                 <Select.Option value="__all_users__">All users</Select.Option>
-                {userTagGroups.map((u) => (
-                  <Select.Option key={u.userId} value={u.userId}>{u.displayTag} ({u.count} sessions)</Select.Option>
+                {userTagOptions.map((u) => (
+                  <Select.Option key={u.tag} value={u.tag}>{`${u.tag} (${u.count})`}</Select.Option>
                 ))}
               </Select.Content>
             </Select>
           </div>
           <div style={{ minWidth: 760, flex: 1.8 }}>
-            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Session ID (optional, can be used without user tag)</Text>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Session ID (optional)</Text>
             <Select value={selectedSessionId || "__all_sessions__"} onChange={(val) => setSelectedSessionId(val === "__all_sessions__" ? "" : String(val ?? ""))}>
               <Select.Trigger style={{ width: "100%" }} />
               <Select.Content style={{ minWidth: 860, maxWidth: 980 }}>
@@ -10382,13 +10563,16 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               </Select.Content>
             </Select>
           </div>
-          <Button variant="default" onClick={() => { setSelectedUserId(""); setSelectedSessionId(""); }} style={{ height: 32 }}>Clear Filters</Button>
+          <Button variant="default" onClick={() => { setSelectedSessionId(""); setNavAppFilter(navigationApps[0] ?? "__all__"); setSelectedUserTag("__all_users__"); }} style={{ height: 32 }}>Clear Filters</Button>
         </Flex>
         <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 8, display: "block" }}>
-          Scope: {selectedSessionId ? `session ${selectedSessionId.slice(0, 12)}...` : selectedUserId ? "selected user" : "all sessions"}
+          Active scope: {selectedSessionId ? `session ${selectedSessionId.slice(0, 12)}...` : "all sessions"} | user tag: {selectedUserTag === "__all_users__" ? "all users" : selectedUserTag}
         </Text>
-        <Text style={{ fontSize: 11, opacity: 0.5, marginTop: 4, display: "block" }}>
-          User tag debug: query {userTagOptionsData.isLoading ? "loading" : userTagQueryError ? `error ${userTagQueryError}` : `rows ${rawUserTagRecords.length}`} | session rows {sessionOptions.length} | tagged sessions {sessionTagRows.length} | groups {userTagGroups.length}{userTagDebugSample.length > 0 ? ` | sample ${userTagDebugSample.join(" | ")}` : ""}
+        <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 4, display: "block" }}>
+          Count mode: {navCountMode === "session_parity" ? "Session parity (user actions only, selected session only)" : "Navigation model (navigation/page summary path events)"}
+        </Text>
+        <Text style={{ fontSize: 11, opacity: 0.42, marginTop: 4, display: "block" }}>
+          Note: frontend counts are page visits; backend counts are request events and can be higher than page actions.
         </Text>
         {useScopedFallback && (
           <Text style={{ fontSize: 11, opacity: 0.55, marginTop: 4, display: "block" }}>
@@ -10542,7 +10726,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 
       {/* KPIs */}
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Total Transitions" value={fmtCount(totalTransitions)} color={BLUE} rawValue={totalTransitions} prevRawValue={syntheticPrev(totalTransitions, "Total Transitions")} sparkline={syntheticSparkline(totalTransitions, 8, "Total Transitions")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={primaryCountLabel} value={fmtCount(primaryCountValue)} color={BLUE} rawValue={primaryCountValue} prevRawValue={syntheticPrev(primaryCountValue, primaryCountLabel)} sparkline={syntheticSparkline(primaryCountValue, 8, primaryCountLabel)} onDrillToForecast={onDrillToForecast} />
         <KpiCard label="Unique Paths" value={uniquePaths} color={PURPLE} rawValue={uniquePaths} prevRawValue={syntheticPrev(uniquePaths, "Unique Paths")} sparkline={syntheticSparkline(uniquePaths, 8, "Unique Paths")} onDrillToForecast={onDrillToForecast} />
         <KpiCard label="Avg Session Depth" value={`${avgDepth.toFixed(1)} pages`} color={CYAN} rawValue={avgDepth} prevRawValue={syntheticPrev(avgDepth, "Avg Session Depth")} sparkline={syntheticSparkline(avgDepth, 8, "Avg Session Depth")} onDrillToForecast={onDrillToForecast} />
         {avgConv > 0 && (
@@ -10783,27 +10967,38 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               totalSvgH = Math.max(totalSvgH, bp.y + beNodeH + bePadY);
             }
 
-            // FE→BE connector mapping: mirrors render logic so both filtering directions stay consistent
+            // FE→BE connector mapping: session scope uses trace-derived page→service edges, otherwise fallback heuristic.
             const feBeDepth1Svcs = beByDepth.get(1) ?? [];
             const feBeExitList = Array.from(nodePos.entries()).filter(([nm]) => exitPages.has(nm));
             const feBeConnList = feBeExitList.length > 0 ? feBeExitList : Array.from(nodePos.entries()).slice(-Math.min(3, nodePos.size));
-            const depth1SvcToPage = new Map<string, string>(); // svcId → connected exit page name
+            const feBeConnectorEdges = strictSessionMode && strictFrontendBackendEdges.length > 0
+              ? strictFrontendBackendEdges
+                  .filter((e) => nodePos.has(e.pageName) && beNodePos.has(e.serviceId))
+                  .sort((a, b) => b.requests - a.requests)
+              : feBeDepth1Svcs
+                  .map((svc, si) => {
+                    const entry = feBeConnList[si % Math.max(feBeConnList.length, 1)];
+                    if (!entry) return null;
+                    const [pageName] = entry;
+                    return { pageName, serviceId: svc.id, serviceName: svc.name, requests: 1 };
+                  })
+                  .filter((e): e is { pageName: string; serviceId: string; serviceName: string; requests: number } => e !== null);
+            const depth1SvcToPage = new Map<string, string[]>(); // svcId → connected page names
             const pageToDepth1Svcs = new Map<string, string[]>(); // page name → [svcId, ...]
-            feBeDepth1Svcs.forEach((svc, si) => {
-              const entry = feBeConnList[si % Math.max(feBeConnList.length, 1)];
-              if (entry) {
-                const [pageName] = entry;
-                depth1SvcToPage.set(svc.id, pageName);
-                const arr = pageToDepth1Svcs.get(pageName) ?? [];
-                arr.push(svc.id);
-                pageToDepth1Svcs.set(pageName, arr);
-              }
+            feBeConnectorEdges.forEach((edge) => {
+              const bySvc = depth1SvcToPage.get(edge.serviceId) ?? [];
+              if (!bySvc.includes(edge.pageName)) bySvc.push(edge.pageName);
+              depth1SvcToPage.set(edge.serviceId, bySvc);
+              const byPage = pageToDepth1Svcs.get(edge.pageName) ?? [];
+              if (!byPage.includes(edge.serviceId)) byPage.push(edge.serviceId);
+              pageToDepth1Svcs.set(edge.pageName, byPage);
             });
             // focusedExitPages: exit pages wired to Tier-1 services in the backend focus chain
             const focusedExitPages = new Set<string>();
             if (svcFocusIncludesFrontend) {
-              for (const [svcId, pageName] of depth1SvcToPage) {
-                if (svcFocusSet.has(svcId)) focusedExitPages.add(pageName);
+              for (const [svcId, pageNames] of depth1SvcToPage) {
+                if (!svcFocusSet.has(svcId)) continue;
+                pageNames.forEach((pageName) => focusedExitPages.add(pageName));
               }
             }
             // svcFocusPageSet: all frontend pages that eventually lead to focusedExitPages (BFS backwards)
@@ -10871,11 +11066,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                   </Flex>
                   <Flex alignItems="center" gap={8} flexWrap="nowrap" style={{ flex: "0 0 auto", justifyContent: "center" }}>
                     <span style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: 0.6 }}>Active scope</span>
-                    <span style={{ fontSize: 12, padding: "4px 10px", borderRadius: 999, background: selectedUserGroup ? "rgba(69,137,255,0.15)" : "rgba(128,128,128,0.12)", border: selectedUserGroup ? "1px solid rgba(69,137,255,0.35)" : "1px solid rgba(128,128,128,0.28)", color: "rgba(255,255,255,0.88)" }}>
-                      User: {selectedUserGroup ? selectedUserGroup.displayTag : "all"}
-                    </span>
                     <span style={{ fontSize: 12, padding: "4px 10px", borderRadius: 999, background: selectedSessionOption ? "rgba(8,189,186,0.14)" : "rgba(128,128,128,0.12)", border: selectedSessionOption ? "1px solid rgba(8,189,186,0.35)" : "1px solid rgba(128,128,128,0.28)", color: "rgba(255,255,255,0.88)" }}>
-                      Session: {selectedSessionOption ? `${selectedSessionOption.sid.slice(0, 12)}...` : "all"}
+                      Session: {selectedSessionOption ? `${selectedSessionOption.sid.slice(0, 12)}...` : "all"} | User tag: {selectedUserTag === "__all_users__" ? "all users" : selectedUserTag}
                     </span>
                   </Flex>
                   <Flex alignItems="center" gap={8} flexWrap="nowrap" style={{ flex: "0 0 auto", justifyContent: "flex-end" }}>
@@ -10938,19 +11130,22 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 
                   {/* Frontend → Backend connector edges (dashed) */}
                   {showBackend && beServices.length > 0 && (() => {
-                    return feBeDepth1Svcs.map((svc, si) => {
-                      const bePos = beNodePos.get(svc.id);
+                    return feBeConnectorEdges.map((edge, ei) => {
+                      const bePos = beNodePos.get(edge.serviceId);
                       if (!bePos) return null;
-                      const srcEntry = feBeConnList[si % Math.max(feBeConnList.length, 1)];
-                      if (!srcEntry) return null;
-                      const [, sp] = srcEntry;
+                      const sp = nodePos.get(edge.pageName);
+                      if (!sp) return null;
                       const x1 = sp.x + nodeW; const y1 = sp.y + nodeH / 2;
                       const x2 = bePos.x; const y2 = bePos.y + beNodeH / 2;
                       const cx1 = x1 + (x2 - x1) * 0.4; const cx2 = x1 + (x2 - x1) * 0.6;
-                      const feBeOp = focusedSvcId ? (svcFocusSet.has(svc.id) ? 0.75 : 0.05) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcFocusSet.has(svc.id) ? 0.75 : 0.05) : 0.07) : 0.4;
+                      const feBeFocused = pageSvcFocusSet.has(edge.serviceId) || svcFocusSet.has(edge.serviceId);
+                      const baseWidth = strictSessionMode ? Math.max(1.4, Math.min(6, 1 + edge.requests / 25)) : 1.5;
+                      const feBeOp = focusedSvcId ? (svcFocusSet.has(edge.serviceId) ? 0.75 : 0.05) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcFocusSet.has(edge.serviceId) ? 0.75 : 0.05) : 0.07) : 0.4;
                       return (
-                        <path key={`fe-be-${svc.id}`} d={`M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}`}
-                          fill="none" stroke={FLOW_NODE_META["svc-direct"].color} strokeWidth={1.5} strokeOpacity={feBeOp} strokeDasharray="6,4" style={{ transition: "stroke-opacity 0.2s" }} />
+                        <path key={`fe-be-${edge.serviceId}-${edge.pageName}-${ei}`} d={`M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}`}
+                          fill="none" stroke={FLOW_NODE_META["svc-direct"].color} strokeWidth={feBeFocused ? baseWidth + 0.6 : baseWidth} strokeOpacity={feBeOp} strokeDasharray="6,4" style={{ transition: "stroke-opacity 0.2s" }}>
+                          <title>{`${edge.pageName} -> ${edge.serviceName}: ${fmtCount(edge.requests)} req`}</title>
+                        </path>
                       );
                     });
                   })()}
@@ -11011,7 +11206,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const nodeType = inferPageNodeType(name, isFunnel, entryPages, exitPages);
                     const meta = FLOW_NODE_META[nodeType];
                     const conv = convMap.get(name);
-                    const reqCount = frontendReqByPage.get(name) ?? 0;
+                    const reqCount = displayCountsByPage.get(name) ?? 0;
                     const shortName = name.length > 32 ? name.substring(0, 30) + "…" : name;
                     const isHighlightedNode = !hasFocus || highlightedNodes.has(name);
                     const nodeOpacity = hasFocus ? (isHighlightedNode ? 1 : 0.12) : focusedPageName ? (pageFocusSet.has(name) ? 1 : 0.1) : focusedSvcId ? (svcFocusIncludesFrontend ? (svcFocusPageSet.has(name) ? 1 : 0.12) : 0.12) : 1;
@@ -11028,7 +11223,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           {shortName}
                         </text>
                         <text x={pos.x + 10} y={pos.y + 38} fontSize={10} fill="rgba(255,255,255,0.75)" opacity={0.9}>
-                          Req {fmtCount(reqCount)}{conv !== undefined && conv < 100 ? ` · Conv ${fmtPct(conv)}` : ""}
+                          {nodeCountLabel} {fmtCount(reqCount)}{conv !== undefined && conv < 100 ? ` · Conv ${fmtPct(conv)}` : ""}
                         </text>
                       </g>
                     );
@@ -11055,7 +11250,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           {shortName}
                         </text>
                         <text x={bePos.x + 8} y={bePos.y + 34} fontSize={9} fill="rgba(255,255,255,0.4)" style={{ dominantBaseline: "middle" } as any}>
-                          Tier {bePos.depth} · Req {fmtCount(svcReq)}
+                          Tier {bePos.depth} · ReqEvt {fmtCount(svcReq)}
                         </text>
                       </g>
                     );
@@ -11067,6 +11262,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     let tNode: { x: number; y: number; w: number; h: number } | null = null;
                     let ttTitle = "", ttSub = "", ttColor = BLUE, ttLink = "";
                     let perfSpark: number[] = [], errSpark: number[] = [];
+                    let pageVariants: { page: string; count: number }[] = [];
+                    let selectedVariantPage = "";
                     let ttSessions = 0, ttThroughput = 0, ttErrRate = 0, ttDur = 0;
                     let isSvc = false;
 
@@ -11087,7 +11284,11 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       ttErrRate = 0.5 + (pHash % 11) / 5;
                       perfSpark = syntheticSparkline(ttDur, 8, pname + "_dur");
                       errSpark = syntheticSparkline(ttErrRate, 8, pname + "_err");
-                      ttLink = (appEntityId && !/[:*{]/.test(pname)) ? vitalsUrl(appEntityId, pname) : "";
+                      pageVariants = rolledPageVariants.get(pname) ?? [];
+                      selectedVariantPage = selectedRollupVariant[pname] && pageVariants.some((v) => v.page === selectedRollupVariant[pname])
+                        ? selectedRollupVariant[pname]
+                        : (pageVariants[0]?.page ?? pname);
+                      ttLink = appEntityId && selectedVariantPage ? vitalsUrl(appEntityId, selectedVariantPage) : "";
                     } else if (activeTooltip.startsWith("svc:")) {
                       isSvc = true;
                       const svcId = activeTooltip.slice(4);
@@ -11098,17 +11299,18 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       const meta = FLOW_NODE_META[inferSvcNodeType(svc.name, bePos.depth)];
                       tNode = { x: bePos.x, y: bePos.y, w: beNodeW, h: beNodeH };
                       ttTitle = svc.name.length > 40 ? svc.name.substring(0, 38) + "…" : svc.name;
-                      ttSub = `${meta.label} · Tier ${bePos.depth}`; ttColor = meta.color;
-                      const sHash = hashStr(svcId);
-                      ttSessions = 500 + (sHash % 13) * 200;
-                      ttThroughput = Math.max(1, Math.round(ttSessions / 24));
-                      ttDur = 40 + (sHash % 23) * 5;
-                      ttErrRate = 0.2 + (sHash % 7) * 0.3;
-                      perfSpark = syntheticSparkline(ttDur, 8, svcId + "_lat");
-                      errSpark = syntheticSparkline(ttErrRate, 8, svcId + "_err");
-                      ttLink = svcId.startsWith("REQ:")
-                        ? `${ENV_URL}/ui/apps/dynatrace.services/explorer/services?perspective=performance&sort=entity%3Aascending&sidebarOpen=false&tf=${tfParam()}#filtering=dt.entity.service.name+%3D+${encodeURIComponent(svc.name)}+`
-                        : `${ENV_URL}/ui/apps/dynatrace.services/explorer/services?detailsId=${encodeURIComponent(svcId)}&sidebarOpen=false&tf=${tfParam()}`;
+                      const isMappedEntity = !svcId.startsWith("REQ:");
+                      ttSub = isMappedEntity ? `${meta.label} · Tier ${bePos.depth}` : `Observed endpoint · Tier ${bePos.depth}`;
+                      ttColor = meta.color;
+                      ttSessions = serviceReqById(svc.id, svc.name);
+                      ttThroughput = Math.max(1, Math.round(ttSessions / Math.max(1, timeframeDays * 24)));
+                      ttDur = reqAvgLatencyForService(svc.name);
+                      ttErrRate = reqErrRateForService(svc.name);
+                      perfSpark = [];
+                      errSpark = [];
+                      ttLink = isMappedEntity
+                        ? `${ENV_URL}/ui/apps/dynatrace.services/explorer/services?detailsId=${encodeURIComponent(svcId)}&sidebarOpen=false&tf=${tfParam()}`
+                        : `${ENV_URL}/ui/apps/dynatrace.services/explorer/services?search=${encodeURIComponent(svc.name)}&sidebarOpen=false&tf=${tfParam()}`;
                     }
 
                     if (!tNode) return null;
@@ -11131,26 +11333,42 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           <div style={{ fontWeight: 700, fontSize: 12, color: ttColor, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ttTitle}</div>
                           <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>{ttSub}</div>
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px", marginBottom: 8 }}>
-                            <div><div style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, marginBottom: 1 }}>Sessions</div><div style={{ fontWeight: 700 }}>{fmtCount(ttSessions)}</div></div>
+                            <div><div style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, marginBottom: 1 }}>{isSvc ? "Observed req events" : "Sessions"}</div><div style={{ fontWeight: 700 }}>{fmtCount(ttSessions)}</div></div>
                             <div><div style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, marginBottom: 1 }}>Throughput</div><div style={{ fontWeight: 700 }}>{ttThroughput}/hr</div></div>
                             <div><div style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, marginBottom: 1 }}>Error Rate</div><div style={{ fontWeight: 700, color: ttErrRate > 3 ? RED : GREEN }}>{ttErrRate.toFixed(1)}%</div></div>
                             <div><div style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, marginBottom: 1 }}>{isSvc ? "Avg Latency" : "Avg Duration"}</div><div style={{ fontWeight: 700 }}>{isSvc ? `${Math.round(ttDur)}ms` : `${ttDur.toFixed(1)}s`}</div></div>
                           </div>
-                          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 2 }}>Perf trend</div>
-                              <svg width="100%" height={26} viewBox={`0 0 ${spW} 26`} preserveAspectRatio="none">
-                                <path d={mkSparkPath(perfSpark, spW, 26)} fill="none" stroke={CYAN} strokeWidth={1.5} />
-                              </svg>
+                          {!isSvc && (
+                            <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 2 }}>Perf trend</div>
+                                <svg width="100%" height={26} viewBox={`0 0 ${spW} 26`} preserveAspectRatio="none">
+                                  <path d={mkSparkPath(perfSpark, spW, 26)} fill="none" stroke={CYAN} strokeWidth={1.5} />
+                                </svg>
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 2 }}>Error trend</div>
+                                <svg width="100%" height={26} viewBox={`0 0 ${spW} 26`} preserveAspectRatio="none">
+                                  <path d={mkSparkPath(errSpark, spW, 26)} fill="none" stroke={RED} strokeWidth={1.5} />
+                                </svg>
+                              </div>
                             </div>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 2 }}>Error trend</div>
-                              <svg width="100%" height={26} viewBox={`0 0 ${spW} 26`} preserveAspectRatio="none">
-                                <path d={mkSparkPath(errSpark, spW, 26)} fill="none" stroke={RED} strokeWidth={1.5} />
-                              </svg>
+                          )}
+                          {!isSvc && pageVariants.length > 1 && (
+                            <div style={{ marginTop: 7 }}>
+                              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", marginBottom: 4 }}>Rolled-up pages ({pageVariants.length})</div>
+                              <select
+                                value={selectedVariantPage}
+                                onChange={(e) => setSelectedRollupVariant((prev) => ({ ...prev, [activeTooltip.slice(5)]: e.target.value }))}
+                                style={{ width: "100%", fontSize: 10, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.9)", border: "1px solid rgba(255,255,255,0.25)", borderRadius: 4, padding: "3px 6px" }}
+                              >
+                                {pageVariants.map((v) => (
+                                  <option key={v.page} value={v.page} style={{ background: "#13182b", color: "#e8efff" }}>{`${v.page} (${fmtCount(v.count)} ${nodeCountLabel.toLowerCase()})`}</option>
+                                ))}
+                              </select>
                             </div>
-                          </div>
-                          {isSvc && <div style={{ marginTop: 6, fontSize: 9, color: "rgba(255,255,255,0.28)", fontStyle: "italic" }}>Connect APM instrumentation for live metrics</div>}
+                          )}
+                          {isSvc && <div style={{ marginTop: 6, fontSize: 9, color: "rgba(255,255,255,0.35)", fontStyle: "italic" }}>{activeTooltip.startsWith("svc:REQ:") ? "Observed endpoint from request telemetry; not mapped to a Gen3 Service entity." : "Service metrics are derived from scoped request telemetry in this view."}</div>}
                           {ttLink && <a href={ttLink} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ display: "block", marginTop: 7, fontSize: 10, color: ttColor, textDecoration: "none", fontWeight: 700, letterSpacing: 0.2 }}>{isSvc ? "View in Gen3 Services ↗" : "View in Gen3 Pages ↗"}</a>}
                         </div>,
                       document.body
