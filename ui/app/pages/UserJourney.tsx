@@ -69,7 +69,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.12";
+const APP_VERSION_LABEL = "4.57.13";
 
 type FlowNodeType = "page-funnel" | "page-normal" | "page-entry" | "page-exit" | "svc-direct" | "svc-micro" | "svc-db" | "svc-cache" | "svc-external";
 const FLOW_NODE_META: Record<FlowNodeType, { color: string; label: string; borderWidth: number }> = {
@@ -4523,7 +4523,7 @@ export function UserJourney() {
                 {subTabs.map(tabId => {
                   let content: React.ReactNode = null;
                   switch (tabId) {
-            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
+            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} />; break;
@@ -6154,7 +6154,7 @@ function analyzeErrorClustering(clusters: any[], totalErrors: number): AIInsight
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
-function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; }) {
+function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast, funnelName }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnelName?: string; }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap]));
   // Ticker to keep "last refreshed X ago" text updating
   const [, setTick] = React.useState(0);
@@ -6450,6 +6450,11 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           </button>
         </Flex>
       </Flex>
+      {funnelName && (
+        <div style={{ textAlign: "center", padding: "6px 0 2px" }}>
+          <Heading level={3} style={{ fontWeight: 700, margin: 0 }}>{funnelName}</Heading>
+        </div>
+      )}
       <div className="uj-funnel-container">
         {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} onStepSelect={handleFunnelStepDrill} />}
         {funnelStyle === "horizontal" && <HorizontalBarFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
@@ -11220,12 +11225,18 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                         onMouseDown={(e) => { e.stopPropagation(); setDraggingNode(name); setDragStart({ mx: e.clientX, my: e.clientY, nx: pos.x, ny: pos.y }); setWasDragging(false); }}
                         onClick={(e) => { e.stopPropagation(); if (!wasDragging) setActiveTooltip(prev => prev === `page:${name}` ? null : `page:${name}`); }}
                       >
-                        <rect x={pos.x} y={pos.y} width={nodeW} height={nodeH} rx={6}
+                        <rect x={pos.x} y={pos.y} width={nodeW} height={pos.h} rx={6}
                           fill={isActive ? `${meta.color}22` : "rgba(128,128,128,0.1)"} stroke={meta.color} strokeWidth={isActive ? meta.borderWidth + 1 : meta.borderWidth} strokeOpacity={0.85} />
-                        <text x={pos.x + 10} y={pos.y + 18} fontSize={12} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
+                        {isFunnel && (() => {
+                          const fsi = steps.findIndex(s => s.identifiers.some(id => identifierMatchesLabel(id, name)));
+                          const fsiLabel = fsi >= 0 ? steps[fsi].label : "";
+                          const fsiText = fsi >= 0 ? `\u2605 Step ${fsi + 1}: ${fsiLabel}` : "";
+                          return fsiText ? <text x={pos.x + 10} y={pos.y + 14} fontSize={9} fill={meta.color} fontWeight={700} opacity={0.9} style={{ dominantBaseline: "middle" } as any}>{fsiText.length > 34 ? fsiText.substring(0, 32) + "\u2026" : fsiText}</text> : null;
+                        })()}
+                        <text x={pos.x + 10} y={isFunnel ? pos.y + 34 : pos.y + 18} fontSize={12} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
                           {shortName}
                         </text>
-                        <text x={pos.x + 10} y={pos.y + 38} fontSize={10} fill="rgba(255,255,255,0.75)" opacity={0.9}>
+                        <text x={pos.x + 10} y={isFunnel ? pos.y + 56 : pos.y + 38} fontSize={10} fill="rgba(255,255,255,0.75)" opacity={0.9}>
                           {nodeCountLabel} {fmtCount(reqCount)}{conv !== undefined && conv < 100 ? ` · Conv ${fmtPct(conv)}` : ""}
                         </text>
                       </g>
