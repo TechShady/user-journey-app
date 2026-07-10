@@ -427,7 +427,7 @@ fetch user.events, from: now() - {timeframe}
 - Funnel-aligned path tagging
 - Transition counts and average session depth
 - Direct links to Vitals app per page
-- **Navigation Flow Diagram**: Sankey-like SVG visualization — pages arranged in columns by funnel step (BFS-based layer assignment, no MAX_PER_LAYER limit), curved links whose thickness represents traffic volume. Nodes are 220×52px with page name, transition count, and conversion probability. Horizontally scrollable when paths exceed viewport width.
+- **Navigation Flow Diagram**: Sankey-like SVG visualization — pages arranged in columns by funnel step (BFS-based layer assignment, no MAX_PER_LAYER limit), curved links whose thickness represents traffic volume. Funnel page nodes are 220×74px (3 rows: ★ Step N: label, page name, traffic count); non-funnel nodes are 220×52px (page name + count). Funnel step label shown in green above page name inside each green box. Horizontally scrollable when paths exceed viewport width.
 - **Session triage filters**: Optional user tag filter and optional direct session filter (session can be selected without user tag). Session picker includes converted/error/apdex/duration/action metadata.
 - **Quick presets + ranking**: Presets for all sessions, issues-first, converted-only, and low-apdex-only. Sessions are impact-ranked for faster investigation.
 - **Timeline scrubber**: Lightweight session timeline visualization (start/actions/errors/converted-exit) to quickly understand session progression.
