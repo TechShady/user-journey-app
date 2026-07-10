@@ -45,13 +45,14 @@ const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "heatmap", label: "Transition Heatmap" },
 ];
 const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
-type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split";
+type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator";
 const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "classic", label: "Classic Funnel" },
   { value: "horizontal", label: "Horizontal Bar" },
   { value: "cohort", label: "Stacked Cohort" },
   { value: "elapsed", label: "Elapsed-Time Curve" },
   { value: "split", label: "Comparison Split" },
+  { value: "elevator", label: "\uD83D\uDED7 Elevator" },
 ];
 const DEFAULT_FUNNEL_STYLE: FunnelStyle = "classic";
 const FUNNEL_STYLE_STATE_KEY = "uj-funnel-style";
@@ -69,7 +70,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.13";
+const APP_VERSION_LABEL = "4.57.14";
 
 type FlowNodeType = "page-funnel" | "page-normal" | "page-entry" | "page-exit" | "svc-direct" | "svc-micro" | "svc-db" | "svc-cache" | "svc-external";
 const FLOW_NODE_META: Record<FlowNodeType, { color: string; label: string; borderWidth: number }> = {
@@ -2471,12 +2472,13 @@ function CountUpText({ value, delay = 0, suffix = "", ...props }: { value: numbe
   return <text {...props}>{fmtCount(animated)}{suffix}</text>;
 }
 
-function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0, onStepSelect }: { steps: FunnelStep[]; prevSteps?: FunnelStep[]; appEntityId?: string; stepDefs: StepDef[]; aov?: number; onStepSelect?: (stepIndex: number) => void }) {
+function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0, onStepSelect, title }: { steps: FunnelStep[]; prevSteps?: FunnelStep[]; appEntityId?: string; stepDefs: StepDef[]; aov?: number; onStepSelect?: (stepIndex: number) => void; title?: string }) {
   const maxCount = Math.max(1, ...steps.map((s) => s.count), ...(prevSteps ?? []).map((s) => s.count));
   const W = 720;
   const stepH = 80;
   const gap = 6;
-  const H = steps.length * (stepH + gap) + 20;
+  const titleH = title ? 30 : 0;
+  const H = steps.length * (stepH + gap) + 20 + titleH;
   const maxBarW = 380;
   const cx = W / 2 - 30;
 
@@ -2509,6 +2511,8 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0, onStepS
           </linearGradient>
         ))}
       </defs>
+      {title && <text x={cx} y={titleH - 8} textAnchor="middle" fill="rgba(255,255,255,0.92)" fontSize="15" fontWeight="700">{title}</text>}
+      <g transform={`translate(0, ${titleH})`}>
       {/* Previous period ghost */}
       {prevSteps && prevWidths && prevWidths.map((_, i) => (
         <path key={`prev-${i}`} d={segPath(prevWidths, i)} fill="none" stroke="rgba(128,128,128,0.4)" strokeWidth="2" strokeDasharray="6 4" />
@@ -2584,6 +2588,7 @@ function FunnelChart({ steps, prevSteps, appEntityId, stepDefs, aov = 0, onStepS
           </g>
         );
       })}
+      </g>
     </svg>
   );
 }
@@ -6151,6 +6156,144 @@ function analyzeErrorClustering(clusters: any[], totalErrors: number): AIInsight
   return { summary, insights, recommendations: recs };
 }
 
+// ---------------------------------------------------------------------------
+// Elevator Funnel
+// ---------------------------------------------------------------------------
+function ElevatorFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const numFloors = steps.length;
+  const floorOrdinals = ["GROUND FLOOR", "2ND FLOOR", "3RD FLOOR", "4TH FLOOR", "5TH FLOOR", "6TH FLOOR", "7TH FLOOR", "8TH FLOOR"];
+  const reversedSteps = [...steps].reverse();
+  const floorAccent = (step: FunnelStep, idx: number): string => {
+    if (idx === 0) return BLUE;
+    if (step.convFromPrev >= 80) return GREEN;
+    if (step.convFromPrev >= 50) return BLUE;
+    if (step.convFromPrev >= 20) return ORANGE;
+    return RED;
+  };
+  const totalSessions = steps[0]?.count ?? 0;
+  const totalConversions = steps[numFloors - 1]?.count ?? 0;
+  const totalDropped = totalSessions - totalConversions;
+  const overallConv = steps[numFloors - 1]?.overallConv ?? 0;
+  const totalRevLost = totalDropped > 0 && aov > 0 ? totalDropped * aov : 0;
+  return (
+    <div style={{ maxWidth: 960, margin: "0 auto" }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
+        {/* Left: floor buttons */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center", padding: "12px 8px", background: "rgba(15,22,35,0.7)", border: "1px solid rgba(128,128,128,0.18)", borderRadius: 8 }}>
+          {reversedSteps.map((step, di) => {
+            const origIdx = numFloors - 1 - di;
+            const accent = floorAccent(step, origIdx);
+            return (
+              <div key={di} style={{ width: 30, height: 30, borderRadius: "50%", background: `${accent}18`, border: `2px solid ${accent}70`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: accent }}>{origIdx + 1}</div>
+            );
+          })}
+        </div>
+        {/* Elevator shaft */}
+        <div style={{ flex: 1, border: "2px solid rgba(70,85,110,0.5)", borderRadius: 10, overflow: "hidden", background: "#05080f" }}>
+          {/* Top bar */}
+          <div style={{ background: "rgba(20,30,50,0.95)", borderBottom: "2px solid rgba(70,85,110,0.4)", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ background: "rgba(69,137,255,0.14)", border: "1px solid rgba(69,137,255,0.45)", borderRadius: 7, padding: "4px 12px", display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ color: BLUE, fontSize: 14, fontWeight: 800 }}>▲ {numFloors}</span>
+            </div>
+            {funnelName && <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase" }}>{funnelName}</div>}
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: 1 }}>{numFloors} FLOORS</div>
+          </div>
+          {reversedSteps.map((step, di) => {
+            const origIdx = numFloors - 1 - di;
+            const isBottom = di === reversedSteps.length - 1;
+            const accent = floorAccent(step, origIdx);
+            const floorBg = accent === GREEN ? "rgba(13,156,41,0.10)" : accent === ORANGE ? "rgba(255,131,43,0.09)" : accent === RED ? "rgba(194,25,48,0.10)" : "rgba(69,137,255,0.09)";
+            const floorLabel = (origIdx + 1) <= floorOrdinals.length ? floorOrdinals[origIdx] : `FLOOR ${origIdx + 1}`;
+            const floorAbove = di > 0 ? reversedSteps[di - 1] : null;
+            const dropAbove = floorAbove ? step.count - floorAbove.count : 0;
+            const dropRevLost = dropAbove > 0 && aov > 0 ? dropAbove * aov : 0;
+            return (
+              <React.Fragment key={origIdx}>
+                {dropAbove > 0 && (
+                  <div style={{ background: "rgba(194,25,48,0.11)", borderTop: "1px solid rgba(194,25,48,0.18)", borderBottom: "1px solid rgba(194,25,48,0.18)", padding: "4px 16px", display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 11, color: RED }}>↑ −{fmtCount(dropAbove)} sessions stopped here</span>
+                    {dropRevLost > 0 && <span style={{ fontSize: 11, color: RED }}>{fmtCurrency(dropRevLost)} lost</span>}
+                  </div>
+                )}
+                <div style={{ padding: "13px 16px", background: floorBg, borderBottom: !isBottom ? "1px solid rgba(70,85,110,0.22)" : "none", display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
+                  <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent 5%, ${accent}45 50%, transparent 95%)` }} />
+                  <div style={{ minWidth: 52, textAlign: "center" }}>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: accent, lineHeight: "1" }}>{origIdx + 1}</div>
+                    <div style={{ fontSize: 7, color: "rgba(255,255,255,0.28)", letterSpacing: "0.7px", marginTop: 3, textTransform: "uppercase" }}>{floorLabel}</div>
+                  </div>
+                  <div style={{ width: 1, height: 46, background: `${accent}28`, flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 5 }}>{step.label}</div>
+                    <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>{fmtCount(step.count)} sessions</span>
+                      {step.apdex != null && <span style={{ fontSize: 12, fontWeight: 600, color: apdexClr(step.apdex) }}>Apdex: {step.apdex.toFixed(2)}</span>}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", minWidth: 74, flexShrink: 0 }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: statusClr(step.overallConv) }}>{fmtPct(step.overallConv)}</div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", letterSpacing: 0.5 }}>overall</div>
+                    {origIdx > 0 && <div style={{ fontSize: 11, color: step.convFromPrev >= 80 ? GREEN : step.convFromPrev >= 50 ? YELLOW : RED, marginTop: 2, fontWeight: 600 }}>{fmtPct(step.convFromPrev)} conv</div>}
+                  </div>
+                  <div style={{ display: "flex", gap: 2, marginLeft: 2, flexShrink: 0 }}>
+                    {([0, 1] as const).map(d => (
+                      <div key={d} style={{ width: 16, height: 50, background: "rgba(90,105,130,0.18)", border: "1px solid rgba(120,135,160,0.28)", borderRadius: d === 0 ? "3px 0 0 3px" : "0 3px 3px 0", position: "relative" }}>
+                        <div style={{ position: "absolute", top: "50%", [d === 0 ? "right" : "left"]: 3, transform: "translateY(-50%)", width: 2, height: 10, background: "rgba(180,195,220,0.28)", borderRadius: 1 }} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+        {/* Right: Journey Metrics */}
+        <div style={{ minWidth: 200, border: "1px solid rgba(128,128,128,0.18)", borderRadius: 10, padding: "14px 14px", background: "rgba(12,17,27,0.7)", display: "flex", flexDirection: "column" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: "rgba(255,255,255,0.35)", marginBottom: 12, textTransform: "uppercase", textAlign: "center", paddingBottom: 8, borderBottom: "1px solid rgba(128,128,128,0.12)" }}>Journey Metrics</div>
+          {reversedSteps.map((step, di) => {
+            const origIdx = numFloors - 1 - di;
+            const floorAbove = di > 0 ? reversedSteps[di - 1] : null;
+            const dropCount = floorAbove ? step.count - floorAbove.count : 0;
+            const revLost = dropCount > 0 && aov > 0 ? dropCount * aov : 0;
+            return (
+              <div key={origIdx} style={{ marginBottom: di < reversedSteps.length - 1 ? 9 : 0, paddingBottom: di < reversedSteps.length - 1 ? 9 : 0, borderBottom: di < reversedSteps.length - 1 ? "1px solid rgba(128,128,128,0.09)" : "none" }}>
+                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 2 }}>Floor {origIdx + 1}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: statusClr(step.overallConv) }}>{fmtPct(step.overallConv)}</div>
+                    <div style={{ fontSize: 9, color: "rgba(255,255,255,0.28)" }}>overall</div>
+                    {origIdx > 0 && <div style={{ fontSize: 10, marginTop: 2, display: "flex", gap: 5 }}><span style={{ color: step.convFromPrev >= 70 ? GREEN : step.convFromPrev >= 40 ? YELLOW : RED, fontWeight: 600 }}>{fmtPct(step.convFromPrev)} conv</span><span style={{ color: RED }}>{fmtPct(100 - step.convFromPrev)} drop</span></div>}
+                  </div>
+                  {dropCount > 0 && (
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: RED }}>−{fmtCount(dropCount)}</div>
+                      {revLost > 0 && <div style={{ fontSize: 10, color: RED }}>{fmtCurrency(revLost)} lost</div>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ marginTop: "auto", paddingTop: 10, borderTop: "1px solid rgba(128,128,128,0.1)" }}>
+            {[{ c: GREEN, l: "Good" }, { c: YELLOW, l: "Watch" }, { c: RED, l: "Poor" }].map(({ c, l }) => (
+              <div key={l} style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: c, flexShrink: 0 }} />
+                <span style={{ fontSize: 9, color: "rgba(255,255,255,0.35)" }}>{l}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {/* Bottom stats */}
+      <div style={{ marginTop: 10, padding: "11px 18px", background: "rgba(12,17,27,0.7)", border: "1px solid rgba(70,85,110,0.28)", borderRadius: 8, display: "flex", justifyContent: "space-around", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 9, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Sessions</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmtCount(totalSessions)}</div></div>
+        <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 9, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Conversion</div><div style={{ fontSize: 18, fontWeight: 700, color: overallConv >= 50 ? GREEN : overallConv >= 25 ? YELLOW : RED }}>{fmtPct(overallConv)}</div></div>
+        <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 9, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Sessions Lost</div><div style={{ fontSize: 18, fontWeight: 700, color: RED }}>{fmtCount(totalDropped)}</div></div>
+        {totalRevLost > 0 && <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 9, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Revenue Lost</div><div style={{ fontSize: 18, fontWeight: 700, color: RED }}>{fmtCurrency(totalRevLost)}</div></div>}
+      </div>
+    </div>
+  );
+}
+
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
@@ -6450,17 +6593,18 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           </button>
         </Flex>
       </Flex>
-      {funnelName && (
+      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && (
         <div style={{ textAlign: "center", padding: "6px 0 2px" }}>
           <Heading level={3} style={{ fontWeight: 700, margin: 0 }}>{funnelName}</Heading>
         </div>
       )}
       <div className="uj-funnel-container">
-        {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} onStepSelect={handleFunnelStepDrill} />}
+        {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} onStepSelect={handleFunnelStepDrill} title={funnelName} />}
         {funnelStyle === "horizontal" && <HorizontalBarFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
         {funnelStyle === "cohort" && <StackedCohortFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
         {funnelStyle === "elapsed" && <ElapsedTimeFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} stepMap={stepMap} stepDefs={steps} />}
         {funnelStyle === "split" && <ComparisonSplitFunnel steps={funnelSteps} prevSteps={makeFunnelSteps(funnelCountsPrev)} aov={aov} />}
+        {funnelStyle === "elevator" && <ElevatorFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
