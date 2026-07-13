@@ -70,7 +70,9 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.14";
+const APP_VERSION_LABEL = "4.57.15";
+
+
 
 type FlowNodeType = "page-funnel" | "page-normal" | "page-entry" | "page-exit" | "svc-direct" | "svc-micro" | "svc-db" | "svc-cache" | "svc-external";
 const FLOW_NODE_META: Record<FlowNodeType, { color: string; label: string; borderWidth: number }> = {
@@ -6179,14 +6181,22 @@ function ElevatorFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: 
     <div style={{ maxWidth: 960, margin: "0 auto" }}>
       <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
         {/* Left: floor buttons */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center", padding: "12px 8px", background: "rgba(15,22,35,0.7)", border: "1px solid rgba(128,128,128,0.18)", borderRadius: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 7, justifyContent: "center", padding: "10px 8px", background: "linear-gradient(180deg, rgba(16,24,38,0.96) 0%, rgba(8,12,20,0.96) 100%)", border: "1px solid rgba(130,150,180,0.22)", borderRadius: 16, boxShadow: "inset 0 2px 10px rgba(255,255,255,0.05), inset 0 -10px 18px rgba(0,0,0,0.35), 0 8px 20px rgba(0,0,0,0.35)" }}>
           {reversedSteps.map((step, di) => {
             const origIdx = numFloors - 1 - di;
             const accent = floorAccent(step, origIdx);
             return (
-              <div key={di} style={{ width: 30, height: 30, borderRadius: "50%", background: `${accent}18`, border: `2px solid ${accent}70`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: accent }}>{origIdx + 1}</div>
+              <div key={di} style={{ width: 42, height: 42, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "radial-gradient(circle at 30% 28%, rgba(255,255,255,0.18), rgba(255,255,255,0.03) 44%, rgba(0,0,0,0.25) 80%)", border: "1px solid rgba(180,200,230,0.25)", boxShadow: "inset 0 1px 3px rgba(255,255,255,0.16), inset 0 -4px 8px rgba(0,0,0,0.45), 0 2px 7px rgba(0,0,0,0.45)" }}>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: "radial-gradient(circle at 34% 30%, rgba(255,255,255,0.13), rgba(7,12,20,0.95) 68%)", border: `2px solid ${accent}99`, boxShadow: `0 0 10px ${accent}70, inset 0 0 6px rgba(0,0,0,0.45)`, display: "flex", alignItems: "center", justifyContent: "center", color: accent, fontSize: 14, fontWeight: 800, lineHeight: 1 }}>
+                  {origIdx + 1}
+                </div>
+              </div>
             );
           })}
+          <div style={{ marginTop: 3, display: "flex", gap: 5, justifyContent: "center" }}>
+            <div style={{ width: 14, height: 14, borderRadius: "50%", background: "linear-gradient(180deg, rgba(70,85,110,0.75), rgba(32,40,56,0.9))", border: "1px solid rgba(170,185,210,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "rgba(220,230,245,0.72)" }}>▲</div>
+            <div style={{ width: 14, height: 14, borderRadius: "50%", background: "linear-gradient(180deg, rgba(70,85,110,0.75), rgba(32,40,56,0.9))", border: "1px solid rgba(170,185,210,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "rgba(220,230,245,0.72)" }}>▼</div>
+          </div>
         </div>
         {/* Elevator shaft */}
         <div style={{ flex: 1, border: "2px solid rgba(70,85,110,0.5)", borderRadius: 10, overflow: "hidden", background: "#05080f" }}>
