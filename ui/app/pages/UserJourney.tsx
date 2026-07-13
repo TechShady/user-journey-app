@@ -72,7 +72,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.33";
+const APP_VERSION_LABEL = "4.57.35";
 
 
 
@@ -6348,6 +6348,9 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
 
         {/* ── CENTER: MRI Machine SVG ── */}
         <div style={{ border: "1px solid rgba(78,108,145,0.35)", borderRadius: 14, padding: "8px 8px 10px", background: "radial-gradient(ellipse at 50% 18%, rgba(28,55,95,0.25), rgba(5,10,20,0.98) 52%)", overflow: "hidden" }}>
+          {funnelName && (
+            <div style={{ textAlign: "center", padding: "6px 0 4px", fontSize: 24, fontWeight: 900, color: "rgba(255,255,255,0.92)", letterSpacing: 0.2 }}>{funnelName}</div>
+          )}
           <svg width="100%" height="455" viewBox="0 0 680 455" style={{ display: "block" }}>
             <defs>
               <radialGradient id="mriGantry" cx="48%" cy="28%" r="72%">
@@ -6383,9 +6386,10 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
               <clipPath id="mriBoreClip">
                 <circle cx={bx} cy={by} r={bR - 5}/>
               </clipPath>
-              <clipPath id="mriUpperHalfClip">
-                <rect x="0" y="0" width="680" height={by}/>
-              </clipPath>
+              <mask id="mriUpperRingMask">
+                <rect x="0" y="0" width="680" height={by} fill="white"/>
+                <circle cx={bx} cy={by} r={bR + 2} fill="black"/>
+              </mask>
             </defs>
 
             {/* Floor shadow */}
@@ -6412,6 +6416,19 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
                 <line key={li} x1={bx - bR} y1={by - bR + li * (bR * 2 / 12)} x2={bx + bR} y2={by - bR + li * (bR * 2 / 12)} stroke="rgba(18,45,82,0.13)" strokeWidth="1"/>
               ))}
             </g>
+
+            {/* Control panels drawn BEFORE table so table appears on top */}
+            {/* LEFT control panel */}
+            <rect x="88" y="188" width="46" height="74" rx="7" fill="url(#mriPanLG)" stroke="rgba(128,155,185,0.48)" strokeWidth="1"/>
+            <rect x="96" y="196" width="13" height="4" rx="2" fill="rgba(125,205,255,0.88)"/>
+            {[0,1,2,3,4,5].map(di => <circle key={di} cx={98+(di%2)*16} cy={210+Math.floor(di/2)*13} r="3.5" fill={di===0?"rgba(125,205,255,0.9)":"rgba(102,128,158,0.52)"}/>)}
+            {/* RIGHT control panel */}
+            <rect x="546" y="188" width="46" height="74" rx="7" fill="url(#mriPanLG)" stroke="rgba(128,155,185,0.48)" strokeWidth="1"/>
+            <rect x="554" y="196" width="13" height="4" rx="2" fill="rgba(125,205,255,0.88)"/>
+            {[0,1,2,3,4,5].map(di => <circle key={`r${di}`} cx={556+(di%2)*16} cy={210+Math.floor(di/2)*13} r="3.5" fill={di===0?"rgba(125,205,255,0.9)":"rgba(102,128,158,0.52)"}/>)}
+            {/* Status lights */}
+            <rect x="148" y="215" width="12" height="5" rx="2.5" fill="rgba(240,210,90,0.88)"/>
+            <rect x="520" y="215" width="12" height="5" rx="2.5" fill="rgba(80,222,255,0.9)"/>
 
             {/* ── PATIENT TABLE: step 1 outside, steps 2-N inside bore ── */}
             {(() => {
@@ -6469,8 +6486,8 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
               );
             })()}
 
-            {/* UPPER GANTRY HALF — drawn AFTER table so the top rail appears above the table */}
-            <g clipPath="url(#mriUpperHalfClip)">
+            {/* UPPER GANTRY RING — mask excludes bore interior so table labels remain visible */}
+            <g mask="url(#mriUpperRingMask)">
               <circle cx={bx} cy={by} r="183" fill="url(#mriGantry)" stroke="rgba(175,198,225,0.52)" strokeWidth="2.5"/>
               <circle cx={bx} cy={by} r="170" fill="none" stroke="rgba(85,105,132,0.5)" strokeWidth="5"/>
               <circle cx={bx} cy={by} r="160" fill="none" stroke="rgba(112,135,162,0.28)" strokeWidth="2"/>
@@ -6485,34 +6502,14 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
             <rect x="178" y="114" width="334" height="16" rx="4" fill="url(#mriBodyLG)" stroke="rgba(155,178,205,0.3)" strokeWidth="1"/>
             <rect x="178" y="358" width="334" height="16" rx="4" fill="url(#mriBodyLG)" stroke="rgba(155,178,205,0.3)" strokeWidth="1"/>
 
-            {/* DISPLAY PANEL */}
-            <rect x="250" y="54" width="190" height="48" rx="9" fill="url(#mriDispLG)" stroke="rgba(75,138,225,0.62)" strokeWidth="1.5"/>
-            <rect x="252" y="56" width="186" height="44" rx="8" fill="none" stroke="rgba(115,172,255,0.2)" strokeWidth="0.8"/>
-            {/* Blue cross icon */}
-            <rect x="270" y="70" width="18" height="5" rx="2.5" fill="#3E8AF0"/>
-            <rect x="276" y="64" width="5" height="18" rx="2.5" fill="#3E8AF0"/>
-            <text x="306" y="87" textAnchor="start" fontSize="15" fontWeight="800" fill="#62B3FF" fontFamily="system-ui,-apple-system" letterSpacing="0.4">{dispName}</text>
-
-            {/* Indicator dot */}
-            <circle cx={bx} cy="108" r="5" fill="rgba(22,72,188,0.92)" stroke="rgba(88,165,255,0.65)" strokeWidth="1" filter="url(#mriBGF)"/>
+            {/* DISPLAY PANEL — on machine, above gantry ring */}
+            <rect x="252" y="4" width="186" height="30" rx="8" fill="url(#mriDispLG)" stroke="rgba(75,138,225,0.62)" strokeWidth="1.5"/>
+            <rect x="254" y="6" width="182" height="26" rx="7" fill="none" stroke="rgba(115,172,255,0.2)" strokeWidth="0.8"/>
+            <text x="345" y="19" textAnchor="middle" dominantBaseline="middle" fontSize="14" fontWeight="800" fill="#62B3FF" fontFamily="system-ui,-apple-system" letterSpacing="0.5">MRI SCAN</text>
 
             {/* RED emergency button */}
             <circle cx="520" cy="136" r="13" fill="rgba(185,0,0,0.9)" stroke="rgba(255,80,80,0.7)" strokeWidth="1.2"/>
             <circle cx="518" cy="134" r="5.5" fill="rgba(255,140,140,0.88)"/>
-
-            {/* LEFT control panel */}
-            <rect x="88" y="188" width="46" height="74" rx="7" fill="url(#mriPanLG)" stroke="rgba(128,155,185,0.48)" strokeWidth="1"/>
-            <rect x="96" y="196" width="13" height="4" rx="2" fill="rgba(125,205,255,0.88)"/>
-            {[0,1,2,3,4,5].map(di => <circle key={di} cx={98+(di%2)*16} cy={210+Math.floor(di/2)*13} r="3.5" fill={di===0?"rgba(125,205,255,0.9)":"rgba(102,128,158,0.52)"}/>)}
-
-            {/* RIGHT control panel */}
-            <rect x="546" y="188" width="46" height="74" rx="7" fill="url(#mriPanLG)" stroke="rgba(128,155,185,0.48)" strokeWidth="1"/>
-            <rect x="554" y="196" width="13" height="4" rx="2" fill="rgba(125,205,255,0.88)"/>
-            {[0,1,2,3,4,5].map(di => <circle key={di} cx={556+(di%2)*16} cy={210+Math.floor(di/2)*13} r="3.5" fill={di===0?"rgba(125,205,255,0.9)":"rgba(102,128,158,0.52)"}/>)}
-
-            {/* Status lights */}
-            <rect x="148" y="215" width="12" height="5" rx="2.5" fill="rgba(240,210,90,0.88)"/>
-            <rect x="520" y="215" width="12" height="5" rx="2.5" fill="rgba(80,222,255,0.9)"/>
 
             {/* Base platform */}
             <rect x="110" y="374" width="460" height="30" rx="9" fill="url(#mriBodyLG)" stroke="rgba(145,168,195,0.32)" strokeWidth="1"/>
