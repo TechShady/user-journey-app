@@ -72,7 +72,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.37";
+const APP_VERSION_LABEL = "4.57.39";
 
 
 
@@ -6453,7 +6453,7 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
             {/* ── PERSPECTIVE TABLE: gradual convergence into bore, animated ── */}
             {(() => {
               const VP_x = bx;
-              const bore_top_y = by - bR + 5;      // 78  — deepest step top
+              const bore_top_y = by;                 // 218 — cap at bore center; steps stay in lower half
               const bore_bot_y = by + bR;            // 363 — bore entrance bottom
               const base_y = bore_bot_y + 45;        // 408 — step 1 base (outside machine)
               const hw_deep = 44;                    // half-width at bore top (deepest)
@@ -6818,12 +6818,36 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
                 {/* Ground shadow */}
                 <ellipse cx="143" cy="109" rx="132" ry="8" fill="rgba(0,0,0,0.55)"/>
 
+                {/* LEFT FRONT WHEEL — drawn first so bumper fender arch overlays the top */}
+                <ellipse cx="64" cy="97" rx="44" ry="39" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
+                <ellipse cx="64" cy="97" rx="39" ry="34" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
+                <ellipse cx="64" cy="97" rx="31" ry="27" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
+                {Array.from({length: 5}).map((_, si) => {
+                  const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
+                  return <line key={`lw${si}`} x1={64+Math.cos(a)*6} y1={97+Math.sin(a)*6} x2={64+Math.cos(a)*24} y2={97+Math.sin(a)*24} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
+                })}
+                <circle cx="64" cy="97" r="5.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
+                {/* Red brake caliper visible through arch */}
+                <rect x="21" y="87" width="9" height="20" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
+
+                {/* RIGHT FRONT WHEEL */}
+                <ellipse cx="222" cy="97" rx="44" ry="39" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
+                <ellipse cx="222" cy="97" rx="39" ry="34" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
+                <ellipse cx="222" cy="97" rx="31" ry="27" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
+                {Array.from({length: 5}).map((_, si) => {
+                  const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
+                  return <line key={`rw${si}`} x1={222+Math.cos(a)*6} y1={97+Math.sin(a)*6} x2={222+Math.cos(a)*24} y2={97+Math.sin(a)*24} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
+                })}
+                <circle cx="222" cy="97" r="5.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
+                {/* Red brake caliper visible through arch */}
+                <rect x="256" y="87" width="9" height="20" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
+
                 {/* FRONT SPLITTER / underbody */}
                 <path d="M 12 102 L 274 102 L 270 92 L 16 92 Z" fill="rgba(6,8,14,0.97)"/>
                 <line x1="14" y1="95" x2="272" y2="95" stroke="rgba(155,175,200,0.18)" strokeWidth="0.8"/>
 
-                {/* FRONT BUMPER FACE — the dominant element seen head-on */}
-                <path d="M 16 92 L 270 92 L 255 52 L 31 52 Z" fill="url(#afvScBody)" stroke="#661000" strokeWidth="1"/>
+                {/* FRONT BUMPER FACE — arch cutouts reveal wheels inside fender wells */}
+                <path d="M 31 52 L 255 52 L 270 92 Q 222 68 174 92 L 112 92 Q 64 68 16 92 L 31 52 Z" fill="url(#afvScBody)" stroke="#661000" strokeWidth="1"/>
 
                 {/* LEFT headlight housing (dark surround) */}
                 <path d="M 20 76 L 118 76 L 112 54 L 24 54 Z" fill="rgba(6,10,18,0.96)" stroke="rgba(72,105,148,0.22)" strokeWidth="0.8"/>
@@ -6850,10 +6874,6 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
                 <circle cx="143" cy="72" r="8" fill="rgba(175,95,0,0.9)" stroke="rgba(255,150,50,0.62)" strokeWidth="1.2"/>
                 <line x1="138.5" y1="67.5" x2="147.5" y2="76.5" stroke="rgba(255,155,55,0.7)" strokeWidth="1.5" strokeLinecap="round"/>
                 <line x1="147.5" y1="67.5" x2="138.5" y2="76.5" stroke="rgba(255,155,55,0.7)" strokeWidth="1.5" strokeLinecap="round"/>
-
-                {/* WHEEL ARCH cutouts (arched lip above each wheel) */}
-                <path d="M 16 92 Q 64 68 112 92" fill="none" stroke="rgba(95,14,0,0.82)" strokeWidth="4.5" strokeLinecap="round"/>
-                <path d="M 174 92 Q 222 68 270 92" fill="none" stroke="rgba(95,14,0,0.82)" strokeWidth="4.5" strokeLinecap="round"/>
 
                 {/* HOOD — top surface receding away from viewer */}
                 <path d="M 31 52 L 255 52 L 238 10 L 48 10 Z" fill="url(#afvScHood)"/>
@@ -6884,29 +6904,6 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
                 <rect x="68" y="-62" width="7" height="14" rx="2" fill="#881200"/>
                 <rect x="211" y="-62" width="7" height="14" rx="2" fill="#881200"/>
 
-                {/* LEFT FRONT WHEEL — near-circular (facing viewer head-on) */}
-                <ellipse cx="64" cy="97" rx="44" ry="39" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
-                <ellipse cx="64" cy="97" rx="39" ry="34" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
-                <ellipse cx="64" cy="97" rx="31" ry="27" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
-                {Array.from({length: 5}).map((_, si) => {
-                  const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
-                  return <line key={si} x1={64+Math.cos(a)*6} y1={97+Math.sin(a)*6} x2={64+Math.cos(a)*24} y2={97+Math.sin(a)*24} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
-                })}
-                <circle cx="64" cy="97" r="5.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
-                {/* Red brake caliper (left side) */}
-                <rect x="21" y="87" width="9" height="20" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
-
-                {/* RIGHT FRONT WHEEL */}
-                <ellipse cx="222" cy="97" rx="44" ry="39" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
-                <ellipse cx="222" cy="97" rx="39" ry="34" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
-                <ellipse cx="222" cy="97" rx="31" ry="27" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
-                {Array.from({length: 5}).map((_, si) => {
-                  const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
-                  return <line key={si} x1={222+Math.cos(a)*6} y1={97+Math.sin(a)*6} x2={222+Math.cos(a)*24} y2={97+Math.sin(a)*24} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
-                })}
-                <circle cx="222" cy="97" r="5.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
-                {/* Red brake caliper (right side) */}
-                <rect x="256" y="87" width="9" height="20" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
               </g>
             </g>
 
