@@ -72,7 +72,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.30";
+const APP_VERSION_LABEL = "4.57.31";
 
 
 
@@ -6650,12 +6650,14 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
             </defs>
 
             {/* ── FUNDED LOANS BOX (above vault) ── */}
-            <rect x="90" y="8" width="300" height="84" rx="10" fill="rgba(12,8,4,0.97)" stroke="rgba(218,168,62,0.58)" strokeWidth="1.5"/>
-            <rect x="92" y="10" width="296" height="80" rx="9" fill="none" stroke="rgba(255,215,110,0.2)" strokeWidth="0.8"/>
-            <path d="M240 19 L252 24 L252 34 C252 42.5 246 48.5 240 50 C234 48.5 228 42.5 228 34 L228 24 Z" fill="#E5A018" stroke="rgba(255,192,48,0.5)" strokeWidth="0.8"/>
-            <path d="M240 22 L250 26.5 L250 34 C250 40.5 245 46 240 48 C235 46 230 40.5 230 34 L230 26.5 Z" fill="rgba(255,228,130,0.38)"/>
-            <text x="240" y="57" textAnchor="middle" fontSize="26" fontWeight="900" fill="#EAC374" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="1.2">FUNDED LOANS</text>
-            <text x="240" y="77" textAnchor="middle" fontSize="11" fontWeight="700" fill="rgba(242,224,175,0.82)" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="0.6">SECURE. SIMPLE. TRUSTED.</text>
+            <rect x="62" y="8" width="356" height="74" rx="10" fill="rgba(12,8,4,0.97)" stroke="rgba(218,168,62,0.58)" strokeWidth="1.5"/>
+            <rect x="64" y="10" width="352" height="70" rx="9" fill="none" stroke="rgba(255,215,110,0.2)" strokeWidth="0.8"/>
+            {/* Shield icon — left of title on same row */}
+            <path d="M148 30 L162 35 L162 47 C162 55.5 156 61.5 148 63 C140 61.5 134 55.5 134 47 L134 35 Z" fill="#E5A018" stroke="rgba(255,192,48,0.5)" strokeWidth="0.8"/>
+            <path d="M148 33 L160 37.5 L160 47 C160 53.5 155 58.5 148 60 C141 58.5 136 53.5 136 47 L136 37.5 Z" fill="rgba(255,228,130,0.38)"/>
+            {/* Title and subtitle — right of shield */}
+            <text x="272" y="50" textAnchor="middle" fontSize="24" fontWeight="900" fill="#EAC374" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="1.2">FUNDED LOANS</text>
+            <text x="272" y="67" textAnchor="middle" fontSize="11" fontWeight="700" fill="rgba(242,224,175,0.82)" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="0.6">SECURE. SIMPLE. TRUSTED.</text>
 
             {/* ── VAULT DOOR OUTER RING ── */}
             <circle cx="220" cy="286" r="172" fill="url(#afvDoor)" stroke="rgba(102,120,145,0.88)" strokeWidth="3.5"/>
@@ -6715,7 +6717,7 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
 
             {/* ── SUPERCAR — orange side profile, left-facing, clipped to vault ── */}
             <g clipPath="url(#afvVaultClip)">
-              <g transform="translate(78, 310)">
+              <g transform="translate(122, 312) scale(0.68)">
                 {/* Ground shadow */}
                 <ellipse cx="143" cy="115" rx="138" ry="10" fill="rgba(0,0,0,0.68)"/>
                 {/* Ground reflection */}
@@ -6769,26 +6771,22 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
                 <circle cx="62" cy="100" r="25" fill="#08090E" stroke="rgba(175,195,218,0.5)" strokeWidth="2.2"/>
                 <circle cx="62" cy="100" r="22" fill="none" stroke="rgba(30,42,58,0.88)" strokeWidth="4"/>
                 <circle cx="62" cy="100" r="16.5" fill="url(#afvScRim)" stroke="rgba(122,142,168,0.6)" strokeWidth="0.8"/>
-                {Array.from({length: 10}).map((_, si) => {
-                  const a = (si / 10) * Math.PI * 2;
-                  const a2 = ((si + 0.38) / 10) * Math.PI * 2;
-                  return <path key={si} d={`M ${62+Math.cos(a)*5.5} ${100+Math.sin(a)*5.5} L ${62+Math.cos(a)*15.5} ${100+Math.sin(a)*15.5} L ${62+Math.cos(a2)*15.5} ${100+Math.sin(a2)*15.5} Z`} fill="rgba(45,58,76,0.9)" stroke="rgba(112,132,158,0.28)" strokeWidth="0.5"/>;
+                {Array.from({length: 5}).map((_, si) => {
+                  const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
+                  return <line key={si} x1={62+Math.cos(a)*6} y1={100+Math.sin(a)*6} x2={62+Math.cos(a)*15.5} y2={100+Math.sin(a)*15.5} stroke="rgba(52,68,88,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
                 })}
                 <circle cx="62" cy="100" r="5.5" fill="rgba(180,198,218,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
-                <circle cx="61" cy="99" r="2.2" fill="rgba(240,250,255,0.62)"/>
-                <path d="M 47 85 A 17 17 0 0 1 77 85" fill="none" stroke="#CC1200" strokeWidth="5.5" strokeLinecap="round" opacity="0.82"/>
+                <path d="M 47 86 A 17 17 0 0 1 77 86" fill="none" stroke="#BB1100" strokeWidth="5.5" strokeLinecap="round" opacity="0.85"/>
                 {/* WHEEL RIGHT (rear) — same */}
                 <circle cx="226" cy="100" r="25" fill="#08090E" stroke="rgba(175,195,218,0.5)" strokeWidth="2.2"/>
                 <circle cx="226" cy="100" r="22" fill="none" stroke="rgba(30,42,58,0.88)" strokeWidth="4"/>
                 <circle cx="226" cy="100" r="16.5" fill="url(#afvScRim)" stroke="rgba(122,142,168,0.6)" strokeWidth="0.8"/>
-                {Array.from({length: 10}).map((_, si) => {
-                  const a = (si / 10) * Math.PI * 2;
-                  const a2 = ((si + 0.38) / 10) * Math.PI * 2;
-                  return <path key={si} d={`M ${226+Math.cos(a)*5.5} ${100+Math.sin(a)*5.5} L ${226+Math.cos(a)*15.5} ${100+Math.sin(a)*15.5} L ${226+Math.cos(a2)*15.5} ${100+Math.sin(a2)*15.5} Z`} fill="rgba(45,58,76,0.9)" stroke="rgba(112,132,158,0.28)" strokeWidth="0.5"/>;
+                {Array.from({length: 5}).map((_, si) => {
+                  const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
+                  return <line key={si} x1={226+Math.cos(a)*6} y1={100+Math.sin(a)*6} x2={226+Math.cos(a)*15.5} y2={100+Math.sin(a)*15.5} stroke="rgba(52,68,88,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
                 })}
                 <circle cx="226" cy="100" r="5.5" fill="rgba(180,198,218,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
-                <circle cx="225" cy="99" r="2.2" fill="rgba(240,250,255,0.62)"/>
-                <path d="M 211 85 A 17 17 0 0 1 241 85" fill="none" stroke="#CC1200" strokeWidth="5.5" strokeLinecap="round" opacity="0.82"/>
+                <path d="M 211 86 A 17 17 0 0 1 241 86" fill="none" stroke="#BB1100" strokeWidth="5.5" strokeLinecap="round" opacity="0.85"/>
               </g>
             </g>
 
@@ -6796,22 +6794,51 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
             <circle cx="220" cy="286" r="172" fill="none" stroke="rgba(155,175,200,0.2)" strokeWidth="14"/>
             <circle cx="220" cy="286" r="165" fill="none" stroke="rgba(78,96,120,0.38)" strokeWidth="4"/>
 
-            {/* ── COMBINATION DIAL ── */}
-            <g transform="translate(375, 344)">
-              <circle r="80" fill="url(#afvDial)" stroke="rgba(128,148,172,0.9)" strokeWidth="2.5"/>
-              <circle r="65" fill="none" stroke="rgba(100,122,148,0.4)" strokeWidth="1"/>
+            {/* ── VAULT DOOR (open, swung right) ── */}
+            {/* Door edge showing 3D thickness */}
+            <path d="M 392 142 C 384 190 381 238 381 288 C 381 338 384 386 392 434 L 396 432 C 388 384 385 336 385 288 C 385 240 388 192 396 144 Z" fill="rgba(22,16,6,0.92)"/>
+            {/* Upper hinge block */}
+            <rect x="386" y="195" width="18" height="36" rx="4" fill="#2E3C50" stroke="rgba(148,168,192,0.82)" strokeWidth="1.2"/>
+            <circle cx="395" cy="213" r="8" fill="#1E2C3E" stroke="rgba(148,168,192,0.72)" strokeWidth="1"/>
+            <circle cx="393" cy="211" r="3" fill="rgba(212,228,248,0.62)"/>
+            {/* Lower hinge block */}
+            <rect x="386" y="357" width="18" height="36" rx="4" fill="#2E3C50" stroke="rgba(148,168,192,0.82)" strokeWidth="1.2"/>
+            <circle cx="395" cy="375" r="8" fill="#1E2C3E" stroke="rgba(148,168,192,0.72)" strokeWidth="1"/>
+            <circle cx="393" cy="373" r="3" fill="rgba(212,228,248,0.62)"/>
+            {/* Door face — foreshortened ellipse (viewed at angle) */}
+            <ellipse cx="412" cy="288" rx="64" ry="148" fill="url(#afvDoor)" stroke="rgba(102,120,145,0.9)" strokeWidth="3"/>
+            {/* Door inner ring */}
+            <ellipse cx="412" cy="288" rx="50" ry="132" fill="none" stroke="rgba(78,95,118,0.4)" strokeWidth="2"/>
+            {/* Door face edge highlight (left rim, simulates 3D roundness) */}
+            <ellipse cx="382" cy="288" rx="10" ry="118" fill="rgba(165,188,218,0.07)"/>
+            {/* Door bolt rivets (16 around rim) */}
+            {Array.from({length: 16}).map((_, i) => {
+              const a = (i / 16) * Math.PI * 2;
+              const bx = 412 + Math.cos(a) * 56;
+              const by = 288 + Math.sin(a) * 140;
+              return (
+                <g key={`afvdb${i}`}>
+                  <ellipse cx={bx} cy={by} rx="6" ry="8" fill="url(#afvDial)" stroke="rgba(148,168,192,0.72)" strokeWidth="1.2"/>
+                  <ellipse cx={bx - 1.5} cy={by - 2.5} rx="2" ry="3" fill="rgba(212,228,248,0.55)"/>
+                </g>
+              );
+            })}
+            {/* Combination dial on door face */}
+            <g transform="translate(412, 288)">
+              <circle r="46" fill="url(#afvDial)" stroke="rgba(128,148,172,0.9)" strokeWidth="2.5"/>
+              <circle r="36" fill="none" stroke="rgba(100,122,148,0.4)" strokeWidth="1"/>
               {Array.from({length: 60}).map((_, ti) => {
                 const ta = (ti / 60) * Math.PI * 2;
                 const major = ti % 5 === 0;
-                const ir = major ? 57 : 62;
-                return <line key={ti} x1={Math.cos(ta) * ir} y1={Math.sin(ta) * ir} x2={Math.cos(ta) * 68} y2={Math.sin(ta) * 68} stroke={major ? "rgba(185,208,230,0.82)" : "rgba(130,152,178,0.4)"} strokeWidth={major ? 2 : 0.8}/>;
+                const ir = major ? 32 : 35;
+                return <line key={ti} x1={Math.cos(ta)*ir} y1={Math.sin(ta)*ir} x2={Math.cos(ta)*38} y2={Math.sin(ta)*38} stroke={major ? "rgba(185,208,230,0.82)" : "rgba(130,152,178,0.4)"} strokeWidth={major ? 1.5 : 0.7}/>;
               })}
-              <line x1="-55" y1="0" x2="55" y2="0" stroke="rgba(142,160,185,0.94)" strokeWidth="12" strokeLinecap="round"/>
-              <line x1="0" y1="-55" x2="0" y2="55" stroke="rgba(142,160,185,0.94)" strokeWidth="12" strokeLinecap="round"/>
-              <line x1="-53" y1="-2.5" x2="53" y2="-2.5" stroke="rgba(205,222,242,0.42)" strokeWidth="3" strokeLinecap="round"/>
-              <line x1="-2.5" y1="-53" x2="-2.5" y2="53" stroke="rgba(205,222,242,0.42)" strokeWidth="3" strokeLinecap="round"/>
-              <circle r="21" fill="url(#afvDial)" stroke="rgba(190,210,232,0.82)" strokeWidth="1.5"/>
-              <circle cx="-3.5" cy="-3.5" r="8" fill="rgba(225,238,255,0.68)"/>
+              <line x1="-32" y1="0" x2="32" y2="0" stroke="rgba(142,160,185,0.94)" strokeWidth="9" strokeLinecap="round"/>
+              <line x1="0" y1="-32" x2="0" y2="32" stroke="rgba(142,160,185,0.94)" strokeWidth="9" strokeLinecap="round"/>
+              <line x1="-30" y1="-2" x2="30" y2="-2" stroke="rgba(205,222,242,0.42)" strokeWidth="2.5" strokeLinecap="round"/>
+              <line x1="-2" y1="-30" x2="-2" y2="30" stroke="rgba(205,222,242,0.42)" strokeWidth="2.5" strokeLinecap="round"/>
+              <circle r="14" fill="url(#afvDial)" stroke="rgba(190,210,232,0.82)" strokeWidth="1.5"/>
+              <circle cx="-3" cy="-3" r="5.5" fill="rgba(225,238,255,0.68)"/>
             </g>
           </svg>
 
