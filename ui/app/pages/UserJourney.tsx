@@ -72,7 +72,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.28";
+const APP_VERSION_LABEL = "4.57.29";
 
 
 
@@ -6545,34 +6545,7 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "420px 1fr 238px", gap: 12, alignItems: "stretch", position: "relative" }}>
-        <div style={{ position: "absolute", left: 0, top: 0, width: "calc(100% - 250px)", height: 510, pointerEvents: "none", zIndex: 6 }}>
-          {steps.map((_, i) => {
-            const color = stageColors[i % stageColors.length] ?? BLUE;
-            const y = 94 + i * 87;
-            const h = 30 + Math.max(0, 5 - i) * 2;
-            const r = Math.round(h / 2);
-            return (
-              <div
-                key={`af-flow-${i}`}
-                style={{
-                  position: "absolute",
-                  left: 388,
-                  top: y,
-                  width: 222,
-                  height: h,
-                  borderRadius: r,
-                  background: `linear-gradient(90deg, ${color}EE 0%, ${color}AA 44%, rgba(20,26,38,0.8) 100%)`,
-                  boxShadow: `0 0 18px ${color}88, inset 0 3px 7px rgba(255,255,255,0.26), inset 0 -3px 8px rgba(0,0,0,0.4)`,
-                  transform: `skewY(${i < 2 ? -12 : i > 3 ? 10 : 0}deg)`,
-                  transformOrigin: "left center",
-                  opacity: 0.96,
-                }}
-              />
-            );
-          })}
-        </div>
-
-        <div style={{ position: "relative", paddingRight: 12, zIndex: 7 }}>
+        <div style={{ position: "relative", paddingRight: 12 }}>
           {steps.map((step, i) => {
             const color = stageColors[i % stageColors.length] ?? BLUE;
             const prev = i > 0 ? steps[i - 1] : undefined;
@@ -6616,40 +6589,194 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
           })}
         </div>
 
-        <div style={{ position: "relative", minHeight: 502, borderRadius: 14, border: "1px solid rgba(95,118,150,0.35)", background: "radial-gradient(ellipse at 50% 62%, rgba(255,175,50,0.28) 0%, rgba(13,22,38,0.97) 46%, rgba(8,14,25,0.99) 82%)", overflow: "hidden", zIndex: 4 }}>
-          {/* Teal light beams from left */}
-          {[{ top: 110, w: 180, rot: 18, op: 0.72 }, { top: 165, w: 155, rot: 11, op: 0.52 }, { top: 215, w: 130, rot: 5, op: 0.38 }].map((b, bi) => (
-            <div key={`af-beam-${bi}`} style={{ position: "absolute", left: 0, top: b.top, width: b.w, height: 2, background: "linear-gradient(90deg, rgba(0,218,210,0.85), rgba(0,195,200,0.55), transparent)", transform: `rotate(${b.rot}deg)`, transformOrigin: "left center", boxShadow: "0 0 10px rgba(0,210,205,0.5)", opacity: b.op, pointerEvents: "none" }} />
-          ))}
-          {/* Ambient teal glow upper-left */}
-          <div style={{ position: "absolute", left: -30, top: 80, width: 220, height: 220, borderRadius: "50%", background: "radial-gradient(circle at 30% 30%, rgba(0,210,205,0.14), transparent 70%)", pointerEvents: "none" }} />
+        <div style={{ position: "relative", minHeight: 502, borderRadius: 14, border: "1px solid rgba(95,118,150,0.35)", background: "radial-gradient(ellipse at 50% 60%, rgba(110,65,6,0.28) 0%, rgba(13,22,38,0.97) 48%, rgba(8,14,25,0.99) 82%)", overflow: "hidden", zIndex: 4 }}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="502" viewBox="0 0 480 502" style={{ display: "block" }}>
+            <defs>
+              <radialGradient id="afvInt" cx="50%" cy="28%" r="58%">
+                <stop offset="0%" stopColor="#FDD060" stopOpacity="0.32"/>
+                <stop offset="22%" stopColor="#C27618" stopOpacity="0.88"/>
+                <stop offset="58%" stopColor="#562E06" stopOpacity="0.96"/>
+                <stop offset="100%" stopColor="#180A02" stopOpacity="0.99"/>
+              </radialGradient>
+              <radialGradient id="afvDoor" cx="36%" cy="30%" r="78%">
+                <stop offset="0%" stopColor="#545E6E"/>
+                <stop offset="48%" stopColor="#2E3B4C"/>
+                <stop offset="100%" stopColor="#121A26"/>
+              </radialGradient>
+              <linearGradient id="afvSB" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#D09828"/>
+                <stop offset="50%" stopColor="#9A6418"/>
+                <stop offset="100%" stopColor="#72460C"/>
+              </linearGradient>
+              <radialGradient id="afvDial" cx="34%" cy="30%" r="70%">
+                <stop offset="0%" stopColor="#52607A"/>
+                <stop offset="55%" stopColor="#283448"/>
+                <stop offset="100%" stopColor="#101828"/>
+              </radialGradient>
+              <linearGradient id="afvCBody" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#DDE8F4"/>
+                <stop offset="32%" stopColor="#B8C8D8"/>
+                <stop offset="68%" stopColor="#8898A8"/>
+                <stop offset="100%" stopColor="#5C6C7A"/>
+              </linearGradient>
+              <linearGradient id="afvCRoof" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#EAF2FC"/>
+                <stop offset="100%" stopColor="#A0B4C8"/>
+              </linearGradient>
+              <linearGradient id="afvCWin" x1="0" y1="0" x2="0.35" y2="1">
+                <stop offset="0%" stopColor="rgba(155,198,242,0.58)"/>
+                <stop offset="100%" stopColor="rgba(22,50,90,0.92)"/>
+              </linearGradient>
+              <linearGradient id="afvWR" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#C0CEDC"/>
+                <stop offset="100%" stopColor="#606E7C"/>
+              </linearGradient>
+              <filter id="afvBlur5" x="-40%" y="-40%" width="180%" height="180%">
+                <feGaussianBlur stdDeviation="5"/>
+              </filter>
+              <filter id="afvBlur10" x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur stdDeviation="10"/>
+              </filter>
+            </defs>
 
-          {/* FUNDED LOANS panel */}
-          <div style={{ position: "absolute", left: "50%", top: 50, transform: "translateX(-50%)", padding: "11px 22px 13px", borderRadius: 10, border: "1px solid rgba(255,210,128,0.52)", background: "linear-gradient(180deg, rgba(28,22,13,0.98), rgba(10,8,5,0.99))", textAlign: "center", boxShadow: "0 0 24px rgba(255,193,78,0.28), 0 4px 12px rgba(0,0,0,0.55)", zIndex: 9, minWidth: 210 }}>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 5 }}>
-              <svg width="44" height="50" viewBox="0 0 44 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                  <linearGradient id="afShieldOuter" x1="22" y1="0" x2="22" y2="50" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="#5EA8FF"/>
-                    <stop offset="100%" stopColor="#1A5DBF"/>
-                  </linearGradient>
-                  <linearGradient id="afShieldInner" x1="22" y1="4" x2="22" y2="46" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="rgba(190,220,255,0.55)"/>
-                    <stop offset="60%" stopColor="rgba(80,140,230,0.2)"/>
-                    <stop offset="100%" stopColor="rgba(20,60,140,0.1)"/>
-                  </linearGradient>
-                </defs>
-                <path d="M22 1 L41 9 L41 25 C41 37.5 33 45.5 22 49 C11 45.5 3 37.5 3 25 L3 9 Z" fill="url(#afShieldOuter)" stroke="rgba(130,195,255,0.55)" strokeWidth="1.4"/>
-                <path d="M22 5 L37 12 L37 25 C37 35.5 30.5 42.5 22 45.5 C13.5 42.5 7 35.5 7 25 L7 12 Z" fill="url(#afShieldInner)"/>
-                <path d="M22 5 L37 12 L37 25 C37 35.5 30.5 42.5 22 45.5" stroke="rgba(200,228,255,0.35)" strokeWidth="1" fill="none"/>
-              </svg>
-            </div>
-            <div style={{ fontSize: 38, fontWeight: 900, color: "#EAC374", letterSpacing: 1.4, lineHeight: 1 }}>FUNDED LOANS</div>
-            <div style={{ fontSize: 15, color: "rgba(243,225,181,0.92)", fontWeight: 700, letterSpacing: 0.7, marginTop: 2 }}>SECURE. SIMPLE. TRUSTED.</div>
-          </div>
+            {/* ── VAULT DOOR OUTER RING ── */}
+            <circle cx="220" cy="286" r="172" fill="url(#afvDoor)" stroke="rgba(102,120,145,0.88)" strokeWidth="3.5"/>
+            <circle cx="220" cy="286" r="158" fill="none" stroke="rgba(78,95,118,0.42)" strokeWidth="2"/>
 
-          {/* Vault outer ring */}
-          <div style={{ position: "absolute", left: "50%", top: 306, transform: "translate(-50%,-50%)", width: 358, height: 358, borderRadius: "50%", border: "2px solid rgba(140,154,172,0.84)", background: "radial-gradient(circle at 47% 42%, rgba(58,66,80,0.97), rgba(16,22,32,0.99) 76%)", boxShadow: "inset 0 0 44px rgba(0,0,0,0.75), 0 0 42px rgba(0,0,0,0.58)", zIndex: 6 }}>
+            {/* Bolt rivets x20 */}
+            {Array.from({length: 20}).map((_, i) => {
+              const a = (i / 20) * Math.PI * 2;
+              const bx = 220 + Math.cos(a) * 161;
+              const by = 286 + Math.sin(a) * 161;
+              return (
+                <g key={`afvb${i}`}>
+                  <circle cx={bx} cy={by} r="9" fill="url(#afvDial)" stroke="rgba(148,168,192,0.72)" strokeWidth="1.2"/>
+                  <circle cx={bx - 2.5} cy={by - 2.5} r="3" fill="rgba(212,228,248,0.58)"/>
+                </g>
+              );
+            })}
+
+            {/* ── VAULT INTERIOR ── */}
+            <circle cx="220" cy="286" r="148" fill="url(#afvInt)"/>
+
+            {/* Ceiling warm light */}
+            <ellipse cx="220" cy="166" rx="20" ry="7" fill="rgba(255,240,168,0.96)" filter="url(#afvBlur10)"/>
+            <ellipse cx="220" cy="166" rx="12" ry="4.5" fill="rgba(255,252,218,0.99)"/>
+            {/* Light cone */}
+            <path d="M200 166 L145 410 L295 410 L240 166 Z" fill="rgba(255,192,65,0.042)"/>
+
+            {/* ── SAFE DEPOSIT BOXES LEFT WALL ── */}
+            {Array.from({length: 18}).map((_, i) => {
+              const col = i % 3; const row = Math.floor(i / 3);
+              const bx = 106 + col * 28; const by = 185 + row * 30;
+              return (
+                <g key={`afvl${i}`} opacity={0.76 + row * 0.028}>
+                  <rect x={bx} y={by} width={23} height={21} rx="1.5" fill="url(#afvSB)" stroke="rgba(172,118,24,0.6)" strokeWidth="0.8"/>
+                  <rect x={bx + 1} y={by + 1} width={21} height={4.5} rx="1" fill="rgba(255,218,105,0.2)"/>
+                  <circle cx={bx + 11.5} cy={by + 10.5} r="2.4" fill="rgba(205,155,50,0.9)" stroke="rgba(120,72,6,0.55)" strokeWidth="0.5"/>
+                </g>
+              );
+            })}
+
+            {/* ── SAFE DEPOSIT BOXES RIGHT WALL ── */}
+            {Array.from({length: 18}).map((_, i) => {
+              const col = i % 3; const row = Math.floor(i / 3);
+              const bx = 286 + col * 28; const by = 185 + row * 30;
+              return (
+                <g key={`afvr${i}`} opacity={0.76 + row * 0.028}>
+                  <rect x={bx} y={by} width={23} height={21} rx="1.5" fill="url(#afvSB)" stroke="rgba(172,118,24,0.6)" strokeWidth="0.8"/>
+                  <rect x={bx + 1} y={by + 1} width={21} height={4.5} rx="1" fill="rgba(255,218,105,0.2)"/>
+                  <circle cx={bx + 11.5} cy={by + 10.5} r="2.4" fill="rgba(205,155,50,0.9)" stroke="rgba(120,72,6,0.55)" strokeWidth="0.5"/>
+                </g>
+              );
+            })}
+
+            {/* ── VAULT FLOOR ── */}
+            <ellipse cx="220" cy="408" rx="118" ry="18" fill="rgba(20,12,4,0.94)" stroke="rgba(64,42,8,0.38)" strokeWidth="1"/>
+            <ellipse cx="220" cy="406" rx="60" ry="8" fill="rgba(175,125,32,0.09)"/>
+
+            {/* ── CAR — front 3/4 view, headlights on ── */}
+            <g transform="translate(142, 296)">
+              {/* Floor shadow */}
+              <ellipse cx="77" cy="113" rx="72" ry="10" fill="rgba(0,0,0,0.58)"/>
+              {/* Body */}
+              <path d="M5 90 L18 74 L38 57 L77 50 L118 50 L138 57 L152 74 L156 90 L156 113 L5 113 Z" fill="url(#afvCBody)" stroke="#465662" strokeWidth="1.8"/>
+              {/* Cabin / roof */}
+              <path d="M32 59 L50 35 L107 35 L126 59 Z" fill="url(#afvCRoof)" stroke="#6C8EA4" strokeWidth="1.4"/>
+              {/* Windshield */}
+              <path d="M54 57 L66 37 L105 37 L122 57 Z" fill="url(#afvCWin)"/>
+              {/* Rear window */}
+              <path d="M32 57 L50 37 L63 37 L46 57 Z" fill="url(#afvCWin)" opacity="0.82"/>
+              {/* Body crease highlight */}
+              <path d="M20 78 C55 68 103 68 138 78" stroke="rgba(255,255,255,0.42)" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+              {/* Headlight ambient glow */}
+              <ellipse cx="25" cy="75" rx="20" ry="12" fill="rgba(255,192,50,0.2)" filter="url(#afvBlur5)"/>
+              <ellipse cx="135" cy="75" rx="20" ry="12" fill="rgba(255,192,50,0.2)" filter="url(#afvBlur5)"/>
+              {/* Headlight left housing */}
+              <path d="M8 67 L36 65 L38 82 L6 83 Z" fill="rgba(250,240,175,0.9)" stroke="rgba(218,192,65,0.5)" strokeWidth="0.8"/>
+              <ellipse cx="23" cy="74" rx="9" ry="5.5" fill="rgba(255,252,230,0.99)"/>
+              {/* Headlight right housing */}
+              <path d="M120 65 L148 67 L152 83 L118 82 Z" fill="rgba(250,240,175,0.9)" stroke="rgba(218,192,65,0.5)" strokeWidth="0.8"/>
+              <ellipse cx="135" cy="74" rx="9" ry="5.5" fill="rgba(255,252,230,0.99)"/>
+              {/* DRL strips */}
+              <path d="M6 83 L38 81" stroke="rgba(255,255,255,0.84)" strokeWidth="1.8" strokeLinecap="round"/>
+              <path d="M118 81 L150 83" stroke="rgba(255,255,255,0.84)" strokeWidth="1.8" strokeLinecap="round"/>
+              {/* Front grille */}
+              <path d="M35 87 L125 87 L125 100 L35 100 Z" fill="rgba(10,16,24,0.9)" stroke="rgba(52,72,96,0.5)" strokeWidth="0.8"/>
+              {[58, 80, 102].map((gx, gi) => <line key={gi} x1={gx} y1={87} x2={gx} y2={100} stroke="rgba(52,72,96,0.48)" strokeWidth="0.8"/>)}
+              {/* Emblem */}
+              <circle cx="80" cy="93.5" r="4.5" fill="rgba(190,205,222,0.7)" stroke="rgba(140,160,182,0.5)" strokeWidth="0.5"/>
+              {/* Front bumper */}
+              <path d="M5 100 L156 100 L156 110 L5 110 Z" fill="rgba(158,175,195,0.42)" stroke="#465662" strokeWidth="1"/>
+              {/* Wheel arch cut-outs */}
+              <path d="M5 90 C5 75 24 65 40 67 L40 91 L5 91 Z" fill="url(#afvCBody)" stroke="#465662" strokeWidth="1"/>
+              <path d="M115 67 C131 65 156 75 156 90 L156 91 L115 91 Z" fill="url(#afvCBody)" stroke="#465662" strokeWidth="1"/>
+              {/* Wheel LEFT */}
+              <circle cx="30" cy="107" r="18" fill="#10141C" stroke="#2A3644" strokeWidth="2.2"/>
+              <circle cx="30" cy="107" r="12" fill="url(#afvWR)" stroke="#445868" strokeWidth="1"/>
+              <circle cx="30" cy="107" r="4.5" fill="#181C28"/>
+              {[0,45,90,135,180,225,270,315].map((a, si) => <line key={si} x1={30 + Math.cos(a * Math.PI / 180) * 5.2} y1={107 + Math.sin(a * Math.PI / 180) * 5.2} x2={30 + Math.cos(a * Math.PI / 180) * 11} y2={107 + Math.sin(a * Math.PI / 180) * 11} stroke="rgba(58,76,98,0.9)" strokeWidth="2.2" strokeLinecap="round"/>)}
+              {/* Wheel RIGHT */}
+              <circle cx="128" cy="107" r="18" fill="#10141C" stroke="#2A3644" strokeWidth="2.2"/>
+              <circle cx="128" cy="107" r="12" fill="url(#afvWR)" stroke="#445868" strokeWidth="1"/>
+              <circle cx="128" cy="107" r="4.5" fill="#181C28"/>
+              {[0,45,90,135,180,225,270,315].map((a, ri) => <line key={ri} x1={128 + Math.cos(a * Math.PI / 180) * 5.2} y1={107 + Math.sin(a * Math.PI / 180) * 5.2} x2={128 + Math.cos(a * Math.PI / 180) * 11} y2={107 + Math.sin(a * Math.PI / 180) * 11} stroke="rgba(58,76,98,0.9)" strokeWidth="2.2" strokeLinecap="round"/>)}
+            </g>
+
+            {/* ── FUNDED LOANS SIGN (top of vault interior) ── */}
+            <rect x="152" y="126" width="136" height="68" rx="6" fill="rgba(15,11,5,0.97)" stroke="rgba(210,165,68,0.55)" strokeWidth="1.2"/>
+            <rect x="154" y="128" width="132" height="64" rx="5" fill="none" stroke="rgba(255,212,115,0.18)" strokeWidth="0.8"/>
+            {/* Gold shield icon */}
+            <path d="M220 137 L229 141 L229 149 C229 154.5 225 158.5 220 160 C215 158.5 211 154.5 211 149 L211 141 Z" fill="#E5A020" stroke="rgba(255,190,50,0.5)" strokeWidth="0.8"/>
+            <path d="M220 140 L227 143 L227 149 C227 153 223.5 156.5 220 157.8 C216.5 156.5 213 153 213 149 L213 143 Z" fill="rgba(255,228,140,0.38)"/>
+            <text x="220" y="170" textAnchor="middle" fontSize="15.5" fontWeight="900" fill="#EAC374" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="0.8">FUNDED LOANS</text>
+            <text x="220" y="184" textAnchor="middle" fontSize="7.8" fontWeight="700" fill="rgba(242,224,178,0.82)" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="0.4">SECURE. SIMPLE. TRUSTED.</text>
+
+            {/* ── VAULT DOOR FRAME BEVEL OVERLAY ── */}
+            <circle cx="220" cy="286" r="172" fill="none" stroke="rgba(155,175,200,0.2)" strokeWidth="14"/>
+            <circle cx="220" cy="286" r="165" fill="none" stroke="rgba(78,96,120,0.38)" strokeWidth="4"/>
+
+            {/* ── COMBINATION DIAL ── */}
+            <g transform="translate(375, 344)">
+              <circle r="80" fill="url(#afvDial)" stroke="rgba(128,148,172,0.9)" strokeWidth="2.5"/>
+              <circle r="65" fill="none" stroke="rgba(100,122,148,0.4)" strokeWidth="1"/>
+              {Array.from({length: 60}).map((_, ti) => {
+                const ta = (ti / 60) * Math.PI * 2;
+                const major = ti % 5 === 0;
+                const ir = major ? 57 : 62;
+                return <line key={ti} x1={Math.cos(ta) * ir} y1={Math.sin(ta) * ir} x2={Math.cos(ta) * 68} y2={Math.sin(ta) * 68} stroke={major ? "rgba(185,208,230,0.82)" : "rgba(130,152,178,0.4)"} strokeWidth={major ? 2 : 0.8}/>;
+              })}
+              <line x1="-55" y1="0" x2="55" y2="0" stroke="rgba(142,160,185,0.94)" strokeWidth="12" strokeLinecap="round"/>
+              <line x1="0" y1="-55" x2="0" y2="55" stroke="rgba(142,160,185,0.94)" strokeWidth="12" strokeLinecap="round"/>
+              <line x1="-53" y1="-2.5" x2="53" y2="-2.5" stroke="rgba(205,222,242,0.42)" strokeWidth="3" strokeLinecap="round"/>
+              <line x1="-2.5" y1="-53" x2="-2.5" y2="53" stroke="rgba(205,222,242,0.42)" strokeWidth="3" strokeLinecap="round"/>
+              <circle r="21" fill="url(#afvDial)" stroke="rgba(190,210,232,0.82)" strokeWidth="1.5"/>
+              <circle cx="-3.5" cy="-3.5" r="8" fill="rgba(225,238,255,0.68)"/>
+            </g>
+          </svg>
+
+          {/* old vault HTML fully replaced by SVG above */}
+          <div style={{ display: "none" }}>
             {Array.from({ length: 20 }).map((_, i) => {
               const angle = (i / 20) * Math.PI * 2;
               const x = 179 + Math.cos(angle) * 158;
@@ -6738,8 +6865,6 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
             </div>
           </div>
 
-          {/* Outer glow overlay */}
-          <div style={{ position: "absolute", left: "50%", top: 306, transform: "translate(-50%,-50%)", width: 420, height: 420, borderRadius: "50%", background: "radial-gradient(circle at 50% 50%, rgba(255,175,50,0.12), transparent 65%)", pointerEvents: "none", zIndex: 5 }} />
         </div>
 
         <div style={{ borderRadius: 14, border: "1px solid rgba(95,118,150,0.35)", background: "linear-gradient(180deg, rgba(8,18,34,0.97), rgba(6,12,24,0.99))", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 9 }}>
