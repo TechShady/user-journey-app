@@ -72,7 +72,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.36";
+const APP_VERSION_LABEL = "4.57.37";
 
 
 
@@ -6390,7 +6390,22 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
                 <rect x="0" y="0" width="680" height={by} fill="white"/>
                 <circle cx={bx} cy={by} r={bR + 2} fill="black"/>
               </mask>
+              <filter id="stepGlow" x="-18%" y="-18%" width="136%" height="136%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
             </defs>
+            <style>{`
+              @keyframes mriTableIn {
+                0%   { transform: translateY(22px); opacity: 0.65; }
+                100% { transform: translateY(0px);  opacity: 1.0;  }
+              }
+              .mri-table-anim {
+                transform-box: fill-box;
+                transform-origin: bottom center;
+                animation: mriTableIn 3.4s ease-in-out infinite alternate;
+              }
+            `}</style>
 
             {/* Floor shadow */}
             <ellipse cx="345" cy="434" rx="272" ry="14" fill="rgba(0,0,0,0.5)"/>
@@ -6430,96 +6445,81 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
             <rect x="148" y="215" width="12" height="5" rx="2.5" fill="rgba(240,210,90,0.88)"/>
             <rect x="520" y="215" width="12" height="5" rx="2.5" fill="rgba(80,222,255,0.9)"/>
 
-            {/* ── PERSPECTIVE TABLE: converges into bore (3D tunnel effect) ── */}
+            {/* Bottom connecting surface + base platform — before table so step 1 is on top */}
+            <rect x="178" y="358" width="334" height="16" rx="4" fill="url(#mriBodyLG)" stroke="rgba(155,178,205,0.3)" strokeWidth="1"/>
+            <rect x="110" y="374" width="460" height="30" rx="9" fill="url(#mriBodyLG)" stroke="rgba(145,168,195,0.32)" strokeWidth="1"/>
+            <rect x="142" y="404" width="396" height="18" rx="7" fill="rgba(34,46,64,0.88)" stroke="rgba(128,152,178,0.26)" strokeWidth="1"/>
+
+            {/* ── PERSPECTIVE TABLE: gradual convergence into bore, animated ── */}
             {(() => {
               const VP_x = bx;
-              const VP_y = by - 38;              // vanishing point above bore center
-              const base_y = by + bR + 50;       // bottom of outside step (step 1)
-              const base_hw = 120;               // half-width at base
-              const vp_hw = 7;                   // half-width at vanishing point
-              const bore_bot = by + bR;          // 363 — bore circle bottom
-
-              const hw = (y: number) => {
-                const t = Math.max(0, (y - VP_y) / (base_y - VP_y));
-                return vp_hw + (base_hw - vp_hw) * t;
-              };
-
-              const inside_h = bore_bot - VP_y;
+              const bore_top_y = by - bR + 5;      // 78  — deepest step top
+              const bore_bot_y = by + bR;            // 363 — bore entrance bottom
+              const base_y = bore_bot_y + 45;        // 408 — step 1 base (outside machine)
+              const hw_deep = 44;                    // half-width at bore top (deepest)
+              const hw_base = 114;                   // half-width at base (widest)
+              // Gradual linear perspective from deep to base
+              const hw = (y: number) => hw_deep + (hw_base - hw_deep) * (y - bore_top_y) / (base_y - bore_top_y);
+              const trap = (yt: number, yb: number) =>
+                `M ${VP_x - hw(yb)} ${yb} L ${VP_x + hw(yb)} ${yb} L ${VP_x + hw(yt)} ${yt} L ${VP_x - hw(yt)} ${yt} Z`;
+              const inside_h = bore_bot_y - bore_top_y;   // 285
               const step_ih = N > 1 ? inside_h / (N - 1) : inside_h;
-
-              // y range for each step; i=0 is outside (nearest), i=N-1 deepest
+              // i=0 outside (nearest), i=N-1 deepest
               const stepY = (i: number): [number, number] =>
-                i === 0
-                  ? [bore_bot, base_y]
-                  : [bore_bot - i * step_ih, bore_bot - (i - 1) * step_ih];
-
-              const trap = (yt: number, yb: number) => {
-                const tl = VP_x - hw(yt), tr = VP_x + hw(yt);
-                const bl = VP_x - hw(yb), br = VP_x + hw(yb);
-                return `M ${bl} ${yb} L ${br} ${yb} L ${tr} ${yt} L ${tl} ${yt} Z`;
-              };
-
+                i === 0 ? [bore_bot_y, base_y]
+                        : [bore_bot_y - i * step_ih, bore_bot_y - (i - 1) * step_ih];
               return (
-                <>
-                  {/* Inside steps clipped to bore circle */}
-                  <g clipPath="url(#mriBoreClip)">
-                    {/* Subtle perspective depth-lines */}
-                    {Array.from({length: 7}).map((_, li) => {
-                      const frac = (li + 1) / 8;
-                      const bx2 = VP_x - base_hw + frac * base_hw * 2;
-                      return <line key={li} x1={VP_x} y1={VP_y} x2={bx2} y2={base_y} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>;
-                    })}
-                    {/* Inside step bands (steps 2-N, index 1 to N-1) */}
-                    {steps.slice(1).map((_, idx) => {
-                      const i = idx + 1;
-                      const [yt, yb] = stepY(i);
-                      return <path key={i} d={trap(yt, yb)} fill={pyColors[i % pyColors.length]} opacity={0.86}/>;
-                    })}
-                    {/* Step dividers */}
-                    {steps.slice(1, -1).map((_, idx) => {
-                      const [yt] = stepY(idx + 2);
-                      return <line key={idx} x1={VP_x - hw(yt)} y1={yt} x2={VP_x + hw(yt)} y2={yt} stroke="rgba(0,0,0,0.45)" strokeWidth="1.5"/>;
-                    })}
-                  </g>
-
-                  {/* Step 1 — outside bore (largest, nearest) */}
-                  <path d={trap(bore_bot, base_y)} fill={pyColors[0]} opacity={0.86}/>
-                  <line x1={VP_x - hw(bore_bot)} y1={bore_bot} x2={VP_x + hw(bore_bot)} y2={bore_bot} stroke="rgba(0,0,0,0.45)" strokeWidth="1.5"/>
-
-                  {/* Converging GUARDRAILS — full perspective lines */}
-                  <line x1={VP_x - vp_hw} y1={VP_y} x2={VP_x - base_hw} y2={base_y}
-                    stroke="rgba(168,195,225,0.95)" strokeWidth="5" strokeLinecap="round"/>
-                  <line x1={VP_x + vp_hw} y1={VP_y} x2={VP_x + base_hw} y2={base_y}
-                    stroke="rgba(168,195,225,0.95)" strokeWidth="5" strokeLinecap="round"/>
-                  {/* Rail highlight sheen */}
-                  <line x1={VP_x - vp_hw + 1} y1={VP_y} x2={VP_x - base_hw + 2} y2={base_y}
-                    stroke="rgba(225,240,255,0.4)" strokeWidth="1.5" strokeLinecap="round"/>
-                  <line x1={VP_x + vp_hw - 1} y1={VP_y} x2={VP_x + base_hw - 2} y2={base_y}
-                    stroke="rgba(225,240,255,0.4)" strokeWidth="1.5" strokeLinecap="round"/>
-
+                <g className="mri-table-anim">
+                  {/* Inside steps — no clip; upper-ring mask handles z-order above bore center */}
+                  {steps.slice(1).map((_, idx) => {
+                    const i = idx + 1;
+                    const [yt, yb] = stepY(i);
+                    const col = pyColors[i % pyColors.length];
+                    return (
+                      <g key={i}>
+                        <path d={trap(yt, yb)} fill="none" stroke={col} strokeWidth="3.5" opacity={0.55} filter="url(#stepGlow)"/>
+                        <path d={trap(yt, yb)} fill={col} opacity={0.84}/>
+                      </g>
+                    );
+                  })}
+                  {/* Step 1 — outside bore, always on top of base platform */}
+                  {(() => {
+                    const [yt, yb] = stepY(0);
+                    const col = pyColors[0];
+                    return (
+                      <g>
+                        <path d={trap(yt, yb)} fill="none" stroke={col} strokeWidth="3.5" opacity={0.55} filter="url(#stepGlow)"/>
+                        <path d={trap(yt, yb)} fill={col} opacity={0.84}/>
+                      </g>
+                    );
+                  })()}
+                  {/* Step dividers */}
+                  {steps.slice(0, -1).map((_, i) => {
+                    const [yt] = stepY(i + 1);
+                    return <line key={i} x1={VP_x - hw(yt)} y1={yt} x2={VP_x + hw(yt)} y2={yt} stroke="rgba(0,0,0,0.45)" strokeWidth="1.5"/>;
+                  })}
+                  {/* Guardrails — converging perspective lines with metallic sheen */}
+                  <line x1={VP_x - hw(bore_top_y)} y1={bore_top_y} x2={VP_x - hw_base} y2={base_y} stroke="rgba(170,198,228,0.96)" strokeWidth="5.5" strokeLinecap="round"/>
+                  <line x1={VP_x + hw(bore_top_y)} y1={bore_top_y} x2={VP_x + hw_base} y2={base_y} stroke="rgba(170,198,228,0.96)" strokeWidth="5.5" strokeLinecap="round"/>
+                  <line x1={VP_x - hw(bore_top_y) + 1.5} y1={bore_top_y} x2={VP_x - hw_base + 2} y2={base_y} stroke="rgba(225,242,255,0.5)" strokeWidth="1.8" strokeLinecap="round"/>
+                  <line x1={VP_x + hw(bore_top_y) - 1.5} y1={bore_top_y} x2={VP_x + hw_base - 2} y2={base_y} stroke="rgba(225,242,255,0.5)" strokeWidth="1.8" strokeLinecap="round"/>
                   {/* Step labels */}
                   {steps.map((step, i) => {
                     const [yt, yb] = stepY(i);
-                    const y_mid = (yt + yb) / 2;
-                    const w = hw(y_mid);
-                    const fs = Math.max(8, Math.min(12, 6 + w / 9));
-                    const maxCh = Math.max(3, Math.floor(w * 1.7 / fs));
+                    const ym = (yt + yb) / 2;
+                    const w = hw(ym);
+                    const fs = Math.max(8, Math.min(13, 7 + w / 10));
+                    const maxCh = Math.max(3, Math.floor(w * 1.9 / fs));
                     const raw = step.label || `Step ${i + 1}`;
                     const lbl = raw.length > maxCh ? raw.slice(0, maxCh - 1) + "…" : raw;
                     return (
                       <g key={`lbl${i}`}>
-                        <text x={VP_x} y={y_mid - fs * 0.35}
-                          textAnchor="middle" dominantBaseline="middle"
-                          fontSize={Math.max(7, fs - 1)} fontWeight="900"
-                          fill="rgba(255,255,255,0.55)" fontFamily="system-ui">{i + 1}</text>
-                        <text x={VP_x} y={y_mid + fs * 0.55}
-                          textAnchor="middle" dominantBaseline="middle"
-                          fontSize={Math.max(6, fs - 2)} fontWeight="700"
-                          fill="rgba(255,255,255,0.82)" fontFamily="system-ui">{lbl.toUpperCase()}</text>
+                        <text x={VP_x} y={ym - 5} textAnchor="middle" dominantBaseline="middle" fontSize={Math.max(7, fs - 1)} fontWeight="900" fill="rgba(255,255,255,0.5)" fontFamily="system-ui">{i + 1}</text>
+                        <text x={VP_x} y={ym + 6} textAnchor="middle" dominantBaseline="middle" fontSize={Math.max(6, fs - 2)} fontWeight="700" fill="rgba(255,255,255,0.88)" fontFamily="system-ui">{lbl.toUpperCase()}</text>
                       </g>
                     );
                   })}
-                </>
+                </g>
               );
             })()}
 
@@ -6535,9 +6535,8 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
             <circle cx={bx} cy={by} r={bR + 10} fill="none" stroke="rgba(40,110,255,0.35)" strokeWidth="10" filter="url(#mriGF)"/>
             <circle cx={bx} cy={by} r={bR + 2} fill="none" stroke="rgba(68,145,255,0.65)" strokeWidth="2.5"/>
 
-            {/* Top + bottom connecting surfaces */}
+            {/* Top connecting surface */}
             <rect x="178" y="114" width="334" height="16" rx="4" fill="url(#mriBodyLG)" stroke="rgba(155,178,205,0.3)" strokeWidth="1"/>
-            <rect x="178" y="358" width="334" height="16" rx="4" fill="url(#mriBodyLG)" stroke="rgba(155,178,205,0.3)" strokeWidth="1"/>
 
             {/* DISPLAY PANEL — on machine, above gantry ring */}
             <rect x="252" y="4" width="186" height="30" rx="8" fill="url(#mriDispLG)" stroke="rgba(75,138,225,0.62)" strokeWidth="1.5"/>
@@ -6548,9 +6547,6 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
             <circle cx="520" cy="136" r="13" fill="rgba(185,0,0,0.9)" stroke="rgba(255,80,80,0.7)" strokeWidth="1.2"/>
             <circle cx="518" cy="134" r="5.5" fill="rgba(255,140,140,0.88)"/>
 
-            {/* Base platform */}
-            <rect x="110" y="374" width="460" height="30" rx="9" fill="url(#mriBodyLG)" stroke="rgba(145,168,195,0.32)" strokeWidth="1"/>
-            <rect x="142" y="404" width="396" height="18" rx="7" fill="rgba(34,46,64,0.88)" stroke="rgba(128,152,178,0.26)" strokeWidth="1"/>
           </svg>
         </div>
 
