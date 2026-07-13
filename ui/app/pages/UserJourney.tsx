@@ -45,7 +45,7 @@ const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "heatmap", label: "Transition Heatmap" },
 ];
 const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
-type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri";
+type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance";
 const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "classic", label: "Classic Funnel" },
   { value: "horizontal", label: "Horizontal Bar" },
@@ -54,6 +54,7 @@ const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "split", label: "Comparison Split" },
   { value: "elevator", label: "\uD83D\uDED7 Elevator" },
   { value: "mri", label: "\uD83E\uDE7B MRI Tunnel" },
+  { value: "autoFinance", label: "\uD83C\uDFCE Auto Finance" },
 ];
 const DEFAULT_FUNNEL_STYLE: FunnelStyle = "classic";
 const FUNNEL_STYLE_STATE_KEY = "uj-funnel-style";
@@ -71,7 +72,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.16";
+const APP_VERSION_LABEL = "4.57.28";
 
 
 
@@ -6305,13 +6306,17 @@ function ElevatorFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: 
   );
 }
 
-function MRIFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number }) {
+function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
   const topToBottom = [...steps].reverse();
   const totalSessions = steps[0]?.count ?? 0;
   const totalConversions = steps[steps.length - 1]?.count ?? 0;
   const totalDropped = Math.max(0, totalSessions - totalConversions);
   const overallConv = steps[steps.length - 1]?.overallConv ?? 0;
   const totalRevLost = totalDropped > 0 && aov > 0 ? totalDropped * aov : 0;
+  const fName = String(funnelName ?? "").toLowerCase();
+  const isAutoFinance = fName.includes("auto") || fName.includes("finance") || fName.includes("loan") || fName.includes("vehicle");
+  const rowHeight = 52;
+  const railHeight = Math.max(230, topToBottom.length * rowHeight + 56);
 
   const stageColor = (step: FunnelStep, idx: number) => {
     if (idx === 0) return BLUE;
@@ -6323,6 +6328,17 @@ function MRIFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number }) {
 
   const inferIcon = (label: string, idx: number): string => {
     const l = label.toLowerCase();
+    if (isAutoFinance) {
+      if (l.includes("browse") || l.includes("inventory") || l.includes("model")) return "🏎️";
+      if (l.includes("compare") || l.includes("search") || l.includes("select")) return "🔎";
+      if (l.includes("quote") || l.includes("payment") || l.includes("rate")) return "💵";
+      if (l.includes("apply") || l.includes("loan") || l.includes("credit")) return "📋";
+      if (l.includes("approve") || l.includes("decision")) return "✅";
+      if (l.includes("sign") || l.includes("contract") || l.includes("close")) return "🖊️";
+      if (l.includes("pickup") || l.includes("deliver") || l.includes("drive")) return "🔑";
+      const autoFallback = ["🏎️", "🔎", "💵", "📋", "✅", "🖊️", "🔑"];
+      return autoFallback[idx % autoFallback.length] ?? "";
+    }
     if (l.includes("claim") || l.includes("bill") || l.includes("payment")) return "📄";
     if (l.includes("enroll") || l.includes("signup") || l.includes("register")) return "📝";
     if (l.includes("compare") || l.includes("search") || l.includes("plan")) return "🔎";
@@ -6337,7 +6353,7 @@ function MRIFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number }) {
     <div style={{ maxWidth: 1120, margin: "0 auto" }}>
       <div style={{ display: "grid", gridTemplateColumns: "220px 1fr 300px", gap: 14, alignItems: "stretch" }}>
         <div style={{ border: "1px solid rgba(70,95,130,0.35)", borderRadius: 12, padding: "10px 10px", background: "linear-gradient(180deg, rgba(9,20,36,0.92), rgba(8,14,26,0.9))" }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Journey stages</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>{isAutoFinance ? "Vehicle journey stages" : "Journey stages"}</div>
           {steps.map((step, i) => {
             const color = stageColor(step, i);
             return (
@@ -6345,34 +6361,92 @@ function MRIFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number }) {
                 <div style={{ width: 24, height: 24, borderRadius: "50%", border: `1px solid ${color}88`, background: `${color}22`, color, fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</div>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 700 }}>{step.label}</div>
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{fmtCount(step.count)} members</div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{fmtCount(step.count)} {isAutoFinance ? "shoppers" : "members"}</div>
                 </div>
               </div>
             );
           })}
         </div>
 
-        <div style={{ border: "1px solid rgba(78,108,145,0.35)", borderRadius: 14, padding: "12px 12px 14px", background: "radial-gradient(circle at 50% 12%, rgba(103,139,181,0.2), rgba(10,18,32,0.94) 46%, rgba(6,12,22,0.98) 78%)" }}>
-          <div style={{ margin: "0 auto", width: 540, height: 240, position: "relative", borderRadius: "50%", border: "2px solid rgba(180,205,235,0.5)", background: "radial-gradient(circle, rgba(145,186,230,0.18) 0%, rgba(22,37,63,0.7) 42%, rgba(8,14,25,0.96) 70%)", boxShadow: "inset 0 4px 16px rgba(255,255,255,0.1), inset 0 -22px 30px rgba(0,0,0,0.45)" }}>
-            <div style={{ position: "absolute", left: "50%", top: "52%", transform: "translate(-50%,-50%)", width: 170, height: 170, borderRadius: "50%", border: "2px solid rgba(96,166,255,0.72)", boxShadow: "0 0 18px rgba(69,137,255,0.6), inset 0 0 28px rgba(21,44,78,0.9)", background: "radial-gradient(circle, rgba(5,10,20,0.95) 35%, rgba(8,17,31,0.98) 100%)" }} />
+        <div style={{ border: "1px solid rgba(78,108,145,0.35)", borderRadius: 14, padding: "12px 12px 14px", background: "radial-gradient(circle at 50% 6%, rgba(116,150,186,0.22), rgba(9,18,33,0.94) 45%, rgba(6,12,22,0.98) 78%)", overflow: "hidden" }}>
+          <div style={{ margin: "0 auto", width: 560, height: 234, position: "relative" }}>
+            <div style={{ position: "absolute", left: 34, top: 38, width: 64, height: 204, borderRadius: "30px 10px 10px 30px", background: "linear-gradient(180deg, rgba(130,146,170,0.42), rgba(56,70,92,0.7))", boxShadow: "inset 4px 0 10px rgba(255,255,255,0.12)" }} />
+            <div style={{ position: "absolute", right: 34, top: 38, width: 64, height: 204, borderRadius: "10px 30px 30px 10px", background: "linear-gradient(180deg, rgba(130,146,170,0.42), rgba(56,70,92,0.7))", boxShadow: "inset -4px 0 10px rgba(255,255,255,0.12)" }} />
+
+            <div style={{ position: "absolute", left: "50%", top: "53%", transform: "translate(-50%,-50%)", width: 420, height: 252, borderRadius: 50, border: "1px solid rgba(177,202,230,0.42)", background: "radial-gradient(circle at 50% 8%, rgba(235,244,255,0.42), rgba(157,178,202,0.68) 33%, rgba(77,95,121,0.74) 70%, rgba(35,48,68,0.87) 100%)", boxShadow: "inset 0 12px 20px rgba(255,255,255,0.2), inset 0 -24px 28px rgba(0,0,0,0.35), 0 10px 18px rgba(0,0,0,0.45)" }} />
+
+            <div style={{ position: "absolute", left: "50%", top: 34, transform: "translateX(-50%)", minWidth: 170, height: 40, borderRadius: 8, border: "1px solid rgba(110,160,225,0.45)", background: "linear-gradient(180deg, rgba(18,31,52,0.96), rgba(8,14,26,0.96))", boxShadow: "inset 0 1px 4px rgba(255,255,255,0.08), 0 0 12px rgba(69,137,255,0.35)", display: "flex", alignItems: "center", justifyContent: "center", color: "#62B3FF", fontSize: 18, fontWeight: 800, letterSpacing: 1.05, textTransform: "uppercase", zIndex: 12, gap: 8, padding: "0 10px" }}>
+              {isAutoFinance && (
+                <svg width="34" height="14" viewBox="0 0 68 28" aria-hidden="true" style={{ filter: "drop-shadow(0 0 4px rgba(69,137,255,0.45))" }}>
+                  <path d="M4 17 L16 9 L37 7 L54 11 L63 17 L62 21 L5 21 Z" fill="#58A9FF" opacity="0.95" />
+                  <circle cx="18" cy="21" r="4" fill="#0A1628" />
+                  <circle cx="48" cy="21" r="4" fill="#0A1628" />
+                </svg>
+              )}
+              {isAutoFinance ? "LAMBORGHINI" : "MRI"}
+            </div>
+
+            <div style={{ position: "absolute", left: "50%", top: 72, transform: "translateX(-50%)", width: 10, height: 10, borderRadius: 2, background: "linear-gradient(180deg, rgba(56,120,210,0.92), rgba(16,37,71,0.92))", boxShadow: "0 0 9px rgba(69,137,255,0.55)", zIndex: 11 }} />
+
+            <div style={{ position: "absolute", left: 98, top: 128, width: 9, height: 4, borderRadius: 2, background: "rgba(246,232,170,0.88)", boxShadow: "0 0 7px rgba(246,232,170,0.55)", zIndex: 11 }} />
+            <div style={{ position: "absolute", right: 98, top: 128, width: 9, height: 4, borderRadius: 2, background: "rgba(106,218,255,0.9)", boxShadow: "0 0 7px rgba(106,218,255,0.55)", zIndex: 11 }} />
+
+            <div style={{ position: "absolute", left: "50%", top: "60%", transform: "translate(-50%,-50%)", width: 148, height: 148, borderRadius: "50%", border: "2px solid rgba(120,185,255,0.92)", boxShadow: "0 0 38px rgba(69,137,255,0.85), 0 0 74px rgba(69,137,255,0.45), inset 0 0 54px rgba(22,47,86,0.98), inset 0 0 24px rgba(120,180,255,0.48)", background: "radial-gradient(circle, rgba(4,8,16,1) 18%, rgba(6,14,27,0.98) 60%, rgba(18,38,65,0.96) 100%)", zIndex: 6 }}>
+              <div style={{ position: "absolute", inset: 12, borderRadius: "50%", border: "2px solid rgba(95,170,255,0.58)", boxShadow: "0 0 22px rgba(69,137,255,0.55), inset 0 0 22px rgba(69,137,255,0.2)" }} />
+              <div style={{ position: "absolute", left: "50%", top: "54%", transform: "translate(-50%,-50%)", width: 102, height: 112, clipPath: "polygon(22% 0, 78% 0, 100% 100%, 0 100%)", background: "linear-gradient(180deg, rgba(33,59,102,0.65), rgba(7,15,28,0.98))", borderRadius: 8 }} />
+              <div style={{ position: "absolute", left: "50%", top: "56%", transform: "translate(-50%,-50%)", width: 84, height: 96, clipPath: "polygon(20% 0, 80% 0, 100% 100%, 0 100%)", background: "repeating-linear-gradient(180deg, rgba(65,118,192,0.22) 0 6px, rgba(16,28,48,0.2) 6px 12px)", opacity: 0.82 }} />
+              <div style={{ position: "absolute", left: "50%", bottom: -10, transform: "translateX(-50%)", width: 166, height: 74, clipPath: "polygon(18% 0, 82% 0, 100% 100%, 0 100%)", background: "linear-gradient(180deg, rgba(14,23,39,0.98), rgba(8,15,27,1))" }} />
+            </div>
+
+            <div style={{ position: "absolute", left: "50%", bottom: 18, transform: "translateX(-50%)", width: 162, height: 42, clipPath: "polygon(21% 0, 79% 0, 100% 100%, 0 100%)", background: "linear-gradient(180deg, rgba(25,36,54,0.88), rgba(8,15,27,0.96))", zIndex: 1, pointerEvents: "none" }} />
+
+            <div style={{ position: "absolute", right: 100, top: 74, width: 22, height: 22, borderRadius: "50%", border: "1px solid rgba(255,100,100,0.75)", background: "radial-gradient(circle at 35% 30%, rgba(255,170,170,0.95), rgba(170,0,0,0.92) 70%)", boxShadow: "0 0 10px rgba(255,0,0,0.45), inset 0 -2px 4px rgba(70,0,0,0.55)", zIndex: 12 }} />
+
+            <div style={{ position: "absolute", left: 128, top: 120, width: 40, height: 62, borderRadius: 8, border: "1px solid rgba(140,165,196,0.5)", background: "linear-gradient(180deg, rgba(34,49,70,0.85), rgba(19,29,45,0.98))", boxShadow: "inset 0 1px 4px rgba(255,255,255,0.09)", zIndex: 11 }}>
+              <div style={{ width: 12, height: 3, borderRadius: 3, background: "rgba(130,210,255,0.9)", margin: "6px auto 6px" }} />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, padding: "0 7px" }}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={`l-dot-${i}`} style={{ width: 5, height: 5, borderRadius: "50%", background: i === 0 ? "rgba(130,210,255,0.9)" : "rgba(120,140,170,0.55)" }} />
+                ))}
+              </div>
+            </div>
+            <div style={{ position: "absolute", right: 128, top: 120, width: 40, height: 62, borderRadius: 8, border: "1px solid rgba(140,165,196,0.5)", background: "linear-gradient(180deg, rgba(34,49,70,0.85), rgba(19,29,45,0.98))", boxShadow: "inset 0 1px 4px rgba(255,255,255,0.09)", zIndex: 11 }}>
+              <div style={{ width: 12, height: 3, borderRadius: 3, background: "rgba(130,210,255,0.9)", margin: "6px auto 6px" }} />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, padding: "0 7px" }}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={`r-dot-${i}`} style={{ width: 5, height: 5, borderRadius: "50%", background: i === 0 ? "rgba(130,210,255,0.9)" : "rgba(120,140,170,0.55)" }} />
+                ))}
+              </div>
+            </div>
           </div>
 
-          <div style={{ marginTop: -34, paddingBottom: 6 }}>
+          <div style={{ position: "relative", marginTop: 8, paddingTop: 14, paddingBottom: 8 }}>
+            <div style={{ position: "absolute", left: "50%", top: 16, transform: "translateX(-50%)", width: 518, height: railHeight, pointerEvents: "none", zIndex: 0 }}>
+              <div style={{ position: "absolute", left: 6, top: 0, width: 14, height: railHeight, clipPath: "polygon(100% 0, 0 100%, 100% 100%)", background: "linear-gradient(180deg, rgba(195,212,238,0.86), rgba(88,104,132,0.9))", boxShadow: "inset -2px 0 7px rgba(255,255,255,0.2), 0 0 10px rgba(149,184,235,0.35)" }}>
+                <div style={{ position: "absolute", right: 2, top: 4, bottom: 8, width: 2, background: "linear-gradient(180deg, rgba(189,229,255,0.85), rgba(84,132,193,0.18))" }} />
+              </div>
+              <div style={{ position: "absolute", right: 6, top: 0, width: 14, height: railHeight, clipPath: "polygon(0 0, 0 100%, 100% 100%)", background: "linear-gradient(180deg, rgba(195,212,238,0.86), rgba(88,104,132,0.9))", boxShadow: "inset 2px 0 7px rgba(255,255,255,0.2), 0 0 10px rgba(149,184,235,0.35)" }}>
+                <div style={{ position: "absolute", left: 2, top: 4, bottom: 8, width: 2, background: "linear-gradient(180deg, rgba(189,229,255,0.85), rgba(84,132,193,0.18))" }} />
+              </div>
+            </div>
             {topToBottom.map((step, di) => {
               const origIdx = steps.length - 1 - di;
               const color = stageColor(step, origIdx);
-              const width = 290 + di * 52;
+              const width = 286 + di * 58;
               const drop = origIdx > 0 ? Math.max(0, 100 - step.convFromPrev) : 0;
               const icon = inferIcon(step.label, origIdx);
               return (
-                <div key={`mri-belt-${origIdx}`} style={{ width, margin: "0 auto", minHeight: 44, borderRadius: 8, marginBottom: 5, border: `1px solid ${color}8A`, background: `linear-gradient(180deg, ${color}26, rgba(11,19,31,0.92))`, boxShadow: `0 0 11px ${color}45, inset 0 1px 5px rgba(255,255,255,0.08)`, display: "grid", gridTemplateColumns: "40px 1fr auto", alignItems: "center", columnGap: 8, padding: "6px 10px" }}>
+                <div key={`mri-belt-${origIdx}`} style={{ width, margin: "0 auto", minHeight: 45, borderRadius: 8, marginBottom: 6, border: `1px solid ${color}8A`, background: `linear-gradient(180deg, ${color}2E, rgba(8,16,28,0.95))`, boxShadow: `0 0 12px ${color}5A, inset 0 1px 6px rgba(255,255,255,0.12)`, display: "grid", gridTemplateColumns: "40px 1fr auto", alignItems: "center", columnGap: 8, padding: "6px 10px", position: "relative", zIndex: 3 }}>
+                  <div style={{ position: "absolute", left: 7, right: 7, top: 0, height: 2, background: `linear-gradient(90deg, transparent, ${color}80, transparent)` }} />
+                  <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 2, background: `linear-gradient(180deg, ${color}BB, rgba(120,200,255,0.3))` }} />
+                  <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 2, background: `linear-gradient(180deg, ${color}BB, rgba(120,200,255,0.3))` }} />
                   <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1, color, textAlign: "center" }}>{origIdx + 1}</div>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, fontWeight: 700 }}>
                       <span>{step.label}</span>
                       {icon ? <span style={{ opacity: 0.9 }}>{icon}</span> : null}
                     </div>
-                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", marginTop: 2 }}>{fmtCount(step.count)} members • {fmtPct(step.overallConv)} overall</div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", marginTop: 2 }}>{fmtCount(step.count)} {isAutoFinance ? "shoppers" : "members"} • {fmtPct(step.overallConv)} overall</div>
                   </div>
                   <div style={{ textAlign: "right", minWidth: 115 }}>
                     {origIdx > 0 && <div style={{ fontSize: 12, color: step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED, fontWeight: 700 }}>{fmtPct(step.convFromPrev)} conv</div>}
@@ -6386,7 +6460,7 @@ function MRIFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number }) {
         </div>
 
         <div style={{ border: "1px solid rgba(70,95,130,0.35)", borderRadius: 12, padding: "10px 12px", background: "linear-gradient(180deg, rgba(9,20,36,0.92), rgba(8,14,26,0.9))", display: "flex", flexDirection: "column" }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Journey metrics</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>{isAutoFinance ? "Vehicle journey metrics" : "Journey metrics"}</div>
           {topToBottom.map((step, di) => {
             const origIdx = steps.length - 1 - di;
             const color = stageColor(step, origIdx);
@@ -6418,6 +6492,296 @@ function MRIFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number }) {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number }) {
+  const stageColors = ["#2A8CFF", "#2ED4E6", "#3CCB72", "#E2B74A", "#9A5CFF", "#6D52F6", "#4C6BFF"];
+  const totalSessions = steps[0]?.count ?? 0;
+  const funded = steps[steps.length - 1]?.count ?? 0;
+  const overallConv = steps[steps.length - 1]?.overallConv ?? 0;
+  const totalFunded = funded * Math.max(0, aov);
+  const avgDays = 12 + (100 - overallConv) * 0.22;
+  const creditScore = Math.round(640 + Math.min(170, overallConv * 1.2));
+
+  const stepIcon = (label: string, idx: number): string => {
+    const l = label.toLowerCase();
+    if (l.includes("shop") || l.includes("discover") || l.includes("vehicle") || l.includes("browse")) return "🚗";
+    if (l.includes("prequal") || l.includes("rate") || l.includes("calc")) return "🧮";
+    if (l.includes("application") || l.includes("apply") || l.includes("submit")) return "📝";
+    if (l.includes("review") || l.includes("decision") || l.includes("approve")) return "📋";
+    if (l.includes("accept") || l.includes("terms") || l.includes("offer") || l.includes("sign")) return "🤝";
+    if (l.includes("fund") || l.includes("loan") || l.includes("drive")) return "🔑";
+    const fallback = ["🚗", "🧮", "📝", "📋", "🤝", "🔑", "🏁"];
+    return fallback[idx % fallback.length] ?? "•";
+  };
+
+  const stepDescription = (label: string, idx: number): string => {
+    const l = label.toLowerCase();
+    if (l.includes("shop") || l.includes("discover") || l.includes("vehicle") || l.includes("browse")) return "Shoppers research vehicles and explore finance options";
+    if (l.includes("prequal") || l.includes("rate") || l.includes("calc")) return "Customers check rates and prequalify in minutes";
+    if (l.includes("application") || l.includes("apply") || l.includes("submit")) return "Submit full application and required information";
+    if (l.includes("review") || l.includes("decision") || l.includes("approve")) return "Application is reviewed and credit decision is made";
+    if (l.includes("accept") || l.includes("terms") || l.includes("offer") || l.includes("sign")) return "Customer accepts offer and finalizes terms";
+    if (l.includes("fund") || l.includes("loan") || l.includes("drive")) return "Loan is funded and customer drives away";
+    const generic = [
+      "Initial interest and discovery",
+      "Qualification and pricing",
+      "Application submission",
+      "Underwriting review",
+      "Offer acceptance",
+      "Funding and completion",
+    ];
+    return generic[idx] ?? "Journey progression";
+  };
+
+  return (
+    <div style={{ maxWidth: 1180, margin: "0 auto", border: "1px solid rgba(75,105,150,0.32)", borderRadius: 14, background: "radial-gradient(circle at 50% 0%, rgba(58,95,160,0.26), rgba(8,16,30,0.97) 46%, rgba(5,10,20,0.99) 82%)", padding: "14px 14px 12px", boxShadow: "0 12px 30px rgba(0,0,0,0.35)" }}>
+      <div style={{ textAlign: "center", marginBottom: 10 }}>
+        <div style={{ fontSize: 44, fontWeight: 900, letterSpacing: 2, lineHeight: 1, background: "linear-gradient(180deg, #F6FAFF, #9EC4FF)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>AUTO FINANCE JOURNEY</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "rgba(190,218,255,0.9)", letterSpacing: 0.9 }}>DRIVING CUSTOMERS FROM INTEREST TO FUNDED LOAN</div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "420px 1fr 238px", gap: 12, alignItems: "stretch", position: "relative" }}>
+        <div style={{ position: "absolute", left: 0, top: 0, width: "calc(100% - 250px)", height: 510, pointerEvents: "none", zIndex: 6 }}>
+          {steps.map((_, i) => {
+            const color = stageColors[i % stageColors.length] ?? BLUE;
+            const y = 94 + i * 87;
+            const h = 30 + Math.max(0, 5 - i) * 2;
+            const r = Math.round(h / 2);
+            return (
+              <div
+                key={`af-flow-${i}`}
+                style={{
+                  position: "absolute",
+                  left: 388,
+                  top: y,
+                  width: 222,
+                  height: h,
+                  borderRadius: r,
+                  background: `linear-gradient(90deg, ${color}EE 0%, ${color}AA 44%, rgba(20,26,38,0.8) 100%)`,
+                  boxShadow: `0 0 18px ${color}88, inset 0 3px 7px rgba(255,255,255,0.26), inset 0 -3px 8px rgba(0,0,0,0.4)`,
+                  transform: `skewY(${i < 2 ? -12 : i > 3 ? 10 : 0}deg)`,
+                  transformOrigin: "left center",
+                  opacity: 0.96,
+                }}
+              />
+            );
+          })}
+        </div>
+
+        <div style={{ position: "relative", paddingRight: 12, zIndex: 7 }}>
+          {steps.map((step, i) => {
+            const color = stageColors[i % stageColors.length] ?? BLUE;
+            const prev = i > 0 ? steps[i - 1] : undefined;
+            const deltaPct = i > 0 && prev?.count ? ((step.count - prev.count) / prev.count) * 100 : 100;
+            const deltaTxt = i === 0 ? "(100%)" : `${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(1)}%`;
+            return (
+              <div key={`af-step-${i}`} style={{
+                position: "relative",
+                display: "grid",
+                gridTemplateColumns: "68px 1fr auto",
+                columnGap: 10,
+                alignItems: "center",
+                minHeight: 80,
+                borderRadius: 11,
+                border: `1px solid ${color}88`,
+                background: `linear-gradient(90deg, ${color}2A, rgba(8,18,34,0.94) 45%, rgba(6,12,24,0.98))`,
+                boxShadow: `0 0 16px ${color}44, inset 0 1px 8px rgba(255,255,255,0.08)`,
+                padding: "8px 10px",
+                marginBottom: 7,
+                overflow: "hidden",
+              }}>
+                <div style={{ display: "grid", gridTemplateColumns: "42px 1fr", alignItems: "center", columnGap: 7 }}>
+                  <div style={{ width: 42, height: 42, borderRadius: 9, border: `1px solid ${color}88`, background: `${color}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{stepIcon(step.label, i)}</div>
+                  <div style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${color}`, color: "#F3F8FF", fontWeight: 800, fontSize: 24, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center", textShadow: "0 0 8px rgba(0,0,0,0.55)" }}>{i + 1}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.03 }}>{step.label.toUpperCase()}</div>
+                  <div style={{ marginTop: 3, fontSize: 14, color: "rgba(220,235,255,0.88)", lineHeight: 1.15 }}>{stepDescription(step.label, i)}</div>
+                </div>
+                <div style={{ minWidth: 88, textAlign: "right" }}>
+                  <div style={{ fontSize: 18, fontWeight: 900, lineHeight: 1 }}>{fmtCount(step.count)}</div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.58)", textTransform: "uppercase", letterSpacing: 0.7 }}>sessions</div>
+                  <div style={{ marginTop: 3, fontSize: 14, fontWeight: 700, color: i === steps.length - 1 ? GREEN : (deltaPct <= -30 ? RED : YELLOW) }}>{deltaTxt}</div>
+                </div>
+
+                {i < steps.length - 1 && (
+                  <div style={{ position: "absolute", right: -16, top: "50%", transform: "translateY(-50%)", width: 16, height: 30, borderRadius: "0 999px 999px 0", borderTop: `1px solid ${color}66`, borderBottom: `1px solid ${color}66`, background: `linear-gradient(90deg, ${color}AA, transparent)`, boxShadow: `0 0 16px ${color}77` }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ position: "relative", minHeight: 502, borderRadius: 14, border: "1px solid rgba(95,118,150,0.35)", background: "radial-gradient(ellipse at 50% 62%, rgba(255,175,50,0.28) 0%, rgba(13,22,38,0.97) 46%, rgba(8,14,25,0.99) 82%)", overflow: "hidden", zIndex: 4 }}>
+          {/* Teal light beams from left */}
+          {[{ top: 110, w: 180, rot: 18, op: 0.72 }, { top: 165, w: 155, rot: 11, op: 0.52 }, { top: 215, w: 130, rot: 5, op: 0.38 }].map((b, bi) => (
+            <div key={`af-beam-${bi}`} style={{ position: "absolute", left: 0, top: b.top, width: b.w, height: 2, background: "linear-gradient(90deg, rgba(0,218,210,0.85), rgba(0,195,200,0.55), transparent)", transform: `rotate(${b.rot}deg)`, transformOrigin: "left center", boxShadow: "0 0 10px rgba(0,210,205,0.5)", opacity: b.op, pointerEvents: "none" }} />
+          ))}
+          {/* Ambient teal glow upper-left */}
+          <div style={{ position: "absolute", left: -30, top: 80, width: 220, height: 220, borderRadius: "50%", background: "radial-gradient(circle at 30% 30%, rgba(0,210,205,0.14), transparent 70%)", pointerEvents: "none" }} />
+
+          {/* FUNDED LOANS panel */}
+          <div style={{ position: "absolute", left: "50%", top: 50, transform: "translateX(-50%)", padding: "11px 22px 13px", borderRadius: 10, border: "1px solid rgba(255,210,128,0.52)", background: "linear-gradient(180deg, rgba(28,22,13,0.98), rgba(10,8,5,0.99))", textAlign: "center", boxShadow: "0 0 24px rgba(255,193,78,0.28), 0 4px 12px rgba(0,0,0,0.55)", zIndex: 9, minWidth: 210 }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 5 }}>
+              <svg width="44" height="50" viewBox="0 0 44 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="afShieldOuter" x1="22" y1="0" x2="22" y2="50" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#5EA8FF"/>
+                    <stop offset="100%" stopColor="#1A5DBF"/>
+                  </linearGradient>
+                  <linearGradient id="afShieldInner" x1="22" y1="4" x2="22" y2="46" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="rgba(190,220,255,0.55)"/>
+                    <stop offset="60%" stopColor="rgba(80,140,230,0.2)"/>
+                    <stop offset="100%" stopColor="rgba(20,60,140,0.1)"/>
+                  </linearGradient>
+                </defs>
+                <path d="M22 1 L41 9 L41 25 C41 37.5 33 45.5 22 49 C11 45.5 3 37.5 3 25 L3 9 Z" fill="url(#afShieldOuter)" stroke="rgba(130,195,255,0.55)" strokeWidth="1.4"/>
+                <path d="M22 5 L37 12 L37 25 C37 35.5 30.5 42.5 22 45.5 C13.5 42.5 7 35.5 7 25 L7 12 Z" fill="url(#afShieldInner)"/>
+                <path d="M22 5 L37 12 L37 25 C37 35.5 30.5 42.5 22 45.5" stroke="rgba(200,228,255,0.35)" strokeWidth="1" fill="none"/>
+              </svg>
+            </div>
+            <div style={{ fontSize: 38, fontWeight: 900, color: "#EAC374", letterSpacing: 1.4, lineHeight: 1 }}>FUNDED LOANS</div>
+            <div style={{ fontSize: 15, color: "rgba(243,225,181,0.92)", fontWeight: 700, letterSpacing: 0.7, marginTop: 2 }}>SECURE. SIMPLE. TRUSTED.</div>
+          </div>
+
+          {/* Vault outer ring */}
+          <div style={{ position: "absolute", left: "50%", top: 306, transform: "translate(-50%,-50%)", width: 358, height: 358, borderRadius: "50%", border: "2px solid rgba(140,154,172,0.84)", background: "radial-gradient(circle at 47% 42%, rgba(58,66,80,0.97), rgba(16,22,32,0.99) 76%)", boxShadow: "inset 0 0 44px rgba(0,0,0,0.75), 0 0 42px rgba(0,0,0,0.58)", zIndex: 6 }}>
+            {Array.from({ length: 20 }).map((_, i) => {
+              const angle = (i / 20) * Math.PI * 2;
+              const x = 179 + Math.cos(angle) * 158;
+              const y = 179 + Math.sin(angle) * 158;
+              return <div key={`af-bolt-${i}`} style={{ position: "absolute", left: x - 6, top: y - 6, width: 12, height: 12, borderRadius: "50%", border: "1px solid rgba(195,208,224,0.68)", background: "radial-gradient(circle at 28% 28%, rgba(252,254,255,0.88), rgba(88,98,112,0.96))", boxShadow: "0 0 5px rgba(0,0,0,0.5)" }} />;
+            })}
+
+            {/* Inner golden vault */}
+            <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: 236, height: 236, borderRadius: "50%", border: "2px solid rgba(255,208,122,0.82)", background: "radial-gradient(circle at 50% 40%, rgba(255,210,115,0.56), rgba(62,48,22,0.94) 58%, rgba(18,14,10,0.99))", boxShadow: "inset 0 0 52px rgba(255,191,89,0.42), 0 0 44px rgba(255,185,65,0.38), 0 0 90px rgba(255,155,30,0.18)" }}>
+              {/* Vault top arch detail */}
+              <div style={{ position: "absolute", left: "50%", top: 16, transform: "translateX(-50%)", width: 140, height: 118, borderRadius: "12px 12px 30px 30px", background: "linear-gradient(180deg, rgba(120,88,40,0.75), rgba(38,30,16,0.92))", border: "1px solid rgba(218,178,108,0.48)" }} />
+
+              {/* Car SVG — realistic modern sedan */}
+              <svg viewBox="0 0 260 118" width="196" height="92" style={{ position: "absolute", left: "50%", bottom: 20, transform: "translateX(-50%)", filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.7)) drop-shadow(0 2px 4px rgba(0,0,0,0.5))" }}>
+                <defs>
+                  <linearGradient id="afCarTop" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#F2F6FC"/>
+                    <stop offset="40%" stopColor="#D8E0EC"/>
+                    <stop offset="100%" stopColor="#A2ADB8"/>
+                  </linearGradient>
+                  <linearGradient id="afCarBody" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#E8EEF8"/>
+                    <stop offset="30%" stopColor="#CDD6E4"/>
+                    <stop offset="70%" stopColor="#A0AEBB"/>
+                    <stop offset="100%" stopColor="#78868E"/>
+                  </linearGradient>
+                  <linearGradient id="afCarWin" x1="0" y1="0" x2="0.4" y2="1">
+                    <stop offset="0%" stopColor="rgba(175,210,248,0.62)"/>
+                    <stop offset="100%" stopColor="rgba(28,55,95,0.88)"/>
+                  </linearGradient>
+                  <linearGradient id="afWheelRim" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="#D8E0EC"/>
+                    <stop offset="100%" stopColor="#7A8898"/>
+                  </linearGradient>
+                </defs>
+                {/* Body lower */}
+                <path d="M14 82 L26 68 L52 52 L108 44 L172 44 L210 58 L238 82 L230 97 L20 97 Z" fill="url(#afCarBody)" stroke="#58636F" strokeWidth="2"/>
+                {/* Cabin/roof */}
+                <path d="M56 52 L78 30 L180 30 L206 52 Z" fill="url(#afCarTop)" stroke="#8492A2" strokeWidth="1.5"/>
+                {/* Windshield */}
+                <path d="M84 50 L100 32 L178 32 L202 50 Z" fill="url(#afCarWin)"/>
+                {/* Rear window */}
+                <path d="M57 50 L78 32 L97 32 L80 50 Z" fill="url(#afCarWin)" opacity="0.82"/>
+                {/* Body highlight crease */}
+                <path d="M28 74 C70 64 190 62 228 72" stroke="rgba(255,255,255,0.52)" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+                {/* Lower body line */}
+                <path d="M28 86 L230 86" stroke="rgba(80,95,110,0.55)" strokeWidth="1.2" fill="none"/>
+                {/* Door seam */}
+                <line x1="124" y1="50" x2="124" y2="87" stroke="rgba(90,105,120,0.48)" strokeWidth="1.5"/>
+                {/* Headlight cluster */}
+                <path d="M222 66 L238 68 L238 78 L220 77 Z" fill="rgba(235,245,255,0.92)" stroke="rgba(160,180,200,0.6)" strokeWidth="1"/>
+                <ellipse cx="232" cy="72" rx="5" ry="3.5" fill="rgba(255,255,255,0.98)"/>
+                {/* Taillight */}
+                <path d="M14 68 L24 68 L24 80 L14 82 Z" fill="rgba(210,42,42,0.88)" stroke="rgba(180,30,30,0.5)" strokeWidth="0.8"/>
+                {/* Front bumper */}
+                <path d="M232 82 L242 84 L240 97 L232 97 Z" fill="rgba(195,205,218,0.55)" stroke="#505F6A" strokeWidth="1"/>
+                {/* Rear bumper */}
+                <path d="M18 82 L10 84 L12 97 L20 97 Z" fill="rgba(195,205,218,0.45)" stroke="#505F6A" strokeWidth="1"/>
+                {/* Wheels */}
+                <circle cx="72" cy="97" r="19" fill="#14181E" stroke="#3A4250" strokeWidth="2.2"/>
+                <circle cx="72" cy="97" r="13" fill="url(#afWheelRim)" stroke="#5A6878" strokeWidth="1"/>
+                <circle cx="72" cy="97" r="5" fill="#1C2230"/>
+                {[0,51,102,153,204,255,306].map((a, si) => (
+                  <line key={`fs${si}`} x1={72 + Math.cos(a * Math.PI / 180) * 5.5} y1={97 + Math.sin(a * Math.PI / 180) * 5.5} x2={72 + Math.cos(a * Math.PI / 180) * 12} y2={97 + Math.sin(a * Math.PI / 180) * 12} stroke="rgba(75,88,108,0.9)" strokeWidth="2.2" strokeLinecap="round"/>
+                ))}
+                <circle cx="186" cy="97" r="19" fill="#14181E" stroke="#3A4250" strokeWidth="2.2"/>
+                <circle cx="186" cy="97" r="13" fill="url(#afWheelRim)" stroke="#5A6878" strokeWidth="1"/>
+                <circle cx="186" cy="97" r="5" fill="#1C2230"/>
+                {[0,51,102,153,204,255,306].map((a, ri) => (
+                  <line key={`rs${ri}`} x1={186 + Math.cos(a * Math.PI / 180) * 5.5} y1={97 + Math.sin(a * Math.PI / 180) * 5.5} x2={186 + Math.cos(a * Math.PI / 180) * 12} y2={97 + Math.sin(a * Math.PI / 180) * 12} stroke="rgba(75,88,108,0.9)" strokeWidth="2.2" strokeLinecap="round"/>
+                ))}
+              </svg>
+            </div>
+
+            {/* Vault combination dial */}
+            <div style={{ position: "absolute", right: -46, top: 88, width: 176, height: 176, borderRadius: "50%", border: "2px solid rgba(130,142,158,0.92)", background: "radial-gradient(circle at 33% 33%, rgba(85,94,108,0.96), rgba(24,30,40,0.99) 74%)", boxShadow: "inset 0 0 32px rgba(0,0,0,0.58), 0 0 20px rgba(0,0,0,0.38)", transform: "rotate(-18deg)", zIndex: 8 }}>
+              {/* Dial tick marks */}
+              {Array.from({ length: 12 }).map((_, ti) => {
+                const ta = (ti / 12) * Math.PI * 2;
+                const ir = 72; const or = 82;
+                return <div key={`dt-${ti}`} style={{ position: "absolute", left: 88 + Math.cos(ta) * ir - 1, top: 88 + Math.sin(ta) * ir - 3, width: 2, height: 10, background: "rgba(190,200,218,0.7)", transform: `rotate(${ti * 30}deg)`, transformOrigin: "1px 3px" }} />;
+              })}
+              <div style={{ position: "absolute", left: "50%", top: "50%", width: 16, height: 82, transform: "translate(-50%,-50%)", borderRadius: 8, background: "linear-gradient(180deg, rgba(155,165,182,0.96), rgba(62,72,86,0.96))" }} />
+              <div style={{ position: "absolute", left: "50%", top: "50%", width: 82, height: 16, transform: "translate(-50%,-50%)", borderRadius: 8, background: "linear-gradient(90deg, rgba(155,165,182,0.96), rgba(62,72,86,0.96))" }} />
+              <div style={{ position: "absolute", left: "50%", top: "50%", width: 38, height: 38, transform: "translate(-50%,-50%)", borderRadius: "50%", border: "1.5px solid rgba(205,215,230,0.82)", background: "radial-gradient(circle at 33% 28%, rgba(245,250,255,0.85), rgba(82,92,108,0.97))", boxShadow: "0 2px 8px rgba(0,0,0,0.55)" }} />
+            </div>
+          </div>
+
+          {/* Outer glow overlay */}
+          <div style={{ position: "absolute", left: "50%", top: 306, transform: "translate(-50%,-50%)", width: 420, height: 420, borderRadius: "50%", background: "radial-gradient(circle at 50% 50%, rgba(255,175,50,0.12), transparent 65%)", pointerEvents: "none", zIndex: 5 }} />
+        </div>
+
+        <div style={{ borderRadius: 14, border: "1px solid rgba(95,118,150,0.35)", background: "linear-gradient(180deg, rgba(8,18,34,0.97), rgba(6,12,24,0.99))", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 9 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "rgba(210,230,255,0.92)", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 1 }}>Journey metrics</div>
+
+          {[ 
+            { icon: "👥", value: fmtCount(funded), label: "FUNDED LOANS", delta: `${fmtPct(Math.max(0, overallConv - 4))} vs last month`, color: GREEN },
+            { icon: "💲", value: fmtCurrency(totalFunded), label: "TOTAL FUNDED", delta: `${fmtPct(Math.max(0, overallConv - 2))} vs last month`, color: GREEN },
+            { icon: "📉", value: fmtPct(overallConv), label: "OVERALL CONVERSION", delta: `${fmtPct(Math.max(0, overallConv - 1.5))} vs last month`, color: GREEN },
+            { icon: "🕒", value: avgDays.toFixed(1), label: "AVG. DAYS TO FUND", delta: `${Math.max(0.6, avgDays * 0.08).toFixed(1)} days vs last month`, color: GREEN },
+            { icon: "🚀", value: String(creditScore), label: "CREDIT SCORE (AVG.)", delta: `${Math.max(2, Math.round(overallConv / 4))} pts vs last month`, color: GREEN },
+          ].map((m) => (
+            <div key={m.label} style={{ border: "1px solid rgba(90,115,145,0.25)", borderRadius: 10, padding: "9px 10px", background: "rgba(9,18,32,0.72)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "34px 1fr", gap: 8, alignItems: "center" }}>
+                <div style={{ width: 34, height: 34, borderRadius: "50%", border: "1px solid rgba(98,162,255,0.55)", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(69,137,255,0.12)", fontSize: 18 }}>{m.icon}</div>
+                <div>
+                  <div style={{ fontSize: 31, fontWeight: 900, lineHeight: 1 }}>{m.value}</div>
+                  <div style={{ fontSize: 12, color: "rgba(200,220,245,0.85)", fontWeight: 700 }}>{m.label}</div>
+                  <div style={{ marginTop: 2, fontSize: 11, color: m.color, fontWeight: 700 }}>▲ {m.delta}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 10, border: "1px solid rgba(85,110,145,0.3)", borderRadius: 12, background: "linear-gradient(180deg, rgba(9,18,33,0.9), rgba(7,14,24,0.98))", padding: "10px 12px", display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 8 }}>
+        {[
+          ["🛡️", "TRUSTED PARTNER", "Reliable financing when it matters most"],
+          ["🚘", "COMPETITIVE RATES", "Real rates with no hidden fees"],
+          ["⏱️", "FAST & EASY", "Simple process and quick approvals"],
+          ["👥", "BUILT FOR YOU", "Solutions tailored to customer needs"],
+          ["✅", "DRIVING YOU", "Your journey forward"],
+        ].map((item) => (
+          <div key={item[1]} style={{ display: "grid", gridTemplateColumns: "32px 1fr", gap: 8, alignItems: "center", border: "1px solid rgba(89,114,147,0.26)", borderRadius: 9, padding: "7px 8px", background: "rgba(10,18,30,0.7)" }}>
+            <div style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid rgba(102,165,255,0.5)", background: "rgba(69,137,255,0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>{item[0]}</div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 800, lineHeight: 1.05 }}>{item[1]}</div>
+              <div style={{ marginTop: 2, fontSize: 11, color: "rgba(203,222,246,0.75)", lineHeight: 1.2 }}>{item[2]}</div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -6722,7 +7086,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           </button>
         </Flex>
       </Flex>
-      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && funnelStyle !== "mri" && (
+      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && funnelStyle !== "mri" && funnelStyle !== "autoFinance" && (
         <div style={{ textAlign: "center", padding: "6px 0 2px" }}>
           <Heading level={3} style={{ fontWeight: 700, margin: 0 }}>{funnelName}</Heading>
         </div>
@@ -6734,7 +7098,8 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         {funnelStyle === "elapsed" && <ElapsedTimeFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} stepMap={stepMap} stepDefs={steps} />}
         {funnelStyle === "split" && <ComparisonSplitFunnel steps={funnelSteps} prevSteps={makeFunnelSteps(funnelCountsPrev)} aov={aov} />}
         {funnelStyle === "elevator" && <ElevatorFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
-        {funnelStyle === "mri" && <MRIFunnel steps={funnelSteps} aov={aov} />}
+        {funnelStyle === "mri" && <MRIFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "autoFinance" && <AutoFinanceFunnel steps={funnelSteps} aov={aov} />}
         {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
