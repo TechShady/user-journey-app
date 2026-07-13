@@ -45,7 +45,7 @@ const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "heatmap", label: "Transition Heatmap" },
 ];
 const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
-type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator";
+type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri";
 const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "classic", label: "Classic Funnel" },
   { value: "horizontal", label: "Horizontal Bar" },
@@ -53,6 +53,7 @@ const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "elapsed", label: "Elapsed-Time Curve" },
   { value: "split", label: "Comparison Split" },
   { value: "elevator", label: "\uD83D\uDED7 Elevator" },
+  { value: "mri", label: "\uD83E\uDE7B MRI Tunnel" },
 ];
 const DEFAULT_FUNNEL_STYLE: FunnelStyle = "classic";
 const FUNNEL_STYLE_STATE_KEY = "uj-funnel-style";
@@ -70,7 +71,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.15";
+const APP_VERSION_LABEL = "4.57.16";
 
 
 
@@ -6304,6 +6305,124 @@ function ElevatorFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: 
   );
 }
 
+function MRIFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number }) {
+  const topToBottom = [...steps].reverse();
+  const totalSessions = steps[0]?.count ?? 0;
+  const totalConversions = steps[steps.length - 1]?.count ?? 0;
+  const totalDropped = Math.max(0, totalSessions - totalConversions);
+  const overallConv = steps[steps.length - 1]?.overallConv ?? 0;
+  const totalRevLost = totalDropped > 0 && aov > 0 ? totalDropped * aov : 0;
+
+  const stageColor = (step: FunnelStep, idx: number) => {
+    if (idx === 0) return BLUE;
+    if (step.convFromPrev >= 80) return GREEN;
+    if (step.convFromPrev >= 55) return CYAN;
+    if (step.convFromPrev >= 30) return ORANGE;
+    return RED;
+  };
+
+  const inferIcon = (label: string, idx: number): string => {
+    const l = label.toLowerCase();
+    if (l.includes("claim") || l.includes("bill") || l.includes("payment")) return "📄";
+    if (l.includes("enroll") || l.includes("signup") || l.includes("register")) return "📝";
+    if (l.includes("compare") || l.includes("search") || l.includes("plan")) return "🔎";
+    if (l.includes("care") || l.includes("provider") || l.includes("doctor") || l.includes("visit")) return "🩺";
+    if (l.includes("wellness") || l.includes("health")) return "💜";
+    if (l.includes("advoc") || l.includes("support")) return "🛡️";
+    const fallback = ["👥", "🔎", "📝", "🩺", "💜", "🛡️", "📈", "✅"];
+    return fallback[idx % fallback.length] ?? "";
+  };
+
+  return (
+    <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "220px 1fr 300px", gap: 14, alignItems: "stretch" }}>
+        <div style={{ border: "1px solid rgba(70,95,130,0.35)", borderRadius: 12, padding: "10px 10px", background: "linear-gradient(180deg, rgba(9,20,36,0.92), rgba(8,14,26,0.9))" }}>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Journey stages</div>
+          {steps.map((step, i) => {
+            const color = stageColor(step, i);
+            return (
+              <div key={`mri-left-${i}`} style={{ display: "grid", gridTemplateColumns: "26px 1fr", columnGap: 8, alignItems: "start", marginBottom: i < steps.length - 1 ? 9 : 0 }}>
+                <div style={{ width: 24, height: 24, borderRadius: "50%", border: `1px solid ${color}88`, background: `${color}22`, color, fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>{step.label}</div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{fmtCount(step.count)} members</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ border: "1px solid rgba(78,108,145,0.35)", borderRadius: 14, padding: "12px 12px 14px", background: "radial-gradient(circle at 50% 12%, rgba(103,139,181,0.2), rgba(10,18,32,0.94) 46%, rgba(6,12,22,0.98) 78%)" }}>
+          <div style={{ margin: "0 auto", width: 540, height: 240, position: "relative", borderRadius: "50%", border: "2px solid rgba(180,205,235,0.5)", background: "radial-gradient(circle, rgba(145,186,230,0.18) 0%, rgba(22,37,63,0.7) 42%, rgba(8,14,25,0.96) 70%)", boxShadow: "inset 0 4px 16px rgba(255,255,255,0.1), inset 0 -22px 30px rgba(0,0,0,0.45)" }}>
+            <div style={{ position: "absolute", left: "50%", top: "52%", transform: "translate(-50%,-50%)", width: 170, height: 170, borderRadius: "50%", border: "2px solid rgba(96,166,255,0.72)", boxShadow: "0 0 18px rgba(69,137,255,0.6), inset 0 0 28px rgba(21,44,78,0.9)", background: "radial-gradient(circle, rgba(5,10,20,0.95) 35%, rgba(8,17,31,0.98) 100%)" }} />
+          </div>
+
+          <div style={{ marginTop: -34, paddingBottom: 6 }}>
+            {topToBottom.map((step, di) => {
+              const origIdx = steps.length - 1 - di;
+              const color = stageColor(step, origIdx);
+              const width = 290 + di * 52;
+              const drop = origIdx > 0 ? Math.max(0, 100 - step.convFromPrev) : 0;
+              const icon = inferIcon(step.label, origIdx);
+              return (
+                <div key={`mri-belt-${origIdx}`} style={{ width, margin: "0 auto", minHeight: 44, borderRadius: 8, marginBottom: 5, border: `1px solid ${color}8A`, background: `linear-gradient(180deg, ${color}26, rgba(11,19,31,0.92))`, boxShadow: `0 0 11px ${color}45, inset 0 1px 5px rgba(255,255,255,0.08)`, display: "grid", gridTemplateColumns: "40px 1fr auto", alignItems: "center", columnGap: 8, padding: "6px 10px" }}>
+                  <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1, color, textAlign: "center" }}>{origIdx + 1}</div>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, fontWeight: 700 }}>
+                      <span>{step.label}</span>
+                      {icon ? <span style={{ opacity: 0.9 }}>{icon}</span> : null}
+                    </div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", marginTop: 2 }}>{fmtCount(step.count)} members • {fmtPct(step.overallConv)} overall</div>
+                  </div>
+                  <div style={{ textAlign: "right", minWidth: 115 }}>
+                    {origIdx > 0 && <div style={{ fontSize: 12, color: step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED, fontWeight: 700 }}>{fmtPct(step.convFromPrev)} conv</div>}
+                    {origIdx > 0 && <div style={{ fontSize: 11, color: drop >= 40 ? RED : ORANGE }}>{fmtPct(drop)} drop</div>}
+                    {origIdx === 0 && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>entry</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ border: "1px solid rgba(70,95,130,0.35)", borderRadius: 12, padding: "10px 12px", background: "linear-gradient(180deg, rgba(9,20,36,0.92), rgba(8,14,26,0.9))", display: "flex", flexDirection: "column" }}>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Journey metrics</div>
+          {topToBottom.map((step, di) => {
+            const origIdx = steps.length - 1 - di;
+            const color = stageColor(step, origIdx);
+            const dropCount = origIdx > 0 ? Math.max(0, (steps[origIdx - 1]?.count ?? step.count) - step.count) : 0;
+            return (
+              <div key={`mri-right-${origIdx}`} style={{ border: "1px solid rgba(90,115,145,0.22)", borderRadius: 9, padding: "8px 10px", marginBottom: 8, background: "rgba(12,20,34,0.75)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    <div style={{ width: 24, height: 24, borderRadius: "50%", border: `1px solid ${color}88`, background: `${color}1F`, color, fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{origIdx + 1}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>{fmtCount(step.count)}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: statusClr(step.overallConv), fontWeight: 700 }}>{fmtPct(step.overallConv)} overall</div>
+                </div>
+                <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                  <span style={{ color: origIdx > 0 ? (step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED) : GREEN }}>{origIdx > 0 ? `${fmtPct(step.convFromPrev)} conv` : "100.0% conv"}</span>
+                  <span style={{ color: dropCount > 0 ? RED : "rgba(255,255,255,0.45)" }}>{dropCount > 0 ? `${fmtCount(dropCount)} drop` : "-"}</span>
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ marginTop: "auto", borderTop: "1px solid rgba(90,115,145,0.22)", paddingTop: 9 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+              <span style={{ color: "rgba(255,255,255,0.55)" }}>Overall conversion</span>
+              <span style={{ color: statusClr(overallConv), fontWeight: 800 }}>{fmtPct(overallConv)}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+              <span style={{ color: "rgba(255,255,255,0.55)" }}>Total drop-off</span>
+              <span style={{ color: RED, fontWeight: 700 }}>{fmtCount(totalDropped)}{totalRevLost > 0 ? ` (${fmtCurrency(totalRevLost)})` : ""}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
@@ -6603,7 +6722,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           </button>
         </Flex>
       </Flex>
-      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && (
+      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && funnelStyle !== "mri" && (
         <div style={{ textAlign: "center", padding: "6px 0 2px" }}>
           <Heading level={3} style={{ fontWeight: 700, margin: 0 }}>{funnelName}</Heading>
         </div>
@@ -6615,6 +6734,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         {funnelStyle === "elapsed" && <ElapsedTimeFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} stepMap={stepMap} stepDefs={steps} />}
         {funnelStyle === "split" && <ComparisonSplitFunnel steps={funnelSteps} prevSteps={makeFunnelSteps(funnelCountsPrev)} aov={aov} />}
         {funnelStyle === "elevator" && <ElevatorFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "mri" && <MRIFunnel steps={funnelSteps} aov={aov} />}
         {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
