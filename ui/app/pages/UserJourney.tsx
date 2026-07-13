@@ -72,7 +72,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.32";
+const APP_VERSION_LABEL = "4.57.33";
 
 
 
@@ -6319,11 +6319,7 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
 
   // MRI bore geometry (SVG viewBox 680x455)
   const bx = 345, by = 218, bR = 145;
-  const bTop = by - bR, bBot = by + bR;
   const N = steps.length;
-  const bH = (bBot - bTop) / N;
-  // Funnel pyramid half-width at a given y: wide at bottom, narrow at top
-  const phw = (y: number) => 22 + (bR - 26) * (y - bTop) / (bBot - bTop);
 
   const dispName = funnelName
     ? funnelName.split(/\s+/).slice(0, 2).join(" ").toUpperCase()
@@ -6387,6 +6383,9 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
               <clipPath id="mriBoreClip">
                 <circle cx={bx} cy={by} r={bR - 5}/>
               </clipPath>
+              <clipPath id="mriUpperHalfClip">
+                <rect x="0" y="0" width="680" height={by}/>
+              </clipPath>
             </defs>
 
             {/* Floor shadow */}
@@ -6400,44 +6399,82 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
             <path d="M 512 118 L 630 118 Q 652 118 652 138 L 652 350 Q 652 370 630 370 L 512 370 Z" fill="url(#mriBodyLG)" stroke="rgba(142,162,188,0.38)" strokeWidth="1.2"/>
             <path d="M 512 118 L 630 118 Q 648 118 648 128 L 512 128 Z" fill="rgba(185,205,228,0.1)"/>
 
-            {/* GANTRY outer metallic ring */}
+            {/* GANTRY — full circle drawn first; lower half will be covered by patient table */}
             <circle cx={bx} cy={by} r="183" fill="url(#mriGantry)" stroke="rgba(175,198,225,0.52)" strokeWidth="2.5"/>
             <circle cx={bx} cy={by} r="170" fill="none" stroke="rgba(85,105,132,0.5)" strokeWidth="5"/>
             <circle cx={bx} cy={by} r="160" fill="none" stroke="rgba(112,135,162,0.28)" strokeWidth="2"/>
-            {/* Gantry top highlight */}
-            <ellipse cx={bx} cy={by - 158} rx="86" ry="18" fill="rgba(215,232,252,0.12)" filter="url(#mriGF)"/>
 
-            {/* BORE background */}
+            {/* BORE background + interior */}
             <circle cx={bx} cy={by} r={bR} fill="url(#mriBoreG)"/>
-
-            {/* FUNNEL PYRAMID inside bore */}
             <g clipPath="url(#mriBoreClip)">
               <circle cx={bx} cy={by} r={bR} fill="#040C16"/>
-              {/* Subtle scan lines */}
-              {Array.from({length: 18}).map((_, li) => (
-                <line key={li} x1={bx - bR} y1={bTop + li * bH * (N / 18)} x2={bx + bR} y2={bTop + li * bH * (N / 18)} stroke="rgba(18,45,82,0.18)" strokeWidth="1"/>
+              {Array.from({length: 12}).map((_, li) => (
+                <line key={li} x1={bx - bR} y1={by - bR + li * (bR * 2 / 12)} x2={bx + bR} y2={by - bR + li * (bR * 2 / 12)} stroke="rgba(18,45,82,0.13)" strokeWidth="1"/>
               ))}
-              {/* Pyramid bands: step[0] at bottom (widest), step[N-1] at top (narrowest) */}
-              {steps.map((step, i) => {
-                const yB = bBot - i * bH;
-                const yT = bBot - (i + 1) * bH;
-                const hwB = phw(yB), hwT = phw(yT);
-                const col = pyColors[i % pyColors.length];
-                const midY = (yB + yT) / 2;
-                const fSize = Math.max(9, Math.min(13, bH * 0.36));
-                return (
-                  <g key={`mri-py-${i}`}>
-                    <path d={`M ${bx-hwB} ${yB} L ${bx+hwB} ${yB} L ${bx+hwT} ${yT} L ${bx-hwT} ${yT} Z`} fill={col} opacity={0.84}/>
-                    {/* Top edge highlight */}
-                    <path d={`M ${bx-hwT+2} ${yT+1.5} L ${bx+hwT-2} ${yT+1.5}`} stroke="rgba(255,255,255,0.25)" strokeWidth="1.5" strokeLinecap="round"/>
-                    {/* Label shadow then label */}
-                    <text x={bx} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={fSize} fontWeight="900" fill="rgba(0,0,0,0.45)" fontFamily="system-ui" dx="0.5" dy="0.5">{i + 1}. {step.label.toUpperCase()}</text>
-                    <text x={bx} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={fSize} fontWeight="900" fill="rgba(255,255,255,0.97)" fontFamily="system-ui">{i + 1}. {step.label.toUpperCase()}</text>
-                  </g>
-                );
-              })}
-              {/* Bore inner glow ring */}
-              <circle cx={bx} cy={by} r={bR - 5} fill="none" stroke="rgba(55,120,255,0.25)" strokeWidth="8"/>
+            </g>
+
+            {/* ── PATIENT TABLE: step 1 outside, steps 2-N inside bore ── */}
+            {(() => {
+              const tLeft = 30;
+              const tMLeft = bx - bR + 5;   // 205 — where table enters bore
+              const tMRight = bx + bR - 20;  // 470 — visible right end inside bore
+              const step1W = tMLeft - tLeft - 5;       // width of outside section
+              const insideW = tMRight - tMLeft;         // width available inside bore
+              const insideStepW = N > 1 ? insideW / (N - 1) : insideW;
+              const tSurTop = by - 12;   // 206 — table surface top
+              const tSurBot = by + 12;   // 230 — table surface bottom
+              const tRailH = 6;
+              const tRailTop = tSurTop - tRailH;  // 200
+              const tRailBot = tSurBot + tRailH;  // 236 (unused but clear)
+              const lblY = tRailTop - 10;          // 190 — label centre above top rail
+              return (
+                <>
+                  {/* Colored step bands on table surface */}
+                  <rect x={tLeft} y={tSurTop} width={step1W} height={tSurBot - tSurTop} fill={pyColors[0]} opacity={0.78}/>
+                  {steps.slice(1).map((_, ji) => (
+                    <rect key={`ts${ji}`} x={tMLeft + ji * insideStepW} y={tSurTop} width={insideStepW} height={tSurBot - tSurTop} fill={pyColors[(ji + 1) % pyColors.length]} opacity={0.78}/>
+                  ))}
+                  {/* Section dividers */}
+                  <line x1={tMLeft} y1={tSurTop} x2={tMLeft} y2={tSurBot} stroke="rgba(0,0,0,0.55)" strokeWidth="2"/>
+                  {steps.slice(2).map((_, j) => {
+                    const dx = tMLeft + (j + 1) * insideStepW;
+                    return <line key={`td${j}`} x1={dx} y1={tSurTop} x2={dx} y2={tSurBot} stroke="rgba(0,0,0,0.42)" strokeWidth="1.5"/>;
+                  })}
+                  {/* Table surface outline */}
+                  <rect x={tLeft} y={tSurTop} width={tMRight - tLeft} height={tSurBot - tSurTop} fill="none" stroke="rgba(110,140,175,0.28)" strokeWidth="0.8"/>
+                  {/* TOP GUARDRAIL */}
+                  <rect x={tLeft} y={tRailTop} width={tMRight - tLeft} height={tRailH} rx="3" fill="url(#mriBodyLG)" stroke="rgba(168,192,222,0.65)" strokeWidth="1"/>
+                  <rect x={tLeft + 2} y={tRailTop + 1} width={tMRight - tLeft - 4} height={2} rx="1" fill="rgba(205,225,248,0.2)"/>
+                  {/* BOTTOM GUARDRAIL */}
+                  <rect x={tLeft} y={tSurBot} width={tMRight - tLeft} height={tRailH} rx="3" fill="url(#mriBodyLG)" stroke="rgba(168,192,222,0.65)" strokeWidth="1"/>
+                  <rect x={tLeft + 2} y={tSurBot + 1} width={tMRight - tLeft - 4} height={2} rx="1" fill="rgba(205,225,248,0.2)"/>
+                  {/* Arrow: step 1 → into MRI */}
+                  <path d={`M ${tMLeft-22} ${by} L ${tMLeft-4} ${by} L ${tMLeft-10} ${by-5} M ${tMLeft-4} ${by} L ${tMLeft-10} ${by+5}`} stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+                  {/* Step labels (number circle + name) above top guardrail */}
+                  {steps.map((step, i) => {
+                    const lcx = i === 0
+                      ? tLeft + step1W / 2
+                      : tMLeft + (i - 1) * insideStepW + insideStepW / 2;
+                    const col = pyColors[i % pyColors.length];
+                    const lbl = step.label.length > 13 ? step.label.slice(0, 12) + "…" : step.label;
+                    return (
+                      <g key={`lbl${i}`}>
+                        <circle cx={lcx - 11} cy={lblY} r="8" fill={col} opacity={0.9}/>
+                        <text x={lcx - 11} y={lblY} textAnchor="middle" dominantBaseline="middle" fontSize="9" fontWeight="900" fill="rgba(255,255,255,0.97)" fontFamily="system-ui">{i + 1}</text>
+                        <text x={lcx + 1} y={lblY} textAnchor="start" fontSize="9" fontWeight="700" fill="rgba(255,255,255,0.82)" fontFamily="system-ui" dominantBaseline="middle">{lbl.toUpperCase()}</text>
+                      </g>
+                    );
+                  })}
+                </>
+              );
+            })()}
+
+            {/* UPPER GANTRY HALF — drawn AFTER table so the top rail appears above the table */}
+            <g clipPath="url(#mriUpperHalfClip)">
+              <circle cx={bx} cy={by} r="183" fill="url(#mriGantry)" stroke="rgba(175,198,225,0.52)" strokeWidth="2.5"/>
+              <circle cx={bx} cy={by} r="170" fill="none" stroke="rgba(85,105,132,0.5)" strokeWidth="5"/>
+              <circle cx={bx} cy={by} r="160" fill="none" stroke="rgba(112,135,162,0.28)" strokeWidth="2"/>
+              <ellipse cx={bx} cy={by - 158} rx="86" ry="18" fill="rgba(215,232,252,0.12)" filter="url(#mriGF)"/>
             </g>
 
             {/* Bore outer glow */}
@@ -6817,29 +6854,29 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
                 <rect x="68" y="-62" width="7" height="14" rx="2" fill="#881200"/>
                 <rect x="211" y="-62" width="7" height="14" rx="2" fill="#881200"/>
 
-                {/* LEFT FRONT WHEEL — foreshortened ellipse (head-on view) */}
-                <ellipse cx="64" cy="97" rx="48" ry="20" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
-                <ellipse cx="64" cy="97" rx="42" ry="17" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
-                <ellipse cx="64" cy="97" rx="34" ry="13.5" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
+                {/* LEFT FRONT WHEEL — near-circular (facing viewer head-on) */}
+                <ellipse cx="64" cy="97" rx="44" ry="39" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
+                <ellipse cx="64" cy="97" rx="39" ry="34" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
+                <ellipse cx="64" cy="97" rx="31" ry="27" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
                 {Array.from({length: 5}).map((_, si) => {
                   const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
-                  return <line key={si} x1={64+Math.cos(a)*6} y1={97+Math.sin(a)*6*0.42} x2={64+Math.cos(a)*27} y2={97+Math.sin(a)*27*0.42} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
+                  return <line key={si} x1={64+Math.cos(a)*6} y1={97+Math.sin(a)*6} x2={64+Math.cos(a)*24} y2={97+Math.sin(a)*24} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
                 })}
-                <ellipse cx="64" cy="97" rx="5.5" ry="2.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
+                <circle cx="64" cy="97" r="5.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
                 {/* Red brake caliper (left side) */}
-                <rect x="17" y="89" width="10" height="17" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
+                <rect x="21" y="87" width="9" height="20" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
 
                 {/* RIGHT FRONT WHEEL */}
-                <ellipse cx="222" cy="97" rx="48" ry="20" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
-                <ellipse cx="222" cy="97" rx="42" ry="17" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
-                <ellipse cx="222" cy="97" rx="34" ry="13.5" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
+                <ellipse cx="222" cy="97" rx="44" ry="39" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
+                <ellipse cx="222" cy="97" rx="39" ry="34" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
+                <ellipse cx="222" cy="97" rx="31" ry="27" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
                 {Array.from({length: 5}).map((_, si) => {
                   const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
-                  return <line key={si} x1={222+Math.cos(a)*6} y1={97+Math.sin(a)*6*0.42} x2={222+Math.cos(a)*27} y2={97+Math.sin(a)*27*0.42} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
+                  return <line key={si} x1={222+Math.cos(a)*6} y1={97+Math.sin(a)*6} x2={222+Math.cos(a)*24} y2={97+Math.sin(a)*24} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
                 })}
-                <ellipse cx="222" cy="97" rx="5.5" ry="2.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
+                <circle cx="222" cy="97" r="5.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
                 {/* Red brake caliper (right side) */}
-                <rect x="259" y="89" width="10" height="17" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
+                <rect x="256" y="87" width="9" height="20" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
               </g>
             </g>
 
@@ -7319,7 +7356,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
       <Flex alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={12}>
         <SectionHeader title="Conversion Funnel" />
         <Flex alignItems="center" gap={12}>
-          <Text style={{ fontSize: 13, opacity: 0.5 }}>Style</Text>
+          <Text style={{ fontSize: 13, opacity: 0.5 }}>Skins</Text>
           <Select value={funnelStyle} onChange={(val) => { if (val) onFunnelStyleChange(val as FunnelStyle); }}>
             <Select.Trigger style={{ minWidth: 170 }} />
             <Select.Content>
