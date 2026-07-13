@@ -72,7 +72,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.29";
+const APP_VERSION_LABEL = "4.57.30";
 
 
 
@@ -6503,8 +6503,7 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
   const funded = steps[steps.length - 1]?.count ?? 0;
   const overallConv = steps[steps.length - 1]?.overallConv ?? 0;
   const totalFunded = funded * Math.max(0, aov);
-  const avgDays = 12 + (100 - overallConv) * 0.22;
-  const creditScore = Math.round(640 + Math.min(170, overallConv * 1.2));
+  const sessionsLost = totalSessions - funded;
 
   const stepIcon = (label: string, idx: number): string => {
     const l = label.toLowerCase();
@@ -6555,7 +6554,7 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
               <div key={`af-step-${i}`} style={{
                 position: "relative",
                 display: "grid",
-                gridTemplateColumns: "68px 1fr auto",
+                gridTemplateColumns: "88px 1fr auto",
                 columnGap: 10,
                 alignItems: "center",
                 minHeight: 80,
@@ -6567,7 +6566,7 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
                 marginBottom: 7,
                 overflow: "hidden",
               }}>
-                <div style={{ display: "grid", gridTemplateColumns: "42px 1fr", alignItems: "center", columnGap: 7 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "42px 38px", alignItems: "center", columnGap: 8 }}>
                   <div style={{ width: 42, height: 42, borderRadius: 9, border: `1px solid ${color}88`, background: `${color}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{stepIcon(step.label, i)}</div>
                   <div style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${color}`, color: "#F3F8FF", fontWeight: 800, fontSize: 24, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center", textShadow: "0 0 8px rgba(0,0,0,0.55)" }}>{i + 1}</div>
                 </div>
@@ -6613,24 +6612,35 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
                 <stop offset="55%" stopColor="#283448"/>
                 <stop offset="100%" stopColor="#101828"/>
               </radialGradient>
-              <linearGradient id="afvCBody" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#DDE8F4"/>
-                <stop offset="32%" stopColor="#B8C8D8"/>
-                <stop offset="68%" stopColor="#8898A8"/>
-                <stop offset="100%" stopColor="#5C6C7A"/>
+              <linearGradient id="afvScBody" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#FF6820"/>
+                <stop offset="30%" stopColor="#FF4200"/>
+                <stop offset="68%" stopColor="#CC2000"/>
+                <stop offset="100%" stopColor="#881000"/>
               </linearGradient>
-              <linearGradient id="afvCRoof" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#EAF2FC"/>
-                <stop offset="100%" stopColor="#A0B4C8"/>
+              <linearGradient id="afvScRoof" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#CC3000"/>
+                <stop offset="100%" stopColor="#7A0E00"/>
               </linearGradient>
-              <linearGradient id="afvCWin" x1="0" y1="0" x2="0.35" y2="1">
-                <stop offset="0%" stopColor="rgba(155,198,242,0.58)"/>
-                <stop offset="100%" stopColor="rgba(22,50,90,0.92)"/>
+              <linearGradient id="afvScGlass" x1="0" y1="0" x2="0.4" y2="1">
+                <stop offset="0%" stopColor="rgba(145,190,240,0.48)"/>
+                <stop offset="100%" stopColor="rgba(10,18,36,0.94)"/>
               </linearGradient>
-              <linearGradient id="afvWR" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#C0CEDC"/>
-                <stop offset="100%" stopColor="#606E7C"/>
+              <linearGradient id="afvScSpoiler" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#FF5500"/>
+                <stop offset="100%" stopColor="#881200"/>
               </linearGradient>
+              <radialGradient id="afvScRim" cx="38%" cy="32%" r="68%">
+                <stop offset="0%" stopColor="#CCD8E4"/>
+                <stop offset="55%" stopColor="#7090A2"/>
+                <stop offset="100%" stopColor="#384858"/>
+              </radialGradient>
+              <filter id="afvHLGlow" x="-80%" y="-80%" width="260%" height="260%">
+                <feGaussianBlur stdDeviation="7"/>
+              </filter>
+              <clipPath id="afvVaultClip">
+                <circle cx="220" cy="286" r="146"/>
+              </clipPath>
               <filter id="afvBlur5" x="-40%" y="-40%" width="180%" height="180%">
                 <feGaussianBlur stdDeviation="5"/>
               </filter>
@@ -6638,6 +6648,14 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
                 <feGaussianBlur stdDeviation="10"/>
               </filter>
             </defs>
+
+            {/* ── FUNDED LOANS BOX (above vault) ── */}
+            <rect x="90" y="8" width="300" height="84" rx="10" fill="rgba(12,8,4,0.97)" stroke="rgba(218,168,62,0.58)" strokeWidth="1.5"/>
+            <rect x="92" y="10" width="296" height="80" rx="9" fill="none" stroke="rgba(255,215,110,0.2)" strokeWidth="0.8"/>
+            <path d="M240 19 L252 24 L252 34 C252 42.5 246 48.5 240 50 C234 48.5 228 42.5 228 34 L228 24 Z" fill="#E5A018" stroke="rgba(255,192,48,0.5)" strokeWidth="0.8"/>
+            <path d="M240 22 L250 26.5 L250 34 C250 40.5 245 46 240 48 C235 46 230 40.5 230 34 L230 26.5 Z" fill="rgba(255,228,130,0.38)"/>
+            <text x="240" y="57" textAnchor="middle" fontSize="26" fontWeight="900" fill="#EAC374" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="1.2">FUNDED LOANS</text>
+            <text x="240" y="77" textAnchor="middle" fontSize="11" fontWeight="700" fill="rgba(242,224,175,0.82)" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="0.6">SECURE. SIMPLE. TRUSTED.</text>
 
             {/* ── VAULT DOOR OUTER RING ── */}
             <circle cx="220" cy="286" r="172" fill="url(#afvDoor)" stroke="rgba(102,120,145,0.88)" strokeWidth="3.5"/>
@@ -6695,62 +6713,84 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
             <ellipse cx="220" cy="408" rx="118" ry="18" fill="rgba(20,12,4,0.94)" stroke="rgba(64,42,8,0.38)" strokeWidth="1"/>
             <ellipse cx="220" cy="406" rx="60" ry="8" fill="rgba(175,125,32,0.09)"/>
 
-            {/* ── CAR — front 3/4 view, headlights on ── */}
-            <g transform="translate(142, 296)">
-              {/* Floor shadow */}
-              <ellipse cx="77" cy="113" rx="72" ry="10" fill="rgba(0,0,0,0.58)"/>
-              {/* Body */}
-              <path d="M5 90 L18 74 L38 57 L77 50 L118 50 L138 57 L152 74 L156 90 L156 113 L5 113 Z" fill="url(#afvCBody)" stroke="#465662" strokeWidth="1.8"/>
-              {/* Cabin / roof */}
-              <path d="M32 59 L50 35 L107 35 L126 59 Z" fill="url(#afvCRoof)" stroke="#6C8EA4" strokeWidth="1.4"/>
-              {/* Windshield */}
-              <path d="M54 57 L66 37 L105 37 L122 57 Z" fill="url(#afvCWin)"/>
-              {/* Rear window */}
-              <path d="M32 57 L50 37 L63 37 L46 57 Z" fill="url(#afvCWin)" opacity="0.82"/>
-              {/* Body crease highlight */}
-              <path d="M20 78 C55 68 103 68 138 78" stroke="rgba(255,255,255,0.42)" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
-              {/* Headlight ambient glow */}
-              <ellipse cx="25" cy="75" rx="20" ry="12" fill="rgba(255,192,50,0.2)" filter="url(#afvBlur5)"/>
-              <ellipse cx="135" cy="75" rx="20" ry="12" fill="rgba(255,192,50,0.2)" filter="url(#afvBlur5)"/>
-              {/* Headlight left housing */}
-              <path d="M8 67 L36 65 L38 82 L6 83 Z" fill="rgba(250,240,175,0.9)" stroke="rgba(218,192,65,0.5)" strokeWidth="0.8"/>
-              <ellipse cx="23" cy="74" rx="9" ry="5.5" fill="rgba(255,252,230,0.99)"/>
-              {/* Headlight right housing */}
-              <path d="M120 65 L148 67 L152 83 L118 82 Z" fill="rgba(250,240,175,0.9)" stroke="rgba(218,192,65,0.5)" strokeWidth="0.8"/>
-              <ellipse cx="135" cy="74" rx="9" ry="5.5" fill="rgba(255,252,230,0.99)"/>
-              {/* DRL strips */}
-              <path d="M6 83 L38 81" stroke="rgba(255,255,255,0.84)" strokeWidth="1.8" strokeLinecap="round"/>
-              <path d="M118 81 L150 83" stroke="rgba(255,255,255,0.84)" strokeWidth="1.8" strokeLinecap="round"/>
-              {/* Front grille */}
-              <path d="M35 87 L125 87 L125 100 L35 100 Z" fill="rgba(10,16,24,0.9)" stroke="rgba(52,72,96,0.5)" strokeWidth="0.8"/>
-              {[58, 80, 102].map((gx, gi) => <line key={gi} x1={gx} y1={87} x2={gx} y2={100} stroke="rgba(52,72,96,0.48)" strokeWidth="0.8"/>)}
-              {/* Emblem */}
-              <circle cx="80" cy="93.5" r="4.5" fill="rgba(190,205,222,0.7)" stroke="rgba(140,160,182,0.5)" strokeWidth="0.5"/>
-              {/* Front bumper */}
-              <path d="M5 100 L156 100 L156 110 L5 110 Z" fill="rgba(158,175,195,0.42)" stroke="#465662" strokeWidth="1"/>
-              {/* Wheel arch cut-outs */}
-              <path d="M5 90 C5 75 24 65 40 67 L40 91 L5 91 Z" fill="url(#afvCBody)" stroke="#465662" strokeWidth="1"/>
-              <path d="M115 67 C131 65 156 75 156 90 L156 91 L115 91 Z" fill="url(#afvCBody)" stroke="#465662" strokeWidth="1"/>
-              {/* Wheel LEFT */}
-              <circle cx="30" cy="107" r="18" fill="#10141C" stroke="#2A3644" strokeWidth="2.2"/>
-              <circle cx="30" cy="107" r="12" fill="url(#afvWR)" stroke="#445868" strokeWidth="1"/>
-              <circle cx="30" cy="107" r="4.5" fill="#181C28"/>
-              {[0,45,90,135,180,225,270,315].map((a, si) => <line key={si} x1={30 + Math.cos(a * Math.PI / 180) * 5.2} y1={107 + Math.sin(a * Math.PI / 180) * 5.2} x2={30 + Math.cos(a * Math.PI / 180) * 11} y2={107 + Math.sin(a * Math.PI / 180) * 11} stroke="rgba(58,76,98,0.9)" strokeWidth="2.2" strokeLinecap="round"/>)}
-              {/* Wheel RIGHT */}
-              <circle cx="128" cy="107" r="18" fill="#10141C" stroke="#2A3644" strokeWidth="2.2"/>
-              <circle cx="128" cy="107" r="12" fill="url(#afvWR)" stroke="#445868" strokeWidth="1"/>
-              <circle cx="128" cy="107" r="4.5" fill="#181C28"/>
-              {[0,45,90,135,180,225,270,315].map((a, ri) => <line key={ri} x1={128 + Math.cos(a * Math.PI / 180) * 5.2} y1={107 + Math.sin(a * Math.PI / 180) * 5.2} x2={128 + Math.cos(a * Math.PI / 180) * 11} y2={107 + Math.sin(a * Math.PI / 180) * 11} stroke="rgba(58,76,98,0.9)" strokeWidth="2.2" strokeLinecap="round"/>)}
+            {/* ── SUPERCAR — orange side profile, left-facing, clipped to vault ── */}
+            <g clipPath="url(#afvVaultClip)">
+              <g transform="translate(78, 310)">
+                {/* Ground shadow */}
+                <ellipse cx="143" cy="115" rx="138" ry="10" fill="rgba(0,0,0,0.68)"/>
+                {/* Ground reflection */}
+                <g opacity="0.14" transform="translate(0,228) scale(1,-1)">
+                  <path d="M5 100 L10 84 L18 66 L30 48 L46 36 L95 28 L188 26 L232 34 L262 52 L276 70 L284 88 L287 106 L5 106 Z" fill="url(#afvScBody)"/>
+                </g>
+                {/* MAIN BODY */}
+                <path d="M5 100 L10 84 L18 66 L30 48 L46 36 L95 28 L188 26 L232 34 L262 52 L276 70 L284 88 L287 106 L5 106 Z" fill="url(#afvScBody)" stroke="#661000" strokeWidth="1.5"/>
+                {/* Top highlight crease */}
+                <path d="M38 44 C82 32 175 30 248 44" stroke="rgba(255,155,70,0.52)" strokeWidth="4.5" fill="none" strokeLinecap="round"/>
+                {/* Lower shadow crease */}
+                <path d="M10 84 C72 78 202 76 278 82" stroke="rgba(80,8,0,0.45)" strokeWidth="2" fill="none" strokeLinecap="round"/>
+                {/* CABIN / ROOF */}
+                <path d="M46 38 L60 12 L197 10 L230 36 Z" fill="url(#afvScRoof)" stroke="#551000" strokeWidth="1"/>
+                {/* WINDSHIELD */}
+                <path d="M60 37 L75 12 L196 12 L216 37 Z" fill="url(#afvScGlass)" stroke="rgba(120,168,220,0.2)" strokeWidth="0.8"/>
+                {/* Windshield glare streak */}
+                <path d="M74 35 L87 12 L120 12 L107 35" fill="rgba(200,220,255,0.1)"/>
+                {/* Rear quarter window */}
+                <path d="M47 38 L59 14 L73 14 L57 38 Z" fill="url(#afvScGlass)" opacity="0.8"/>
+                {/* HEADLIGHT — angular LED */}
+                <path d="M8 82 L22 62 L40 60 L44 78 L11 85 Z" fill="rgba(10,16,28,0.97)" stroke="rgba(100,140,185,0.28)" strokeWidth="0.8"/>
+                <line x1="10" y1="72" x2="42" y2="64" stroke="rgba(255,255,255,0.96)" strokeWidth="2.5" strokeLinecap="round"/>
+                <ellipse cx="27" cy="71" rx="9" ry="5.5" fill="rgba(255,252,224,0.97)"/>
+                <ellipse cx="27" cy="71" rx="22" ry="16" fill="rgba(255,200,55,0.3)" filter="url(#afvHLGlow)"/>
+                <line x1="6" y1="85" x2="44" y2="77" stroke="rgba(255,255,255,0.88)" strokeWidth="1.5" strokeLinecap="round"/>
+                {/* TAILLIGHT — red LED */}
+                <path d="M272 66 L286 74 L287 92 L269 88 Z" fill="rgba(10,16,28,0.97)" stroke="rgba(200,20,20,0.38)" strokeWidth="0.8"/>
+                <line x1="274" y1="70" x2="285" y2="90" stroke="rgba(255,28,28,0.92)" strokeWidth="2.5" strokeLinecap="round"/>
+                <ellipse cx="280" cy="80" rx="4.5" ry="8" fill="rgba(220,18,18,0.88)"/>
+                {/* FRONT AIR INTAKE */}
+                <path d="M7 90 L42 80 L44 100 L7 103 Z" fill="rgba(6,10,16,0.95)"/>
+                {[0,1,2].map(gi => <line key={gi} x1={8} y1={91+gi*5} x2={43} y2={82+gi*5} stroke="rgba(50,70,95,0.48)" strokeWidth="0.8"/>)}
+                {/* SIDE VENT */}
+                <path d="M58 70 L82 64 L84 82 L58 86 Z" fill="rgba(6,10,16,0.92)"/>
+                {[0,1,2].map(gi => <line key={gi} x1={60} y1={71+gi*5} x2={83} y2={66+gi*5} stroke="rgba(50,70,95,0.44)" strokeWidth="0.7"/>)}
+                {/* REAR DIFFUSER */}
+                <path d="M250 88 L287 88 L287 106 L250 104 Z" fill="rgba(6,10,16,0.95)"/>
+                {[0,1,2,3].map(gi => <line key={gi} x1={254+gi*9} y1={89} x2={255+gi*9} y2={105} stroke="rgba(50,70,95,0.48)" strokeWidth="0.8"/>)}
+                {/* Door panel line */}
+                <line x1="138" y1="35" x2="133" y2="100" stroke="rgba(80,12,0,0.5)" strokeWidth="1.5"/>
+                {/* Front splitter */}
+                <path d="M6 100 L287 98 L287 106 L6 106 Z" fill="rgba(6,8,14,0.96)"/>
+                <line x1="6" y1="99" x2="287" y2="97" stroke="rgba(160,180,205,0.2)" strokeWidth="0.8"/>
+                {/* Side skirt */}
+                <path d="M60 100 L232 98 L232 108 L60 108 Z" fill="rgba(18,6,2,0.88)"/>
+                {/* Rear wing */}
+                <path d="M206 24 L240 22 L242 30 L208 32 Z" fill="url(#afvScSpoiler)" stroke="#5A0E00" strokeWidth="0.8"/>
+                <line x1="222" y1="24" x2="222" y2="36" stroke="#770E00" strokeWidth="1.5"/>
+                {/* WHEEL LEFT (front) — 10-spoke rim + red caliper */}
+                <circle cx="62" cy="100" r="25" fill="#08090E" stroke="rgba(175,195,218,0.5)" strokeWidth="2.2"/>
+                <circle cx="62" cy="100" r="22" fill="none" stroke="rgba(30,42,58,0.88)" strokeWidth="4"/>
+                <circle cx="62" cy="100" r="16.5" fill="url(#afvScRim)" stroke="rgba(122,142,168,0.6)" strokeWidth="0.8"/>
+                {Array.from({length: 10}).map((_, si) => {
+                  const a = (si / 10) * Math.PI * 2;
+                  const a2 = ((si + 0.38) / 10) * Math.PI * 2;
+                  return <path key={si} d={`M ${62+Math.cos(a)*5.5} ${100+Math.sin(a)*5.5} L ${62+Math.cos(a)*15.5} ${100+Math.sin(a)*15.5} L ${62+Math.cos(a2)*15.5} ${100+Math.sin(a2)*15.5} Z`} fill="rgba(45,58,76,0.9)" stroke="rgba(112,132,158,0.28)" strokeWidth="0.5"/>;
+                })}
+                <circle cx="62" cy="100" r="5.5" fill="rgba(180,198,218,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
+                <circle cx="61" cy="99" r="2.2" fill="rgba(240,250,255,0.62)"/>
+                <path d="M 47 85 A 17 17 0 0 1 77 85" fill="none" stroke="#CC1200" strokeWidth="5.5" strokeLinecap="round" opacity="0.82"/>
+                {/* WHEEL RIGHT (rear) — same */}
+                <circle cx="226" cy="100" r="25" fill="#08090E" stroke="rgba(175,195,218,0.5)" strokeWidth="2.2"/>
+                <circle cx="226" cy="100" r="22" fill="none" stroke="rgba(30,42,58,0.88)" strokeWidth="4"/>
+                <circle cx="226" cy="100" r="16.5" fill="url(#afvScRim)" stroke="rgba(122,142,168,0.6)" strokeWidth="0.8"/>
+                {Array.from({length: 10}).map((_, si) => {
+                  const a = (si / 10) * Math.PI * 2;
+                  const a2 = ((si + 0.38) / 10) * Math.PI * 2;
+                  return <path key={si} d={`M ${226+Math.cos(a)*5.5} ${100+Math.sin(a)*5.5} L ${226+Math.cos(a)*15.5} ${100+Math.sin(a)*15.5} L ${226+Math.cos(a2)*15.5} ${100+Math.sin(a2)*15.5} Z`} fill="rgba(45,58,76,0.9)" stroke="rgba(112,132,158,0.28)" strokeWidth="0.5"/>;
+                })}
+                <circle cx="226" cy="100" r="5.5" fill="rgba(180,198,218,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
+                <circle cx="225" cy="99" r="2.2" fill="rgba(240,250,255,0.62)"/>
+                <path d="M 211 85 A 17 17 0 0 1 241 85" fill="none" stroke="#CC1200" strokeWidth="5.5" strokeLinecap="round" opacity="0.82"/>
+              </g>
             </g>
-
-            {/* ── FUNDED LOANS SIGN (top of vault interior) ── */}
-            <rect x="152" y="126" width="136" height="68" rx="6" fill="rgba(15,11,5,0.97)" stroke="rgba(210,165,68,0.55)" strokeWidth="1.2"/>
-            <rect x="154" y="128" width="132" height="64" rx="5" fill="none" stroke="rgba(255,212,115,0.18)" strokeWidth="0.8"/>
-            {/* Gold shield icon */}
-            <path d="M220 137 L229 141 L229 149 C229 154.5 225 158.5 220 160 C215 158.5 211 154.5 211 149 L211 141 Z" fill="#E5A020" stroke="rgba(255,190,50,0.5)" strokeWidth="0.8"/>
-            <path d="M220 140 L227 143 L227 149 C227 153 223.5 156.5 220 157.8 C216.5 156.5 213 153 213 149 L213 143 Z" fill="rgba(255,228,140,0.38)"/>
-            <text x="220" y="170" textAnchor="middle" fontSize="15.5" fontWeight="900" fill="#EAC374" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="0.8">FUNDED LOANS</text>
-            <text x="220" y="184" textAnchor="middle" fontSize="7.8" fontWeight="700" fill="rgba(242,224,178,0.82)" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="0.4">SECURE. SIMPLE. TRUSTED.</text>
 
             {/* ── VAULT DOOR FRAME BEVEL OVERLAY ── */}
             <circle cx="220" cy="286" r="172" fill="none" stroke="rgba(155,175,200,0.2)" strokeWidth="14"/>
@@ -6870,12 +6910,12 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
         <div style={{ borderRadius: 14, border: "1px solid rgba(95,118,150,0.35)", background: "linear-gradient(180deg, rgba(8,18,34,0.97), rgba(6,12,24,0.99))", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 9 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: "rgba(210,230,255,0.92)", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 1 }}>Journey metrics</div>
 
-          {[ 
+          {[
             { icon: "👥", value: fmtCount(funded), label: "FUNDED LOANS", delta: `${fmtPct(Math.max(0, overallConv - 4))} vs last month`, color: GREEN },
             { icon: "💲", value: fmtCurrency(totalFunded), label: "TOTAL FUNDED", delta: `${fmtPct(Math.max(0, overallConv - 2))} vs last month`, color: GREEN },
             { icon: "📉", value: fmtPct(overallConv), label: "OVERALL CONVERSION", delta: `${fmtPct(Math.max(0, overallConv - 1.5))} vs last month`, color: GREEN },
-            { icon: "🕒", value: avgDays.toFixed(1), label: "AVG. DAYS TO FUND", delta: `${Math.max(0.6, avgDays * 0.08).toFixed(1)} days vs last month`, color: GREEN },
-            { icon: "🚀", value: String(creditScore), label: "CREDIT SCORE (AVG.)", delta: `${Math.max(2, Math.round(overallConv / 4))} pts vs last month`, color: GREEN },
+            { icon: "🚗", value: fmtCount(totalSessions), label: "TOTAL SESSIONS", delta: "all steps combined", color: GREEN },
+            { icon: "📊", value: fmtCount(sessionsLost), label: "SESSIONS DROPPED", delta: "did not reach funded", color: "rgba(255,180,60,0.92)" },
           ].map((m) => (
             <div key={m.label} style={{ border: "1px solid rgba(90,115,145,0.25)", borderRadius: 10, padding: "9px 10px", background: "rgba(9,18,32,0.72)" }}>
               <div style={{ display: "grid", gridTemplateColumns: "34px 1fr", gap: 8, alignItems: "center" }}>
