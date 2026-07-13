@@ -72,7 +72,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.31";
+const APP_VERSION_LABEL = "4.57.32";
 
 
 
@@ -6313,169 +6313,194 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
   const totalDropped = Math.max(0, totalSessions - totalConversions);
   const overallConv = steps[steps.length - 1]?.overallConv ?? 0;
   const totalRevLost = totalDropped > 0 && aov > 0 ? totalDropped * aov : 0;
-  const fName = String(funnelName ?? "").toLowerCase();
-  const isAutoFinance = fName.includes("auto") || fName.includes("finance") || fName.includes("loan") || fName.includes("vehicle");
-  const rowHeight = 52;
-  const railHeight = Math.max(230, topToBottom.length * rowHeight + 56);
 
-  const stageColor = (step: FunnelStep, idx: number) => {
-    if (idx === 0) return BLUE;
-    if (step.convFromPrev >= 80) return GREEN;
-    if (step.convFromPrev >= 55) return CYAN;
-    if (step.convFromPrev >= 30) return ORANGE;
-    return RED;
-  };
+  // Pyramid band colors — bottom/entry = cyan, up to final = purple
+  const pyColors = ["#12D4E6", "#38CC72", "#D4A820", "#9048F2", "#F04068", "#3E74F0"];
 
-  const inferIcon = (label: string, idx: number): string => {
-    const l = label.toLowerCase();
-    if (isAutoFinance) {
-      if (l.includes("browse") || l.includes("inventory") || l.includes("model")) return "🏎️";
-      if (l.includes("compare") || l.includes("search") || l.includes("select")) return "🔎";
-      if (l.includes("quote") || l.includes("payment") || l.includes("rate")) return "💵";
-      if (l.includes("apply") || l.includes("loan") || l.includes("credit")) return "📋";
-      if (l.includes("approve") || l.includes("decision")) return "✅";
-      if (l.includes("sign") || l.includes("contract") || l.includes("close")) return "🖊️";
-      if (l.includes("pickup") || l.includes("deliver") || l.includes("drive")) return "🔑";
-      const autoFallback = ["🏎️", "🔎", "💵", "📋", "✅", "🖊️", "🔑"];
-      return autoFallback[idx % autoFallback.length] ?? "";
-    }
-    if (l.includes("claim") || l.includes("bill") || l.includes("payment")) return "📄";
-    if (l.includes("enroll") || l.includes("signup") || l.includes("register")) return "📝";
-    if (l.includes("compare") || l.includes("search") || l.includes("plan")) return "🔎";
-    if (l.includes("care") || l.includes("provider") || l.includes("doctor") || l.includes("visit")) return "🩺";
-    if (l.includes("wellness") || l.includes("health")) return "💜";
-    if (l.includes("advoc") || l.includes("support")) return "🛡️";
-    const fallback = ["👥", "🔎", "📝", "🩺", "💜", "🛡️", "📈", "✅"];
-    return fallback[idx % fallback.length] ?? "";
-  };
+  // MRI bore geometry (SVG viewBox 680x455)
+  const bx = 345, by = 218, bR = 145;
+  const bTop = by - bR, bBot = by + bR;
+  const N = steps.length;
+  const bH = (bBot - bTop) / N;
+  // Funnel pyramid half-width at a given y: wide at bottom, narrow at top
+  const phw = (y: number) => 22 + (bR - 26) * (y - bTop) / (bBot - bTop);
+
+  const dispName = funnelName
+    ? funnelName.split(/\s+/).slice(0, 2).join(" ").toUpperCase()
+    : "MRI";
 
   return (
     <div style={{ maxWidth: 1120, margin: "0 auto" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "220px 1fr 300px", gap: 14, alignItems: "stretch" }}>
-        <div style={{ border: "1px solid rgba(70,95,130,0.35)", borderRadius: 12, padding: "10px 10px", background: "linear-gradient(180deg, rgba(9,20,36,0.92), rgba(8,14,26,0.9))" }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>{isAutoFinance ? "Vehicle journey stages" : "Journey stages"}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "240px 1fr 285px", gap: 14, alignItems: "stretch" }}>
+
+        {/* ── LEFT: Journey Stages ── */}
+        <div style={{ border: "1px solid rgba(70,95,130,0.35)", borderRadius: 12, padding: "12px 12px", background: "linear-gradient(180deg, rgba(9,20,36,0.95), rgba(8,14,26,0.92))" }}>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontWeight: 700, letterSpacing: 1.2, marginBottom: 10, textTransform: "uppercase" }}>Journey Stages</div>
           {steps.map((step, i) => {
-            const color = stageColor(step, i);
+            const pc = pyColors[i % pyColors.length];
             return (
-              <div key={`mri-left-${i}`} style={{ display: "grid", gridTemplateColumns: "26px 1fr", columnGap: 8, alignItems: "start", marginBottom: i < steps.length - 1 ? 9 : 0 }}>
-                <div style={{ width: 24, height: 24, borderRadius: "50%", border: `1px solid ${color}88`, background: `${color}22`, color, fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</div>
+              <div key={`mri-L${i}`} style={{ display: "grid", gridTemplateColumns: "28px 1fr", columnGap: 8, alignItems: "start", marginBottom: i < steps.length - 1 ? 12 : 0 }}>
+                <div style={{ width: 26, height: 26, borderRadius: "50%", border: `1.5px solid ${pc}`, background: `${pc}22`, color: pc, fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</div>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700 }}>{step.label}</div>
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{fmtCount(step.count)} {isAutoFinance ? "shoppers" : "members"}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>{step.label.toUpperCase()}</div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.48)", marginTop: 1 }}>{fmtCount(step.count)} members</div>
                 </div>
               </div>
             );
           })}
         </div>
 
-        <div style={{ border: "1px solid rgba(78,108,145,0.35)", borderRadius: 14, padding: "12px 12px 14px", background: "radial-gradient(circle at 50% 6%, rgba(116,150,186,0.22), rgba(9,18,33,0.94) 45%, rgba(6,12,22,0.98) 78%)", overflow: "hidden" }}>
-          <div style={{ margin: "0 auto", width: 560, height: 234, position: "relative" }}>
-            <div style={{ position: "absolute", left: 34, top: 38, width: 64, height: 204, borderRadius: "30px 10px 10px 30px", background: "linear-gradient(180deg, rgba(130,146,170,0.42), rgba(56,70,92,0.7))", boxShadow: "inset 4px 0 10px rgba(255,255,255,0.12)" }} />
-            <div style={{ position: "absolute", right: 34, top: 38, width: 64, height: 204, borderRadius: "10px 30px 30px 10px", background: "linear-gradient(180deg, rgba(130,146,170,0.42), rgba(56,70,92,0.7))", boxShadow: "inset -4px 0 10px rgba(255,255,255,0.12)" }} />
+        {/* ── CENTER: MRI Machine SVG ── */}
+        <div style={{ border: "1px solid rgba(78,108,145,0.35)", borderRadius: 14, padding: "8px 8px 10px", background: "radial-gradient(ellipse at 50% 18%, rgba(28,55,95,0.25), rgba(5,10,20,0.98) 52%)", overflow: "hidden" }}>
+          <svg width="100%" height="455" viewBox="0 0 680 455" style={{ display: "block" }}>
+            <defs>
+              <radialGradient id="mriGantry" cx="48%" cy="28%" r="72%">
+                <stop offset="0%" stopColor="#B8C8DC"/>
+                <stop offset="30%" stopColor="#7A8898"/>
+                <stop offset="65%" stopColor="#485868"/>
+                <stop offset="100%" stopColor="#1E2A38"/>
+              </radialGradient>
+              <radialGradient id="mriBoreG" cx="50%" cy="40%" r="60%">
+                <stop offset="0%" stopColor="#08141E"/>
+                <stop offset="100%" stopColor="#0A1828"/>
+              </radialGradient>
+              <linearGradient id="mriBodyLG" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#909EAE"/>
+                <stop offset="32%" stopColor="#606E84"/>
+                <stop offset="72%" stopColor="#404E60"/>
+                <stop offset="100%" stopColor="#2A3448"/>
+              </linearGradient>
+              <linearGradient id="mriPanLG" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgba(46,62,84,0.94)"/>
+                <stop offset="100%" stopColor="rgba(22,30,46,0.97)"/>
+              </linearGradient>
+              <linearGradient id="mriDispLG" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgba(10,22,42,0.98)"/>
+                <stop offset="100%" stopColor="rgba(6,12,28,0.99)"/>
+              </linearGradient>
+              <filter id="mriGF" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="8"/>
+              </filter>
+              <filter id="mriBGF" x="-15%" y="-15%" width="130%" height="130%">
+                <feGaussianBlur stdDeviation="4"/>
+              </filter>
+              <clipPath id="mriBoreClip">
+                <circle cx={bx} cy={by} r={bR - 5}/>
+              </clipPath>
+            </defs>
 
-            <div style={{ position: "absolute", left: "50%", top: "53%", transform: "translate(-50%,-50%)", width: 420, height: 252, borderRadius: 50, border: "1px solid rgba(177,202,230,0.42)", background: "radial-gradient(circle at 50% 8%, rgba(235,244,255,0.42), rgba(157,178,202,0.68) 33%, rgba(77,95,121,0.74) 70%, rgba(35,48,68,0.87) 100%)", boxShadow: "inset 0 12px 20px rgba(255,255,255,0.2), inset 0 -24px 28px rgba(0,0,0,0.35), 0 10px 18px rgba(0,0,0,0.45)" }} />
+            {/* Floor shadow */}
+            <ellipse cx="345" cy="434" rx="272" ry="14" fill="rgba(0,0,0,0.5)"/>
 
-            <div style={{ position: "absolute", left: "50%", top: 34, transform: "translateX(-50%)", minWidth: 170, height: 40, borderRadius: 8, border: "1px solid rgba(110,160,225,0.45)", background: "linear-gradient(180deg, rgba(18,31,52,0.96), rgba(8,14,26,0.96))", boxShadow: "inset 0 1px 4px rgba(255,255,255,0.08), 0 0 12px rgba(69,137,255,0.35)", display: "flex", alignItems: "center", justifyContent: "center", color: "#62B3FF", fontSize: 18, fontWeight: 800, letterSpacing: 1.05, textTransform: "uppercase", zIndex: 12, gap: 8, padding: "0 10px" }}>
-              {isAutoFinance && (
-                <svg width="34" height="14" viewBox="0 0 68 28" aria-hidden="true" style={{ filter: "drop-shadow(0 0 4px rgba(69,137,255,0.45))" }}>
-                  <path d="M4 17 L16 9 L37 7 L54 11 L63 17 L62 21 L5 21 Z" fill="#58A9FF" opacity="0.95" />
-                  <circle cx="18" cy="21" r="4" fill="#0A1628" />
-                  <circle cx="48" cy="21" r="4" fill="#0A1628" />
-                </svg>
-              )}
-              {isAutoFinance ? "LAMBORGHINI" : "MRI"}
-            </div>
+            {/* LEFT BODY WING */}
+            <path d="M 50 118 L 178 118 L 178 370 L 50 370 Q 28 370 28 350 L 28 138 Q 28 118 50 118 Z" fill="url(#mriBodyLG)" stroke="rgba(142,162,188,0.38)" strokeWidth="1.2"/>
+            <path d="M 50 118 L 178 118 L 178 130 L 50 130 Q 32 130 32 120 Z" fill="rgba(185,205,228,0.1)"/>
 
-            <div style={{ position: "absolute", left: "50%", top: 72, transform: "translateX(-50%)", width: 10, height: 10, borderRadius: 2, background: "linear-gradient(180deg, rgba(56,120,210,0.92), rgba(16,37,71,0.92))", boxShadow: "0 0 9px rgba(69,137,255,0.55)", zIndex: 11 }} />
+            {/* RIGHT BODY WING */}
+            <path d="M 512 118 L 630 118 Q 652 118 652 138 L 652 350 Q 652 370 630 370 L 512 370 Z" fill="url(#mriBodyLG)" stroke="rgba(142,162,188,0.38)" strokeWidth="1.2"/>
+            <path d="M 512 118 L 630 118 Q 648 118 648 128 L 512 128 Z" fill="rgba(185,205,228,0.1)"/>
 
-            <div style={{ position: "absolute", left: 98, top: 128, width: 9, height: 4, borderRadius: 2, background: "rgba(246,232,170,0.88)", boxShadow: "0 0 7px rgba(246,232,170,0.55)", zIndex: 11 }} />
-            <div style={{ position: "absolute", right: 98, top: 128, width: 9, height: 4, borderRadius: 2, background: "rgba(106,218,255,0.9)", boxShadow: "0 0 7px rgba(106,218,255,0.55)", zIndex: 11 }} />
+            {/* GANTRY outer metallic ring */}
+            <circle cx={bx} cy={by} r="183" fill="url(#mriGantry)" stroke="rgba(175,198,225,0.52)" strokeWidth="2.5"/>
+            <circle cx={bx} cy={by} r="170" fill="none" stroke="rgba(85,105,132,0.5)" strokeWidth="5"/>
+            <circle cx={bx} cy={by} r="160" fill="none" stroke="rgba(112,135,162,0.28)" strokeWidth="2"/>
+            {/* Gantry top highlight */}
+            <ellipse cx={bx} cy={by - 158} rx="86" ry="18" fill="rgba(215,232,252,0.12)" filter="url(#mriGF)"/>
 
-            <div style={{ position: "absolute", left: "50%", top: "60%", transform: "translate(-50%,-50%)", width: 148, height: 148, borderRadius: "50%", border: "2px solid rgba(120,185,255,0.92)", boxShadow: "0 0 38px rgba(69,137,255,0.85), 0 0 74px rgba(69,137,255,0.45), inset 0 0 54px rgba(22,47,86,0.98), inset 0 0 24px rgba(120,180,255,0.48)", background: "radial-gradient(circle, rgba(4,8,16,1) 18%, rgba(6,14,27,0.98) 60%, rgba(18,38,65,0.96) 100%)", zIndex: 6 }}>
-              <div style={{ position: "absolute", inset: 12, borderRadius: "50%", border: "2px solid rgba(95,170,255,0.58)", boxShadow: "0 0 22px rgba(69,137,255,0.55), inset 0 0 22px rgba(69,137,255,0.2)" }} />
-              <div style={{ position: "absolute", left: "50%", top: "54%", transform: "translate(-50%,-50%)", width: 102, height: 112, clipPath: "polygon(22% 0, 78% 0, 100% 100%, 0 100%)", background: "linear-gradient(180deg, rgba(33,59,102,0.65), rgba(7,15,28,0.98))", borderRadius: 8 }} />
-              <div style={{ position: "absolute", left: "50%", top: "56%", transform: "translate(-50%,-50%)", width: 84, height: 96, clipPath: "polygon(20% 0, 80% 0, 100% 100%, 0 100%)", background: "repeating-linear-gradient(180deg, rgba(65,118,192,0.22) 0 6px, rgba(16,28,48,0.2) 6px 12px)", opacity: 0.82 }} />
-              <div style={{ position: "absolute", left: "50%", bottom: -10, transform: "translateX(-50%)", width: 166, height: 74, clipPath: "polygon(18% 0, 82% 0, 100% 100%, 0 100%)", background: "linear-gradient(180deg, rgba(14,23,39,0.98), rgba(8,15,27,1))" }} />
-            </div>
+            {/* BORE background */}
+            <circle cx={bx} cy={by} r={bR} fill="url(#mriBoreG)"/>
 
-            <div style={{ position: "absolute", left: "50%", bottom: 18, transform: "translateX(-50%)", width: 162, height: 42, clipPath: "polygon(21% 0, 79% 0, 100% 100%, 0 100%)", background: "linear-gradient(180deg, rgba(25,36,54,0.88), rgba(8,15,27,0.96))", zIndex: 1, pointerEvents: "none" }} />
+            {/* FUNNEL PYRAMID inside bore */}
+            <g clipPath="url(#mriBoreClip)">
+              <circle cx={bx} cy={by} r={bR} fill="#040C16"/>
+              {/* Subtle scan lines */}
+              {Array.from({length: 18}).map((_, li) => (
+                <line key={li} x1={bx - bR} y1={bTop + li * bH * (N / 18)} x2={bx + bR} y2={bTop + li * bH * (N / 18)} stroke="rgba(18,45,82,0.18)" strokeWidth="1"/>
+              ))}
+              {/* Pyramid bands: step[0] at bottom (widest), step[N-1] at top (narrowest) */}
+              {steps.map((step, i) => {
+                const yB = bBot - i * bH;
+                const yT = bBot - (i + 1) * bH;
+                const hwB = phw(yB), hwT = phw(yT);
+                const col = pyColors[i % pyColors.length];
+                const midY = (yB + yT) / 2;
+                const fSize = Math.max(9, Math.min(13, bH * 0.36));
+                return (
+                  <g key={`mri-py-${i}`}>
+                    <path d={`M ${bx-hwB} ${yB} L ${bx+hwB} ${yB} L ${bx+hwT} ${yT} L ${bx-hwT} ${yT} Z`} fill={col} opacity={0.84}/>
+                    {/* Top edge highlight */}
+                    <path d={`M ${bx-hwT+2} ${yT+1.5} L ${bx+hwT-2} ${yT+1.5}`} stroke="rgba(255,255,255,0.25)" strokeWidth="1.5" strokeLinecap="round"/>
+                    {/* Label shadow then label */}
+                    <text x={bx} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={fSize} fontWeight="900" fill="rgba(0,0,0,0.45)" fontFamily="system-ui" dx="0.5" dy="0.5">{i + 1}. {step.label.toUpperCase()}</text>
+                    <text x={bx} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={fSize} fontWeight="900" fill="rgba(255,255,255,0.97)" fontFamily="system-ui">{i + 1}. {step.label.toUpperCase()}</text>
+                  </g>
+                );
+              })}
+              {/* Bore inner glow ring */}
+              <circle cx={bx} cy={by} r={bR - 5} fill="none" stroke="rgba(55,120,255,0.25)" strokeWidth="8"/>
+            </g>
 
-            <div style={{ position: "absolute", right: 100, top: 74, width: 22, height: 22, borderRadius: "50%", border: "1px solid rgba(255,100,100,0.75)", background: "radial-gradient(circle at 35% 30%, rgba(255,170,170,0.95), rgba(170,0,0,0.92) 70%)", boxShadow: "0 0 10px rgba(255,0,0,0.45), inset 0 -2px 4px rgba(70,0,0,0.55)", zIndex: 12 }} />
+            {/* Bore outer glow */}
+            <circle cx={bx} cy={by} r={bR + 10} fill="none" stroke="rgba(40,110,255,0.35)" strokeWidth="10" filter="url(#mriGF)"/>
+            <circle cx={bx} cy={by} r={bR + 2} fill="none" stroke="rgba(68,145,255,0.65)" strokeWidth="2.5"/>
 
-            <div style={{ position: "absolute", left: 128, top: 120, width: 40, height: 62, borderRadius: 8, border: "1px solid rgba(140,165,196,0.5)", background: "linear-gradient(180deg, rgba(34,49,70,0.85), rgba(19,29,45,0.98))", boxShadow: "inset 0 1px 4px rgba(255,255,255,0.09)", zIndex: 11 }}>
-              <div style={{ width: 12, height: 3, borderRadius: 3, background: "rgba(130,210,255,0.9)", margin: "6px auto 6px" }} />
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, padding: "0 7px" }}>
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={`l-dot-${i}`} style={{ width: 5, height: 5, borderRadius: "50%", background: i === 0 ? "rgba(130,210,255,0.9)" : "rgba(120,140,170,0.55)" }} />
-                ))}
-              </div>
-            </div>
-            <div style={{ position: "absolute", right: 128, top: 120, width: 40, height: 62, borderRadius: 8, border: "1px solid rgba(140,165,196,0.5)", background: "linear-gradient(180deg, rgba(34,49,70,0.85), rgba(19,29,45,0.98))", boxShadow: "inset 0 1px 4px rgba(255,255,255,0.09)", zIndex: 11 }}>
-              <div style={{ width: 12, height: 3, borderRadius: 3, background: "rgba(130,210,255,0.9)", margin: "6px auto 6px" }} />
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, padding: "0 7px" }}>
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={`r-dot-${i}`} style={{ width: 5, height: 5, borderRadius: "50%", background: i === 0 ? "rgba(130,210,255,0.9)" : "rgba(120,140,170,0.55)" }} />
-                ))}
-              </div>
-            </div>
-          </div>
+            {/* Top + bottom connecting surfaces */}
+            <rect x="178" y="114" width="334" height="16" rx="4" fill="url(#mriBodyLG)" stroke="rgba(155,178,205,0.3)" strokeWidth="1"/>
+            <rect x="178" y="358" width="334" height="16" rx="4" fill="url(#mriBodyLG)" stroke="rgba(155,178,205,0.3)" strokeWidth="1"/>
 
-          <div style={{ position: "relative", marginTop: 8, paddingTop: 14, paddingBottom: 8 }}>
-            <div style={{ position: "absolute", left: "50%", top: 16, transform: "translateX(-50%)", width: 518, height: railHeight, pointerEvents: "none", zIndex: 0 }}>
-              <div style={{ position: "absolute", left: 6, top: 0, width: 14, height: railHeight, clipPath: "polygon(100% 0, 0 100%, 100% 100%)", background: "linear-gradient(180deg, rgba(195,212,238,0.86), rgba(88,104,132,0.9))", boxShadow: "inset -2px 0 7px rgba(255,255,255,0.2), 0 0 10px rgba(149,184,235,0.35)" }}>
-                <div style={{ position: "absolute", right: 2, top: 4, bottom: 8, width: 2, background: "linear-gradient(180deg, rgba(189,229,255,0.85), rgba(84,132,193,0.18))" }} />
-              </div>
-              <div style={{ position: "absolute", right: 6, top: 0, width: 14, height: railHeight, clipPath: "polygon(0 0, 0 100%, 100% 100%)", background: "linear-gradient(180deg, rgba(195,212,238,0.86), rgba(88,104,132,0.9))", boxShadow: "inset 2px 0 7px rgba(255,255,255,0.2), 0 0 10px rgba(149,184,235,0.35)" }}>
-                <div style={{ position: "absolute", left: 2, top: 4, bottom: 8, width: 2, background: "linear-gradient(180deg, rgba(189,229,255,0.85), rgba(84,132,193,0.18))" }} />
-              </div>
-            </div>
-            {topToBottom.map((step, di) => {
-              const origIdx = steps.length - 1 - di;
-              const color = stageColor(step, origIdx);
-              const width = 286 + di * 58;
-              const drop = origIdx > 0 ? Math.max(0, 100 - step.convFromPrev) : 0;
-              const icon = inferIcon(step.label, origIdx);
-              return (
-                <div key={`mri-belt-${origIdx}`} style={{ width, margin: "0 auto", minHeight: 45, borderRadius: 8, marginBottom: 6, border: `1px solid ${color}8A`, background: `linear-gradient(180deg, ${color}2E, rgba(8,16,28,0.95))`, boxShadow: `0 0 12px ${color}5A, inset 0 1px 6px rgba(255,255,255,0.12)`, display: "grid", gridTemplateColumns: "40px 1fr auto", alignItems: "center", columnGap: 8, padding: "6px 10px", position: "relative", zIndex: 3 }}>
-                  <div style={{ position: "absolute", left: 7, right: 7, top: 0, height: 2, background: `linear-gradient(90deg, transparent, ${color}80, transparent)` }} />
-                  <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 2, background: `linear-gradient(180deg, ${color}BB, rgba(120,200,255,0.3))` }} />
-                  <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 2, background: `linear-gradient(180deg, ${color}BB, rgba(120,200,255,0.3))` }} />
-                  <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1, color, textAlign: "center" }}>{origIdx + 1}</div>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, fontWeight: 700 }}>
-                      <span>{step.label}</span>
-                      {icon ? <span style={{ opacity: 0.9 }}>{icon}</span> : null}
-                    </div>
-                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", marginTop: 2 }}>{fmtCount(step.count)} {isAutoFinance ? "shoppers" : "members"} • {fmtPct(step.overallConv)} overall</div>
-                  </div>
-                  <div style={{ textAlign: "right", minWidth: 115 }}>
-                    {origIdx > 0 && <div style={{ fontSize: 12, color: step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED, fontWeight: 700 }}>{fmtPct(step.convFromPrev)} conv</div>}
-                    {origIdx > 0 && <div style={{ fontSize: 11, color: drop >= 40 ? RED : ORANGE }}>{fmtPct(drop)} drop</div>}
-                    {origIdx === 0 && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>entry</div>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+            {/* DISPLAY PANEL */}
+            <rect x="250" y="54" width="190" height="48" rx="9" fill="url(#mriDispLG)" stroke="rgba(75,138,225,0.62)" strokeWidth="1.5"/>
+            <rect x="252" y="56" width="186" height="44" rx="8" fill="none" stroke="rgba(115,172,255,0.2)" strokeWidth="0.8"/>
+            {/* Blue cross icon */}
+            <rect x="270" y="70" width="18" height="5" rx="2.5" fill="#3E8AF0"/>
+            <rect x="276" y="64" width="5" height="18" rx="2.5" fill="#3E8AF0"/>
+            <text x="306" y="87" textAnchor="start" fontSize="15" fontWeight="800" fill="#62B3FF" fontFamily="system-ui,-apple-system" letterSpacing="0.4">{dispName}</text>
+
+            {/* Indicator dot */}
+            <circle cx={bx} cy="108" r="5" fill="rgba(22,72,188,0.92)" stroke="rgba(88,165,255,0.65)" strokeWidth="1" filter="url(#mriBGF)"/>
+
+            {/* RED emergency button */}
+            <circle cx="520" cy="136" r="13" fill="rgba(185,0,0,0.9)" stroke="rgba(255,80,80,0.7)" strokeWidth="1.2"/>
+            <circle cx="518" cy="134" r="5.5" fill="rgba(255,140,140,0.88)"/>
+
+            {/* LEFT control panel */}
+            <rect x="88" y="188" width="46" height="74" rx="7" fill="url(#mriPanLG)" stroke="rgba(128,155,185,0.48)" strokeWidth="1"/>
+            <rect x="96" y="196" width="13" height="4" rx="2" fill="rgba(125,205,255,0.88)"/>
+            {[0,1,2,3,4,5].map(di => <circle key={di} cx={98+(di%2)*16} cy={210+Math.floor(di/2)*13} r="3.5" fill={di===0?"rgba(125,205,255,0.9)":"rgba(102,128,158,0.52)"}/>)}
+
+            {/* RIGHT control panel */}
+            <rect x="546" y="188" width="46" height="74" rx="7" fill="url(#mriPanLG)" stroke="rgba(128,155,185,0.48)" strokeWidth="1"/>
+            <rect x="554" y="196" width="13" height="4" rx="2" fill="rgba(125,205,255,0.88)"/>
+            {[0,1,2,3,4,5].map(di => <circle key={di} cx={556+(di%2)*16} cy={210+Math.floor(di/2)*13} r="3.5" fill={di===0?"rgba(125,205,255,0.9)":"rgba(102,128,158,0.52)"}/>)}
+
+            {/* Status lights */}
+            <rect x="148" y="215" width="12" height="5" rx="2.5" fill="rgba(240,210,90,0.88)"/>
+            <rect x="520" y="215" width="12" height="5" rx="2.5" fill="rgba(80,222,255,0.9)"/>
+
+            {/* Base platform */}
+            <rect x="110" y="374" width="460" height="30" rx="9" fill="url(#mriBodyLG)" stroke="rgba(145,168,195,0.32)" strokeWidth="1"/>
+            <rect x="142" y="404" width="396" height="18" rx="7" fill="rgba(34,46,64,0.88)" stroke="rgba(128,152,178,0.26)" strokeWidth="1"/>
+          </svg>
         </div>
 
-        <div style={{ border: "1px solid rgba(70,95,130,0.35)", borderRadius: 12, padding: "10px 12px", background: "linear-gradient(180deg, rgba(9,20,36,0.92), rgba(8,14,26,0.9))", display: "flex", flexDirection: "column" }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>{isAutoFinance ? "Vehicle journey metrics" : "Journey metrics"}</div>
+        {/* ── RIGHT: Journey Metrics ── */}
+        <div style={{ border: "1px solid rgba(70,95,130,0.35)", borderRadius: 12, padding: "10px 12px", background: "linear-gradient(180deg, rgba(9,20,36,0.95), rgba(8,14,26,0.92))", display: "flex", flexDirection: "column" }}>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontWeight: 700, letterSpacing: 1.2, marginBottom: 8, textTransform: "uppercase" }}>Journey metrics</div>
           {topToBottom.map((step, di) => {
             const origIdx = steps.length - 1 - di;
-            const color = stageColor(step, origIdx);
+            const pc = pyColors[origIdx % pyColors.length];
             const dropCount = origIdx > 0 ? Math.max(0, (steps[origIdx - 1]?.count ?? step.count) - step.count) : 0;
             return (
-              <div key={`mri-right-${origIdx}`} style={{ border: "1px solid rgba(90,115,145,0.22)", borderRadius: 9, padding: "8px 10px", marginBottom: 8, background: "rgba(12,20,34,0.75)" }}>
+              <div key={`mri-R${origIdx}`} style={{ border: "1px solid rgba(90,115,145,0.22)", borderRadius: 9, padding: "8px 10px", marginBottom: 8, background: "rgba(12,20,34,0.75)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                    <div style={{ width: 24, height: 24, borderRadius: "50%", border: `1px solid ${color}88`, background: `${color}1F`, color, fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{origIdx + 1}</div>
-                    <div style={{ fontSize: 12, fontWeight: 700 }}>{fmtCount(step.count)}</div>
+                    <div style={{ width: 24, height: 24, borderRadius: "50%", border: `1px solid ${pc}`, background: `${pc}22`, color: pc, fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{origIdx + 1}</div>
+                    <div style={{ fontSize: 14, fontWeight: 900 }}>{fmtCount(step.count)}</div>
                   </div>
                   <div style={{ fontSize: 11, color: statusClr(step.overallConv), fontWeight: 700 }}>{fmtPct(step.overallConv)} overall</div>
                 </div>
                 <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                  <span style={{ color: origIdx > 0 ? (step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED) : GREEN }}>{origIdx > 0 ? `${fmtPct(step.convFromPrev)} conv` : "100.0% conv"}</span>
+                  <span style={{ color: origIdx > 0 ? (step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED) : "rgba(255,255,255,0.5)" }}>{origIdx > 0 ? `${fmtPct(step.convFromPrev)} conv` : "100.0% conv"}</span>
                   <span style={{ color: dropCount > 0 ? RED : "rgba(255,255,255,0.45)" }}>{dropCount > 0 ? `${fmtCount(dropCount)} drop` : "-"}</span>
                 </div>
               </div>
@@ -6622,6 +6647,11 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
                 <stop offset="0%" stopColor="#CC3000"/>
                 <stop offset="100%" stopColor="#7A0E00"/>
               </linearGradient>
+              <linearGradient id="afvScHood" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stopColor="#FF5800"/>
+                <stop offset="42%" stopColor="#CC2800"/>
+                <stop offset="100%" stopColor="#7A1000"/>
+              </linearGradient>
               <linearGradient id="afvScGlass" x1="0" y1="0" x2="0.4" y2="1">
                 <stop offset="0%" stopColor="rgba(145,190,240,0.48)"/>
                 <stop offset="100%" stopColor="rgba(10,18,36,0.94)"/>
@@ -6715,78 +6745,101 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
             <ellipse cx="220" cy="408" rx="118" ry="18" fill="rgba(20,12,4,0.94)" stroke="rgba(64,42,8,0.38)" strokeWidth="1"/>
             <ellipse cx="220" cy="406" rx="60" ry="8" fill="rgba(175,125,32,0.09)"/>
 
-            {/* ── SUPERCAR — orange side profile, left-facing, clipped to vault ── */}
+            {/* ── SUPERCAR — front view, driving out of vault toward viewer ── */}
             <g clipPath="url(#afvVaultClip)">
-              <g transform="translate(122, 312) scale(0.68)">
+              <g transform="translate(122, 300) scale(0.68)">
                 {/* Ground shadow */}
-                <ellipse cx="143" cy="115" rx="138" ry="10" fill="rgba(0,0,0,0.68)"/>
-                {/* Ground reflection */}
-                <g opacity="0.14" transform="translate(0,228) scale(1,-1)">
-                  <path d="M5 100 L10 84 L18 66 L30 48 L46 36 L95 28 L188 26 L232 34 L262 52 L276 70 L284 88 L287 106 L5 106 Z" fill="url(#afvScBody)"/>
-                </g>
-                {/* MAIN BODY */}
-                <path d="M5 100 L10 84 L18 66 L30 48 L46 36 L95 28 L188 26 L232 34 L262 52 L276 70 L284 88 L287 106 L5 106 Z" fill="url(#afvScBody)" stroke="#661000" strokeWidth="1.5"/>
-                {/* Top highlight crease */}
-                <path d="M38 44 C82 32 175 30 248 44" stroke="rgba(255,155,70,0.52)" strokeWidth="4.5" fill="none" strokeLinecap="round"/>
-                {/* Lower shadow crease */}
-                <path d="M10 84 C72 78 202 76 278 82" stroke="rgba(80,8,0,0.45)" strokeWidth="2" fill="none" strokeLinecap="round"/>
-                {/* CABIN / ROOF */}
-                <path d="M46 38 L60 12 L197 10 L230 36 Z" fill="url(#afvScRoof)" stroke="#551000" strokeWidth="1"/>
+                <ellipse cx="143" cy="109" rx="132" ry="8" fill="rgba(0,0,0,0.55)"/>
+
+                {/* FRONT SPLITTER / underbody */}
+                <path d="M 12 102 L 274 102 L 270 92 L 16 92 Z" fill="rgba(6,8,14,0.97)"/>
+                <line x1="14" y1="95" x2="272" y2="95" stroke="rgba(155,175,200,0.18)" strokeWidth="0.8"/>
+
+                {/* FRONT BUMPER FACE — the dominant element seen head-on */}
+                <path d="M 16 92 L 270 92 L 255 52 L 31 52 Z" fill="url(#afvScBody)" stroke="#661000" strokeWidth="1"/>
+
+                {/* LEFT headlight housing (dark surround) */}
+                <path d="M 20 76 L 118 76 L 112 54 L 24 54 Z" fill="rgba(6,10,18,0.96)" stroke="rgba(72,105,148,0.22)" strokeWidth="0.8"/>
+                {/* Left LED main strip */}
+                <path d="M 24 72 L 112 72 L 108 64 L 26 64 Z" fill="rgba(255,242,192,0.97)"/>
+                <ellipse cx="67" cy="68" rx="40" ry="4" fill="rgba(255,215,90,0.32)" filter="url(#afvHLGlow)"/>
+                {/* Left DRL lower strip */}
+                <path d="M 22 81 L 110 80 L 110 77 L 22 78 Z" fill="rgba(255,230,160,0.78)"/>
+
+                {/* RIGHT headlight housing */}
+                <path d="M 168 76 L 266 76 L 262 54 L 174 54 Z" fill="rgba(6,10,18,0.96)" stroke="rgba(72,105,148,0.22)" strokeWidth="0.8"/>
+                {/* Right LED main strip */}
+                <path d="M 172 72 L 262 72 L 260 64 L 176 64 Z" fill="rgba(255,242,192,0.97)"/>
+                <ellipse cx="217" cy="68" rx="40" ry="4" fill="rgba(255,215,90,0.32)" filter="url(#afvHLGlow)"/>
+                {/* Right DRL lower strip */}
+                <path d="M 174 81 L 264 80 L 264 77 L 174 78 Z" fill="rgba(255,230,160,0.78)"/>
+
+                {/* CENTRAL GRILL */}
+                <path d="M 118 82 L 168 82 L 164 56 L 122 56 Z" fill="rgba(5,8,13,0.97)"/>
+                {[0,1,2,3].map(gi => (
+                  <line key={gi} x1={120} y1={60+gi*5} x2={166} y2={60+gi*5} stroke="rgba(44,62,88,0.62)" strokeWidth="1.1"/>
+                ))}
+                {/* Center badge */}
+                <circle cx="143" cy="72" r="8" fill="rgba(175,95,0,0.9)" stroke="rgba(255,150,50,0.62)" strokeWidth="1.2"/>
+                <line x1="138.5" y1="67.5" x2="147.5" y2="76.5" stroke="rgba(255,155,55,0.7)" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="147.5" y1="67.5" x2="138.5" y2="76.5" stroke="rgba(255,155,55,0.7)" strokeWidth="1.5" strokeLinecap="round"/>
+
+                {/* WHEEL ARCH cutouts (arched lip above each wheel) */}
+                <path d="M 16 92 Q 64 68 112 92" fill="none" stroke="rgba(95,14,0,0.82)" strokeWidth="4.5" strokeLinecap="round"/>
+                <path d="M 174 92 Q 222 68 270 92" fill="none" stroke="rgba(95,14,0,0.82)" strokeWidth="4.5" strokeLinecap="round"/>
+
+                {/* HOOD — top surface receding away from viewer */}
+                <path d="M 31 52 L 255 52 L 238 10 L 48 10 Z" fill="url(#afvScHood)"/>
+                {/* Hood surface highlight toward front */}
+                <path d="M 55 46 L 231 46 L 238 36 L 48 36 Z" fill="rgba(255,130,35,0.1)"/>
+                {/* Hood center spine (left ridge) */}
+                <path d="M 135 52 L 128 10" stroke="rgba(255,105,18,0.35)" strokeWidth="3" fill="none" strokeLinecap="round"/>
+                {/* Hood center spine (right ridge) */}
+                <path d="M 151 52 L 158 10" stroke="rgba(65,6,0,0.3)" strokeWidth="2" fill="none" strokeLinecap="round"/>
+
                 {/* WINDSHIELD */}
-                <path d="M60 37 L75 12 L196 12 L216 37 Z" fill="url(#afvScGlass)" stroke="rgba(120,168,220,0.2)" strokeWidth="0.8"/>
-                {/* Windshield glare streak */}
-                <path d="M74 35 L87 12 L120 12 L107 35" fill="rgba(200,220,255,0.1)"/>
-                {/* Rear quarter window */}
-                <path d="M47 38 L59 14 L73 14 L57 38 Z" fill="url(#afvScGlass)" opacity="0.8"/>
-                {/* HEADLIGHT — angular LED */}
-                <path d="M8 82 L22 62 L40 60 L44 78 L11 85 Z" fill="rgba(10,16,28,0.97)" stroke="rgba(100,140,185,0.28)" strokeWidth="0.8"/>
-                <line x1="10" y1="72" x2="42" y2="64" stroke="rgba(255,255,255,0.96)" strokeWidth="2.5" strokeLinecap="round"/>
-                <ellipse cx="27" cy="71" rx="9" ry="5.5" fill="rgba(255,252,224,0.97)"/>
-                <ellipse cx="27" cy="71" rx="22" ry="16" fill="rgba(255,200,55,0.3)" filter="url(#afvHLGlow)"/>
-                <line x1="6" y1="85" x2="44" y2="77" stroke="rgba(255,255,255,0.88)" strokeWidth="1.5" strokeLinecap="round"/>
-                {/* TAILLIGHT — red LED */}
-                <path d="M272 66 L286 74 L287 92 L269 88 Z" fill="rgba(10,16,28,0.97)" stroke="rgba(200,20,20,0.38)" strokeWidth="0.8"/>
-                <line x1="274" y1="70" x2="285" y2="90" stroke="rgba(255,28,28,0.92)" strokeWidth="2.5" strokeLinecap="round"/>
-                <ellipse cx="280" cy="80" rx="4.5" ry="8" fill="rgba(220,18,18,0.88)"/>
-                {/* FRONT AIR INTAKE */}
-                <path d="M7 90 L42 80 L44 100 L7 103 Z" fill="rgba(6,10,16,0.95)"/>
-                {[0,1,2].map(gi => <line key={gi} x1={8} y1={91+gi*5} x2={43} y2={82+gi*5} stroke="rgba(50,70,95,0.48)" strokeWidth="0.8"/>)}
-                {/* SIDE VENT */}
-                <path d="M58 70 L82 64 L84 82 L58 86 Z" fill="rgba(6,10,16,0.92)"/>
-                {[0,1,2].map(gi => <line key={gi} x1={60} y1={71+gi*5} x2={83} y2={66+gi*5} stroke="rgba(50,70,95,0.44)" strokeWidth="0.7"/>)}
-                {/* REAR DIFFUSER */}
-                <path d="M250 88 L287 88 L287 106 L250 104 Z" fill="rgba(6,10,16,0.95)"/>
-                {[0,1,2,3].map(gi => <line key={gi} x1={254+gi*9} y1={89} x2={255+gi*9} y2={105} stroke="rgba(50,70,95,0.48)" strokeWidth="0.8"/>)}
-                {/* Door panel line */}
-                <line x1="138" y1="35" x2="133" y2="100" stroke="rgba(80,12,0,0.5)" strokeWidth="1.5"/>
-                {/* Front splitter */}
-                <path d="M6 100 L287 98 L287 106 L6 106 Z" fill="rgba(6,8,14,0.96)"/>
-                <line x1="6" y1="99" x2="287" y2="97" stroke="rgba(160,180,205,0.2)" strokeWidth="0.8"/>
-                {/* Side skirt */}
-                <path d="M60 100 L232 98 L232 108 L60 108 Z" fill="rgba(18,6,2,0.88)"/>
-                {/* Rear wing */}
-                <path d="M206 24 L240 22 L242 30 L208 32 Z" fill="url(#afvScSpoiler)" stroke="#5A0E00" strokeWidth="0.8"/>
-                <line x1="222" y1="24" x2="222" y2="36" stroke="#770E00" strokeWidth="1.5"/>
-                {/* WHEEL LEFT (front) — 10-spoke rim + red caliper */}
-                <circle cx="62" cy="100" r="25" fill="#08090E" stroke="rgba(175,195,218,0.5)" strokeWidth="2.2"/>
-                <circle cx="62" cy="100" r="22" fill="none" stroke="rgba(30,42,58,0.88)" strokeWidth="4"/>
-                <circle cx="62" cy="100" r="16.5" fill="url(#afvScRim)" stroke="rgba(122,142,168,0.6)" strokeWidth="0.8"/>
+                <path d="M 48 10 L 238 10 L 220 -30 L 66 -30 Z" fill="url(#afvScGlass)" stroke="rgba(115,162,215,0.28)" strokeWidth="1"/>
+                {/* Windshield glare */}
+                <path d="M 72 8 L 140 8 L 126 -28 L 82 -28 Z" fill="rgba(195,218,255,0.08)"/>
+
+                {/* A-PILLARS */}
+                <path d="M 48 10 L 66 -30 L 54 -32 L 36 8 Z" fill="url(#afvScRoof)"/>
+                <path d="M 238 10 L 220 -30 L 232 -32 L 250 8 Z" fill="url(#afvScRoof)"/>
+
+                {/* ROOF */}
+                <path d="M 66 -30 L 220 -30 L 205 -48 L 81 -48 Z" fill="url(#afvScRoof)" stroke="#551000" strokeWidth="0.8"/>
+                {/* Roof highlight center */}
+                <path d="M 100 -31 L 186 -31 L 176 -46 L 110 -46 Z" fill="rgba(255,115,38,0.1)"/>
+
+                {/* REAR WING blade + posts */}
+                <path d="M 60 -56 L 226 -56 L 226 -50 L 60 -50 Z" fill="#CC2000"/>
+                <path d="M 56 -60 L 230 -60 L 230 -54 L 56 -54 Z" fill="url(#afvScSpoiler)" stroke="#5A0E00" strokeWidth="0.8"/>
+                <rect x="68" y="-62" width="7" height="14" rx="2" fill="#881200"/>
+                <rect x="211" y="-62" width="7" height="14" rx="2" fill="#881200"/>
+
+                {/* LEFT FRONT WHEEL — foreshortened ellipse (head-on view) */}
+                <ellipse cx="64" cy="97" rx="48" ry="20" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
+                <ellipse cx="64" cy="97" rx="42" ry="17" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
+                <ellipse cx="64" cy="97" rx="34" ry="13.5" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
                 {Array.from({length: 5}).map((_, si) => {
                   const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
-                  return <line key={si} x1={62+Math.cos(a)*6} y1={100+Math.sin(a)*6} x2={62+Math.cos(a)*15.5} y2={100+Math.sin(a)*15.5} stroke="rgba(52,68,88,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
+                  return <line key={si} x1={64+Math.cos(a)*6} y1={97+Math.sin(a)*6*0.42} x2={64+Math.cos(a)*27} y2={97+Math.sin(a)*27*0.42} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
                 })}
-                <circle cx="62" cy="100" r="5.5" fill="rgba(180,198,218,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
-                <path d="M 47 86 A 17 17 0 0 1 77 86" fill="none" stroke="#BB1100" strokeWidth="5.5" strokeLinecap="round" opacity="0.85"/>
-                {/* WHEEL RIGHT (rear) — same */}
-                <circle cx="226" cy="100" r="25" fill="#08090E" stroke="rgba(175,195,218,0.5)" strokeWidth="2.2"/>
-                <circle cx="226" cy="100" r="22" fill="none" stroke="rgba(30,42,58,0.88)" strokeWidth="4"/>
-                <circle cx="226" cy="100" r="16.5" fill="url(#afvScRim)" stroke="rgba(122,142,168,0.6)" strokeWidth="0.8"/>
+                <ellipse cx="64" cy="97" rx="5.5" ry="2.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
+                {/* Red brake caliper (left side) */}
+                <rect x="17" y="89" width="10" height="17" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
+
+                {/* RIGHT FRONT WHEEL */}
+                <ellipse cx="222" cy="97" rx="48" ry="20" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
+                <ellipse cx="222" cy="97" rx="42" ry="17" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
+                <ellipse cx="222" cy="97" rx="34" ry="13.5" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
                 {Array.from({length: 5}).map((_, si) => {
                   const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
-                  return <line key={si} x1={226+Math.cos(a)*6} y1={100+Math.sin(a)*6} x2={226+Math.cos(a)*15.5} y2={100+Math.sin(a)*15.5} stroke="rgba(52,68,88,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
+                  return <line key={si} x1={222+Math.cos(a)*6} y1={97+Math.sin(a)*6*0.42} x2={222+Math.cos(a)*27} y2={97+Math.sin(a)*27*0.42} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
                 })}
-                <circle cx="226" cy="100" r="5.5" fill="rgba(180,198,218,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
-                <path d="M 211 86 A 17 17 0 0 1 241 86" fill="none" stroke="#BB1100" strokeWidth="5.5" strokeLinecap="round" opacity="0.85"/>
+                <ellipse cx="222" cy="97" rx="5.5" ry="2.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
+                {/* Red brake caliper (right side) */}
+                <rect x="259" y="89" width="10" height="17" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
               </g>
             </g>
 
