@@ -72,7 +72,7 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
-const APP_VERSION_LABEL = "4.57.35";
+const APP_VERSION_LABEL = "4.57.36";
 
 
 
@@ -6430,55 +6430,92 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
             <rect x="148" y="215" width="12" height="5" rx="2.5" fill="rgba(240,210,90,0.88)"/>
             <rect x="520" y="215" width="12" height="5" rx="2.5" fill="rgba(80,222,255,0.9)"/>
 
-            {/* ── PATIENT TABLE: step 1 outside, steps 2-N inside bore ── */}
+            {/* ── PERSPECTIVE TABLE: converges into bore (3D tunnel effect) ── */}
             {(() => {
-              const tLeft = 30;
-              const tMLeft = bx - bR + 5;   // 205 — where table enters bore
-              const tMRight = bx + bR - 20;  // 470 — visible right end inside bore
-              const step1W = tMLeft - tLeft - 5;       // width of outside section
-              const insideW = tMRight - tMLeft;         // width available inside bore
-              const insideStepW = N > 1 ? insideW / (N - 1) : insideW;
-              const tSurTop = by - 12;   // 206 — table surface top
-              const tSurBot = by + 12;   // 230 — table surface bottom
-              const tRailH = 6;
-              const tRailTop = tSurTop - tRailH;  // 200
-              const tRailBot = tSurBot + tRailH;  // 236 (unused but clear)
-              const lblY = tRailTop - 10;          // 190 — label centre above top rail
+              const VP_x = bx;
+              const VP_y = by - 38;              // vanishing point above bore center
+              const base_y = by + bR + 50;       // bottom of outside step (step 1)
+              const base_hw = 120;               // half-width at base
+              const vp_hw = 7;                   // half-width at vanishing point
+              const bore_bot = by + bR;          // 363 — bore circle bottom
+
+              const hw = (y: number) => {
+                const t = Math.max(0, (y - VP_y) / (base_y - VP_y));
+                return vp_hw + (base_hw - vp_hw) * t;
+              };
+
+              const inside_h = bore_bot - VP_y;
+              const step_ih = N > 1 ? inside_h / (N - 1) : inside_h;
+
+              // y range for each step; i=0 is outside (nearest), i=N-1 deepest
+              const stepY = (i: number): [number, number] =>
+                i === 0
+                  ? [bore_bot, base_y]
+                  : [bore_bot - i * step_ih, bore_bot - (i - 1) * step_ih];
+
+              const trap = (yt: number, yb: number) => {
+                const tl = VP_x - hw(yt), tr = VP_x + hw(yt);
+                const bl = VP_x - hw(yb), br = VP_x + hw(yb);
+                return `M ${bl} ${yb} L ${br} ${yb} L ${tr} ${yt} L ${tl} ${yt} Z`;
+              };
+
               return (
                 <>
-                  {/* Colored step bands on table surface */}
-                  <rect x={tLeft} y={tSurTop} width={step1W} height={tSurBot - tSurTop} fill={pyColors[0]} opacity={0.78}/>
-                  {steps.slice(1).map((_, ji) => (
-                    <rect key={`ts${ji}`} x={tMLeft + ji * insideStepW} y={tSurTop} width={insideStepW} height={tSurBot - tSurTop} fill={pyColors[(ji + 1) % pyColors.length]} opacity={0.78}/>
-                  ))}
-                  {/* Section dividers */}
-                  <line x1={tMLeft} y1={tSurTop} x2={tMLeft} y2={tSurBot} stroke="rgba(0,0,0,0.55)" strokeWidth="2"/>
-                  {steps.slice(2).map((_, j) => {
-                    const dx = tMLeft + (j + 1) * insideStepW;
-                    return <line key={`td${j}`} x1={dx} y1={tSurTop} x2={dx} y2={tSurBot} stroke="rgba(0,0,0,0.42)" strokeWidth="1.5"/>;
-                  })}
-                  {/* Table surface outline */}
-                  <rect x={tLeft} y={tSurTop} width={tMRight - tLeft} height={tSurBot - tSurTop} fill="none" stroke="rgba(110,140,175,0.28)" strokeWidth="0.8"/>
-                  {/* TOP GUARDRAIL */}
-                  <rect x={tLeft} y={tRailTop} width={tMRight - tLeft} height={tRailH} rx="3" fill="url(#mriBodyLG)" stroke="rgba(168,192,222,0.65)" strokeWidth="1"/>
-                  <rect x={tLeft + 2} y={tRailTop + 1} width={tMRight - tLeft - 4} height={2} rx="1" fill="rgba(205,225,248,0.2)"/>
-                  {/* BOTTOM GUARDRAIL */}
-                  <rect x={tLeft} y={tSurBot} width={tMRight - tLeft} height={tRailH} rx="3" fill="url(#mriBodyLG)" stroke="rgba(168,192,222,0.65)" strokeWidth="1"/>
-                  <rect x={tLeft + 2} y={tSurBot + 1} width={tMRight - tLeft - 4} height={2} rx="1" fill="rgba(205,225,248,0.2)"/>
-                  {/* Arrow: step 1 → into MRI */}
-                  <path d={`M ${tMLeft-22} ${by} L ${tMLeft-4} ${by} L ${tMLeft-10} ${by-5} M ${tMLeft-4} ${by} L ${tMLeft-10} ${by+5}`} stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-                  {/* Step labels (number circle + name) above top guardrail */}
+                  {/* Inside steps clipped to bore circle */}
+                  <g clipPath="url(#mriBoreClip)">
+                    {/* Subtle perspective depth-lines */}
+                    {Array.from({length: 7}).map((_, li) => {
+                      const frac = (li + 1) / 8;
+                      const bx2 = VP_x - base_hw + frac * base_hw * 2;
+                      return <line key={li} x1={VP_x} y1={VP_y} x2={bx2} y2={base_y} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>;
+                    })}
+                    {/* Inside step bands (steps 2-N, index 1 to N-1) */}
+                    {steps.slice(1).map((_, idx) => {
+                      const i = idx + 1;
+                      const [yt, yb] = stepY(i);
+                      return <path key={i} d={trap(yt, yb)} fill={pyColors[i % pyColors.length]} opacity={0.86}/>;
+                    })}
+                    {/* Step dividers */}
+                    {steps.slice(1, -1).map((_, idx) => {
+                      const [yt] = stepY(idx + 2);
+                      return <line key={idx} x1={VP_x - hw(yt)} y1={yt} x2={VP_x + hw(yt)} y2={yt} stroke="rgba(0,0,0,0.45)" strokeWidth="1.5"/>;
+                    })}
+                  </g>
+
+                  {/* Step 1 — outside bore (largest, nearest) */}
+                  <path d={trap(bore_bot, base_y)} fill={pyColors[0]} opacity={0.86}/>
+                  <line x1={VP_x - hw(bore_bot)} y1={bore_bot} x2={VP_x + hw(bore_bot)} y2={bore_bot} stroke="rgba(0,0,0,0.45)" strokeWidth="1.5"/>
+
+                  {/* Converging GUARDRAILS — full perspective lines */}
+                  <line x1={VP_x - vp_hw} y1={VP_y} x2={VP_x - base_hw} y2={base_y}
+                    stroke="rgba(168,195,225,0.95)" strokeWidth="5" strokeLinecap="round"/>
+                  <line x1={VP_x + vp_hw} y1={VP_y} x2={VP_x + base_hw} y2={base_y}
+                    stroke="rgba(168,195,225,0.95)" strokeWidth="5" strokeLinecap="round"/>
+                  {/* Rail highlight sheen */}
+                  <line x1={VP_x - vp_hw + 1} y1={VP_y} x2={VP_x - base_hw + 2} y2={base_y}
+                    stroke="rgba(225,240,255,0.4)" strokeWidth="1.5" strokeLinecap="round"/>
+                  <line x1={VP_x + vp_hw - 1} y1={VP_y} x2={VP_x + base_hw - 2} y2={base_y}
+                    stroke="rgba(225,240,255,0.4)" strokeWidth="1.5" strokeLinecap="round"/>
+
+                  {/* Step labels */}
                   {steps.map((step, i) => {
-                    const lcx = i === 0
-                      ? tLeft + step1W / 2
-                      : tMLeft + (i - 1) * insideStepW + insideStepW / 2;
-                    const col = pyColors[i % pyColors.length];
-                    const lbl = step.label.length > 13 ? step.label.slice(0, 12) + "…" : step.label;
+                    const [yt, yb] = stepY(i);
+                    const y_mid = (yt + yb) / 2;
+                    const w = hw(y_mid);
+                    const fs = Math.max(8, Math.min(12, 6 + w / 9));
+                    const maxCh = Math.max(3, Math.floor(w * 1.7 / fs));
+                    const raw = step.label || `Step ${i + 1}`;
+                    const lbl = raw.length > maxCh ? raw.slice(0, maxCh - 1) + "…" : raw;
                     return (
                       <g key={`lbl${i}`}>
-                        <circle cx={lcx - 11} cy={lblY} r="8" fill={col} opacity={0.9}/>
-                        <text x={lcx - 11} y={lblY} textAnchor="middle" dominantBaseline="middle" fontSize="9" fontWeight="900" fill="rgba(255,255,255,0.97)" fontFamily="system-ui">{i + 1}</text>
-                        <text x={lcx + 1} y={lblY} textAnchor="start" fontSize="9" fontWeight="700" fill="rgba(255,255,255,0.82)" fontFamily="system-ui" dominantBaseline="middle">{lbl.toUpperCase()}</text>
+                        <text x={VP_x} y={y_mid - fs * 0.35}
+                          textAnchor="middle" dominantBaseline="middle"
+                          fontSize={Math.max(7, fs - 1)} fontWeight="900"
+                          fill="rgba(255,255,255,0.55)" fontFamily="system-ui">{i + 1}</text>
+                        <text x={VP_x} y={y_mid + fs * 0.55}
+                          textAnchor="middle" dominantBaseline="middle"
+                          fontSize={Math.max(6, fs - 2)} fontWeight="700"
+                          fill="rgba(255,255,255,0.82)" fontFamily="system-ui">{lbl.toUpperCase()}</text>
                       </g>
                     );
                   })}
