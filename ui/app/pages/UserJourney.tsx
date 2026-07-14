@@ -46,7 +46,7 @@ const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "heatmap", label: "Transition Heatmap" },
 ];
 const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
-type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying";
+type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying" | "uhaul";
 const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "classic", label: "Classic Funnel" },
   { value: "horizontal", label: "Horizontal Bar" },
@@ -62,6 +62,7 @@ const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "cyber", label: "\uD83D\uDEE1 Cyber" },
   { value: "stadium", label: "\uD83C\uDFDF Stadium" },
   { value: "homebuying", label: "\uD83C\uDFE0 Homebuying" },
+  { value: "uhaul", label: "\uD83D\uDE9B U-Haul" },
 ];
 const DEFAULT_FUNNEL_STYLE: FunnelStyle = "classic";
 const FUNNEL_STYLE_STATE_KEY = "uj-funnel-style";
@@ -7212,22 +7213,22 @@ function AirportFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
           <circle cx={55} cy={147} r={5} fill={YELLOW} filter="url(#af-glow)" opacity={0.92}/>
           <line x1={55} y1={108} x2={55} y2={147} stroke="#3c4c60" strokeWidth={2.5}/>
           <circle cx={55} cy={106} r={3.5} fill={RED} filter="url(#af-glow)" opacity={0.85}/>
-          <polygon points="92,188 392,188 402,178 82,178" fill="#20293a"/>
-          <rect x="92" y="202" width="302" height="130" fill="#192235"/>
-          {[0,1,2,3,4,5,6,7].map(j => <rect key={j} x={100+j*35} y={208} width={27} height={58} rx={2} fill="url(#af-glass)" opacity={0.68-j*0.025}/>)}
-          {[0,1,2].map(j => <rect key={j} x={168+j*32} y={288} width={22} height={22} rx={2} fill="#e89220" opacity={0.45}/>)}
-          <rect x="96" y="205" width="298" height={14 + 26 + steps.slice(0,5).length * 20 + 8} rx="4" fill="#070c18" opacity={0.97}/>
-          <rect x="96" y="205" width="298" height="28" rx="4" fill="#0e1d30"/>
-          <text x="245" y="223" textAnchor="middle" fill={YELLOW} fontSize="14" fontWeight="700" letterSpacing="2.2" fontFamily="'Courier New',monospace">✈  DEPARTURES</text>
+          <polygon points="92,138 392,138 402,128 82,128" fill="#20293a"/>
+          <rect x="92" y="152" width="302" height="130" fill="#192235"/>
+          {[0,1,2,3,4,5,6,7].map(j => <rect key={j} x={100+j*35} y={158} width={27} height={58} rx={2} fill="url(#af-glass)" opacity={0.68-j*0.025}/>)}
+          {[0,1,2].map(j => <rect key={j} x={168+j*32} y={238} width={22} height={22} rx={2} fill="#e89220" opacity={0.45}/>)}
+          <rect x="96" y="155" width="298" height={14 + 26 + steps.slice(0,5).length * 20 + 8} rx="4" fill="#070c18" opacity={0.97}/>
+          <rect x="96" y="155" width="298" height="28" rx="4" fill="#0e1d30"/>
+          <text x="245" y="173" textAnchor="middle" fill={YELLOW} fontSize="14" fontWeight="700" letterSpacing="2.2" fontFamily="'Courier New',monospace">✈  DEPARTURES</text>
           {steps.slice(0, 5).map((step, i) => {
             const statusColor = i === 0 ? GREEN : i === steps.length - 1 ? YELLOW : BLUE;
             const statusLabel = i === 0 ? "BOARDING" : i === steps.length - 1 ? "DEPARTED" : "ON TIME";
             return (
               <g key={i}>
-                <rect x="98" y={233+i*20} width="294" height="18" fill={i%2===0?"#0b1422":"#090f1c"}/>
-                <text x="102" y={245+i*20} fill={BLUE} fontSize="12" fontWeight="700" fontFamily="'Courier New',monospace">{`FL${String(i+1).padStart(3,"0")}`}</text>
-                <text x="138" y={245+i*20} fill="#c0ccdf" fontSize="12" fontFamily="'Courier New',monospace">{step.label.length>22?step.label.slice(0,20).toUpperCase()+"..":step.label.toUpperCase()}</text>
-                <text x="388" y={245+i*20} textAnchor="end" fill={statusColor} fontSize="12" fontWeight="700" fontFamily="'Courier New',monospace">{statusLabel}</text>
+                <rect x="98" y={183+i*20} width="294" height="18" fill={i%2===0?"#0b1422":"#090f1c"}/>
+                <text x="102" y={195+i*20} fill={BLUE} fontSize="12" fontWeight="700" fontFamily="'Courier New',monospace">{`FL${String(i+1).padStart(3,"0")}`}</text>
+                <text x="138" y={195+i*20} fill="#c0ccdf" fontSize="12" fontFamily="'Courier New',monospace">{step.label.length>22?step.label.slice(0,20).toUpperCase()+"..":step.label.toUpperCase()}</text>
+                <text x="388" y={195+i*20} textAnchor="end" fill={statusColor} fontSize="12" fontWeight="700" fontFamily="'Courier New',monospace">{statusLabel}</text>
               </g>
             );
           })}
@@ -7235,7 +7236,7 @@ function AirportFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
           {Array.from({length:8},(_,i)=>{const t0=i/8;const y0=310+143*t0;const y1=310+143*(i+0.45)/8;return<line key={i} x1={340} y1={y0} x2={340} y2={Math.min(y1,454)} stroke="white" strokeWidth={1.5+((i+0.45)/8)*2.5} opacity={0.4}/>;})}
           {Array.from({length:runwayCount},(_,i)=>{const t=(i+0.5)/runwayCount;const y=312+138*t;const xL=272-170*t;const xR=408+170*t;const r=1.5+t*2;return(<g key={i} filter="url(#af-glow)"><circle cx={xL} cy={y} r={r} fill={YELLOW} opacity={0.88}/><circle cx={xR} cy={y} r={r} fill={YELLOW} opacity={0.88}/></g>);})}
           {[-4,-3,-2,-1,0,1,2,3,4].map((off,i)=><circle key={i} cx={340+off*24} cy={451} r={3} fill={off===0?RED:"rgba(255,255,240,0.9)"} filter="url(#af-glow)" opacity={0.9}/>)}
-          <g transform="translate(482,262) scale(0.95)">
+          <g transform="translate(560,260) scale(0.95)">
             <path d="M -68,6 Q -76,2 -76,-2 Q -76,-8 -68,-10 L 55,-10 Q 68,-10 76,-4 Q 80,0 76,4 Q 68,8 55,8 Z" fill="url(#af-fuse)"/>
             <path d="M 76,-4 Q 84,0 76,4 Z" fill="#c6d4ea"/>
             <path d="M 58,-10 Q 70,-10 76,-4 Q 65,-3 55,-4 Z" fill="#c6d4ea" opacity={0.7}/>
@@ -7573,7 +7574,7 @@ function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
   const n = steps.length;
   const sectionLetters = 'ABCDEFGHIJ'.split('');
   const stepColor = (conv: number, idx: number): string => idx===0?BLUE:conv>=65?GREEN:conv>=35?YELLOW:RED;
-  const CX=340, CY=226, OUTER_RX=292, OUTER_RY=183, FIELD_RX=110, FIELD_RY=67;
+  const CX=340, CY=300, OUTER_RX=292, OUTER_RY=183, FIELD_RX=110, FIELD_RY=67;
   const SEAT_INNER_RX=FIELD_RX+17, SEAT_INNER_RY=FIELD_RY+11;
   const TIER_RX=(OUTER_RX-SEAT_INNER_RX)/Math.max(n,1), TIER_RY=(OUTER_RY-SEAT_INNER_RY)/Math.max(n,1);
   const tiers = steps.map((step,i)=>{
@@ -7597,7 +7598,7 @@ function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
     return out;
   };
   const starData:[number,number,number][]=[[40,17,0.7],[92,31,0.5],[158,11,0.8],[243,27,0.55],[412,14,0.7],[492,37,0.5],[568,19,0.8],[642,43,0.6],[22,70,0.5],[658,70,0.65],[308,7,0.55],[182,50,0.4],[552,56,0.6]];
-  const lightPositions:[number,number,number,number][]=[[52,100,52,78],[628,100,628,78],[52,350,52,372],[628,350,628,372]];
+  const lightPositions:[number,number,number,number][]=[[52,174,52,152],[628,174,628,152],[52,424,52,446],[628,424,628,446]];
   return (
     <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 330px', gap:14, background:'rgba(4,6,10,0.98)', color:'#e8eeff', padding:16, fontFamily:'"Inter",system-ui,sans-serif', borderRadius:12, boxSizing:'border-box', minHeight:520 }}>
       <div style={{ minWidth:0 }}>
@@ -7619,7 +7620,7 @@ function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
         })}
       </div>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
-        <svg viewBox="0 0 680 455" style={{ width:'100%', height:'auto', display:'block' }}>
+        <svg viewBox="0 0 680 530" style={{ width:'100%', height:'auto', display:'block' }}>
           <defs>
             <radialGradient id="sf-sky" cx="50%" cy="42%" r="60%"><stop offset="0%" stopColor="#0c1b34"/><stop offset="100%" stopColor="#020406"/></radialGradient>
             <radialGradient id="sf-field" cx="40%" cy="38%" r="68%"><stop offset="0%" stopColor="#2ec854"/><stop offset="42%" stopColor="#1da844"/><stop offset="100%" stopColor="#127230"/></radialGradient>
@@ -7630,7 +7631,7 @@ function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
             <filter id="sf-xg" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="22" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
             <mask id="sf-sm"><ellipse cx={CX} cy={CY} rx={OUTER_RX} ry={OUTER_RY} fill="white"/><ellipse cx={CX} cy={CY} rx={FIELD_RX+9} ry={FIELD_RY+6} fill="black"/></mask>
           </defs>
-          <rect width="680" height="455" fill="url(#sf-sky)" rx="10"/>
+          <rect width="680" height="530" fill="url(#sf-sky)" rx="10"/>
           {starData.map(([sx,sy,op],si)=><circle key={si} cx={sx} cy={sy} r={si%4===0?1.4:0.85} fill="white" opacity={op}/>)}
           <ellipse cx={CX} cy={CY+9} rx={OUTER_RX+20} ry={OUTER_RY+13} fill="rgba(0,0,0,0.6)"/>
           <ellipse cx={CX} cy={CY} rx={OUTER_RX+14} ry={OUTER_RY+9} fill="#08131e" stroke="#17304c" strokeWidth="2.5"/>
@@ -7665,9 +7666,9 @@ function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
               {([-9,-3,3,9] as number[]).map((offset,bi)=><circle key={bi} cx={hx+offset} cy={Math.min(hy,by)+3} r={2.6} fill="rgba(255,248,210,0.95)"/>)}
             </g>
           ))}
-          <text x={CX} y={415} textAnchor="middle" fill="rgba(91,163,255,0.72)" fontSize={11} fontWeight={700} letterSpacing={3} fontFamily="'Courier New',monospace">MAIN ENTRANCE</text>
-          <rect x={288} y={421} width={104} height={30} rx={5} fill="#0d1d34" stroke="#1c3458" strokeWidth="1.5"/>
-          {([0,1,2,3] as number[]).map(gi=><rect key={gi} x={295+gi*24} y={424} width={16} height={22} rx={8} fill="#060e1c"/>)}
+          <text x={CX} y={489} textAnchor="middle" fill="rgba(91,163,255,0.72)" fontSize={11} fontWeight={700} letterSpacing={3} fontFamily="'Courier New',monospace">MAIN ENTRANCE</text>
+          <rect x={288} y={495} width={104} height={30} rx={5} fill="#0d1d34" stroke="#1c3458" strokeWidth="1.5"/>
+          {([0,1,2,3] as number[]).map(gi=><rect key={gi} x={295+gi*24} y={498} width={16} height={22} rx={8} fill="#060e1c"/>)}
         </svg>
       </div>
       <div style={{ minWidth:0 }}>
@@ -7777,7 +7778,6 @@ function HomebuyingFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov
           <path d="M0,442 Q340,412 680,442" stroke="#e0c050" strokeWidth="1.5" strokeDasharray="22,16" opacity="0.45" fill="none"/>
           <path d="M18,420 Q140,406 275,396 Q330,392 395,390 Q445,389 475,391" stroke="url(#hb-path-walk)" strokeWidth="10" fill="none" strokeLinecap="round"/>
           <path d="M18,420 Q140,406 275,396 Q330,392 395,390 Q445,389 475,391" stroke="#d0b870" strokeWidth="2.5" fill="none" strokeDasharray="9,7" opacity="0.45"/>
-          {steps.map((step,i)=>{const pos=milestonePositions[i];if(!pos)return null;const mc=getConvColor(step.overallConv);return(<g key={i}><rect x={pos.x-1.5} y={pos.y-26} width="3" height="20" fill="#7a6a50" rx="1"/><circle cx={pos.x} cy={pos.y-32} r="13" fill="rgba(5,8,14,0.88)" stroke={mc} strokeWidth="2.5"/><text x={pos.x} y={pos.y-27.5} textAnchor="middle" fontSize="12" fill={mc} fontWeight="bold">{i+1}</text></g>);})}
           <g transform="translate(18,268) scale(0.5)" opacity="0.78"><polygon points="0,66 50,4 100,66" fill="#4a2e18"/><rect x="8" y="66" width="84" height="72" fill="#c8b07e"/><rect x="34" y="108" width="20" height="30" fill="#7a4020" rx="1"/><rect x="12" y="76" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/><rect x="66" y="76" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/></g>
           <g transform="translate(520,256) scale(0.5)" opacity="0.78"><polygon points="0,62 52,2 104,62" fill="#4a2818"/><rect x="8" y="62" width="88" height="76" fill="#c8b88a"/><rect x="36" y="102" width="20" height="36" fill="#7a4020" rx="1"/><rect x="12" y="72" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/><rect x="68" y="72" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/></g>
           <g transform="translate(218,188)" filter="url(#hb-shadow-house)">
@@ -7812,6 +7812,7 @@ function HomebuyingFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov
               <text x="17" y="29.5" textAnchor="middle" fontSize="5.5" fill="#444" letterSpacing="0.4">FOR SALE</text>
             </g>
           </g>
+          {steps.map((step,i)=>{const pos=milestonePositions[i];if(!pos)return null;const mc=getConvColor(step.overallConv);return(<g key={i}><rect x={pos.x-1.5} y={pos.y-26} width="3" height="20" fill="#7a6a50" rx="1"/><circle cx={pos.x} cy={pos.y-32} r="13" fill="rgba(5,8,14,0.88)" stroke={mc} strokeWidth="2.5"/><text x={pos.x} y={pos.y-27.5} textAnchor="middle" fontSize="12" fill={mc} fontWeight="bold">{i+1}</text></g>);})}
           <g transform="translate(548,42)" filter="url(#hb-glow-sm)">
             <g transform="rotate(-22,44,36)">
               <circle cx="22" cy="22" r="16" fill="none" stroke="url(#hb-key-gold)" strokeWidth="5.5"/>
@@ -7862,6 +7863,284 @@ function HomebuyingFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// SKIN: U-Haul Moving Truck Route
+// ===========================================================================
+function UHaulFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const N = steps.length;
+  const totalTrucks = steps[0]?.count ?? 0;
+  const delivered = steps[N - 1]?.count ?? 0;
+  const deliveryRate = totalTrucks > 0 ? (delivered / totalTrucks) * 100 : 0;
+  const lostLoads = totalTrucks - delivered;
+  const UH_ORANGE = "#F06820";
+  const UH_DARK = "rgba(40,18,4,0.95)";
+  const stepClr = (step: FunnelStep, i: number) =>
+    i === 0 ? BLUE : step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 30 ? YELLOW : RED;
+  const statusClr = (r: number) => r >= 60 ? GREEN : r >= 30 ? YELLOW : RED;
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "300px 1fr 330px", gap: 14, background: "rgba(4,6,10,0.98)", color: "#e8eeff", padding: 16, fontFamily: '"Inter",system-ui,sans-serif', borderRadius: 12, boxSizing: "border-box", minHeight: 520 }}>
+
+      {/* LEFT — Moving Stages */}
+      <div style={{ border: `1px solid ${UH_ORANGE}55`, borderRadius: 14, padding: 14, background: UH_DARK, overflow: "hidden" }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: UH_ORANGE, marginBottom: 14, paddingBottom: 8, borderBottom: `1px solid ${UH_ORANGE}33` }}>
+          🚛 Moving Stages
+        </div>
+        {steps.map((step, i) => {
+          const clr = stepClr(step, i);
+          return (
+            <div key={i} style={{ marginBottom: i < N - 1 ? 14 : 0, paddingBottom: i < N - 1 ? 14 : 0, borderBottom: i < N - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <div style={{ width: 26, height: 26, borderRadius: "50%", background: UH_ORANGE, color: "white", fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {i + 1}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#e8eeff", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>
+                  {step.label}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 34 }}>
+                <span style={{ fontSize: 20, fontWeight: 800 }}>{fmtCount(step.count)}</span>
+                {i === 0 && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>loads in</span>}
+                {i > 0 && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: clr, background: `${clr.replace("0.92)", "0.12)")}`, padding: "2px 8px", borderRadius: 8, border: `1px solid ${clr.replace("0.92)", "0.25)")}`, marginLeft: "auto" }}>
+                    {fmtPct(step.convFromPrev)}
+                  </span>
+                )}
+              </div>
+              {i > 0 && (
+                <div style={{ height: 3, borderRadius: 2, marginTop: 6, marginLeft: 34, background: "rgba(255,255,255,0.07)" }}>
+                  <div style={{ height: "100%", width: `${Math.min(step.convFromPrev, 100)}%`, background: clr, borderRadius: 2 }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* CENTER — Highway SVG */}
+      <div style={{ borderRadius: 14, overflow: "hidden", background: "#1E6EC8", display: "flex", flexDirection: "column" }}>
+        {funnelName && (
+          <div style={{ textAlign: "center", fontSize: 13, fontWeight: 800, color: "white", letterSpacing: 2, textTransform: "uppercase", padding: "6px 0", background: UH_ORANGE }}>
+            {funnelName}
+          </div>
+        )}
+        <svg viewBox="0 0 680 455" style={{ width: "100%", height: "auto", display: "block" }}>
+          <defs>
+            <linearGradient id="uh-sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#1247A0" />
+              <stop offset="100%" stopColor="#6BB8DC" />
+            </linearGradient>
+            <linearGradient id="uh-road" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#5A5A5A" />
+              <stop offset="100%" stopColor="#2E2E2E" />
+            </linearGradient>
+            <linearGradient id="uh-grass-l" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#4A9830" />
+              <stop offset="100%" stopColor="#3A7A20" />
+            </linearGradient>
+            <linearGradient id="uh-box" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#F2F2F2" />
+              <stop offset="100%" stopColor="#DCDCDC" />
+            </linearGradient>
+            <filter id="uh-dropshadow">
+              <feDropShadow dx="3" dy="5" stdDeviation="7" floodColor="rgba(0,0,0,0.45)" />
+            </filter>
+          </defs>
+
+          {/* Sky */}
+          <rect x="0" y="0" width="680" height="215" fill="url(#uh-sky)" />
+
+          {/* Clouds */}
+          <g opacity={0.9}>
+            <ellipse cx="115" cy="72" rx="60" ry="22" fill="white" />
+            <ellipse cx="160" cy="60" rx="44" ry="18" fill="white" />
+            <ellipse cx="72" cy="80" rx="38" ry="15" fill="white" />
+          </g>
+          <g opacity={0.8}>
+            <ellipse cx="540" cy="52" rx="70" ry="25" fill="white" />
+            <ellipse cx="482" cy="64" rx="48" ry="20" fill="white" />
+            <ellipse cx="595" cy="65" rx="38" ry="15" fill="white" />
+          </g>
+          <g opacity={0.65}>
+            <ellipse cx="315" cy="42" rx="50" ry="17" fill="white" />
+            <ellipse cx="362" cy="34" rx="34" ry="13" fill="white" />
+          </g>
+
+          {/* Ground base */}
+          <rect x="0" y="208" width="680" height="247" fill="url(#uh-grass-l)" />
+
+          {/* Left grass shoulder */}
+          <polygon points="0,455 75,455 288,208 0,208" fill="#3E8818" />
+          {/* Right grass shoulder */}
+          <polygon points="680,455 605,455 392,208 680,208" fill="#3E8818" />
+
+          {/* Highway */}
+          <polygon points="75,455 605,455 392,208 288,208" fill="url(#uh-road)" />
+
+          {/* Shoulder lines */}
+          <line x1="75" y1="455" x2="288" y2="208" stroke="white" strokeWidth="3" opacity={0.55} />
+          <line x1="605" y1="455" x2="392" y2="208" stroke="white" strokeWidth="3" opacity={0.55} />
+
+          {/* Center yellow dashes — perspective scaled */}
+          {Array.from({ length: 11 }, (_, i) => {
+            const t = (i + 0.5) / 11;
+            const cy = 215 + t * 235;
+            const dh = Math.max(3, 18 * t);
+            return <rect key={i} x={338} y={cy - dh / 2} width={4} height={dh} rx={1} fill="#E8C000" opacity={0.78} />;
+          })}
+
+          {/* Exit signs along RIGHT shoulder, near→far */}
+          {steps.map((step, i) => {
+            const t = N > 1 ? i / (N - 1) : 0;
+            // perspective: near=bottom(t=0), far=top(t=1)
+            const sy = 418 - t * 198;
+            // right shoulder x = 605 - t*(605-392) at bottom, track the edge
+            const edgeX = 605 - t * (605 - 392);
+            const sx = edgeX + 28 - t * 6;
+            const ss = 1.0 - t * 0.52;
+            const clr = stepClr(step, i);
+            const pct = i === 0 ? null : fmtPct(step.convFromPrev);
+            return (
+              <g key={i} transform={`translate(${sx},${sy}) scale(${ss})`}>
+                {/* Post */}
+                <rect x={-3} y={-42} width={6} height={44} rx={2} fill="#7A7A7A" />
+                {/* Sign border */}
+                <rect x={-44} y={-98} width={88} height={58} rx={5} fill={UH_ORANGE} />
+                {/* Sign face */}
+                <rect x={-40} y={-94} width={80} height={50} rx={4} fill="white" />
+                {/* EXIT label */}
+                <text x={0} y={-72} textAnchor="middle" fill={UH_ORANGE} fontSize={11} fontWeight={900} fontFamily="'Impact',sans-serif" letterSpacing={1}>EXIT {i + 1}</text>
+                {/* Divider */}
+                <line x1={-36} y1={-64} x2={36} y2={-64} stroke="#DDD" strokeWidth={1} />
+                {/* Step name */}
+                <text x={0} y={-53} textAnchor="middle" fill="#333" fontSize={9} fontWeight={600}>
+                  {step.label.length > 13 ? step.label.slice(0, 12) + "…" : step.label}
+                </text>
+                {/* Conversion / start */}
+                <text x={0} y={-40} textAnchor="middle" fontSize={10} fontWeight={800} fill={i === 0 ? "#555" : (clr.replace("0.92)", "1)"))}>
+                  {i === 0 ? fmtCount(step.count) : pct}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* U-Haul truck — side profile facing right */}
+          <g transform="translate(230,392) scale(0.88)" filter="url(#uh-dropshadow)">
+            {/* Road shadow */}
+            <ellipse cx={-55} cy={27} rx={110} ry={11} fill="rgba(0,0,0,0.18)" />
+            {/* Undercarriage */}
+            <rect x={-162} y={-8} width={234} height={10} rx={2} fill="#222" />
+            {/* Box body */}
+            <rect x={-162} y={-74} width={155} height={68} rx={2} fill="url(#uh-box)" />
+            {/* Orange stripe */}
+            <rect x={-162} y={-24} width={155} height={16} fill={UH_ORANGE} />
+            {/* Box roof strip */}
+            <rect x={-162} y={-74} width={155} height={5} rx={2} fill="#C4C4C4" />
+            {/* Box rear edge */}
+            <rect x={-162} y={-74} width={5} height={68} fill="#D0D0D0" />
+            {/* Panel lines */}
+            {([-122, -90, -58] as number[]).map((bx, bi) => (
+              <line key={bi} x1={bx} y1={-69} x2={bx} y2={-24} stroke="#E2E2E2" strokeWidth={1.2} />
+            ))}
+            {/* U-HAUL text */}
+            <text x={-85} y={-47} textAnchor="middle" fill={UH_ORANGE} fontSize={18} fontWeight={900} fontFamily="'Impact','Arial Black',sans-serif" letterSpacing={2}>U-HAUL</text>
+            {/* Rear door handle */}
+            <rect x={-28} y={-52} width={4} height={26} rx={2} fill="#AAA" />
+            {/* Cab */}
+            <rect x={-7} y={-72} width={79} height={66} rx={4} fill={UH_ORANGE} />
+            {/* Windshield */}
+            <path d="M 22,-66 L 68,-66 L 72,-38 L 22,-38 Z" fill="#B4D6F0" opacity={0.88} />
+            <path d="M 22,-66 L 68,-66 L 70,-59 L 22,-59 Z" fill="#8AB8E0" opacity={0.6} />
+            {/* Side window */}
+            <rect x={-3} y={-64} width={25} height={22} rx={2} fill="#B4D6F0" opacity={0.82} />
+            {/* Cab door seam */}
+            <line x1={20} y1={-72} x2={20} y2={-6} stroke="#C04810" strokeWidth={1.5} />
+            {/* Door handle */}
+            <rect x={8} y={-32} width={10} height={4} rx={2} fill="#D09050" />
+            {/* Mirror */}
+            <rect x={70} y={-56} width={12} height={8} rx={2} fill="#CCC" />
+            <line x1={70} y1={-52} x2={78} y2={-52} stroke="#AAA" strokeWidth={1} />
+            {/* Headlight */}
+            <rect x={70} y={-46} width={8} height={18} rx={2} fill="#FFF8B0" opacity={0.95} />
+            {/* Front bumper */}
+            <rect x={68} y={-18} width={16} height={12} rx={2} fill="#B0B0B0" />
+            <rect x={66} y={-8} width={20} height={6} rx={1} fill="#989898" />
+            {/* Running board */}
+            <rect x={-4} y={-8} width={26} height={4} rx={1} fill="#C04810" />
+            {/* Rear dual wheels */}
+            {([-128, -106] as number[]).map((wx, wi) => (
+              <g key={wi}>
+                <circle cx={wx} cy={4} r={21} fill="#181818" />
+                <circle cx={wx} cy={4} r={14} fill="#2C2C2C" />
+                <circle cx={wx} cy={4} r={7} fill="#505050" />
+                <circle cx={wx} cy={4} r={3} fill="#747474" />
+              </g>
+            ))}
+            {/* Front wheel */}
+            <circle cx={44} cy={4} r={19} fill="#181818" />
+            <circle cx={44} cy={4} r={12} fill="#2C2C2C" />
+            <circle cx={44} cy={4} r={6} fill="#505050" />
+            <circle cx={44} cy={4} r={2.5} fill="#747474" />
+          </g>
+
+          {/* Small mile marker posts on left shoulder */}
+          {([340, 290, 258] as number[]).map((my, mi) => {
+            const mt = (my - 208) / 240;
+            const mx = 75 + mt * (288 - 75) - 24;
+            return (
+              <g key={mi}>
+                <rect x={mx - 1} y={my - 18} width={2} height={20} fill="#AAAAAA" opacity={0.65} />
+                <rect x={mx - 7} y={my - 25} width={14} height={9} rx={1} fill="white" opacity={0.65} />
+                <rect x={mx - 7} y={my - 25} width={7} height={9} fill="#CC1818" opacity={0.65} />
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* RIGHT — Move Metrics */}
+      <div style={{ border: `1px solid ${UH_ORANGE}55`, borderRadius: 14, padding: "12px 14px", background: UH_DARK, display: "flex", flexDirection: "column", gap: 9 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: UH_ORANGE, paddingBottom: 8, borderBottom: `1px solid ${UH_ORANGE}33`, marginBottom: 4 }}>
+          📦 Move Metrics
+        </div>
+        {([
+          { icon: "🚛", label: "Total Trucks", value: fmtCount(totalTrucks), clr: BLUE, sub: "loads dispatched" },
+          { icon: "📦", label: "Delivered", value: fmtCount(delivered), clr: GREEN, sub: "completed moves" },
+          { icon: "🛣️", label: "Delivery Rate", value: fmtPct(deliveryRate), clr: statusClr(deliveryRate), sub: "end-to-end conv" },
+          { icon: "💰", label: "Avg Move Value", value: fmtCurrency(aov), clr: UH_ORANGE, sub: "per delivery" },
+          { icon: "📋", label: "Lost Loads", value: fmtCount(lostLoads), clr: RED, sub: "did not complete" },
+        ] as { icon: string; label: string; value: string; clr: string; sub: string }[]).map((m, mi) => (
+          <div key={mi} style={{ background: "rgba(30,12,2,0.9)", border: `1px solid ${m.clr === UH_ORANGE ? UH_ORANGE + "30" : m.clr.replace("0.92)", "0.22)")}`, borderRadius: 10, padding: "10px 12px", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+              <span style={{ fontSize: 18 }}>{m.icon}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.36)", textTransform: "uppercase" }}>{m.label}</span>
+            </div>
+            <div style={{ fontSize: 27, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginTop: 3 }}>{m.sub}</div>
+          </div>
+        ))}
+        <div style={{ borderTop: `1px solid ${UH_ORANGE}22`, paddingTop: 9, marginTop: 2 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", marginBottom: 6 }}>Stage Breakdown</div>
+          {steps.map((step, i) => {
+            const clr = stepClr(step, i);
+            return (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: clr, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.52)", maxWidth: 145, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{step.label}</span>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: i === 0 ? "rgba(255,255,255,0.3)" : clr, flexShrink: 0, marginLeft: 6 }}>
+                  {i === 0 ? "start" : fmtPct(step.convFromPrev)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -8186,6 +8465,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         {funnelStyle === "cyber" && <CyberFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "stadium" && <StadiumFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "homebuying" && <HomebuyingFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "uhaul" && <UHaulFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
