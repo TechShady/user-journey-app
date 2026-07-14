@@ -62,7 +62,7 @@ const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "cyber", label: "\uD83D\uDEE1 Cyber" },
   { value: "stadium", label: "\uD83C\uDFDF Stadium" },
   { value: "homebuying", label: "\uD83C\uDFE0 Homebuying" },
-  { value: "uhaul", label: "\uD83D\uDE9B U-Haul" },
+  { value: "uhaul", label: "\uD83D\uDE9A Truck Rental" },
 ];
 const DEFAULT_FUNNEL_STYLE: FunnelStyle = "classic";
 const FUNNEL_STYLE_STATE_KEY = "uj-funnel-style";
@@ -7236,23 +7236,53 @@ function AirportFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
           {Array.from({length:8},(_,i)=>{const t0=i/8;const y0=310+143*t0;const y1=310+143*(i+0.45)/8;return<line key={i} x1={340} y1={y0} x2={340} y2={Math.min(y1,454)} stroke="white" strokeWidth={1.5+((i+0.45)/8)*2.5} opacity={0.4}/>;})}
           {Array.from({length:runwayCount},(_,i)=>{const t=(i+0.5)/runwayCount;const y=312+138*t;const xL=272-170*t;const xR=408+170*t;const r=1.5+t*2;return(<g key={i} filter="url(#af-glow)"><circle cx={xL} cy={y} r={r} fill={YELLOW} opacity={0.88}/><circle cx={xR} cy={y} r={r} fill={YELLOW} opacity={0.88}/></g>);})}
           {[-4,-3,-2,-1,0,1,2,3,4].map((off,i)=><circle key={i} cx={340+off*24} cy={451} r={3} fill={off===0?RED:"rgba(255,255,240,0.9)"} filter="url(#af-glow)" opacity={0.9}/>)}
-          <g transform="translate(560,260) scale(0.95)">
-            <path d="M -68,6 Q -76,2 -76,-2 Q -76,-8 -68,-10 L 55,-10 Q 68,-10 76,-4 Q 80,0 76,4 Q 68,8 55,8 Z" fill="url(#af-fuse)"/>
-            <path d="M 76,-4 Q 84,0 76,4 Z" fill="#c6d4ea"/>
-            <path d="M 58,-10 Q 70,-10 76,-4 Q 65,-3 55,-4 Z" fill="#c6d4ea" opacity={0.7}/>
-            <path d="M 60,-9 Q 70,-9 74,-4 Q 65,-3.5 57,-4 Z" fill="#12203a" opacity={0.85}/>
-            {[0,1,2,3,4].map(j=><rect key={j} x={44-j*14} y={-9} width={9} height={6} rx={1.5} fill="#e6f0ff" opacity={0.9}/>)}
-            <polygon points="5,4 -15,6 -68,46 -52,50 -10,18 10,8" fill="url(#af-wing)" opacity={0.96}/>
-            <rect x="-56" y="16" width="12" height="22" rx="2" fill="#606a84"/>
-            <ellipse cx="-50" cy="36" rx="13" ry="7" fill="url(#af-eng)"/>
-            <ellipse cx="-50" cy="36" rx="10" ry="5" fill="#22283a"/>
-            <ellipse cx="-50" cy="43" rx="5" ry="2.5" fill={ORANGE} opacity={0.35} filter="url(#af-glow)"/>
-            <path d="M -68,-2 Q -74,-20 -62,-30 L -58,-4 Z" fill="#b4c4da"/>
-            <polygon points="-68,2 -92,12 -80,14 -60,6" fill="#a0b2ca"/>
-            <circle cx="-62" cy="-30" r={3} fill={RED} filter="url(#af-glow)" opacity={0.9}/>
-            <circle cx="-55" cy="48" r={2} fill={GREEN} filter="url(#af-glow)" opacity={0.85}/>
-            <line x1="55" y1="8" x2="55" y2="22" stroke="#404858" strokeWidth={2.5}/><ellipse cx="55" cy="23" rx="5.5" ry="3" fill="#303848"/>
-            <line x1="-8" y1="8" x2="-8" y2="22" stroke="#404858" strokeWidth={3}/><ellipse cx="-8" cy="23" rx="8" ry="4.5" fill="#303848"/>
+          {/* === Commercial jet, Boeing 737-style, facing right === */}
+          <g transform="translate(535,272) scale(0.90)">
+            {/* Ground shadow */}
+            <ellipse cx="-8" cy="38" rx="102" ry="8" fill="rgba(0,0,0,0.28)"/>
+            {/* Vertical tail fin — render behind fuselage */}
+            <path d="M -84,-9 Q -77,-23 -64,-44 L -55,-44 Q -60,-24 -68,-9 Z" fill="#BBC8DC"/>
+            {/* Horizontal stabilizers */}
+            <path d="M -77,-9 L -108,-26 L -102,-30 L -70,-9 Z" fill="url(#af-wing)"/>
+            <path d="M -77,11 L -108,28 L -102,32 L -70,11 Z" fill="url(#af-wing)"/>
+            {/* Main wing — large swept trapezoid below fuselage */}
+            <path d="M 22,11 L -10,66 L -36,66 L -6,11 Z" fill="url(#af-wing)"/>
+            {/* Fuselage — proper closed outline: tail-taper → top → nose-tip → bottom → tail-taper */}
+            <path d="M -90,0 Q -82,-6 -66,-11 L 72,-11 Q 85,-11 93,-5 Q 99,0 93,5 Q 85,11 72,11 L -66,11 Q -82,6 -90,0 Z" fill="url(#af-fuse)"/>
+            {/* Nose cone highlight */}
+            <path d="M 93,-5 Q 100,0 93,5 Q 88,2 88,-2 Z" fill="#B0C2DC"/>
+            {/* Cockpit windows — two panes */}
+            <path d="M 78,-11 Q 88,-11 92,-5 L 81,-4 Z" fill="#1C3B78" opacity={0.92}/>
+            <path d="M 67,-11 L 78,-11 L 81,-4 L 67,-4 Z" fill="#162E62" opacity={0.82}/>
+            {/* Cabin windows — 11 oval portholes */}
+            {([-53,-42,-31,-20,-9,2,13,24,35,46,57] as number[]).map((wx,wi)=>(
+              <rect key={wi} x={wx} y={-9} width={9} height={6} rx={2.5} fill="#A8C8FF" opacity={0.76}/>
+            ))}
+            {/* Engine pylon (strut from wing down to engine) */}
+            <path d="M 8,11 L 8,34 L -1,34 L -1,11 Z" fill="#50606E"/>
+            {/* Engine nacelle — elongated turbofan pod */}
+            <path d="M -22,44 Q -20,33 -12,33 L 16,33 Q 24,33 24,42 Q 24,51 16,51 L -12,51 Q -20,51 -22,44 Z" fill="url(#af-eng)"/>
+            {/* Engine intake disc */}
+            <ellipse cx="-22" cy="42" rx="9" ry="11" fill="#28344A"/>
+            <ellipse cx="-22" cy="42" rx="5.5" ry="7" fill="#14202E"/>
+            {/* Engine exhaust heat glow */}
+            <ellipse cx="24" cy="45" rx="4" ry="8" fill={ORANGE} opacity={0.32} filter="url(#af-glow)"/>
+            {/* Winglet at tip */}
+            <path d="M -10,66 Q -18,58 -14,50 L -10,52 Q -12,58 -6,66 Z" fill="url(#af-wing)"/>
+            {/* Navigation lights */}
+            <circle cx="-12" cy="64" r={2.5} fill={GREEN} filter="url(#af-glow)" opacity={0.9}/>
+            <circle cx="-64" cy="-44" r={2} fill={RED} filter="url(#af-glow)" opacity={0.85}/>
+            {/* Airline livery stripe */}
+            <path d="M -64,11 L 72,11 L 72,7 L -64,7 Z" fill="#183896" opacity={0.55}/>
+            {/* Nose landing gear */}
+            <line x1="68" y1="11" x2="68" y2="28" stroke="#3C4858" strokeWidth={2.5}/>
+            <ellipse cx="68" cy="29" rx="5.5" ry="3" fill="#202838"/>
+            {/* Main landing gear — bogie axle with two wheel pairs */}
+            <line x1="3" y1="11" x2="3" y2="36" stroke="#3C4858" strokeWidth={4}/>
+            <line x1="3" y1="36" x2="-8" y2="36" stroke="#3C4858" strokeWidth={3}/>
+            <line x1="3" y1="36" x2="14" y2="36" stroke="#3C4858" strokeWidth={3}/>
+            <ellipse cx="-8" cy="37" rx="6" ry="3.5" fill="#202838"/>
+            <ellipse cx="14" cy="37" rx="6" ry="3.5" fill="#202838"/>
           </g>
           <text x="340" y="34" textAnchor="middle" fill="rgba(255,255,255,0.82)" fontSize="17" fontWeight="700" fontFamily="'Inter',sans-serif" letterSpacing="3.5">{funnelName?funnelName.toUpperCase():"DEPARTURE FUNNEL"}</text>
           <text x="340" y="50" textAnchor="middle" fill={YELLOW} fontSize="9" opacity={0.55} letterSpacing="2.2" fontFamily="'Inter',sans-serif">{`${steps.length} GATES · TERMINAL A`}</text>
@@ -7994,40 +8024,44 @@ function UHaulFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: num
             return <rect key={i} x={338} y={cy - dh / 2} width={4} height={dh} rx={1} fill="#E8C000" opacity={0.78} />;
           })}
 
-          {/* Exit signs along RIGHT shoulder, near→far */}
-          {steps.map((step, i) => {
-            const t = N > 1 ? i / (N - 1) : 0;
-            // perspective: near=bottom(t=0), far=top(t=1)
-            const sy = 418 - t * 198;
-            // right shoulder x = 605 - t*(605-392) at bottom, track the edge
-            const edgeX = 605 - t * (605 - 392);
-            const sx = edgeX + 28 - t * 6;
-            const ss = 1.0 - t * 0.52;
-            const clr = stepClr(step, i);
-            const pct = i === 0 ? null : fmtPct(step.convFromPrev);
-            return (
-              <g key={i} transform={`translate(${sx},${sy}) scale(${ss})`}>
-                {/* Post */}
-                <rect x={-3} y={-42} width={6} height={44} rx={2} fill="#7A7A7A" />
-                {/* Sign border */}
-                <rect x={-44} y={-98} width={88} height={58} rx={5} fill={UH_ORANGE} />
-                {/* Sign face */}
-                <rect x={-40} y={-94} width={80} height={50} rx={4} fill="white" />
-                {/* EXIT label */}
-                <text x={0} y={-72} textAnchor="middle" fill={UH_ORANGE} fontSize={11} fontWeight={900} fontFamily="'Impact',sans-serif" letterSpacing={1}>EXIT {i + 1}</text>
-                {/* Divider */}
-                <line x1={-36} y1={-64} x2={36} y2={-64} stroke="#DDD" strokeWidth={1} />
-                {/* Step name */}
-                <text x={0} y={-53} textAnchor="middle" fill="#333" fontSize={9} fontWeight={600}>
-                  {step.label.length > 13 ? step.label.slice(0, 12) + "…" : step.label}
-                </text>
-                {/* Conversion / start */}
-                <text x={0} y={-40} textAnchor="middle" fontSize={10} fontWeight={800} fill={i === 0 ? "#555" : (clr.replace("0.92)", "1)"))}>
-                  {i === 0 ? fmtCount(step.count) : pct}
-                </text>
-              </g>
-            );
-          })}
+          {/* Exit signs along RIGHT shoulder — uniform size, no text spillage */}
+          {(() => {
+            // compute a uniform scale that keeps all N signs non-overlapping
+            // sign+post local height = 102px; sy range = 220px
+            const ss = N > 1 ? Math.min(0.76, 215 / ((N - 1) * 102)) : 0.76;
+            return steps.map((step, i) => {
+              const t = N > 1 ? i / (N - 1) : 0;
+              const sy = 215 + t * 220;
+              // track right shoulder, add extra lateral offset near horizon where road is narrow
+              const tRoad = (sy - 208) / 247;
+              const edgeX = 392 + tRoad * (605 - 392);
+              const sx = edgeX + 30 + (1 - tRoad) * 14;
+              const clr = stepClr(step, i);
+              const pct = i === 0 ? null : fmtPct(step.convFromPrev);
+              return (
+                <g key={i} transform={`translate(${sx.toFixed(1)},${sy.toFixed(1)}) scale(${ss.toFixed(3)})`}>
+                  {/* Post */}
+                  <rect x={-3} y={-40} width={6} height={42} rx={2} fill="#7A7A7A" />
+                  {/* Sign border */}
+                  <rect x={-44} y={-102} width={88} height={64} rx={5} fill={UH_ORANGE} />
+                  {/* Sign face — taller to contain all text */}
+                  <rect x={-40} y={-98} width={80} height={56} rx={4} fill="white" />
+                  {/* EXIT label */}
+                  <text x={0} y={-76} textAnchor="middle" fill={UH_ORANGE} fontSize={11} fontWeight={900} fontFamily="'Impact',sans-serif" letterSpacing={1}>EXIT {i + 1}</text>
+                  {/* Divider */}
+                  <line x1={-36} y1={-68} x2={36} y2={-68} stroke="#DDD" strokeWidth={1} />
+                  {/* Step name — face spans y=-98 to y=-42; text renders safely inside */}
+                  <text x={0} y={-56} textAnchor="middle" fill="#333" fontSize={9} fontWeight={600}>
+                    {step.label.length > 13 ? step.label.slice(0, 12) + "…" : step.label}
+                  </text>
+                  {/* Value — baseline at -44, cap-top ~-54, well within face bottom -42 */}
+                  <text x={0} y={-44} textAnchor="middle" fontSize={10} fontWeight={800} fill={i === 0 ? "#666" : clr.replace("0.92)", "1)")}>
+                    {i === 0 ? fmtCount(step.count) : pct}
+                  </text>
+                </g>
+              );
+            });
+          })()}
 
           {/* U-Haul truck — side profile facing right */}
           <g transform="translate(230,392) scale(0.88)" filter="url(#uh-dropshadow)">
@@ -8047,8 +8081,13 @@ function UHaulFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: num
             {([-122, -90, -58] as number[]).map((bx, bi) => (
               <line key={bi} x1={bx} y1={-69} x2={bx} y2={-24} stroke="#E2E2E2" strokeWidth={1.2} />
             ))}
-            {/* U-HAUL text */}
-            <text x={-85} y={-47} textAnchor="middle" fill={UH_ORANGE} fontSize={18} fontWeight={900} fontFamily="'Impact','Arial Black',sans-serif" letterSpacing={2}>U-HAUL</text>
+            {/* Generic moving-box icon on truck body */}
+            <rect x={-112} y={-62} width={30} height={26} rx={2} fill="none" stroke={UH_ORANGE} strokeWidth={2}/>
+            <line x1={-112} y1={-49} x2={-82} y2={-49} stroke={UH_ORANGE} strokeWidth={1.5}/>
+            <line x1={-97} y1={-62} x2={-97} y2={-36} stroke={UH_ORANGE} strokeWidth={1.5}/>
+            <rect x={-76} y={-62} width={30} height={26} rx={2} fill="none" stroke={UH_ORANGE} strokeWidth={2}/>
+            <line x1={-76} y1={-49} x2={-46} y2={-49} stroke={UH_ORANGE} strokeWidth={1.5}/>
+            <line x1={-61} y1={-62} x2={-61} y2={-36} stroke={UH_ORANGE} strokeWidth={1.5}/>
             {/* Rear door handle */}
             <rect x={-28} y={-52} width={4} height={26} rx={2} fill="#AAA" />
             {/* Cab */}
