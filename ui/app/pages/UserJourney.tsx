@@ -6187,7 +6187,7 @@ function ElevatorFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: 
   const overallConv = steps[numFloors - 1]?.overallConv ?? 0;
   const totalRevLost = totalDropped > 0 && aov > 0 ? totalDropped * aov : 0;
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto" }}>
+    <div style={{ minHeight: 520 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
         {/* Left: floor buttons */}
         <div style={{ display: "flex", flexDirection: "column", gap: 7, justifyContent: "center", padding: "10px 8px", background: "linear-gradient(180deg, rgba(16,24,38,0.96) 0%, rgba(8,12,20,0.96) 100%)", border: "1px solid rgba(130,150,180,0.22)", borderRadius: 16, boxShadow: "inset 0 2px 10px rgba(255,255,255,0.05), inset 0 -10px 18px rgba(0,0,0,0.35), 0 8px 20px rgba(0,0,0,0.35)" }}>
@@ -6238,20 +6238,20 @@ function ElevatorFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: 
                   <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent 5%, ${accent}45 50%, transparent 95%)` }} />
                   <div style={{ minWidth: 52, textAlign: "center" }}>
                     <div style={{ fontSize: 26, fontWeight: 800, color: accent, lineHeight: "1" }}>{origIdx + 1}</div>
-                    <div style={{ fontSize: 7, color: "rgba(255,255,255,0.28)", letterSpacing: "0.7px", marginTop: 3, textTransform: "uppercase" }}>{floorLabel}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", letterSpacing: "0.7px", marginTop: 3, textTransform: "uppercase" }}>{floorLabel}</div>
                   </div>
                   <div style={{ width: 1, height: 46, background: `${accent}28`, flexShrink: 0 }} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 5 }}>{step.label}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 5 }}>{step.label}</div>
                     <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>{fmtCount(step.count)} sessions</span>
-                      {step.apdex != null && <span style={{ fontSize: 12, fontWeight: 600, color: apdexClr(step.apdex) }}>Apdex: {step.apdex.toFixed(2)}</span>}
+                      <span style={{ fontSize: 15, color: "rgba(255,255,255,0.5)" }}>{fmtCount(step.count)} sessions</span>
+                      {step.apdex != null && <span style={{ fontSize: 15, fontWeight: 600, color: apdexClr(step.apdex) }}>Apdex: {step.apdex.toFixed(2)}</span>}
                     </div>
                   </div>
                   <div style={{ textAlign: "right", minWidth: 74, flexShrink: 0 }}>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: statusClr(step.overallConv) }}>{fmtPct(step.overallConv)}</div>
-                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", letterSpacing: 0.5 }}>overall</div>
-                    {origIdx > 0 && <div style={{ fontSize: 11, color: step.convFromPrev >= 80 ? GREEN : step.convFromPrev >= 50 ? YELLOW : RED, marginTop: 2, fontWeight: 600 }}>{fmtPct(step.convFromPrev)} conv</div>}
+                    <div style={{ fontSize: 22, fontWeight: 700, color: statusClr(step.overallConv) }}>{fmtPct(step.overallConv)}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", letterSpacing: 0.5 }}>overall</div>
+                    {origIdx > 0 && <div style={{ fontSize: 13, color: step.convFromPrev >= 80 ? GREEN : step.convFromPrev >= 50 ? YELLOW : RED, marginTop: 2, fontWeight: 600 }}>{fmtPct(step.convFromPrev)} conv</div>}
                   </div>
                   <div style={{ display: "flex", gap: 2, marginLeft: 2, flexShrink: 0 }}>
                     {([0, 1] as const).map(d => (
@@ -6266,8 +6266,8 @@ function ElevatorFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: 
           })}
         </div>
         {/* Right: Journey Metrics */}
-        <div style={{ minWidth: 200, border: "1px solid rgba(128,128,128,0.18)", borderRadius: 10, padding: "14px 14px", background: "rgba(12,17,27,0.7)", display: "flex", flexDirection: "column" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: "rgba(255,255,255,0.35)", marginBottom: 12, textTransform: "uppercase", textAlign: "center", paddingBottom: 8, borderBottom: "1px solid rgba(128,128,128,0.12)" }}>Journey Metrics</div>
+        <div style={{ minWidth: 300, border: "1px solid rgba(128,128,128,0.18)", borderRadius: 10, padding: "14px 14px", background: "rgba(12,17,27,0.7)", display: "flex", flexDirection: "column" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: "rgba(255,255,255,0.35)", marginBottom: 12, textTransform: "uppercase", textAlign: "center", paddingBottom: 8, borderBottom: "1px solid rgba(128,128,128,0.12)" }}>Journey Metrics</div>
           {reversedSteps.map((step, di) => {
             const origIdx = numFloors - 1 - di;
             const floorAbove = di > 0 ? reversedSteps[di - 1] : null;
@@ -6275,17 +6275,17 @@ function ElevatorFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: 
             const revLost = dropCount > 0 && aov > 0 ? dropCount * aov : 0;
             return (
               <div key={origIdx} style={{ marginBottom: di < reversedSteps.length - 1 ? 9 : 0, paddingBottom: di < reversedSteps.length - 1 ? 9 : 0, borderBottom: di < reversedSteps.length - 1 ? "1px solid rgba(128,128,128,0.09)" : "none" }}>
-                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginBottom: 2 }}>Floor {origIdx + 1}</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginBottom: 2 }}>Floor {origIdx + 1}</div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: statusClr(step.overallConv) }}>{fmtPct(step.overallConv)}</div>
-                    <div style={{ fontSize: 9, color: "rgba(255,255,255,0.28)" }}>overall</div>
-                    {origIdx > 0 && <div style={{ fontSize: 10, marginTop: 2, display: "flex", gap: 5 }}><span style={{ color: step.convFromPrev >= 70 ? GREEN : step.convFromPrev >= 40 ? YELLOW : RED, fontWeight: 600 }}>{fmtPct(step.convFromPrev)} conv</span><span style={{ color: RED }}>{fmtPct(100 - step.convFromPrev)} drop</span></div>}
+                    <div style={{ fontSize: 28, fontWeight: 700, color: statusClr(step.overallConv) }}>{fmtPct(step.overallConv)}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)" }}>overall</div>
+                    {origIdx > 0 && <div style={{ fontSize: 13, marginTop: 2, display: "flex", gap: 5 }}><span style={{ color: step.convFromPrev >= 70 ? GREEN : step.convFromPrev >= 40 ? YELLOW : RED, fontWeight: 600 }}>{fmtPct(step.convFromPrev)} conv</span><span style={{ color: RED }}>{fmtPct(100 - step.convFromPrev)} drop</span></div>}
                   </div>
                   {dropCount > 0 && (
                     <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: RED }}>−{fmtCount(dropCount)}</div>
-                      {revLost > 0 && <div style={{ fontSize: 10, color: RED }}>{fmtCurrency(revLost)} lost</div>}
+                      <div style={{ fontSize: 13, fontWeight: 600, color: RED }}>−{fmtCount(dropCount)}</div>
+                      {revLost > 0 && <div style={{ fontSize: 11, color: RED }}>{fmtCurrency(revLost)} lost</div>}
                     </div>
                   )}
                 </div>
@@ -6304,10 +6304,10 @@ function ElevatorFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: 
       </div>
       {/* Bottom stats */}
       <div style={{ marginTop: 10, padding: "11px 18px", background: "rgba(12,17,27,0.7)", border: "1px solid rgba(70,85,110,0.28)", borderRadius: 8, display: "flex", justifyContent: "space-around", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 9, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Sessions</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmtCount(totalSessions)}</div></div>
-        <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 9, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Conversion</div><div style={{ fontSize: 18, fontWeight: 700, color: overallConv >= 50 ? GREEN : overallConv >= 25 ? YELLOW : RED }}>{fmtPct(overallConv)}</div></div>
-        <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 9, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Sessions Lost</div><div style={{ fontSize: 18, fontWeight: 700, color: RED }}>{fmtCount(totalDropped)}</div></div>
-        {totalRevLost > 0 && <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 9, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Revenue Lost</div><div style={{ fontSize: 18, fontWeight: 700, color: RED }}>{fmtCurrency(totalRevLost)}</div></div>}
+        <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 13, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Sessions</div><div style={{ fontSize: 28, fontWeight: 700 }}>{fmtCount(totalSessions)}</div></div>
+        <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 13, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Conversion</div><div style={{ fontSize: 28, fontWeight: 700, color: overallConv >= 50 ? GREEN : overallConv >= 25 ? YELLOW : RED }}>{fmtPct(overallConv)}</div></div>
+        <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 13, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Sessions Lost</div><div style={{ fontSize: 28, fontWeight: 700, color: RED }}>{fmtCount(totalDropped)}</div></div>
+        {totalRevLost > 0 && <div style={{ textAlign: "center", minWidth: 90 }}><div style={{ fontSize: 13, color: "rgba(255,255,255,0.32)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>Total Revenue Lost</div><div style={{ fontSize: 28, fontWeight: 700, color: RED }}>{fmtCurrency(totalRevLost)}</div></div>}
       </div>
     </div>
   );
@@ -6333,8 +6333,8 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
     : "MRI";
 
   return (
-    <div style={{ maxWidth: 1120, margin: "0 auto" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "240px 1fr 285px", gap: 14, alignItems: "stretch" }}>
+    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "300px 1fr 330px", gap: 14, alignItems: "stretch" }}>
 
         {/* ── LEFT: Journey Stages ── */}
         <div style={{ border: "1px solid rgba(70,95,130,0.35)", borderRadius: 12, padding: "12px 12px", background: "linear-gradient(180deg, rgba(9,20,36,0.95), rgba(8,14,26,0.92))" }}>
@@ -6345,8 +6345,8 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
               <div key={`mri-L${i}`} style={{ display: "grid", gridTemplateColumns: "28px 1fr", columnGap: 8, alignItems: "start", marginBottom: i < steps.length - 1 ? 12 : 0 }}>
                 <div style={{ width: 26, height: 26, borderRadius: "50%", border: `1.5px solid ${pc}`, background: `${pc}22`, color: pc, fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</div>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700 }}>{step.label.toUpperCase()}</div>
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.48)", marginTop: 1 }}>{fmtCount(step.count)} members</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{step.label.toUpperCase()}</div>
+                  <div style={{ fontSize: 22, color: "rgba(255,255,255,0.48)", marginTop: 1 }}>{fmtCount(step.count)} members</div>
                 </div>
               </div>
             );
@@ -6569,11 +6569,11 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                     <div style={{ width: 24, height: 24, borderRadius: "50%", border: `1px solid ${pc}`, background: `${pc}22`, color: pc, fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{origIdx + 1}</div>
-                    <div style={{ fontSize: 14, fontWeight: 900 }}>{fmtCount(step.count)}</div>
+                    <div style={{ fontSize: 22, fontWeight: 900 }}>{fmtCount(step.count)}</div>
                   </div>
-                  <div style={{ fontSize: 11, color: statusClr(step.overallConv), fontWeight: 700 }}>{fmtPct(step.overallConv)} overall</div>
+                  <div style={{ fontSize: 14, color: statusClr(step.overallConv), fontWeight: 700 }}>{fmtPct(step.overallConv)} overall</div>
                 </div>
-                <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", fontSize: 13 }}>
                   <span style={{ color: origIdx > 0 ? (step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED) : "rgba(255,255,255,0.5)" }}>{origIdx > 0 ? `${fmtPct(step.convFromPrev)} conv` : "100.0% conv"}</span>
                   <span style={{ color: dropCount > 0 ? RED : "rgba(255,255,255,0.45)" }}>{dropCount > 0 ? `${fmtCount(dropCount)} drop` : "-"}</span>
                 </div>
@@ -6581,11 +6581,11 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
             );
           })}
           <div style={{ marginTop: "auto", borderTop: "1px solid rgba(90,115,145,0.22)", paddingTop: 9 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 3 }}>
               <span style={{ color: "rgba(255,255,255,0.55)" }}>Overall conversion</span>
               <span style={{ color: statusClr(overallConv), fontWeight: 800 }}>{fmtPct(overallConv)}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
               <span style={{ color: "rgba(255,255,255,0.55)" }}>Total drop-off</span>
               <span style={{ color: RED, fontWeight: 700 }}>{fmtCount(totalDropped)}{totalRevLost > 0 ? ` (${fmtCurrency(totalRevLost)})` : ""}</span>
             </div>
@@ -6642,7 +6642,7 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
         <div style={{ fontSize: 16, fontWeight: 700, color: "rgba(190,218,255,0.9)", letterSpacing: 0.9 }}>DRIVING CUSTOMERS FROM INTEREST TO FUNDED LOAN</div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "420px 1fr 238px", gap: 12, alignItems: "stretch", position: "relative" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "380px 1fr 310px", gap: 12, alignItems: "stretch", position: "relative" }}>
         <div style={{ position: "relative", paddingRight: 12 }}>
           {steps.map((step, i) => {
             const color = stageColors[i % stageColors.length] ?? BLUE;
@@ -7042,20 +7042,20 @@ function RocketLaunchFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; a
   ];
   if (revenueAtRisk > 0) metrics.push({ icon: "⚠️", label: "Revenue at Risk", value: fmtCurrency(revenueAtRisk), clr: RED, sub: `${fmtCount(totalDropped)} sessions lost` });
   return (
-    <div style={{ maxWidth: 1120, margin: "0 auto" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "240px 1fr 285px", gap: 14, alignItems: "stretch" }}>
-        <div style={{ border: "1px solid rgba(70,120,200,0.35)", borderRadius: 14, padding: 12, background: "rgba(6,10,22,0.97)" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: "rgba(255,255,255,0.38)", textTransform: "uppercase", marginBottom: 10, paddingBottom: 7, borderBottom: "1px solid rgba(70,120,200,0.2)" }}>Mission Stages</div>
+    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "300px 1fr 330px", gap: 14, alignItems: "stretch" }}>
+        <div style={{ border: "1px solid rgba(70,120,200,0.35)", borderRadius: 14, padding: 14, background: "rgba(6,10,22,0.97)" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: 1.5, color: "rgba(255,255,255,0.38)", textTransform: "uppercase", marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid rgba(70,120,200,0.2)" }}>Mission Stages</div>
           {steps.map((step, i) => {
             const clr = bandColor(step, i);
             const dropCount = i > 0 ? Math.max(0, steps[i - 1].count - step.count) : 0;
             return (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "28px 1fr", columnGap: 9, alignItems: "start", marginBottom: i < N - 1 ? 12 : 0 }}>
-                <div style={{ width: 26, height: 26, borderRadius: "50%", border: `1.5px solid ${clr}`, background: `${clr}18`, color: clr, fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</div>
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "34px 1fr", columnGap: 10, alignItems: "start", marginBottom: i < N - 1 ? 14 : 0 }}>
+                <div style={{ width: 32, height: 32, borderRadius: "50%", border: `1.5px solid ${clr}`, background: `${clr}18`, color: clr, fontSize: 14, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</div>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.2 }}>{step.label}</div>
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.48)", marginTop: 2 }}>{fmtCount(step.count)} sessions</div>
-                  {i > 0 && <div style={{ fontSize: 10, marginTop: 2, fontWeight: 600, color: step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED }}>{fmtPct(step.convFromPrev)} conv · −{fmtCount(dropCount)} drop</div>}
+                  <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>{step.label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "rgba(255,255,255,0.9)", marginTop: 2 }}>{fmtCount(step.count)}</div>
+                  {i > 0 && <div style={{ fontSize: 13, marginTop: 2, fontWeight: 600, color: step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED }}>{fmtPct(step.convFromPrev)} conv · −{fmtCount(dropCount)} drop</div>}
                 </div>
               </div>
             );
@@ -7129,27 +7129,27 @@ function RocketLaunchFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; a
             <ellipse cx={cx} cy={bellBotY + 4} rx="50" ry="7" fill="rgba(255,148,0,0.52)" filter="url(#rlf_blur8)" className="rlf-pulse"/>
           </svg>
         </div>
-        <div style={{ border: "1px solid rgba(70,120,200,0.35)", borderRadius: 14, padding: "10px 12px", background: "rgba(6,10,22,0.97)", display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: "rgba(255,255,255,0.38)", textTransform: "uppercase", paddingBottom: 7, borderBottom: "1px solid rgba(70,120,200,0.2)" }}>Mission Metrics</div>
+        <div style={{ border: "1px solid rgba(70,120,200,0.35)", borderRadius: 14, padding: "12px 14px", background: "rgba(6,10,22,0.97)", display: "flex", flexDirection: "column", gap: 9 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: 1.5, color: "rgba(255,255,255,0.38)", textTransform: "uppercase", paddingBottom: 8, borderBottom: "1px solid rgba(70,120,200,0.2)" }}>Mission Metrics</div>
           {metrics.map((m, mi) => (
-            <div key={mi} style={{ background: "rgba(10,18,38,0.88)", border: `1px solid ${m.clr}28`, borderRadius: 10, padding: "9px 11px", flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}><span style={{ fontSize: 18 }}>{m.icon}</span><span style={{ fontSize: 9.5, fontWeight: 700, color: "rgba(255,255,255,0.38)", textTransform: "uppercase" }}>{m.label}</span></div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.32)", marginTop: 3 }}>{m.sub}</div>
+            <div key={mi} style={{ background: "rgba(10,18,38,0.88)", border: `1px solid ${m.clr}28`, borderRadius: 10, padding: "10px 12px", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}><span style={{ fontSize: 20 }}>{m.icon}</span><span style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.38)", textTransform: "uppercase" }}>{m.label}</span></div>
+              <div style={{ fontSize: 30, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.32)", marginTop: 3 }}>{m.sub}</div>
             </div>
           ))}
-          <div style={{ borderTop: "1px solid rgba(70,120,200,0.18)", paddingTop: 8 }}>
-            <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", marginBottom: 6 }}>Stage Breakdown</div>
+          <div style={{ borderTop: "1px solid rgba(70,120,200,0.18)", paddingTop: 9 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", marginBottom: 7 }}>Stage Breakdown</div>
             {steps.map((step, i) => {
               const clr = bandColor(step, i);
               return (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: clr }}/><span style={{ fontSize: 10, color: "rgba(255,255,255,0.58)", maxWidth: 108, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{step.label}</span>
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: clr }}/><span style={{ fontSize: 12, color: "rgba(255,255,255,0.58)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{step.label}</span>
                   </div>
-                  <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.82)" }}>{fmtCount(step.count)}</span>
-                    {i > 0 && <span style={{ fontSize: 9, fontWeight: 600, color: clr }}>{fmtPct(step.convFromPrev)}</span>}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.82)" }}>{fmtCount(step.count)}</span>
+                    {i > 0 && <span style={{ fontSize: 12, fontWeight: 600, color: clr }}>{fmtPct(step.convFromPrev)}</span>}
                   </div>
                 </div>
               );
@@ -7170,19 +7170,19 @@ function AirportFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
   const convColor = (pct: number) => pct >= 60 ? GREEN : pct >= 35 ? YELLOW : RED;
   const runwayCount = Math.max(steps.length, 3);
   return (
-    <div style={{ background: "rgba(6,8,18,0.97)", borderRadius: 16, padding: 20, fontFamily: "'Inter','Segoe UI',sans-serif", color: "#e8eaf6", display: "grid", gridTemplateColumns: "240px 1fr 285px", gap: 14, minHeight: 500 }}>
-      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: "16px 14px", border: "1px solid rgba(255,255,255,0.07)", display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: BLUE, textTransform: "uppercase", marginBottom: 6 }}>✈ Boarding Stages</div>
-        {funnelName && <div style={{ fontSize: 12, fontWeight: 600, color: "#c5cae9", marginBottom: 4, paddingBottom: 8, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>{funnelName}</div>}
+    <div style={{ background: "rgba(6,8,18,0.97)", borderRadius: 16, padding: 20, fontFamily: "'Inter','Segoe UI',sans-serif", color: "#e8eaf6", display: "grid", gridTemplateColumns: "300px 1fr 330px", gap: 14, minHeight: 520 }}>
+      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: "16px 14px", border: "1px solid rgba(255,255,255,0.07)", display: "flex", flexDirection: "column", gap: 9 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.18em", color: BLUE, textTransform: "uppercase", marginBottom: 6 }}>✈ Boarding Stages</div>
+        {funnelName && <div style={{ fontSize: 14, fontWeight: 600, color: "#c5cae9", marginBottom: 4, paddingBottom: 8, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>{funnelName}</div>}
         {steps.map((step, i) => (
-          <div key={i} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "10px 12px", border: `1px solid ${i === steps.length - 1 ? "rgba(0,219,117,0.2)" : "rgba(255,255,255,0.05)"}`, position: "relative", overflow: "hidden" }}>
+          <div key={i} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "12px 14px", border: `1px solid ${i === steps.length - 1 ? "rgba(0,219,117,0.2)" : "rgba(255,255,255,0.05)"}`, position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", inset: 0, width: `${step.overallConv}%`, background: "rgba(70,160,255,0.07)", borderRadius: 8 }}/>
             <div style={{ position: "relative", zIndex: 1 }}>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", color: YELLOW, marginBottom: 2 }}>GATE {i + 1}</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#e8eaf6", lineHeight: 1.3, marginBottom: 5 }}>{step.label}</div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", color: YELLOW, marginBottom: 3 }}>GATE {i + 1}</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "#e8eaf6", lineHeight: 1.3, marginBottom: 6 }}>{step.label}</div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{fmtCount(step.count)}</span>
-                <span style={{ fontSize: 10, fontWeight: 700, color: i === 0 ? "#9fa8da" : convColor(step.convFromPrev), background: i === 0 ? "rgba(159,168,218,0.12)" : `${convColor(step.convFromPrev)}22`, padding: "2px 7px", borderRadius: 10 }}>{i === 0 ? "START" : fmtPct(step.convFromPrev)}</span>
+                <span style={{ fontSize: 22, fontWeight: 800, color: "#fff" }}>{fmtCount(step.count)}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: i === 0 ? "#9fa8da" : convColor(step.convFromPrev), background: i === 0 ? "rgba(159,168,218,0.12)" : `${convColor(step.convFromPrev)}22`, padding: "3px 9px", borderRadius: 10 }}>{i === 0 ? "START" : fmtPct(step.convFromPrev)}</span>
               </div>
             </div>
           </div>
@@ -7257,7 +7257,7 @@ function AirportFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
         </svg>
       </div>
       <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: "16px 14px", border: "1px solid rgba(255,255,255,0.07)", display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: YELLOW, textTransform: "uppercase", marginBottom: 4 }}>✈ Flight Metrics</div>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.18em", color: YELLOW, textTransform: "uppercase", marginBottom: 4 }}>✈ Flight Metrics</div>
         {[
           { icon: "✈", label: "Total Passengers", value: fmtCount(totalPassengers), sub: "entered funnel", color: BLUE },
           { icon: "🛫", label: "Departed", value: fmtCount(boarded), sub: `cleared gate ${steps.length}`, color: GREEN },
@@ -7266,22 +7266,22 @@ function AirportFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
           { icon: "🚫", label: "No-Shows", value: fmtCount(noShows), sub: `${fmtPct(100 - overallConv)} lost`, color: RED },
         ].map((m, i) => (
           <div key={i} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "11px 13px", border: `1px solid ${m.color}22`, position: "relative", overflow: "hidden" }}>
-            <div style={{ position: "absolute", right: 10, top: 8, fontSize: 22, opacity: 0.13 }}>{m.icon}</div>
-            <div style={{ fontSize: 9.5, color: "#9fa8da", fontWeight: 500, textTransform: "uppercase", marginBottom: 3 }}>{m.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: m.color, lineHeight: 1, marginBottom: 3 }}>{m.value}</div>
-            <div style={{ fontSize: 10, color: "#4c5870" }}>{m.sub}</div>
+            <div style={{ position: "absolute", right: 10, top: 8, fontSize: 24, opacity: 0.13 }}>{m.icon}</div>
+            <div style={{ fontSize: 12, color: "#9fa8da", fontWeight: 600, textTransform: "uppercase", marginBottom: 3 }}>{m.label}</div>
+            <div style={{ fontSize: 30, fontWeight: 800, color: m.color, lineHeight: 1, marginBottom: 3 }}>{m.value}</div>
+            <div style={{ fontSize: 11, color: "#4c5870" }}>{m.sub}</div>
           </div>
         ))}
         {steps.length > 1 && (
           <div style={{ marginTop: 2, background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 12px", border: "1px solid rgba(255,255,255,0.05)" }}>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", color: "#7986cb", textTransform: "uppercase", marginBottom: 8 }}>Stage Conversion</div>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: "#7986cb", textTransform: "uppercase", marginBottom: 8 }}>Stage Conversion</div>
             {steps.slice(1).map((step, i) => (
-              <div key={i} style={{ marginBottom: 7 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
-                  <span style={{ fontSize: 9, color: "#5c6880" }}>{`G${i+1} → G${i+2}`}</span>
-                  <span style={{ fontSize: 9, fontWeight: 700, color: convColor(step.convFromPrev) }}>{fmtPct(step.convFromPrev)}</span>
+              <div key={i} style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ fontSize: 12, color: "#5c6880" }}>{`G${i+1} → G${i+2}`}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: convColor(step.convFromPrev) }}>{fmtPct(step.convFromPrev)}</span>
                 </div>
-                <div style={{ height: 3, background: "rgba(255,255,255,0.08)", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ height: 4, background: "rgba(255,255,255,0.08)", borderRadius: 2, overflow: "hidden" }}>
                   <div style={{ height: "100%", width: `${Math.min(step.convFromPrev,100)}%`, background: convColor(step.convFromPrev), borderRadius: 2 }}/>
                 </div>
               </div>
@@ -7306,25 +7306,25 @@ function RetailFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: nu
   const cartIcons = ["🛒","🔍","🛍","💳","✅"];
   return (
     <div style={{ background: "rgba(8,6,14,0.97)", borderRadius: 16, padding: 20, fontFamily: "'Inter',sans-serif", color: "#e8e0f0" }}>
-      {funnelName && <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, letterSpacing: 3, color: ORANGE, marginBottom: 14, textTransform: "uppercase" }}>{funnelName}</div>}
-      <div style={{ display: "grid", gridTemplateColumns: "240px 1fr 285px", gap: 14 }}>
+      {funnelName && <div style={{ textAlign: "center", fontSize: 15, fontWeight: 700, letterSpacing: 3, color: ORANGE, marginBottom: 14, textTransform: "uppercase" }}>{funnelName}</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "300px 1fr 330px", gap: 14 }}>
         <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: "14px 12px", border: "1px solid rgba(255,200,60,0.12)" }}>
-          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2.5, color: ORANGE, marginBottom: 14, textTransform: "uppercase" }}>Shopping Stages</div>
+          <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 2.5, color: ORANGE, marginBottom: 14, textTransform: "uppercase" }}>Shopping Stages</div>
           {steps.map((step, i) => {
             const icon = cartIcons[Math.min(i, cartIcons.length - 1)];
             const isLast = i === steps.length - 1;
             const convColor = getConvColor(step.convFromPrev);
             return (
-              <div key={i} style={{ marginBottom: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <div style={{ width: 30, height: 30, borderRadius: 8, background: isLast?`${GREEN}22`:`rgba(255,200,60,0.08)`, border: `1px solid ${isLast?GREEN:"rgba(255,200,60,0.2)"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{icon}</div>
+              <div key={i} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 5 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 8, background: isLast?`${GREEN}22`:`rgba(255,200,60,0.08)`, border: `1px solid ${isLast?GREEN:"rgba(255,200,60,0.2)"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>{icon}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "#c8bdd8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{step.label}</div>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: "#fff" }}>{fmtCount(step.count)}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#c8bdd8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{step.label}</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: "#fff" }}>{fmtCount(step.count)}</div>
                   </div>
                 </div>
-                {i > 0 && <div style={{ display: "flex", justifyContent: "space-between", paddingLeft: 38 }}><div style={{ fontSize: 9, color: convColor, fontWeight: 700 }}>↓ {fmtPct(step.convFromPrev)}</div><div style={{ fontSize: 9, color: "rgba(200,190,220,0.6)" }}>overall {fmtPct(step.overallConv)}</div></div>}
-                {!isLast && <div style={{ height: 1, background: "rgba(255,200,60,0.08)", marginTop: 8, marginLeft: 38 }}/>}
+                {i > 0 && <div style={{ display: "flex", justifyContent: "space-between", paddingLeft: 43 }}><div style={{ fontSize: 13, color: convColor, fontWeight: 700 }}>↓ {fmtPct(step.convFromPrev)}</div><div style={{ fontSize: 12, color: "rgba(200,190,220,0.6)" }}>overall {fmtPct(step.overallConv)}</div></div>}
+                {!isLast && <div style={{ height: 1, background: "rgba(255,200,60,0.08)", marginTop: 9, marginLeft: 43 }}/>}
               </div>
             );
           })}
@@ -7406,7 +7406,7 @@ function RetailFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: nu
           </svg>
         </div>
         <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: "14px 12px", border: "1px solid rgba(0,219,117,0.12)", display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2.5, color: GREEN, marginBottom: 4, textTransform: "uppercase" }}>Purchase Metrics</div>
+          <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 2.5, color: GREEN, marginBottom: 4, textTransform: "uppercase" }}>Purchase Metrics</div>
           {[
             { icon: "🛒", label: "Total Visitors", value: fmtCount(totalVisitors), sub: "entering the funnel", clr: BLUE },
             { icon: "🛍", label: "Purchases", value: fmtCount(purchases), sub: "completed transactions", clr: GREEN },
@@ -7415,10 +7415,10 @@ function RetailFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: nu
             { icon: "🚪", label: "Cart Abandonment", value: fmtCount(cartAbandonment), sub: `${fmtPct(100-overallConvRate)} lost`, clr: RED },
           ].map((m, i) => (
             <div key={i} style={{ background: `${m.clr}11`, borderRadius: 10, padding: "10px 12px", border: `1px solid ${m.clr}33` }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}><span style={{ fontSize: 18 }}>{m.icon}</span><span style={{ fontSize: 9, fontWeight: 700, color: m.clr, letterSpacing: 1.5, textTransform: "uppercase" }}>{m.label}</span></div>
-              <div style={{ fontSize: 24, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}><span style={{ fontSize: 20 }}>{m.icon}</span><span style={{ fontSize: 12, fontWeight: 700, color: m.clr, letterSpacing: 1.5, textTransform: "uppercase" }}>{m.label}</span></div>
+              <div style={{ fontSize: 30, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
               {i === 2 && <div style={{ height: 4, background: "rgba(255,255,255,0.08)", borderRadius: 2, marginTop: 6 }}><div style={{ height: "100%", width: `${Math.min(overallConvRate,100)}%`, background: m.clr, borderRadius: 2 }}/></div>}
-              {m.sub && <div style={{ fontSize: 9, color: "rgba(200,190,220,0.5)", marginTop: 2 }}>{m.sub}</div>}
+              {m.sub && <div style={{ fontSize: 11, color: "rgba(200,190,220,0.5)", marginTop: 2 }}>{m.sub}</div>}
             </div>
           ))}
         </div>
@@ -7443,25 +7443,25 @@ function CyberFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: num
   const packetNodes: Array<{x:number;y:number;r:number;color:string;delay:number}> = [];
   for(let i=0;i<18;i++){const angle=(i/18)*Math.PI*2+0.15;const frac=0.25+(i%4)*0.16;const pr=minRadius+(maxRadius-minRadius)*frac;packetNodes.push({x:cx+Math.cos(angle)*pr,y:cy+Math.sin(angle)*pr,r:2.5+(i%3),color:i%3===0?'rgba(0,240,200,0.95)':i%3===1?'rgba(70,160,255,0.95)':'rgba(0,219,117,0.95)',delay:(i*0.35)%4.2});}
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'240px 1fr 285px', gap:'14px', background:'rgba(2,6,12,0.99)', padding:'16px', borderRadius:'10px', minHeight:'490px', fontFamily:"'Courier New',Courier,monospace", color:'#b0c8e8' }}>
-      <div style={{ background:'rgba(4,12,26,0.98)', borderRadius:'8px', border:'1px solid rgba(0,180,255,0.18)', padding:'14px 11px', display:'flex', flexDirection:'column', gap:'7px' }}>
-        <div style={{ fontSize:'9.5px', fontWeight:700, letterSpacing:'2px', color:'rgba(0,220,255,0.9)', borderBottom:'1px solid rgba(0,180,255,0.2)', paddingBottom:'8px', marginBottom:'2px', textAlign:'center' }}>⬡ SECURITY PIPELINE</div>
+    <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 330px', gap:'14px', background:'rgba(2,6,12,0.99)', padding:'16px', borderRadius:'10px', minHeight:'520px', fontFamily:"'Courier New',Courier,monospace", color:'#b0c8e8' }}>
+      <div style={{ background:'rgba(4,12,26,0.98)', borderRadius:'8px', border:'1px solid rgba(0,180,255,0.18)', padding:'14px 11px', display:'flex', flexDirection:'column', gap:'8px' }}>
+        <div style={{ fontSize:'13px', fontWeight:700, letterSpacing:'2px', color:'rgba(0,220,255,0.9)', borderBottom:'1px solid rgba(0,180,255,0.2)', paddingBottom:'8px', marginBottom:'2px', textAlign:'center' }}>⬡ SECURITY PIPELINE</div>
         {steps.map((step,i)=>{
           const colorIdx=Math.min(i,ringColors.length-1); const rc=ringColors[colorIdx];
           const convColor=i===0?'rgba(160,200,240,0.5)':step.convFromPrev>=60?GREEN:step.convFromPrev>=30?YELLOW:RED;
           const clearance=clearanceLevels[Math.min(i,clearanceLevels.length-1)];
           const icon=i>=steps.length-1?'🔒':i>=steps.length-2?'🛡':'🔍';
           return(
-            <div key={i} style={{ background:rc.replace('0.9)','0.05)'), border:`1px solid ${rc.replace('0.9)','0.22)')}`, borderRadius:'6px', padding:'8px 9px', position:'relative' }}>
-              {i>0&&<div style={{ position:'absolute', top:'-7px', left:'50%', transform:'translateX(-50%)', fontSize:'8px', color:'rgba(0,180,255,0.45)', lineHeight:1 }}>▼</div>}
-              <div style={{ display:'flex', alignItems:'center', gap:'6px', marginBottom:'4px' }}><span style={{fontSize:'13px'}}>{icon}</span><span style={{ fontSize:'10.5px', fontWeight:600, color:'#d0e8ff', flex:1, lineHeight:1.25 }}>{step.label}</span></div>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'3px' }}>
-                <span style={{ fontSize:'14px', fontWeight:700, color:'#e8f4ff' }}>{fmtCount(step.count)}</span>
-                <span style={{ fontSize:'8px', fontWeight:700, padding:'2px 5px', borderRadius:'3px', background:rc.replace('0.9)','0.12)'), border:`1px solid ${rc.replace('0.9)','0.45)')}`, color:rc, letterSpacing:'0.4px' }}>{clearance}</span>
+            <div key={i} style={{ background:rc.replace('0.9)','0.05)'), border:`1px solid ${rc.replace('0.9)','0.22)')}`, borderRadius:'6px', padding:'10px 10px', position:'relative' }}>
+              {i>0&&<div style={{ position:'absolute', top:'-8px', left:'50%', transform:'translateX(-50%)', fontSize:'10px', color:'rgba(0,180,255,0.45)', lineHeight:1 }}>▼</div>}
+              <div style={{ display:'flex', alignItems:'center', gap:'6px', marginBottom:'5px' }}><span style={{fontSize:'15px'}}>{icon}</span><span style={{ fontSize:'14px', fontWeight:600, color:'#d0e8ff', flex:1, lineHeight:1.25 }}>{step.label}</span></div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'4px' }}>
+                <span style={{ fontSize:'22px', fontWeight:700, color:'#e8f4ff' }}>{fmtCount(step.count)}</span>
+                <span style={{ fontSize:'10px', fontWeight:700, padding:'2px 6px', borderRadius:'3px', background:rc.replace('0.9)','0.12)'), border:`1px solid ${rc.replace('0.9)','0.45)')}`, color:rc, letterSpacing:'0.4px' }}>{clearance}</span>
               </div>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                <span style={{ fontSize:'8.5px', color:'rgba(140,180,230,0.55)' }}>{i===0?'Baseline':'Prev conv:'}</span>
-                <span style={{ fontSize:'11px', fontWeight:700, color:convColor }}>{i===0?'—':fmtPct(step.convFromPrev)}</span>
+                <span style={{ fontSize:'11px', color:'rgba(140,180,230,0.55)' }}>{i===0?'Baseline':'Prev conv:'}</span>
+                <span style={{ fontSize:'14px', fontWeight:700, color:convColor }}>{i===0?'—':fmtPct(step.convFromPrev)}</span>
               </div>
             </div>
           );
@@ -7539,7 +7539,7 @@ function CyberFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: num
         </svg>
       </div>
       <div style={{ background:'rgba(4,12,26,0.98)', borderRadius:'8px', border:'1px solid rgba(0,180,255,0.18)', padding:'14px 12px', display:'flex', flexDirection:'column', gap:'10px' }}>
-        <div style={{ fontSize:'9.5px', fontWeight:700, letterSpacing:'2px', color:'rgba(0,220,255,0.9)', borderBottom:'1px solid rgba(0,180,255,0.2)', paddingBottom:'8px', textAlign:'center' }}>◈ THREAT METRICS</div>
+        <div style={{ fontSize:'13px', fontWeight:700, letterSpacing:'2px', color:'rgba(0,220,255,0.9)', borderBottom:'1px solid rgba(0,180,255,0.2)', paddingBottom:'8px', textAlign:'center' }}>◈ THREAT METRICS</div>
         {[
           { label:'🔍 Total Threats', value:fmtCount(totalThreats), clr:BLUE, bg:'rgba(0,25,65,0.5)', bd:'rgba(0,160,255,0.2)', sub:steps.length>0?steps[0].label:'—' },
           { label:'🛡 Successfully Secured', value:fmtCount(secured), clr:GREEN, bg:'rgba(0,35,18,0.5)', bd:'rgba(0,180,80,0.22)', sub:aov>0?`Est. value: ${fmtCurrency(secured*aov)}`:'Endpoints protected' },
@@ -7547,16 +7547,16 @@ function CyberFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: num
           { label:'☠ Threats Neutralized', value:fmtCount(neutralized), clr:RED, bg:'rgba(38,6,6,0.5)', bd:'rgba(255,70,70,0.2)', sub:`${fmtPct(totalThreats>0?(neutralized/totalThreats)*100:0)} blocked` },
         ].map((m,i)=>(
           <div key={i} style={{ background:m.bg, border:`1px solid ${m.bd}`, borderRadius:'6px', padding:'10px 12px' }}>
-            <div style={{ fontSize:'9.5px', color:'rgba(150,195,240,0.6)', marginBottom:'4px' }}>{m.label}</div>
-            <div style={{ fontSize:'23px', fontWeight:700, color:m.clr }}>{m.value}</div>
+            <div style={{ fontSize:'12px', color:'rgba(150,195,240,0.6)', marginBottom:'4px' }}>{m.label}</div>
+            <div style={{ fontSize:'30px', fontWeight:700, color:m.clr }}>{m.value}</div>
             {i===2&&<div style={{ marginTop:'7px', height:'4px', background:'rgba(0,70,150,0.3)', borderRadius:'2px', overflow:'hidden' }}><div style={{ width:`${Math.min(securityRate,100)}%`, height:'100%', borderRadius:'2px', background:m.clr, boxShadow:`0 0 6px ${m.clr}` }}/></div>}
-            {m.sub&&<div style={{ fontSize:'8.5px', color:'rgba(80,140,230,0.5)', marginTop:'2px' }}>{m.sub}</div>}
+            {m.sub&&<div style={{ fontSize:'11px', color:'rgba(80,140,230,0.5)', marginTop:'2px' }}>{m.sub}</div>}
           </div>
         ))}
         {steps.length>0&&<div style={{ background:'rgba(0,18,45,0.5)', border:'1px solid rgba(0,130,255,0.18)', borderRadius:'6px', padding:'10px 12px' }}>
-          <div style={{ fontSize:'9.5px', color:'rgba(150,195,240,0.6)', marginBottom:'4px' }}>◈ Overall Conversion</div>
-          <div style={{ fontSize:'20px', fontWeight:700, color:BLUE }}>{fmtPct(steps[steps.length-1].overallConv)}</div>
-          <div style={{ fontSize:'8.5px', color:'rgba(80,140,230,0.5)', marginTop:'2px' }}>{steps.length}-stage pipeline</div>
+          <div style={{ fontSize:'12px', color:'rgba(150,195,240,0.6)', marginBottom:'4px' }}>◈ Overall Conversion</div>
+          <div style={{ fontSize:'28px', fontWeight:700, color:BLUE }}>{fmtPct(steps[steps.length-1].overallConv)}</div>
+          <div style={{ fontSize:'11px', color:'rgba(80,140,230,0.5)', marginTop:'2px' }}>{steps.length}-stage pipeline</div>
         </div>}
       </div>
     </div>
@@ -7598,21 +7598,21 @@ function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
   const starData:[number,number,number][]=[[40,17,0.7],[92,31,0.5],[158,11,0.8],[243,27,0.55],[412,14,0.7],[492,37,0.5],[568,19,0.8],[642,43,0.6],[22,70,0.5],[658,70,0.65],[308,7,0.55],[182,50,0.4],[552,56,0.6]];
   const lightPositions:[number,number,number,number][]=[[52,100,52,78],[628,100,628,78],[52,350,52,372],[628,350,628,372]];
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'240px 1fr 285px', gap:14, background:'rgba(4,6,10,0.98)', color:'#e8eeff', padding:16, fontFamily:'"Inter",system-ui,sans-serif', borderRadius:12, boxSizing:'border-box' }}>
+    <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 330px', gap:14, background:'rgba(4,6,10,0.98)', color:'#e8eeff', padding:16, fontFamily:'"Inter",system-ui,sans-serif', borderRadius:12, boxSizing:'border-box', minHeight:520 }}>
       <div style={{ minWidth:0 }}>
-        <div style={{ fontSize:9, fontWeight:800, letterSpacing:3.5, textTransform:'uppercase', color:'#5ba3ff', marginBottom:16, paddingBottom:9, borderBottom:'1px solid rgba(91,163,255,0.2)' }}>Game Day Journey</div>
+        <div style={{ fontSize:13, fontWeight:800, letterSpacing:3.5, textTransform:'uppercase', color:'#5ba3ff', marginBottom:16, paddingBottom:9, borderBottom:'1px solid rgba(91,163,255,0.2)' }}>Game Day Journey</div>
         {steps.map((step,i)=>{
           const col=stepColor(step.convFromPrev,i);
           return(
-            <div key={i} style={{ paddingBottom:11, marginBottom:11, borderBottom:i<n-1?'1px solid rgba(255,255,255,0.05)':'none' }}>
-              <div style={{ fontSize:8, fontWeight:700, letterSpacing:2.5, color:'#4488cc', marginBottom:3 }}>SECTION {sectionLetters[i]}</div>
-              <div style={{ fontSize:11, fontWeight:600, color:'#c8d8f8', marginBottom:5, lineHeight:1.3 }}>{step.label}</div>
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <span style={{ fontSize:13, fontWeight:700, color:'#ffffff' }}>{fmtCount(step.count)}</span>
-                <span style={{ fontSize:9.5, color:'rgba(255,255,255,0.38)' }}>fans</span>
-                {i>0&&<span style={{ marginLeft:'auto', fontSize:10.5, fontWeight:700, color:col, background:col.replace('0.92)','0.12)'), padding:'1px 7px', borderRadius:10, border:`1px solid ${col.replace('0.92)','0.28)')}` }}>{fmtPct(step.convFromPrev)}</span>}
+            <div key={i} style={{ paddingBottom:13, marginBottom:13, borderBottom:i<n-1?'1px solid rgba(255,255,255,0.05)':'none' }}>
+              <div style={{ fontSize:11, fontWeight:700, letterSpacing:2.5, color:'#4488cc', marginBottom:4 }}>SECTION {sectionLetters[i]}</div>
+              <div style={{ fontSize:15, fontWeight:600, color:'#c8d8f8', marginBottom:6, lineHeight:1.3 }}>{step.label}</div>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize:22, fontWeight:700, color:'#ffffff' }}>{fmtCount(step.count)}</span>
+                <span style={{ fontSize:12, color:'rgba(255,255,255,0.38)' }}>fans</span>
+                {i>0&&<span style={{ marginLeft:'auto', fontSize:13, fontWeight:700, color:col, background:col.replace('0.92)','0.12)'), padding:'2px 9px', borderRadius:10, border:`1px solid ${col.replace('0.92)','0.28)')}` }}>{fmtPct(step.convFromPrev)}</span>}
               </div>
-              {i>0&&<div style={{ height:2.5, borderRadius:2, marginTop:6, background:'rgba(255,255,255,0.07)', overflow:'hidden' }}><div style={{ height:'100%', width:`${Math.min(step.convFromPrev,100)}%`, background:col, borderRadius:2 }}/></div>}
+              {i>0&&<div style={{ height:3, borderRadius:2, marginTop:7, background:'rgba(255,255,255,0.07)', overflow:'hidden' }}><div style={{ height:'100%', width:`${Math.min(step.convFromPrev,100)}%`, background:col, borderRadius:2 }}/></div>}
             </div>
           );
         })}
@@ -7670,7 +7670,7 @@ function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
         </svg>
       </div>
       <div style={{ minWidth:0 }}>
-        <div style={{ fontSize:9, fontWeight:800, letterSpacing:3.5, textTransform:'uppercase', color:'#5ba3ff', marginBottom:14, paddingBottom:9, borderBottom:'1px solid rgba(91,163,255,0.2)' }}>Venue Metrics</div>
+        <div style={{ fontSize:13, fontWeight:800, letterSpacing:3.5, textTransform:'uppercase', color:'#5ba3ff', marginBottom:14, paddingBottom:9, borderBottom:'1px solid rgba(91,163,255,0.2)' }}>Venue Metrics</div>
         {[
           {icon:'🏟',label:'TOTAL FANS',value:fmtCount(totalFans),sub:'entered the journey'},
           {icon:'🎟',label:'SEATED',value:fmtCount(seated),sub:'completed journey'},
@@ -7678,27 +7678,27 @@ function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
           {icon:'💰',label:'TICKET REVENUE',value:fmtCurrency(ticketRevenue),sub:`${fmtCurrency(aov)} avg order`},
           {icon:'🚪',label:'EMPTY SEATS',value:fmtCount(emptySeats),sub:'dropped off'},
         ].map((m,mi)=>(
-          <div key={mi} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', marginBottom:7 }}>
-            <span style={{fontSize:19,lineHeight:1}}>{m.icon}</span>
+          <div key={mi} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 11px', borderRadius:8, background:'rgba(255,255,255,0.04)', marginBottom:8 }}>
+            <span style={{fontSize:22,lineHeight:1}}>{m.icon}</span>
             <div style={{minWidth:0}}>
-              <div style={{fontSize:8.5,letterSpacing:1.5,color:'rgba(255,255,255,0.38)',textTransform:'uppercase',marginBottom:1}}>{m.label}</div>
-              <div style={{fontSize:15,fontWeight:700,color:'#e4efff',lineHeight:1.15}}>{m.value}</div>
-              <div style={{fontSize:9,color:'rgba(255,255,255,0.3)',marginTop:1}}>{m.sub}</div>
+              <div style={{fontSize:12,letterSpacing:1.5,color:'rgba(255,255,255,0.38)',textTransform:'uppercase',marginBottom:1}}>{m.label}</div>
+              <div style={{fontSize:28,fontWeight:700,color:'#e4efff',lineHeight:1.15}}>{m.value}</div>
+              <div style={{fontSize:11,color:'rgba(255,255,255,0.3)',marginTop:1}}>{m.sub}</div>
             </div>
           </div>
         ))}
         {n>1&&(
           <div style={{ marginTop:8, padding:'10px 12px', background:'rgba(255,255,255,0.03)', borderRadius:8, border:'1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ fontSize:8.5, fontWeight:700, letterSpacing:2, color:'#4a8acc', marginBottom:10, textTransform:'uppercase' }}>Step Conversion</div>
+            <div style={{ fontSize:12, fontWeight:700, letterSpacing:2, color:'#4a8acc', marginBottom:10, textTransform:'uppercase' }}>Step Conversion</div>
             {steps.slice(1).map((step,i)=>{
               const col=stepColor(step.convFromPrev,i+1);
               return(
-                <div key={i} style={{marginBottom:9}}>
+                <div key={i} style={{marginBottom:10}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
-                    <span style={{fontSize:9.5,color:'rgba(196,216,255,0.52)',maxWidth:'65%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{step.label}</span>
-                    <span style={{fontSize:10.5,fontWeight:700,color:col}}>{fmtPct(step.convFromPrev)}</span>
+                    <span style={{fontSize:12,color:'rgba(196,216,255,0.52)',maxWidth:'65%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{step.label}</span>
+                    <span style={{fontSize:13,fontWeight:700,color:col}}>{fmtPct(step.convFromPrev)}</span>
                   </div>
-                  <div style={{height:3,borderRadius:2,overflow:'hidden',background:'rgba(255,255,255,0.07)'}}><div style={{height:'100%',width:`${Math.min(step.convFromPrev,100)}%`,background:col,borderRadius:2}}/></div>
+                  <div style={{height:4,borderRadius:2,overflow:'hidden',background:'rgba(255,255,255,0.07)'}}><div style={{height:'100%',width:`${Math.min(step.convFromPrev,100)}%`,background:col,borderRadius:2}}/></div>
                 </div>
               );
             })}
@@ -7720,23 +7720,23 @@ function HomebuyingFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov
   const getConvColor = (conv: number) => conv>=60?GREEN:conv>=30?YELLOW:RED;
   const milestonePositions = [{x:58,y:412},{x:158,y:403},{x:268,y:395},{x:378,y:390}];
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'240px 1fr 285px', gap:'14px', background:panelBg, border:`1px solid ${borderColor}`, borderRadius:'12px', padding:'16px', fontFamily:"'Segoe UI',system-ui,sans-serif", color:'#e8e8e8', minHeight:'488px', boxSizing:'border-box' }}>
+    <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 330px', gap:'14px', background:panelBg, border:`1px solid ${borderColor}`, borderRadius:'12px', padding:'16px', fontFamily:"'Segoe UI',system-ui,sans-serif", color:'#e8e8e8', minHeight:'520px', boxSizing:'border-box' }}>
       <div style={{ background:'rgba(255,255,255,0.03)', border:`1px solid ${borderColor}`, borderRadius:'8px', padding:'14px', display:'flex', flexDirection:'column', gap:'0' }}>
-        <div style={{ fontSize:'10px', fontWeight:700, letterSpacing:'1.5px', color:'rgba(255,255,255,0.38)', marginBottom:'14px', textTransform:'uppercase' as const }}>Property Journey</div>
-        <div style={{ display:'flex', flexDirection:'column', gap:'9px' }}>
+        <div style={{ fontSize:'13px', fontWeight:700, letterSpacing:'1.5px', color:'rgba(255,255,255,0.38)', marginBottom:'14px', textTransform:'uppercase' as const }}>Property Journey</div>
+        <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
           {steps.map((step,i)=>{
             const icon=stepIcons[i]??"📍"; const convColor=getConvColor(step.overallConv);
             return(
-              <div key={i} style={{ background:'rgba(255,255,255,0.035)', border:`1px solid rgba(80,120,80,0.22)`, borderRadius:'7px', padding:'9px 10px' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:'6px', marginBottom:'5px' }}><span style={{fontSize:'15px',lineHeight:1}}>{icon}</span><span style={{ fontSize:'11px', fontWeight:600, color:'rgba(255,255,255,0.82)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{step.label}</span></div>
+              <div key={i} style={{ background:'rgba(255,255,255,0.035)', border:`1px solid rgba(80,120,80,0.22)`, borderRadius:'7px', padding:'10px 11px' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'7px', marginBottom:'6px' }}><span style={{fontSize:'18px',lineHeight:1}}>{icon}</span><span style={{ fontSize:'14px', fontWeight:600, color:'rgba(255,255,255,0.82)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{step.label}</span></div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:'5px' }}>
-                  <span style={{fontSize:'14px',fontWeight:700,color:'#fff'}}>{fmtCount(step.count)}</span>
-                  <span style={{fontSize:'11px',color:convColor,fontWeight:700}}>{fmtPct(step.overallConv)}</span>
+                  <span style={{fontSize:'22px',fontWeight:700,color:'#fff'}}>{fmtCount(step.count)}</span>
+                  <span style={{fontSize:'14px',color:convColor,fontWeight:700}}>{fmtPct(step.overallConv)}</span>
                 </div>
                 <div style={{ height:'3px', background:'rgba(255,255,255,0.08)', borderRadius:'2px', overflow:'hidden' }}>
                   <div style={{ height:'100%', width:`${Math.min(100,step.overallConv)}%`, background:convColor, borderRadius:'2px' }}/>
                 </div>
-                {i>0&&<div style={{ fontSize:'9.5px', color:'rgba(255,255,255,0.38)', marginTop:'4px' }}>↳ {fmtPct(step.convFromPrev)} from previous</div>}
+                {i>0&&<div style={{ fontSize:'12px', color:'rgba(255,255,255,0.38)', marginTop:'4px' }}>↳ {fmtPct(step.convFromPrev)} from previous</div>}
               </div>
             );
           })}
@@ -7838,24 +7838,24 @@ function HomebuyingFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov
           {icon:'💰',label:'Property Value',value:fmtCurrency(aov),sub:'avg order value',color:YELLOW},
           {icon:'🚪',label:'Lost Buyers',value:fmtCount(lostBuyers),sub:'did not close',color:RED},
         ] as {icon:string;label:string;value:string;sub:string;color:string}[]).map((m,i)=>(
-          <div key={i} style={{ background:'rgba(255,255,255,0.04)', border:`1px solid rgba(80,120,80,0.2)`, borderLeft:`3px solid ${m.color}`, borderRadius:'6px', padding:'9px 11px', display:'flex', alignItems:'center', gap:'10px' }}>
-            <span style={{fontSize:'19px',flexShrink:0,lineHeight:1}}>{m.icon}</span>
+          <div key={i} style={{ background:'rgba(255,255,255,0.04)', border:`1px solid rgba(80,120,80,0.2)`, borderLeft:`3px solid ${m.color}`, borderRadius:'6px', padding:'10px 12px', display:'flex', alignItems:'center', gap:'11px' }}>
+            <span style={{fontSize:'22px',flexShrink:0,lineHeight:1}}>{m.icon}</span>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:'9.5px',color:'rgba(255,255,255,0.42)',marginBottom:'1px'}}>{m.label}</div>
-              <div style={{fontSize:'17px',fontWeight:700,color:m.color,lineHeight:1.15}}>{m.value}</div>
-              <div style={{fontSize:'9px',color:'rgba(255,255,255,0.28)',marginTop:'1px'}}>{m.sub}</div>
+              <div style={{fontSize:'12px',color:'rgba(255,255,255,0.42)',marginBottom:'2px'}}>{m.label}</div>
+              <div style={{fontSize:'28px',fontWeight:700,color:m.color,lineHeight:1.15}}>{m.value}</div>
+              <div style={{fontSize:'11px',color:'rgba(255,255,255,0.28)',marginTop:'2px'}}>{m.sub}</div>
             </div>
           </div>
         ))}
         {steps.length>1&&(
           <div style={{ background:'rgba(255,255,255,0.03)', border:`1px solid rgba(80,120,80,0.14)`, borderRadius:'6px', padding:'10px', marginTop:'1px' }}>
-            <div style={{ fontSize:'9px', fontWeight:700, letterSpacing:'1.2px', color:'rgba(255,255,255,0.32)', marginBottom:'8px', textTransform:'uppercase' as const }}>Step-by-Step</div>
+            <div style={{ fontSize:'12px', fontWeight:700, letterSpacing:'1.2px', color:'rgba(255,255,255,0.32)', marginBottom:'9px', textTransform:'uppercase' as const }}>Step-by-Step</div>
             {steps.slice(1).map((step,i)=>{
               const mc=getConvColor(step.convFromPrev);
               return(
-                <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingBottom:'6px', marginBottom:i<steps.length-2?'6px':'0', borderBottom:i<steps.length-2?'1px solid rgba(255,255,255,0.05)':'none' }}>
-                  <span style={{ fontSize:'9.5px', color:'rgba(255,255,255,0.5)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'150px' }}>{steps[i].label} → {step.label}</span>
-                  <span style={{ fontSize:'10.5px', fontWeight:700, color:mc, background:`${mc}1a`, padding:'2px 7px', borderRadius:'4px', flexShrink:0, marginLeft:'6px' }}>{fmtPct(step.convFromPrev)}</span>
+                <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingBottom:'7px', marginBottom:i<steps.length-2?'7px':'0', borderBottom:i<steps.length-2?'1px solid rgba(255,255,255,0.05)':'none' }}>
+                  <span style={{ fontSize:'12px', color:'rgba(255,255,255,0.5)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'170px' }}>{steps[i].label} → {step.label}</span>
+                  <span style={{ fontSize:'13px', fontWeight:700, color:mc, background:`${mc}1a`, padding:'2px 8px', borderRadius:'4px', flexShrink:0, marginLeft:'6px' }}>{fmtPct(step.convFromPrev)}</span>
                 </div>
               );
             })}
