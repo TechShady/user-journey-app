@@ -6818,36 +6818,24 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
                 {/* Ground shadow */}
                 <ellipse cx="143" cy="109" rx="132" ry="8" fill="rgba(0,0,0,0.55)"/>
 
-                {/* LEFT FRONT WHEEL — face-on from 45° above: ry ≈ rx*cos(45°) */}
-                <ellipse cx="64" cy="97" rx="44" ry="30" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
-                <ellipse cx="64" cy="97" rx="39" ry="25" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
-                <ellipse cx="64" cy="97" rx="31" ry="19" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
-                {Array.from({length: 5}).map((_, si) => {
-                  const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
-                  return <line key={`lw${si}`} x1={64+Math.cos(a)*7} y1={97+Math.sin(a)*4.5} x2={64+Math.cos(a)*31} y2={97+Math.sin(a)*19} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
-                })}
-                <circle cx="64" cy="97" r="5.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
-                {/* Red brake caliper visible through arch */}
-                <rect x="21" y="87" width="9" height="20" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
+                {/* LEFT FRONT WHEEL — tire sidewall seen from front: axle is horizontal so ry >> rx */}
+                <ellipse cx="64" cy="97" rx="24" ry="40" fill="#0B0D12" stroke="rgba(78,98,122,0.52)" strokeWidth="2"/>
+                <ellipse cx="64" cy="97" rx="18" ry="33" fill="rgba(13,17,25,0.97)" stroke="rgba(48,62,82,0.33)" strokeWidth="1.2"/>
+                <ellipse cx="64" cy="97" rx="8" ry="20" fill="rgba(62,80,102,0.88)" stroke="rgba(118,142,170,0.62)" strokeWidth="1"/>
+                <ellipse cx="64" cy="97" rx="4" ry="9" fill="rgba(170,192,216,0.8)" stroke="rgba(105,130,158,0.5)" strokeWidth="0.6"/>
 
                 {/* RIGHT FRONT WHEEL */}
-                <ellipse cx="222" cy="97" rx="44" ry="30" fill="#08090E" stroke="rgba(168,190,215,0.48)" strokeWidth="2"/>
-                <ellipse cx="222" cy="97" rx="39" ry="25" fill="none" stroke="rgba(26,38,55,0.88)" strokeWidth="4.5"/>
-                <ellipse cx="222" cy="97" rx="31" ry="19" fill="url(#afvScRim)" stroke="rgba(118,140,165,0.6)" strokeWidth="0.8"/>
-                {Array.from({length: 5}).map((_, si) => {
-                  const a = si * (Math.PI * 2 / 5) - Math.PI / 10;
-                  return <line key={`rw${si}`} x1={222+Math.cos(a)*7} y1={97+Math.sin(a)*4.5} x2={222+Math.cos(a)*31} y2={97+Math.sin(a)*19} stroke="rgba(50,66,86,0.95)" strokeWidth="4.5" strokeLinecap="round"/>;
-                })}
-                <circle cx="222" cy="97" r="5.5" fill="rgba(178,196,216,0.92)" stroke="rgba(100,120,142,0.5)" strokeWidth="0.5"/>
-                {/* Red brake caliper visible through arch */}
-                <rect x="256" y="87" width="9" height="20" rx="2" fill="rgba(200,20,20,0.9)" stroke="rgba(255,55,55,0.48)" strokeWidth="0.8"/>
+                <ellipse cx="222" cy="97" rx="24" ry="40" fill="#0B0D12" stroke="rgba(78,98,122,0.52)" strokeWidth="2"/>
+                <ellipse cx="222" cy="97" rx="18" ry="33" fill="rgba(13,17,25,0.97)" stroke="rgba(48,62,82,0.33)" strokeWidth="1.2"/>
+                <ellipse cx="222" cy="97" rx="8" ry="20" fill="rgba(62,80,102,0.88)" stroke="rgba(118,142,170,0.62)" strokeWidth="1"/>
+                <ellipse cx="222" cy="97" rx="4" ry="9" fill="rgba(170,192,216,0.8)" stroke="rgba(105,130,158,0.5)" strokeWidth="0.6"/>
 
                 {/* FRONT SPLITTER / underbody */}
                 <path d="M 12 102 L 274 102 L 270 92 L 16 92 Z" fill="rgba(6,8,14,0.97)"/>
                 <line x1="14" y1="95" x2="272" y2="95" stroke="rgba(155,175,200,0.18)" strokeWidth="0.8"/>
 
                 {/* FRONT BUMPER FACE — arch cutouts reveal wheels inside fender wells */}
-                <path d="M 31 52 L 255 52 L 270 92 Q 222 60 174 92 L 112 92 Q 64 60 16 92 L 31 52 Z" fill="url(#afvScBody)" stroke="#661000" strokeWidth="1"/>
+                <path d="M 31 52 L 255 52 L 270 92 Q 222 55 174 92 L 112 92 Q 64 55 16 92 L 31 52 Z" fill="url(#afvScBody)" stroke="#661000" strokeWidth="1"/>
 
                 {/* LEFT headlight housing (dark surround) */}
                 <path d="M 20 76 L 118 76 L 112 54 L 24 54 Z" fill="rgba(6,10,18,0.96)" stroke="rgba(72,105,148,0.22)" strokeWidth="0.8"/>
