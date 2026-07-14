@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
+﻿import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
 import { createPortal } from "react-dom";
 import { useDql, useUserAppState, useSetUserAppState } from "@dynatrace-sdk/react-hooks";
 import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment";
@@ -46,7 +46,7 @@ const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "heatmap", label: "Transition Heatmap" },
 ];
 const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
-type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance";
+type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying";
 const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "classic", label: "Classic Funnel" },
   { value: "horizontal", label: "Horizontal Bar" },
@@ -56,6 +56,12 @@ const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "elevator", label: "\uD83D\uDED7 Elevator" },
   { value: "mri", label: "\uD83E\uDE7B MRI Tunnel" },
   { value: "autoFinance", label: "\uD83C\uDFCE Auto Finance" },
+  { value: "rocketLaunch", label: "\uD83D\uDE80 Rocket Launch" },
+  { value: "airport", label: "\u2708 Airport" },
+  { value: "retail", label: "\uD83D\uDED2 Retail" },
+  { value: "cyber", label: "\uD83D\uDEE1 Cyber" },
+  { value: "stadium", label: "\uD83C\uDFDF Stadium" },
+  { value: "homebuying", label: "\uD83C\uDFE0 Homebuying" },
 ];
 const DEFAULT_FUNNEL_STYLE: FunnelStyle = "classic";
 const FUNNEL_STYLE_STATE_KEY = "uj-funnel-style";
@@ -7005,6 +7011,861 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
   );
 }
 
+
+function RocketLaunchFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const N = steps.length;
+  if (N === 0) return null;
+  const totalSessions = steps[0]?.count ?? 0;
+  const totalConversions = steps[N - 1]?.count ?? 0;
+  const totalDropped = Math.max(0, totalSessions - totalConversions);
+  const overallConv = steps[N - 1]?.overallConv ?? 0;
+  const revenueAtRisk = totalDropped > 0 && aov > 0 ? totalDropped * aov : 0;
+  const bandColor = (step: FunnelStep, idx: number): string => {
+    if (idx === 0) return BLUE;
+    if (step.convFromPrev >= 75) return GREEN;
+    if (step.convFromPrev >= 45) return YELLOW;
+    return RED;
+  };
+  const cx = 340; const hw = 44; const noseY = 32; const bodyTopY = 98;
+  const bodyBotY = 315; const bodyH = bodyBotY - bodyTopY;
+  const bandH = bodyH / N; const bellBotY = 372; const bellHW = 58;
+  const stars: [number, number, number][] = [
+    [38,18,1.4],[85,52,0.8],[142,22,1.2],[198,38,0.7],[268,14,1.5],[312,45,0.9],
+    [460,20,1.3],[524,48,0.8],[588,16,1.6],[640,40,0.7],[662,22,1.0],[672,82,0.9],
+    [22,90,0.8],[68,145,1.1],[48,210,0.7],[18,278,1.0],[32,340,0.8],[622,100,0.9],
+    [648,168,1.2],[660,248,0.8],[636,318,1.0],[620,380,0.7],[110,78,0.6],[580,65,0.7],
+  ];
+  const metrics: { icon: string; label: string; value: string; clr: string; sub: string }[] = [
+    { icon: "🚀", label: "Total Sessions", value: fmtCount(totalSessions), clr: BLUE, sub: "Mission initiated" },
+    { icon: "🛰️", label: "Conversions", value: fmtCount(totalConversions), clr: GREEN, sub: "Orbit achieved" },
+    { icon: "📡", label: "Overall Conv%", value: fmtPct(overallConv), clr: statusClr(overallConv), sub: overallConv >= 60 ? "Excellent trajectory" : overallConv >= 30 ? "Room to optimize" : "Critical drop-off" },
+  ];
+  if (revenueAtRisk > 0) metrics.push({ icon: "⚠️", label: "Revenue at Risk", value: fmtCurrency(revenueAtRisk), clr: RED, sub: `${fmtCount(totalDropped)} sessions lost` });
+  return (
+    <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "240px 1fr 285px", gap: 14, alignItems: "stretch" }}>
+        <div style={{ border: "1px solid rgba(70,120,200,0.35)", borderRadius: 14, padding: 12, background: "rgba(6,10,22,0.97)" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: "rgba(255,255,255,0.38)", textTransform: "uppercase", marginBottom: 10, paddingBottom: 7, borderBottom: "1px solid rgba(70,120,200,0.2)" }}>Mission Stages</div>
+          {steps.map((step, i) => {
+            const clr = bandColor(step, i);
+            const dropCount = i > 0 ? Math.max(0, steps[i - 1].count - step.count) : 0;
+            return (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "28px 1fr", columnGap: 9, alignItems: "start", marginBottom: i < N - 1 ? 12 : 0 }}>
+                <div style={{ width: 26, height: 26, borderRadius: "50%", border: `1.5px solid ${clr}`, background: `${clr}18`, color: clr, fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.2 }}>{step.label}</div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.48)", marginTop: 2 }}>{fmtCount(step.count)} sessions</div>
+                  {i > 0 && <div style={{ fontSize: 10, marginTop: 2, fontWeight: 600, color: step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED }}>{fmtPct(step.convFromPrev)} conv · −{fmtCount(dropCount)} drop</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ border: "1px solid rgba(70,120,200,0.35)", borderRadius: 14, padding: "8px 6px 6px", background: "radial-gradient(ellipse at 50% 12%, rgba(14,30,75,0.45) 0%, rgba(2,5,15,0.99) 58%)", overflow: "hidden" }}>
+          {funnelName && <div style={{ textAlign: "center", fontSize: 13, fontWeight: 800, color: "rgba(160,205,255,0.88)", letterSpacing: 1.8, textTransform: "uppercase", paddingBottom: 4 }}>{funnelName}</div>}
+          <svg width="100%" height="455" viewBox="0 0 680 455" style={{ display: "block" }}>
+            <defs>
+              <radialGradient id="rlf_bg" cx="50%" cy="15%" r="68%"><stop offset="0%" stopColor="#0C1C50" stopOpacity="0.88"/><stop offset="100%" stopColor="#020510" stopOpacity="1"/></radialGradient>
+              <linearGradient id="rlf_body" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#788898"/><stop offset="18%" stopColor="#C4CDD8"/><stop offset="50%" stopColor="#E8EEF5"/><stop offset="82%" stopColor="#BDC7D3"/><stop offset="100%" stopColor="#6D7988"/></linearGradient>
+              <linearGradient id="rlf_nose" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#878FA0"/><stop offset="40%" stopColor="#D4DAE5"/><stop offset="100%" stopColor="#80889A"/></linearGradient>
+              <linearGradient id="rlf_bell" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#3A4758"/><stop offset="50%" stopColor="#6C7A90"/><stop offset="100%" stopColor="#2E3B4C"/></linearGradient>
+              <linearGradient id="rlf_earth" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3878E0"/><stop offset="55%" stopColor="#1A52B8"/><stop offset="100%" stopColor="#0A2870"/></linearGradient>
+              <radialGradient id="rlf_exCore" cx="50%" cy="0%" r="100%"><stop offset="0%" stopColor="#FFFFFF" stopOpacity="1"/><stop offset="30%" stopColor="#FF9822" stopOpacity="0.94"/><stop offset="60%" stopColor="#FF4800" stopOpacity="0.78"/><stop offset="100%" stopColor="#CC1800" stopOpacity="0"/></radialGradient>
+              <radialGradient id="rlf_exOuter" cx="50%" cy="0%" r="100%"><stop offset="0%" stopColor="#FF7020" stopOpacity="0.55"/><stop offset="100%" stopColor="#AA1000" stopOpacity="0"/></radialGradient>
+              <filter id="rlf_glow" x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+              <filter id="rlf_blur8" x="-55%" y="-55%" width="210%" height="210%"><feGaussianBlur stdDeviation="8"/></filter>
+              <filter id="rlf_blur14" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="14"/></filter>
+            </defs>
+            <style>{`
+              @keyframes rlf_flicker{0%{opacity:.90;transform:scaleX(1)scaleY(1)}20%{opacity:.72;transform:scaleX(1.08)scaleY(.95)}45%{opacity:.94;transform:scaleX(.94)scaleY(1.06)}65%{opacity:.66;transform:scaleX(1.11)scaleY(.92)}100%{opacity:.90;transform:scaleX(1)scaleY(1)}}
+              @keyframes rlf_pulse{0%,100%{opacity:.40}50%{opacity:.82}}
+              .rlf-ex{transform-box:fill-box;transform-origin:top center;animation:rlf_flicker .14s ease-in-out infinite}
+              .rlf-pulse{animation:rlf_pulse 1.5s ease-in-out infinite}
+            `}</style>
+            <rect x="0" y="0" width="680" height="455" fill="url(#rlf_bg)"/>
+            {stars.map(([sx, sy, sr], si) => <circle key={si} cx={sx} cy={sy} r={sr} fill="rgba(255,255,255,0.92)" opacity={0.44 + sr * 0.27}/>)}
+            <path d="M 48 74 Q 340 14 632 74" fill="none" stroke="rgba(85,165,255,0.42)" strokeWidth="1.5" strokeDasharray="5,5"/>
+            <g transform="translate(610,52)">
+              <rect x="-11" y="-7" width="22" height="14" rx="3" fill="rgba(170,190,222,0.94)" stroke="rgba(98,145,220,0.8)" strokeWidth="1.2"/>
+              <rect x="-30" y="-4" width="17" height="8" rx="1.5" fill="rgba(32,88,205,0.90)"/><line x1="-13" y1="0" x2="-30" y2="0" stroke="rgba(155,198,255,0.50)" strokeWidth="0.7"/>
+              <rect x="13" y="-4" width="17" height="8" rx="1.5" fill="rgba(32,88,205,0.90)"/><line x1="13" y1="0" x2="30" y2="0" stroke="rgba(155,198,255,0.50)" strokeWidth="0.7"/>
+              <line x1="0" y1="-7" x2="0" y2="-19" stroke="rgba(188,212,255,0.72)" strokeWidth="0.9"/><circle cx="0" cy="-20.5" r="2.2" fill="none" stroke="rgba(148,192,255,0.82)" strokeWidth="0.9"/>
+            </g>
+            <ellipse cx={cx} cy={bellBotY + 8} rx="90" ry="10" fill="rgba(255,120,0,0.20)" filter="url(#rlf_blur14)" className="rlf-pulse"/>
+            <g className="rlf-ex">
+              <path d={`M${cx-58} ${bellBotY}Q${cx-44} ${bellBotY+40} ${cx} ${bellBotY+84}Q${cx+44} ${bellBotY+40} ${cx+58} ${bellBotY}Z`} fill="url(#rlf_exOuter)"/>
+              <path d={`M${cx-35} ${bellBotY-4}Q${cx-21} ${bellBotY+30} ${cx} ${bellBotY+68}Q${cx+21} ${bellBotY+30} ${cx+35} ${bellBotY-4}Z`} fill="url(#rlf_exCore)"/>
+              <path d={`M${cx-12} ${bellBotY-2}Q${cx} ${bellBotY+30} ${cx} ${bellBotY+54}Q${cx} ${bellBotY+30} ${cx+12} ${bellBotY-2}Z`} fill="rgba(255,252,240,0.88)"/>
+            </g>
+            <path d="M -10 428 Q 340 400 690 428 L 690 460 L -10 460 Z" fill="url(#rlf_earth)"/>
+            <path d="M -10 428 Q 340 400 690 428" fill="none" stroke="rgba(90,168,255,0.65)" strokeWidth="2.2"/>
+            <path d={`M${cx-hw} ${bodyBotY-88}L${cx-hw-66} ${bodyBotY+10}L${cx-hw} ${bodyBotY}Z`} fill="url(#rlf_body)" stroke="rgba(152,170,194,0.52)" strokeWidth="1.2"/>
+            <path d={`M${cx+hw} ${bodyBotY-88}L${cx+hw+66} ${bodyBotY+10}L${cx+hw} ${bodyBotY}Z`} fill="url(#rlf_body)" stroke="rgba(152,170,194,0.52)" strokeWidth="1.2"/>
+            <path d={`M${cx-hw} ${bodyBotY}L${cx-bellHW} ${bellBotY}L${cx+bellHW} ${bellBotY}L${cx+hw} ${bodyBotY}Z`} fill="url(#rlf_bell)" stroke="rgba(112,132,158,0.60)" strokeWidth="1.5"/>
+            <path d={`M${cx-hw+5} ${bodyBotY+3}L${cx-bellHW+6} ${bellBotY-2}L${cx+bellHW-6} ${bellBotY-2}L${cx+hw-5} ${bodyBotY+3}Z`} fill="rgba(7,13,26,0.92)"/>
+            {steps.map((step, i) => {
+              const bTop = bodyTopY + (N - 1 - i) * bandH; const bBot = bTop + bandH; const bMid = (bTop + bBot) / 2;
+              const clr = bandColor(step, i); const fs = Math.max(8, Math.min(11, bandH * 0.38));
+              const maxCh = Math.max(4, Math.floor((hw * 2 - 12) / (fs * 0.62)));
+              const lbl = step.label.length > maxCh ? step.label.slice(0, maxCh - 1) + "…" : step.label;
+              return (
+                <g key={`rlf-band-${i}`}>
+                  <rect x={cx - hw} y={bTop} width={hw * 2} height={bandH} fill={`${clr}1C`}/>
+                  <rect x={cx - hw} y={bTop} width={hw * 2} height={bandH} fill="url(#rlf_body)" opacity={0.52}/>
+                  <rect x={cx - hw} y={bTop} width={hw * 2} height={Math.max(2.5, bandH * 0.10)} fill={clr} opacity={0.70}/>
+                  {i < N - 1 && <line x1={cx - hw} y1={bBot} x2={cx + hw} y2={bBot} stroke="rgba(45,65,105,0.55)" strokeWidth="1.2"/>}
+                  {bandH > 22 && <text x={cx} y={bMid} textAnchor="middle" dominantBaseline="middle" fontSize={fs} fontWeight="700" fill="rgba(255,255,255,0.82)" fontFamily="system-ui">{lbl}</text>}
+                  <circle cx={cx - hw - 17} cy={bMid} r="10" fill={`${clr}28`} stroke={clr} strokeWidth="1.3"/>
+                  <text x={cx - hw - 17} y={bMid} textAnchor="middle" dominantBaseline="middle" fontSize="9" fontWeight="800" fill={clr} fontFamily="system-ui">{i + 1}</text>
+                  {i > 0 && bandH > 14 && <text x={cx + hw + 14} y={bMid} textAnchor="start" dominantBaseline="middle" fontSize={Math.max(7.5, Math.min(10, bandH * 0.35))} fontWeight="600" fill={step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED} fontFamily="system-ui">{fmtPct(step.convFromPrev)}</text>}
+                </g>
+              );
+            })}
+            <rect x={cx - hw} y={bodyTopY} width={hw * 2} height={bodyBotY - bodyTopY} fill="none" stroke="rgba(158,176,200,0.65)" strokeWidth="1.5"/>
+            <path d={`M${cx-hw} ${bodyTopY}Q${cx-hw} ${bodyTopY-34} ${cx} ${noseY}Q${cx+hw} ${bodyTopY-34} ${cx+hw} ${bodyTopY}Z`} fill="url(#rlf_nose)" stroke="rgba(158,174,198,0.65)" strokeWidth="1.5"/>
+            <circle cx={cx} cy={noseY} r="5" fill="rgba(188,222,255,0.72)" filter="url(#rlf_glow)"/>
+            <circle cx={cx} cy={bodyTopY + 28} r="11" fill="rgba(5,16,46,0.96)" stroke="rgba(132,160,194,0.72)" strokeWidth="1.6"/>
+            <circle cx={cx} cy={bodyTopY + 28} r="7.5" fill="rgba(36,88,192,0.52)"/>
+            <ellipse cx={cx} cy={bellBotY + 4} rx="50" ry="7" fill="rgba(255,148,0,0.52)" filter="url(#rlf_blur8)" className="rlf-pulse"/>
+          </svg>
+        </div>
+        <div style={{ border: "1px solid rgba(70,120,200,0.35)", borderRadius: 14, padding: "10px 12px", background: "rgba(6,10,22,0.97)", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: "rgba(255,255,255,0.38)", textTransform: "uppercase", paddingBottom: 7, borderBottom: "1px solid rgba(70,120,200,0.2)" }}>Mission Metrics</div>
+          {metrics.map((m, mi) => (
+            <div key={mi} style={{ background: "rgba(10,18,38,0.88)", border: `1px solid ${m.clr}28`, borderRadius: 10, padding: "9px 11px", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}><span style={{ fontSize: 18 }}>{m.icon}</span><span style={{ fontSize: 9.5, fontWeight: 700, color: "rgba(255,255,255,0.38)", textTransform: "uppercase" }}>{m.label}</span></div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.32)", marginTop: 3 }}>{m.sub}</div>
+            </div>
+          ))}
+          <div style={{ borderTop: "1px solid rgba(70,120,200,0.18)", paddingTop: 8 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", marginBottom: 6 }}>Stage Breakdown</div>
+            {steps.map((step, i) => {
+              const clr = bandColor(step, i);
+              return (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: clr }}/><span style={{ fontSize: 10, color: "rgba(255,255,255,0.58)", maxWidth: 108, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{step.label}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.82)" }}>{fmtCount(step.count)}</span>
+                    {i > 0 && <span style={{ fontSize: 9, fontWeight: 600, color: clr }}>{fmtPct(step.convFromPrev)}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AirportFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const totalPassengers = steps.length > 0 ? steps[0].count : 0;
+  const boarded = steps.length > 0 ? steps[steps.length - 1].count : 0;
+  const overallConv = steps.length > 0 ? steps[steps.length - 1].overallConv : 0;
+  const noShows = totalPassengers - boarded;
+  const revenue = aov > 0 ? boarded * aov : 0;
+  const convColor = (pct: number) => pct >= 60 ? GREEN : pct >= 35 ? YELLOW : RED;
+  const runwayCount = Math.max(steps.length, 3);
+  return (
+    <div style={{ background: "rgba(6,8,18,0.97)", borderRadius: 16, padding: 20, fontFamily: "'Inter','Segoe UI',sans-serif", color: "#e8eaf6", display: "grid", gridTemplateColumns: "240px 1fr 285px", gap: 14, minHeight: 500 }}>
+      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: "16px 14px", border: "1px solid rgba(255,255,255,0.07)", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: BLUE, textTransform: "uppercase", marginBottom: 6 }}>✈ Boarding Stages</div>
+        {funnelName && <div style={{ fontSize: 12, fontWeight: 600, color: "#c5cae9", marginBottom: 4, paddingBottom: 8, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>{funnelName}</div>}
+        {steps.map((step, i) => (
+          <div key={i} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "10px 12px", border: `1px solid ${i === steps.length - 1 ? "rgba(0,219,117,0.2)" : "rgba(255,255,255,0.05)"}`, position: "relative", overflow: "hidden" }}>
+            <div style={{ position: "absolute", inset: 0, width: `${step.overallConv}%`, background: "rgba(70,160,255,0.07)", borderRadius: 8 }}/>
+            <div style={{ position: "relative", zIndex: 1 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", color: YELLOW, marginBottom: 2 }}>GATE {i + 1}</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#e8eaf6", lineHeight: 1.3, marginBottom: 5 }}>{step.label}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{fmtCount(step.count)}</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: i === 0 ? "#9fa8da" : convColor(step.convFromPrev), background: i === 0 ? "rgba(159,168,218,0.12)" : `${convColor(step.convFromPrev)}22`, padding: "2px 7px", borderRadius: 10 }}>{i === 0 ? "START" : fmtPct(step.convFromPrev)}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,0.07)" }}>
+        <svg viewBox="0 0 680 455" width="100%" height="100%" style={{ display: "block" }}>
+          <defs>
+            <linearGradient id="af-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#070418"/><stop offset="38%" stopColor="#130d45"/><stop offset="65%" stopColor="#381260"/><stop offset="82%" stopColor="#b04418"/><stop offset="100%" stopColor="#d87020"/></linearGradient>
+            <linearGradient id="af-ground" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#181e14"/><stop offset="100%" stopColor="#0c1009"/></linearGradient>
+            <linearGradient id="af-glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#d08020" stopOpacity="0.85"/><stop offset="55%" stopColor="#e09030" stopOpacity="0.5"/><stop offset="100%" stopColor="#7a4210" stopOpacity="0.25"/></linearGradient>
+            <linearGradient id="af-fuse" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#dde5f2"/><stop offset="42%" stopColor="#c4d0e8"/><stop offset="100%" stopColor="#8090b0"/></linearGradient>
+            <linearGradient id="af-wing" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#aebdd6"/><stop offset="100%" stopColor="#5a6a88"/></linearGradient>
+            <linearGradient id="af-eng" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#7888a4"/><stop offset="100%" stopColor="#3c4458"/></linearGradient>
+            <radialGradient id="af-hglow" cx="50%" cy="100%" r="55%"><stop offset="0%" stopColor="#d87020" stopOpacity="0.38"/><stop offset="100%" stopColor="#d87020" stopOpacity="0"/></radialGradient>
+            <filter id="af-glow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+          <rect x="0" y="0" width="680" height="455" fill="url(#af-sky)"/>
+          <rect x="0" y="0" width="680" height="455" fill="url(#af-hglow)"/>
+          {([[55,28],[118,14],[198,44],[272,19],[348,33],[418,11],[498,27],[558,17],[618,39],[88,58],[168,68],[428,53],[576,62],[645,23],[318,52]] as [number,number][]).map(([sx,sy],i) => <circle key={i} cx={sx} cy={sy} r={0.9+(i%3)*0.4} fill="white" opacity={0.5+(i%4)*0.12}/>)}
+          <circle cx={578} cy={52} r={19} fill="#f4efc8" opacity={0.88}/><circle cx={588} cy={47} r={16} fill="#100840" opacity={0.84}/>
+          <rect x="0" y="308" width="680" height="147" fill="url(#af-ground)"/>
+          <rect x="38" y="248" width="32" height="62" fill="#1c2530"/><rect x="34" y="244" width="40" height="9" fill="#243040"/>
+          <rect x="46" y="178" width="18" height="72" fill="#1c2530"/>
+          <rect x="33" y="154" width="43" height="30" rx="3" fill="#283544"/>
+          {[0,1,2].map(j => <rect key={j} x={37+j*13} y={158} width={9} height={11} rx={1.5} fill="#e89220" opacity={0.78-j*0.04}/>)}
+          <circle cx={55} cy={147} r={5} fill={YELLOW} filter="url(#af-glow)" opacity={0.92}/>
+          <line x1={55} y1={108} x2={55} y2={147} stroke="#3c4c60" strokeWidth={2.5}/>
+          <circle cx={55} cy={106} r={3.5} fill={RED} filter="url(#af-glow)" opacity={0.85}/>
+          <polygon points="92,188 392,188 402,178 82,178" fill="#20293a"/>
+          <rect x="92" y="202" width="302" height="108" fill="#192235"/>
+          {[0,1,2,3,4,5,6,7].map(j => <rect key={j} x={100+j*35} y={208} width={27} height={58} rx={2} fill="url(#af-glass)" opacity={0.68-j*0.025}/>)}
+          {[0,1,2].map(j => <rect key={j} x={168+j*32} y={288} width={22} height={22} rx={2} fill="#e89220" opacity={0.45}/>)}
+          <rect x="108" y="215" width="162" height="56" rx="3" fill="#070c18" opacity={0.96}/>
+          <rect x="108" y="215" width="162" height="14" rx="3" fill="#131e30"/>
+          <text x="189" y="225" textAnchor="middle" fill={YELLOW} fontSize="7.5" fontWeight="700" letterSpacing="1.8" fontFamily="'Courier New',monospace">✈ DEPARTURES</text>
+          {steps.slice(0, 5).map((step, i) => {
+            const statusColor = i === 0 ? GREEN : i === steps.length - 1 ? YELLOW : BLUE;
+            const statusLabel = i === 0 ? "BOARDING" : i === steps.length - 1 ? "DEPARTED" : "ON TIME";
+            return (
+              <g key={i}>
+                <rect x="110" y={230+i*8} width="158" height="7.5" fill={i%2===0?"#0b1220":"#090f1c"}/>
+                <text x="113" y={236.5+i*8} fill={BLUE} fontSize="5.8" fontWeight="700" fontFamily="'Courier New',monospace">{`FL${String(i+1).padStart(3,"0")}`}</text>
+                <text x="136" y={236.5+i*8} fill="#c0ccdf" fontSize="5.8" fontFamily="'Courier New',monospace">{step.label.length>15?step.label.slice(0,13).toUpperCase()+"..":step.label.toUpperCase()}</text>
+                <text x="264" y={236.5+i*8} textAnchor="end" fill={statusColor} fontSize="5.8" fontWeight="700" fontFamily="'Courier New',monospace">{statusLabel}</text>
+              </g>
+            );
+          })}
+          <rect x="284" y="215" width="104" height="22" rx="3" fill="#0c1828" opacity={0.92}/>
+          <text x="336" y="229" textAnchor="middle" fill={BLUE} fontSize="8.5" fontWeight="700" letterSpacing="1.2" fontFamily="'Inter',sans-serif">{funnelName?funnelName.toUpperCase().slice(0,14):"TERMINAL A"}</text>
+          <polygon points="272,308 408,308 578,455 102,455" fill="#1b211b"/>
+          {Array.from({length:8},(_,i)=>{const t0=i/8;const y0=310+143*t0;const y1=310+143*(i+0.45)/8;return<line key={i} x1={340} y1={y0} x2={340} y2={Math.min(y1,454)} stroke="white" strokeWidth={1.5+((i+0.45)/8)*2.5} opacity={0.4}/>;})}
+          {Array.from({length:runwayCount},(_,i)=>{const t=(i+0.5)/runwayCount;const y=312+138*t;const xL=272-170*t;const xR=408+170*t;const r=1.5+t*2;return(<g key={i} filter="url(#af-glow)"><circle cx={xL} cy={y} r={r} fill={YELLOW} opacity={0.88}/><circle cx={xR} cy={y} r={r} fill={YELLOW} opacity={0.88}/></g>);})}
+          {[-4,-3,-2,-1,0,1,2,3,4].map((off,i)=><circle key={i} cx={340+off*24} cy={451} r={3} fill={off===0?RED:"rgba(255,255,240,0.9)"} filter="url(#af-glow)" opacity={0.9}/>)}
+          <g transform="translate(482,262) scale(0.95)">
+            <polygon points="-6,22 -78,54 -68,62 -5,36" fill="url(#af-wing)" opacity={0.96}/>
+            <rect x="-52" y="36" width="9" height="16" rx="2" fill="#606a84"/><ellipse cx="-48" cy="50" rx="10" ry="6.5" fill="url(#af-eng)"/><ellipse cx="-48" cy="50" rx="7.5" ry="4.5" fill="#22283a"/>
+            <ellipse cx="-48" cy="56" rx="4.5" ry="2.5" fill={ORANGE} opacity={0.35} filter="url(#af-glow)"/>
+            <path d="M -8,12 Q 0,-6 16,-16 Q 30,-22 42,-20 Q 54,-16 57,-6 Q 60,5 55,26 Q 50,44 44,58 Q 37,68 26,73 Q 14,77 4,76 Q -6,75 -10,66 Q -13,57 -13,42 Q -13,26 -8,12 Z" fill="url(#af-fuse)"/>
+            <path d="M 42,-20 Q 58,-22 70,-13 Q 75,-5 73,3 Q 70,10 65,12 Q 60,13 55,-6 Q 54,-16 42,-20 Z" fill="#c6d4ea"/>
+            <path d="M 48,-13 Q 56,-16 62,-10 Q 58,-6 50,-6 Z" fill="#12203a" opacity={0.92}/>
+            {[0,1,2,3,4,5,6,7].map(j=><rect key={j} x={24-j*8-2} y={-2+j} width={5.5} height={4.5} rx={1.2} fill={j%3===0?"#e6f0ff":"#ccd8f2"} opacity={0.92}/>)}
+            <path d="M -8,12 Q -13,6 -17,-6 Q -21,-20 -16,-24 Q -12,-22 -10,-12 Q -8,0 -8,12 Z" fill="#b4c4da"/>
+            <path d="M -8,20 Q -34,18 -40,25 Q -32,29 -8,27 Z" fill="#a0b2ca"/>
+            <circle cx="-16" cy="-25" r={3} fill={RED} filter="url(#af-glow)" opacity={0.9}/>
+            <circle cx="32" cy="15" r={2} fill={GREEN} filter="url(#af-glow)" opacity={0.85}/>
+            <line x1="54" y1="62" x2="54" y2="76" stroke="#404858" strokeWidth={2.5}/><ellipse cx="54" cy="77" rx="5.5" ry="3" fill="#303848"/>
+            <line x1="6" y1="68" x2="4" y2="80" stroke="#404858" strokeWidth={3}/><ellipse cx="1" cy="81" rx="8" ry="4.5" fill="#303848"/>
+          </g>
+          <text x="340" y="34" textAnchor="middle" fill="rgba(255,255,255,0.82)" fontSize="17" fontWeight="700" fontFamily="'Inter',sans-serif" letterSpacing="3.5">{funnelName?funnelName.toUpperCase():"DEPARTURE FUNNEL"}</text>
+          <text x="340" y="50" textAnchor="middle" fill={YELLOW} fontSize="9" opacity={0.55} letterSpacing="2.2" fontFamily="'Inter',sans-serif">{`${steps.length} GATES · TERMINAL A`}</text>
+        </svg>
+      </div>
+      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: "16px 14px", border: "1px solid rgba(255,255,255,0.07)", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: YELLOW, textTransform: "uppercase", marginBottom: 4 }}>✈ Flight Metrics</div>
+        {[
+          { icon: "✈", label: "Total Passengers", value: fmtCount(totalPassengers), sub: "entered funnel", color: BLUE },
+          { icon: "🛫", label: "Departed", value: fmtCount(boarded), sub: `cleared gate ${steps.length}`, color: GREEN },
+          { icon: "📊", label: "Conversion Rate", value: fmtPct(overallConv), sub: "gate 1 → final", color: convColor(overallConv) },
+          ...(aov > 0 ? [{ icon: "💰", label: "Revenue", value: fmtCurrency(revenue), sub: `avg ${fmtCurrency(aov)} / pax`, color: GREEN }] : []),
+          { icon: "🚫", label: "No-Shows", value: fmtCount(noShows), sub: `${fmtPct(100 - overallConv)} lost`, color: RED },
+        ].map((m, i) => (
+          <div key={i} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "11px 13px", border: `1px solid ${m.color}22`, position: "relative", overflow: "hidden" }}>
+            <div style={{ position: "absolute", right: 10, top: 8, fontSize: 22, opacity: 0.13 }}>{m.icon}</div>
+            <div style={{ fontSize: 9.5, color: "#9fa8da", fontWeight: 500, textTransform: "uppercase", marginBottom: 3 }}>{m.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: m.color, lineHeight: 1, marginBottom: 3 }}>{m.value}</div>
+            <div style={{ fontSize: 10, color: "#4c5870" }}>{m.sub}</div>
+          </div>
+        ))}
+        {steps.length > 1 && (
+          <div style={{ marginTop: 2, background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 12px", border: "1px solid rgba(255,255,255,0.05)" }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", color: "#7986cb", textTransform: "uppercase", marginBottom: 8 }}>Stage Conversion</div>
+            {steps.slice(1).map((step, i) => (
+              <div key={i} style={{ marginBottom: 7 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                  <span style={{ fontSize: 9, color: "#5c6880" }}>{`G${i+1} → G${i+2}`}</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: convColor(step.convFromPrev) }}>{fmtPct(step.convFromPrev)}</span>
+                </div>
+                <div style={{ height: 3, background: "rgba(255,255,255,0.08)", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.min(step.convFromPrev,100)}%`, background: convColor(step.convFromPrev), borderRadius: 2 }}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RetailFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const totalVisitors = steps[0]?.count ?? 0;
+  const purchases = steps[steps.length - 1]?.count ?? 0;
+  const overallConvRate = totalVisitors > 0 ? (purchases / totalVisitors) * 100 : 0;
+  const totalRevenue = purchases * aov;
+  const cartAbandonment = totalVisitors - purchases;
+  const getConvColor = (pct: number) => pct >= 70 ? GREEN : pct >= 40 ? YELLOW : RED;
+  const beltSections = steps.length; const beltStartX = 60; const beltEndX = 620;
+  const beltTopY = 210; const beltBottomY = 310; const beltWidth = beltEndX - beltStartX;
+  const sectionWidth = beltWidth / beltSections;
+  const cartIcons = ["🛒","🔍","🛍","💳","✅"];
+  return (
+    <div style={{ background: "rgba(8,6,14,0.97)", borderRadius: 16, padding: 20, fontFamily: "'Inter',sans-serif", color: "#e8e0f0" }}>
+      {funnelName && <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, letterSpacing: 3, color: ORANGE, marginBottom: 14, textTransform: "uppercase" }}>{funnelName}</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "240px 1fr 285px", gap: 14 }}>
+        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: "14px 12px", border: "1px solid rgba(255,200,60,0.12)" }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2.5, color: ORANGE, marginBottom: 14, textTransform: "uppercase" }}>Shopping Stages</div>
+          {steps.map((step, i) => {
+            const icon = cartIcons[Math.min(i, cartIcons.length - 1)];
+            const isLast = i === steps.length - 1;
+            const convColor = getConvColor(step.convFromPrev);
+            return (
+              <div key={i} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <div style={{ width: 30, height: 30, borderRadius: 8, background: isLast?`${GREEN}22`:`rgba(255,200,60,0.08)`, border: `1px solid ${isLast?GREEN:"rgba(255,200,60,0.2)"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{icon}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#c8bdd8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{step.label}</div>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: "#fff" }}>{fmtCount(step.count)}</div>
+                  </div>
+                </div>
+                {i > 0 && <div style={{ display: "flex", justifyContent: "space-between", paddingLeft: 38 }}><div style={{ fontSize: 9, color: convColor, fontWeight: 700 }}>↓ {fmtPct(step.convFromPrev)}</div><div style={{ fontSize: 9, color: "rgba(200,190,220,0.6)" }}>overall {fmtPct(step.overallConv)}</div></div>}
+                {!isLast && <div style={{ height: 1, background: "rgba(255,200,60,0.08)", marginTop: 8, marginLeft: 38 }}/>}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.02)", borderRadius: 12, border: "1px solid rgba(255,200,60,0.1)", overflow: "hidden", position: "relative" }}>
+          <svg viewBox="0 0 680 455" style={{ width: "100%", display: "block" }}>
+            <defs>
+              <linearGradient id="rf-floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgba(60,45,80,0.9)"/><stop offset="100%" stopColor="rgba(20,15,35,0.95)"/></linearGradient>
+              <linearGradient id="rf-belt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgba(80,65,55,0.95)"/><stop offset="100%" stopColor="rgba(35,28,22,1)"/></linearGradient>
+              <linearGradient id="rf-side" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgba(45,35,28,1)"/><stop offset="100%" stopColor="rgba(20,15,10,1)"/></linearGradient>
+              <radialGradient id="rf-lc1" cx="50%" cy="0%" r="100%"><stop offset="0%" stopColor="rgba(255,235,180,0.55)"/><stop offset="100%" stopColor="rgba(255,235,180,0)"/></radialGradient>
+              <radialGradient id="rf-screen" cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="rgba(70,160,255,0.9)"/><stop offset="100%" stopColor="rgba(30,80,180,0.5)"/></radialGradient>
+              <radialGradient id="rf-bagGlow" cx="50%" cy="60%" r="60%"><stop offset="0%" stopColor="rgba(0,219,117,0.35)"/><stop offset="100%" stopColor="rgba(0,219,117,0)"/></radialGradient>
+              <pattern id="rf-tile" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse"><rect width="40" height="40" fill="rgba(38,30,55,0.9)"/><rect width="19" height="19" fill="rgba(42,34,60,0.9)"/><rect x="21" y="21" width="19" height="19" fill="rgba(42,34,60,0.9)"/><line x1="0" y1="0" x2="40" y2="0" stroke="rgba(80,60,120,0.25)" strokeWidth="0.5"/><line x1="0" y1="0" x2="0" y2="40" stroke="rgba(80,60,120,0.25)" strokeWidth="0.5"/></pattern>
+              <clipPath id="rf-beltClip"><polygon points={`${beltStartX},${beltTopY} ${beltEndX},${beltTopY-30} ${beltEndX},${beltBottomY-20} ${beltStartX},${beltBottomY}`}/></clipPath>
+            </defs>
+            <style>{`
+              @keyframes rf-beltMove{0%{stroke-dashoffset:0}100%{stroke-dashoffset:-40}}
+              @keyframes rf-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+              @keyframes rf-flicker{0%,95%,100%{opacity:1}96%{opacity:.85}98%{opacity:.95}}
+              .rf-belt{animation:rf-beltMove .9s linear infinite}
+              .rf-f1{animation:rf-float 2.1s ease-in-out infinite}
+              .rf-f2{animation:rf-float 2.5s ease-in-out infinite .3s}
+              .rf-f3{animation:rf-float 1.9s ease-in-out infinite .7s}
+              .rf-f4{animation:rf-float 2.3s ease-in-out infinite 1.1s}
+              .rf-fl{animation:rf-flicker 4s ease-in-out infinite}
+            `}</style>
+            <rect width="680" height="455" fill="rgba(8,6,14,0.97)"/>
+            <polygon points="0,320 680,260 680,455 0,455" fill="url(#rf-tile)"/>
+            <polygon points="0,320 680,260 680,455 0,455" fill="url(#rf-floor)"/>
+            <rect width="680" height="200" fill="rgba(25,18,40,0.6)"/>
+            <rect x="0" y="100" width="680" height="8" fill="rgba(60,45,80,0.5)"/>
+            {[60,140,220,300,380,460,540,620].map((x,i)=>(
+              <g key={i}><rect x={x} y={108} width={60} height={20} rx={2} fill="rgba(80,60,100,0.4)"/>
+              <rect x={x+4} y={112} width={12} height={12} rx={1} fill={i%3===0?ORANGE+"88":i%3===1?BLUE+"66":RED+"55"}/>
+              <rect x={x+20} y={113} width={10} height={11} rx={1} fill={i%2===0?YELLOW+"77":GREEN+"55"}/>
+              <rect x={x+34} y={111} width={14} height={13} rx={1} fill={i%4===0?RED+"66":BLUE+"55"}/></g>
+            ))}
+            <g className="rf-fl"><rect x="120" y="12" width="130" height="10" rx="3" fill="rgba(200,190,160,0.9)"/><ellipse cx="185" cy="22" rx="80" ry="180" fill="url(#rf-lc1)" opacity="0.7"/></g>
+            <g className="rf-fl" style={{animationDelay:"0.3s"}}><rect x="420" y="12" width="130" height="10" rx="3" fill="rgba(200,190,160,0.9)"/><ellipse cx="485" cy="22" rx="80" ry="180" fill="url(#rf-lc1)" opacity="0.7"/></g>
+            <polygon points={`${beltStartX},${beltBottomY} ${beltEndX},${beltBottomY-20} ${beltEndX},${beltBottomY+20} ${beltStartX},${beltBottomY+40}`} fill="url(#rf-side)"/>
+            <polygon points={`${beltStartX},${beltTopY} ${beltEndX},${beltTopY-30} ${beltEndX},${beltBottomY-20} ${beltStartX},${beltBottomY}`} fill="url(#rf-belt)"/>
+            <g clipPath="url(#rf-beltClip)" className="rf-belt" strokeDasharray="4 16">
+              {Array.from({length:32},(_,i)=>{const x=beltStartX+i*(beltWidth/28)-10;const yT=beltTopY-(x-beltStartX)*0.044;const yB=beltBottomY-(x-beltStartX)*0.044;return<line key={i} x1={x} y1={yT} x2={x} y2={yB} stroke="rgba(100,78,60,0.55)" strokeWidth="2"/>;})}
+            </g>
+            <ellipse cx={beltStartX} cy={(beltTopY+beltBottomY)/2} rx={6} ry={(beltBottomY-beltTopY)/2} fill="rgba(70,55,44,0.9)" stroke="rgba(100,80,60,0.6)" strokeWidth="1.5"/>
+            <ellipse cx={beltEndX} cy={(beltTopY+beltBottomY-50)/2} rx={6} ry={(beltBottomY-beltTopY-30)/2} fill="rgba(70,55,44,0.9)" stroke="rgba(100,80,60,0.6)" strokeWidth="1.5"/>
+            <line x1={beltStartX} y1={beltTopY} x2={beltEndX} y2={beltTopY-30} stroke="rgba(120,95,70,0.7)" strokeWidth="3"/>
+            {steps.slice(0,-1).map((_,i)=>{const sx=beltStartX+(i+1)*sectionWidth;const pY=(i+1)/beltSections;const yT=beltTopY-pY*30;const yB=beltBottomY-pY*20;return<line key={i} x1={sx} y1={yT} x2={sx} y2={yB} stroke="rgba(255,200,60,0.2)" strokeWidth="1" strokeDasharray="3 4"/>;})}
+            <g className="rf-f1" style={{transformOrigin:"150px 240px"}}><g transform="translate(110,222)">
+              <rect x="0" y="0" width="38" height="28" rx="3" fill={BLUE+"cc"}/><rect x="0" y="0" width="38" height="8" rx="2" fill={BLUE}/>
+              <polygon points="38,0 44,6 44,34 38,28" fill={BLUE+"99"}/><polygon points="0,28 38,28 44,34 6,34" fill={BLUE+"77"}/>
+            </g></g>
+            <g className="rf-f2" style={{transformOrigin:"280px 235px"}}><g transform="translate(255,218)">
+              <path d="M4,14 L2,46 L38,42 L36,10 Z" fill={YELLOW+"cc"}/><rect x="2" y="10" width="34" height="6" rx="1" fill={YELLOW}/>
+              <path d="M10,10 Q12,-2 22,-2 Q32,-2 30,10" fill="none" stroke={ORANGE} strokeWidth="2.5" strokeLinecap="round"/>
+            </g></g>
+            <g className="rf-f3" style={{transformOrigin:"390px 232px"}}><g transform="translate(368,218)">
+              <rect x="0" y="0" width="26" height="40" rx="4" fill="rgba(30,30,45,0.95)" stroke="rgba(120,120,160,0.5)" strokeWidth="1.5"/>
+              <rect x="3" y="5" width="20" height="28" rx="1" fill="rgba(70,160,255,0.8)"/>
+            </g></g>
+            <g transform="translate(530,108)">
+              <rect x="36" y="52" width="6" height="30" rx="2" fill="rgba(50,50,70,0.9)"/>
+              <rect x="0" y="0" width="78" height="52" rx="6" fill="rgba(20,20,40,0.95)" stroke="rgba(70,160,255,0.4)" strokeWidth="1.5"/>
+              <rect x="4" y="4" width="70" height="44" rx="3" fill="url(#rf-screen)"/>
+              <text x="39" y="15" textAnchor="middle" fontSize="7" fill="rgba(150,200,255,0.9)" fontWeight="bold" fontFamily="monospace">CHECKOUT</text>
+              <text x="39" y="30" textAnchor="middle" fontSize="9" fill="#fff" fontWeight="800" fontFamily="monospace">{fmtCurrency(aov)}</text>
+              <text x="39" y="42" textAnchor="middle" fontSize="6" fill="rgba(0,219,117,0.9)" fontFamily="monospace">APPROVED ✓</text>
+            </g>
+            <g transform="translate(600,165)">
+              <ellipse cx="30" cy="70" rx="45" ry="55" fill="url(#rf-bagGlow)"/>
+              <path d="M6,30 L2,90 L58,82 L54,22 Z" fill={GREEN+"dd"}/>
+              <rect x="2" y="18" width="52" height="14" rx="3" fill={GREEN}/>
+              <path d="M14,18 Q17,-8 30,-8 Q43,-8 46,18" fill="none" stroke="rgba(0,180,90,0.9)" strokeWidth="4" strokeLinecap="round"/>
+              <text x="30" y="62" textAnchor="middle" fontSize="22" fill="rgba(0,0,0,0.4)">✓</text>
+            </g>
+            <g>{steps.map((step,i)=>{const cx2=beltStartX+(i+0.5)*sectionWidth;const pY=(i+0.5)/beltSections;const lY=beltBottomY+30-pY*10;return(<g key={i}><text x={cx2} y={lY+2} textAnchor="middle" fontSize="7.5" fill="rgba(220,200,240,0.7)" fontWeight="600">{step.label.length>12?step.label.slice(0,12)+"…":step.label}</text><text x={cx2} y={lY+14} textAnchor="middle" fontSize="9" fill="#fff" fontWeight="800">{fmtCount(step.count)}</text>{i>0&&<text x={cx2} y={lY+25} textAnchor="middle" fontSize="8" fill={getConvColor(step.convFromPrev)} fontWeight="700">{fmtPct(step.convFromPrev)}</text>}</g>);})}</g>
+            <text x="340" y="430" textAnchor="middle" fontSize="9" fill="rgba(255,200,60,0.4)" letterSpacing="2" fontWeight="700">E-COMMERCE CHECKOUT FLOW</text>
+          </svg>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: "14px 12px", border: "1px solid rgba(0,219,117,0.12)", display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2.5, color: GREEN, marginBottom: 4, textTransform: "uppercase" }}>Purchase Metrics</div>
+          {[
+            { icon: "🛒", label: "Total Visitors", value: fmtCount(totalVisitors), sub: "entering the funnel", clr: BLUE },
+            { icon: "🛍", label: "Purchases", value: fmtCount(purchases), sub: "completed transactions", clr: GREEN },
+            { icon: "📊", label: "Conversion Rate", value: fmtPct(overallConvRate), sub: undefined as undefined|string, clr: getConvColor(overallConvRate) },
+            { icon: "💰", label: "Total Revenue", value: fmtCurrency(totalRevenue), sub: `AOV: ${fmtCurrency(aov)}`, clr: ORANGE },
+            { icon: "🚪", label: "Cart Abandonment", value: fmtCount(cartAbandonment), sub: `${fmtPct(100-overallConvRate)} lost`, clr: RED },
+          ].map((m, i) => (
+            <div key={i} style={{ background: `${m.clr}11`, borderRadius: 10, padding: "10px 12px", border: `1px solid ${m.clr}33` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}><span style={{ fontSize: 18 }}>{m.icon}</span><span style={{ fontSize: 9, fontWeight: 700, color: m.clr, letterSpacing: 1.5, textTransform: "uppercase" }}>{m.label}</span></div>
+              <div style={{ fontSize: 24, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
+              {i === 2 && <div style={{ height: 4, background: "rgba(255,255,255,0.08)", borderRadius: 2, marginTop: 6 }}><div style={{ height: "100%", width: `${Math.min(overallConvRate,100)}%`, background: m.clr, borderRadius: 2 }}/></div>}
+              {m.sub && <div style={{ fontSize: 9, color: "rgba(200,190,220,0.5)", marginTop: 2 }}>{m.sub}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function CyberFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const totalThreats = steps.length > 0 ? steps[0].count : 0;
+  const secured = steps.length > 0 ? steps[steps.length - 1].count : 0;
+  const securityRate = totalThreats > 0 ? (secured / totalThreats) * 100 : 0;
+  const neutralized = totalThreats - secured;
+  const cx = 340; const cy = 228; const maxRadius = 195; const minRadius = 46;
+  const ringColors = ['rgba(255,50,50,0.9)','rgba(255,140,40,0.9)','rgba(255,200,60,0.9)','rgba(70,160,255,0.9)','rgba(0,219,117,0.9)'];
+  const clearanceLevels = ['UNCLASSIFIED','RESTRICTED','CONFIDENTIAL','SECRET','TOP SECRET'];
+  const hexLabels = ['0xA3F2','0x7C11','0xE8B4','0x291D','0xFF03','0x5A9E','0xD674','0x1B8C'];
+  const hexPositions = [{x:18,y:38},{x:565,y:28},{x:12,y:205},{x:588,y:195},{x:30,y:388},{x:548,y:408},{x:295,y:12},{x:298,y:442}];
+  const threatDots: Array<{x:number;y:number;delay:number}> = [];
+  for(let i=0;i<14;i++){const angle=(i/14)*Math.PI*2;const r=maxRadius+30;threatDots.push({x:cx+Math.cos(angle)*r,y:cy+Math.sin(angle)*r,delay:(i*0.28)%3.2});}
+  const packetNodes: Array<{x:number;y:number;r:number;color:string;delay:number}> = [];
+  for(let i=0;i<18;i++){const angle=(i/18)*Math.PI*2+0.15;const frac=0.25+(i%4)*0.16;const pr=minRadius+(maxRadius-minRadius)*frac;packetNodes.push({x:cx+Math.cos(angle)*pr,y:cy+Math.sin(angle)*pr,r:2.5+(i%3),color:i%3===0?'rgba(0,240,200,0.95)':i%3===1?'rgba(70,160,255,0.95)':'rgba(0,219,117,0.95)',delay:(i*0.35)%4.2});}
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'240px 1fr 285px', gap:'14px', background:'rgba(2,6,12,0.99)', padding:'16px', borderRadius:'10px', minHeight:'490px', fontFamily:"'Courier New',Courier,monospace", color:'#b0c8e8' }}>
+      <div style={{ background:'rgba(4,12,26,0.98)', borderRadius:'8px', border:'1px solid rgba(0,180,255,0.18)', padding:'14px 11px', display:'flex', flexDirection:'column', gap:'7px' }}>
+        <div style={{ fontSize:'9.5px', fontWeight:700, letterSpacing:'2px', color:'rgba(0,220,255,0.9)', borderBottom:'1px solid rgba(0,180,255,0.2)', paddingBottom:'8px', marginBottom:'2px', textAlign:'center' }}>⬡ SECURITY PIPELINE</div>
+        {steps.map((step,i)=>{
+          const colorIdx=Math.min(i,ringColors.length-1); const rc=ringColors[colorIdx];
+          const convColor=i===0?'rgba(160,200,240,0.5)':step.convFromPrev>=60?GREEN:step.convFromPrev>=30?YELLOW:RED;
+          const clearance=clearanceLevels[Math.min(i,clearanceLevels.length-1)];
+          const icon=i>=steps.length-1?'🔒':i>=steps.length-2?'🛡':'🔍';
+          return(
+            <div key={i} style={{ background:rc.replace('0.9)','0.05)'), border:`1px solid ${rc.replace('0.9)','0.22)')}`, borderRadius:'6px', padding:'8px 9px', position:'relative' }}>
+              {i>0&&<div style={{ position:'absolute', top:'-7px', left:'50%', transform:'translateX(-50%)', fontSize:'8px', color:'rgba(0,180,255,0.45)', lineHeight:1 }}>▼</div>}
+              <div style={{ display:'flex', alignItems:'center', gap:'6px', marginBottom:'4px' }}><span style={{fontSize:'13px'}}>{icon}</span><span style={{ fontSize:'10.5px', fontWeight:600, color:'#d0e8ff', flex:1, lineHeight:1.25 }}>{step.label}</span></div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'3px' }}>
+                <span style={{ fontSize:'14px', fontWeight:700, color:'#e8f4ff' }}>{fmtCount(step.count)}</span>
+                <span style={{ fontSize:'8px', fontWeight:700, padding:'2px 5px', borderRadius:'3px', background:rc.replace('0.9)','0.12)'), border:`1px solid ${rc.replace('0.9)','0.45)')}`, color:rc, letterSpacing:'0.4px' }}>{clearance}</span>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <span style={{ fontSize:'8.5px', color:'rgba(140,180,230,0.55)' }}>{i===0?'Baseline':'Prev conv:'}</span>
+                <span style={{ fontSize:'11px', fontWeight:700, color:convColor }}>{i===0?'—':fmtPct(step.convFromPrev)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ background:'rgba(2,6,12,0.99)', borderRadius:'8px', border:'1px solid rgba(0,180,255,0.12)', display:'flex', flexDirection:'column', alignItems:'center', overflow:'hidden' }}>
+        {funnelName&&<div style={{ fontSize:'10px', fontWeight:700, letterSpacing:'3px', color:'rgba(0,220,255,0.65)', padding:'8px 0 0', textAlign:'center' }}>◈ {funnelName.toUpperCase()} ◈</div>}
+        <svg viewBox="0 0 680 455" width="100%" style={{ display:'block', flex:1 }}>
+          <defs>
+            <radialGradient id="cfBgGrad" cx="50%" cy="50%" r="55%"><stop offset="0%" stopColor="rgba(0,25,55,0.7)"/><stop offset="100%" stopColor="rgba(2,6,12,0)"/></radialGradient>
+            <filter id="cfGlow"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <filter id="cfGlowMd"><feGaussianBlur stdDeviation="4.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <filter id="cfGlowLg"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+          <style>{`
+            @keyframes cfRingA{0%,100%{opacity:.55;stroke-width:1.5}50%{opacity:1;stroke-width:2.4}}
+            @keyframes cfRingB{0%,100%{opacity:.35;stroke-width:1}50%{opacity:.85;stroke-width:2}}
+            @keyframes cfThreat{0%,100%{opacity:1}50%{opacity:.1}}
+            @keyframes cfPkt{0%,100%{opacity:.45}50%{opacity:1}}
+            @keyframes cfCenter{0%,100%{opacity:.78}50%{opacity:1}}
+            @keyframes cfScan{0%{transform:translateY(-230px);opacity:0}8%{opacity:.22}92%{opacity:.22}100%{transform:translateY(230px);opacity:0}}
+            .cf-ring-a{animation:cfRingA 2.6s ease-in-out infinite}
+            .cf-ring-b{animation:cfRingB 3.2s ease-in-out infinite}
+            .cf-threat{animation:cfThreat 1.15s ease-in-out infinite}
+            .cf-pkt{animation:cfPkt 1.9s ease-in-out infinite}
+            .cf-center{animation:cfCenter 2.1s ease-in-out infinite}
+            .cf-scan{animation:cfScan 6s linear infinite;transform-origin:340px 228px}
+          `}</style>
+          <rect width="680" height="455" fill="rgba(2,6,12,0.99)"/>
+          <ellipse cx={cx} cy={cy} rx="290" ry="228" fill="url(#cfBgGrad)"/>
+          {Array.from({length:13}).map((_,i)=><line key={`vg${i}`} x1={i*57+7} y1="0" x2={i*57+7} y2="455" stroke="rgba(0,100,200,0.07)" strokeWidth="0.5"/>)}
+          {Array.from({length:9}).map((_,i)=><line key={`hg${i}`} x1="0" y1={i*57+7} x2="680" y2={i*57+7} stroke="rgba(0,100,200,0.07)" strokeWidth="0.5"/>)}
+          {steps.map((_,i)=>{
+            const rFrac=1-i/steps.length; const r=minRadius+(maxRadius-minRadius)*rFrac;
+            const color=ringColors[Math.min(i,ringColors.length-1)];
+            const animClass=i%2===0?'cf-ring-a':'cf-ring-b'; const delay=`${i*0.52}s`;
+            const pts=Array.from({length:6}).map((_2,k)=>{const a=(k/6)*Math.PI*2-Math.PI/6;return`${(cx+Math.cos(a)*r).toFixed(1)},${(cy+Math.sin(a)*r).toFixed(1)}`;}).join(' ');
+            return(
+              <g key={`ring${i}`}>
+                <polygon points={pts} fill="none" stroke={color.replace('0.9)','0.18)')} strokeWidth="10" filter="url(#cfGlowMd)" className={animClass} style={{animationDelay:delay}}/>
+                <polygon points={pts} fill={color.replace('0.9)','0.04)')} stroke={color} strokeWidth="1.5" filter="url(#cfGlow)" className={animClass} style={{animationDelay:delay}}/>
+                <text x={(cx+Math.cos((5/6)*Math.PI*2-Math.PI/6)*r+5).toFixed(1)} y={(cy+Math.sin((5/6)*Math.PI*2-Math.PI/6)*r-3).toFixed(1)} fontSize="7" fill={color} opacity="0.75" fontFamily="'Courier New',monospace">ZONE-{i+1}</text>
+              </g>
+            );
+          })}
+          {packetNodes.map((node,i)=>{const next=packetNodes[(i+5)%packetNodes.length];return<line key={`cn${i}`} x1={node.x.toFixed(1)} y1={node.y.toFixed(1)} x2={next.x.toFixed(1)} y2={next.y.toFixed(1)} stroke="rgba(0,160,240,0.1)" strokeWidth="0.7"/>;} )}
+          {packetNodes.map((node,i)=>(
+            <g key={`pkt${i}`}>
+              <circle cx={node.x.toFixed(1)} cy={node.y.toFixed(1)} r={node.r+3.5} fill={node.color.replace('0.95)','0.1)')} filter="url(#cfGlow)" className="cf-pkt" style={{animationDelay:`${node.delay}s`}}/>
+              <circle cx={node.x.toFixed(1)} cy={node.y.toFixed(1)} r={node.r} fill={node.color} filter="url(#cfGlow)" className="cf-pkt" style={{animationDelay:`${node.delay}s`}}/>
+            </g>
+          ))}
+          {threatDots.map((dot,i)=>(
+            <g key={`th${i}`}>
+              <circle cx={dot.x.toFixed(1)} cy={dot.y.toFixed(1)} r="8" fill="rgba(255,20,20,0.07)" className="cf-threat" style={{animationDelay:`${dot.delay}s`}}/>
+              <circle cx={dot.x.toFixed(1)} cy={dot.y.toFixed(1)} r="3.5" fill="rgba(255,55,55,0.95)" filter="url(#cfGlow)" className="cf-threat" style={{animationDelay:`${dot.delay}s`}}/>
+              {i%4===0&&<text x={(dot.x+7).toFixed(1)} y={(dot.y+3).toFixed(1)} fontSize="7" fill="rgba(255,80,80,0.55)" fontFamily="'Courier New',monospace">THREAT</text>}
+            </g>
+          ))}
+          {hexPositions.map((pos,i)=><text key={`hl${i}`} x={pos.x} y={pos.y} fontSize="8" fill="rgba(0,170,255,0.22)" fontFamily="'Courier New',monospace">{hexLabels[i%hexLabels.length]}</text>)}
+          <rect x="0" y={cy} width="680" height="1.5" fill="rgba(0,220,255,0.1)" className="cf-scan"/>
+          <g className="cf-center">
+            <circle cx={cx} cy={cy} r="44" fill="rgba(0,219,117,0.05)" filter="url(#cfGlowLg)"/>
+            <circle cx={cx} cy={cy} r="30" fill="rgba(0,219,117,0.1)" stroke="rgba(0,219,117,0.65)" strokeWidth="1.5" filter="url(#cfGlowMd)"/>
+            <path d={`M${cx},${cy-20}L${cx+14},${cy-11}L${cx+14},${cy+3}Q${cx+14},${cy+17}${cx},${cy+23}Q${cx-14},${cy+17}${cx-14},${cy+3}L${cx-14},${cy-11}Z`} fill="rgba(0,219,117,0.18)" stroke="rgba(0,219,117,0.95)" strokeWidth="1.4" filter="url(#cfGlow)"/>
+            <rect x={cx-6} y={cy-3} width="12" height="10" rx="2" fill="rgba(0,219,117,0.85)" stroke="rgba(0,255,160,0.9)" strokeWidth="0.8"/>
+            <path d={`M${cx-4},${cy-3}L${cx-4},${cy-9}Q${cx-4},${cy-13}${cx},${cy-13}Q${cx+4},${cy-13}${cx+4},${cy-9}L${cx+4},${cy-3}`} fill="none" stroke="rgba(0,255,160,0.9)" strokeWidth="1.5"/>
+            <text x={cx} y={cy+40} textAnchor="middle" fontSize="8" fontWeight="700" fill="rgba(0,219,117,0.9)" fontFamily="'Courier New',monospace" letterSpacing="2.5" filter="url(#cfGlow)">SECURED</text>
+          </g>
+          {steps.map((step,i)=>{
+            const rFrac=1-i/steps.length; const r=minRadius+(maxRadius-minRadius)*rFrac;
+            const angle=Math.PI*1.15; const color=ringColors[Math.min(i,ringColors.length-1)];
+            return<text key={`sl${i}`} x={(cx+Math.cos(angle)*r).toFixed(1)} y={(cy+Math.sin(angle)*r).toFixed(1)} textAnchor="middle" fontSize="8.5" fontWeight="700" fill={color} fontFamily="'Courier New',monospace" filter="url(#cfGlow)">{fmtCount(step.count)}</text>;
+          })}
+        </svg>
+      </div>
+      <div style={{ background:'rgba(4,12,26,0.98)', borderRadius:'8px', border:'1px solid rgba(0,180,255,0.18)', padding:'14px 12px', display:'flex', flexDirection:'column', gap:'10px' }}>
+        <div style={{ fontSize:'9.5px', fontWeight:700, letterSpacing:'2px', color:'rgba(0,220,255,0.9)', borderBottom:'1px solid rgba(0,180,255,0.2)', paddingBottom:'8px', textAlign:'center' }}>◈ THREAT METRICS</div>
+        {[
+          { label:'🔍 Total Threats', value:fmtCount(totalThreats), clr:BLUE, bg:'rgba(0,25,65,0.5)', bd:'rgba(0,160,255,0.2)', sub:steps.length>0?steps[0].label:'—' },
+          { label:'🛡 Successfully Secured', value:fmtCount(secured), clr:GREEN, bg:'rgba(0,35,18,0.5)', bd:'rgba(0,180,80,0.22)', sub:aov>0?`Est. value: ${fmtCurrency(secured*aov)}`:'Endpoints protected' },
+          { label:'⚡ Security Rate', value:fmtPct(securityRate), clr:securityRate>=60?GREEN:securityRate>=30?YELLOW:RED, bg:'rgba(0,22,50,0.5)', bd:'rgba(0,130,255,0.18)', sub:undefined as undefined|string },
+          { label:'☠ Threats Neutralized', value:fmtCount(neutralized), clr:RED, bg:'rgba(38,6,6,0.5)', bd:'rgba(255,70,70,0.2)', sub:`${fmtPct(totalThreats>0?(neutralized/totalThreats)*100:0)} blocked` },
+        ].map((m,i)=>(
+          <div key={i} style={{ background:m.bg, border:`1px solid ${m.bd}`, borderRadius:'6px', padding:'10px 12px' }}>
+            <div style={{ fontSize:'9.5px', color:'rgba(150,195,240,0.6)', marginBottom:'4px' }}>{m.label}</div>
+            <div style={{ fontSize:'23px', fontWeight:700, color:m.clr }}>{m.value}</div>
+            {i===2&&<div style={{ marginTop:'7px', height:'4px', background:'rgba(0,70,150,0.3)', borderRadius:'2px', overflow:'hidden' }}><div style={{ width:`${Math.min(securityRate,100)}%`, height:'100%', borderRadius:'2px', background:m.clr, boxShadow:`0 0 6px ${m.clr}` }}/></div>}
+            {m.sub&&<div style={{ fontSize:'8.5px', color:'rgba(80,140,230,0.5)', marginTop:'2px' }}>{m.sub}</div>}
+          </div>
+        ))}
+        {steps.length>0&&<div style={{ background:'rgba(0,18,45,0.5)', border:'1px solid rgba(0,130,255,0.18)', borderRadius:'6px', padding:'10px 12px' }}>
+          <div style={{ fontSize:'9.5px', color:'rgba(150,195,240,0.6)', marginBottom:'4px' }}>◈ Overall Conversion</div>
+          <div style={{ fontSize:'20px', fontWeight:700, color:BLUE }}>{fmtPct(steps[steps.length-1].overallConv)}</div>
+          <div style={{ fontSize:'8.5px', color:'rgba(80,140,230,0.5)', marginTop:'2px' }}>{steps.length}-stage pipeline</div>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const totalFans = steps[0]?.count ?? 0;
+  const seated = steps[steps.length-1]?.count ?? 0;
+  const fillRate = totalFans > 0 ? (seated / totalFans) * 100 : 0;
+  const ticketRevenue = seated * aov;
+  const emptySeats = totalFans - seated;
+  const n = steps.length;
+  const sectionLetters = 'ABCDEFGHIJ'.split('');
+  const stepColor = (conv: number, idx: number): string => idx===0?BLUE:conv>=65?GREEN:conv>=35?YELLOW:RED;
+  const CX=340, CY=226, OUTER_RX=292, OUTER_RY=183, FIELD_RX=110, FIELD_RY=67;
+  const SEAT_INNER_RX=FIELD_RX+17, SEAT_INNER_RY=FIELD_RY+11;
+  const TIER_RX=(OUTER_RX-SEAT_INNER_RX)/Math.max(n,1), TIER_RY=(OUTER_RY-SEAT_INNER_RY)/Math.max(n,1);
+  const tiers = steps.map((step,i)=>{
+    const oi=n-1-i;
+    return{step,i,irx:SEAT_INNER_RX+oi*TIER_RX,iry:SEAT_INNER_RY+oi*TIER_RY,orx:SEAT_INNER_RX+(oi+1)*TIER_RX,ory:SEAT_INNER_RY+(oi+1)*TIER_RY,color:stepColor(step.convFromPrev,i),fillPct:step.overallConv};
+  });
+  const sortedTiers=[...tiers].sort((a,b)=>b.orx-a.orx);
+  const genSeats=(irx:number,iry:number,orx:number,ory:number,color:string,fillPct:number,key:number):React.ReactElement[]=>{
+    const ROWS=3,COLS=72; const filled=Math.round(ROWS*COLS*fillPct/100);
+    const out:React.ReactElement[]=[]; let idx=0;
+    for(let r=0;r<ROWS;r++){
+      const t=(r+0.5)/ROWS; const rx=irx+t*(orx-irx); const ry=iry+t*(ory-iry);
+      for(let s=0;s<COLS;s++){
+        const ang=(s/COLS)*Math.PI*2-Math.PI/2;
+        const x=CX+rx*Math.cos(ang); const y=CY+ry*Math.sin(ang);
+        const isFilled=idx<filled;
+        out.push(<rect key={`${key}-${r}-${s}`} x={x-2.5} y={y-2} width={5} height={3.5} rx={0.7} transform={`rotate(${(ang*180/Math.PI)+90} ${x} ${y})`} fill={isFilled?color:'rgba(12,22,40,0.85)'} opacity={isFilled?0.88:0.5}/>);
+        idx++;
+      }
+    }
+    return out;
+  };
+  const starData:[number,number,number][]=[[40,17,0.7],[92,31,0.5],[158,11,0.8],[243,27,0.55],[412,14,0.7],[492,37,0.5],[568,19,0.8],[642,43,0.6],[22,70,0.5],[658,70,0.65],[308,7,0.55],[182,50,0.4],[552,56,0.6]];
+  const lightPositions:[number,number,number,number][]=[[52,100,52,78],[628,100,628,78],[52,350,52,372],[628,350,628,372]];
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'240px 1fr 285px', gap:14, background:'rgba(4,6,10,0.98)', color:'#e8eeff', padding:16, fontFamily:'"Inter",system-ui,sans-serif', borderRadius:12, boxSizing:'border-box' }}>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontSize:9, fontWeight:800, letterSpacing:3.5, textTransform:'uppercase', color:'#5ba3ff', marginBottom:16, paddingBottom:9, borderBottom:'1px solid rgba(91,163,255,0.2)' }}>Game Day Journey</div>
+        {steps.map((step,i)=>{
+          const col=stepColor(step.convFromPrev,i);
+          return(
+            <div key={i} style={{ paddingBottom:11, marginBottom:11, borderBottom:i<n-1?'1px solid rgba(255,255,255,0.05)':'none' }}>
+              <div style={{ fontSize:8, fontWeight:700, letterSpacing:2.5, color:'#4488cc', marginBottom:3 }}>SECTION {sectionLetters[i]}</div>
+              <div style={{ fontSize:11, fontWeight:600, color:'#c8d8f8', marginBottom:5, lineHeight:1.3 }}>{step.label}</div>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ fontSize:13, fontWeight:700, color:'#ffffff' }}>{fmtCount(step.count)}</span>
+                <span style={{ fontSize:9.5, color:'rgba(255,255,255,0.38)' }}>fans</span>
+                {i>0&&<span style={{ marginLeft:'auto', fontSize:10.5, fontWeight:700, color:col, background:col.replace('0.92)','0.12)'), padding:'1px 7px', borderRadius:10, border:`1px solid ${col.replace('0.92)','0.28)')}` }}>{fmtPct(step.convFromPrev)}</span>}
+              </div>
+              {i>0&&<div style={{ height:2.5, borderRadius:2, marginTop:6, background:'rgba(255,255,255,0.07)', overflow:'hidden' }}><div style={{ height:'100%', width:`${Math.min(step.convFromPrev,100)}%`, background:col, borderRadius:2 }}/></div>}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <svg viewBox="0 0 680 455" style={{ width:'100%', height:'auto', display:'block' }}>
+          <defs>
+            <radialGradient id="sf-sky" cx="50%" cy="42%" r="60%"><stop offset="0%" stopColor="#0c1b34"/><stop offset="100%" stopColor="#020406"/></radialGradient>
+            <radialGradient id="sf-field" cx="40%" cy="38%" r="68%"><stop offset="0%" stopColor="#2ec854"/><stop offset="42%" stopColor="#1da844"/><stop offset="100%" stopColor="#127230"/></radialGradient>
+            <linearGradient id="sf-board" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#000e28"/><stop offset="50%" stopColor="#001e48"/><stop offset="100%" stopColor="#000e28"/></linearGradient>
+            <filter id="sf-lg" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <filter id="sf-sg" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <filter id="sf-fg" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="16" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <filter id="sf-xg" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="22" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <mask id="sf-sm"><ellipse cx={CX} cy={CY} rx={OUTER_RX} ry={OUTER_RY} fill="white"/><ellipse cx={CX} cy={CY} rx={FIELD_RX+9} ry={FIELD_RY+6} fill="black"/></mask>
+          </defs>
+          <rect width="680" height="455" fill="url(#sf-sky)" rx="10"/>
+          {starData.map(([sx,sy,op],si)=><circle key={si} cx={sx} cy={sy} r={si%4===0?1.4:0.85} fill="white" opacity={op}/>)}
+          <ellipse cx={CX} cy={CY+9} rx={OUTER_RX+20} ry={OUTER_RY+13} fill="rgba(0,0,0,0.6)"/>
+          <ellipse cx={CX} cy={CY} rx={OUTER_RX+14} ry={OUTER_RY+9} fill="#08131e" stroke="#17304c" strokeWidth="2.5"/>
+          <ellipse cx={CX} cy={CY} rx={OUTER_RX} ry={OUTER_RY} fill="#0b1928"/>
+          {sortedTiers.map((tier,i)=><ellipse key={`tbg-${i}`} cx={CX} cy={CY} rx={tier.orx} ry={tier.ory} fill="#081220"/>)}
+          <g mask="url(#sf-sm)">{tiers.map(tier=>genSeats(tier.irx,tier.iry,tier.orx,tier.ory,tier.color,tier.fillPct,tier.i))}</g>
+          <ellipse cx={CX} cy={CY} rx={FIELD_RX+15} ry={FIELD_RY+9} fill="#111f34"/>
+          <ellipse cx={CX} cy={CY} rx={FIELD_RX+30} ry={FIELD_RY+18} fill="rgba(28,200,80,0.14)" filter="url(#sf-xg)"/>
+          <ellipse cx={CX} cy={CY} rx={FIELD_RX} ry={FIELD_RY} fill="url(#sf-field)"/>
+          <ellipse cx={CX} cy={CY} rx={FIELD_RX-6} ry={FIELD_RY-4} fill="none" stroke="rgba(255,255,255,0.26)" strokeWidth={1.5}/>
+          <line x1={CX-FIELD_RX+8} y1={CY} x2={CX+FIELD_RX-8} y2={CY} stroke="rgba(255,255,255,0.26)" strokeWidth={1.5}/>
+          <circle cx={CX} cy={CY} r={17} fill="none" stroke="rgba(255,255,255,0.26)" strokeWidth={1.5}/>
+          <circle cx={CX} cy={CY} r={2.2} fill="rgba(255,255,255,0.65)"/>
+          <line x1={255} y1={7} x2={265} y2={93} stroke="#162640" strokeWidth="2.5"/>
+          <line x1={425} y1={7} x2={415} y2={93} stroke="#162640" strokeWidth="2.5"/>
+          <rect x={212} y={5} width={256} height={90} rx={8} fill="#00091e" stroke="#1b3562" strokeWidth="2.5"/>
+          <rect x={216} y={9} width={248} height={82} rx={6} fill="url(#sf-board)"/>
+          <text x={340} y={30} textAnchor="middle" fill="#ffffff" fontSize={10.5} fontWeight={800} letterSpacing={3.5} fontFamily="'Courier New',monospace">{(funnelName??"STADIUM FUNNEL").toUpperCase().slice(0,26)}</text>
+          <line x1={220} y1={35} x2={460} y2={35} stroke="rgba(55,125,255,0.25)" strokeWidth="0.8"/>
+          <text x={262} y={50} textAnchor="middle" fill="#3e7ab8" fontSize={7.5} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">FANS IN</text>
+          <text x={340} y={50} textAnchor="middle" fill="#3e7ab8" fontSize={7.5} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">FILL RATE</text>
+          <text x={418} y={50} textAnchor="middle" fill="#3e7ab8" fontSize={7.5} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">REVENUE</text>
+          <text x={262} y={65} textAnchor="middle" fill="#c8e0ff" fontSize={13} fontWeight={800} fontFamily="'Courier New',monospace">{fmtCount(totalFans)}</text>
+          <text x={340} y={65} textAnchor="middle" fill={fillRate>=50?GREEN:fillRate>=25?YELLOW:RED} fontSize={13} fontWeight={800} fontFamily="'Courier New',monospace">{fmtPct(fillRate)}</text>
+          <text x={418} y={65} textAnchor="middle" fill="#ffd060" fontSize={12} fontWeight={800} fontFamily="'Courier New',monospace">{fmtCurrency(ticketRevenue)}</text>
+          <rect x={216} y={78} width={248} height={11} rx={3} fill="rgba(0,8,24,0.9)"/>
+          <text x={221} y={87} fill="#2860aa" fontSize={7.5} fontFamily="'Courier New',monospace" letterSpacing={1.5}>{'› '+steps.map(s=>s.label.toUpperCase()).join('  ›  ').slice(0,54)}</text>
+          {lightPositions.map(([bx,by,hx,hy],li)=>(
+            <g key={`lt-${li}`} filter="url(#sf-lg)">
+              <line x1={bx} y1={by} x2={hx} y2={hy} stroke="#1e3050" strokeWidth={4} strokeLinecap="round"/>
+              <rect x={hx-15} y={Math.min(hy,by)-5} width={30} height={11} rx={3} fill="#2a4060" stroke="#385070" strokeWidth="1"/>
+              {([-9,-3,3,9] as number[]).map((offset,bi)=><circle key={bi} cx={hx+offset} cy={Math.min(hy,by)+3} r={2.6} fill="rgba(255,248,210,0.95)"/>)}
+            </g>
+          ))}
+          <text x={CX} y={417} textAnchor="middle" fill="rgba(91,163,255,0.65)" fontSize={7.5} fontWeight={700} letterSpacing={3} fontFamily="'Courier New',monospace">MAIN ENTRANCE</text>
+          <rect x={288} y={421} width={104} height={30} rx={5} fill="#0d1d34" stroke="#1c3458" strokeWidth="1.5"/>
+          {([0,1,2,3] as number[]).map(gi=><rect key={gi} x={295+gi*24} y={424} width={16} height={22} rx={8} fill="#060e1c"/>)}
+        </svg>
+      </div>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontSize:9, fontWeight:800, letterSpacing:3.5, textTransform:'uppercase', color:'#5ba3ff', marginBottom:14, paddingBottom:9, borderBottom:'1px solid rgba(91,163,255,0.2)' }}>Venue Metrics</div>
+        {[
+          {icon:'🏟',label:'TOTAL FANS',value:fmtCount(totalFans),sub:'entered the journey'},
+          {icon:'🎟',label:'SEATED',value:fmtCount(seated),sub:'completed journey'},
+          {icon:'📊',label:'FILL RATE',value:fmtPct(fillRate),sub:'overall conversion'},
+          {icon:'💰',label:'TICKET REVENUE',value:fmtCurrency(ticketRevenue),sub:`${fmtCurrency(aov)} avg order`},
+          {icon:'🚪',label:'EMPTY SEATS',value:fmtCount(emptySeats),sub:'dropped off'},
+        ].map((m,mi)=>(
+          <div key={mi} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', marginBottom:7 }}>
+            <span style={{fontSize:19,lineHeight:1}}>{m.icon}</span>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:8.5,letterSpacing:1.5,color:'rgba(255,255,255,0.38)',textTransform:'uppercase',marginBottom:1}}>{m.label}</div>
+              <div style={{fontSize:15,fontWeight:700,color:'#e4efff',lineHeight:1.15}}>{m.value}</div>
+              <div style={{fontSize:9,color:'rgba(255,255,255,0.3)',marginTop:1}}>{m.sub}</div>
+            </div>
+          </div>
+        ))}
+        {n>1&&(
+          <div style={{ marginTop:8, padding:'10px 12px', background:'rgba(255,255,255,0.03)', borderRadius:8, border:'1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ fontSize:8.5, fontWeight:700, letterSpacing:2, color:'#4a8acc', marginBottom:10, textTransform:'uppercase' }}>Step Conversion</div>
+            {steps.slice(1).map((step,i)=>{
+              const col=stepColor(step.convFromPrev,i+1);
+              return(
+                <div key={i} style={{marginBottom:9}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
+                    <span style={{fontSize:9.5,color:'rgba(196,216,255,0.52)',maxWidth:'65%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{step.label}</span>
+                    <span style={{fontSize:10.5,fontWeight:700,color:col}}>{fmtPct(step.convFromPrev)}</span>
+                  </div>
+                  <div style={{height:3,borderRadius:2,overflow:'hidden',background:'rgba(255,255,255,0.07)'}}><div style={{height:'100%',width:`${Math.min(step.convFromPrev,100)}%`,background:col,borderRadius:2}}/></div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HomebuyingFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const totalSeekers = steps[0]?.count ?? 0;
+  const buyersClosed = steps[steps.length-1]?.count ?? 0;
+  const closeRate = steps[steps.length-1]?.overallConv ?? 0;
+  const lostBuyers = totalSeekers - buyersClosed;
+  const stepIcons = ['🔍','💼','🏠','🔑'];
+  const panelBg = 'rgba(5,8,14,0.97)';
+  const borderColor = 'rgba(80,120,80,0.35)';
+  const getConvColor = (conv: number) => conv>=60?GREEN:conv>=30?YELLOW:RED;
+  const milestonePositions = [{x:58,y:412},{x:158,y:403},{x:268,y:395},{x:378,y:390}];
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'240px 1fr 285px', gap:'14px', background:panelBg, border:`1px solid ${borderColor}`, borderRadius:'12px', padding:'16px', fontFamily:"'Segoe UI',system-ui,sans-serif", color:'#e8e8e8', minHeight:'488px', boxSizing:'border-box' }}>
+      <div style={{ background:'rgba(255,255,255,0.03)', border:`1px solid ${borderColor}`, borderRadius:'8px', padding:'14px', display:'flex', flexDirection:'column', gap:'0' }}>
+        <div style={{ fontSize:'10px', fontWeight:700, letterSpacing:'1.5px', color:'rgba(255,255,255,0.38)', marginBottom:'14px', textTransform:'uppercase' as const }}>Property Journey</div>
+        <div style={{ display:'flex', flexDirection:'column', gap:'9px' }}>
+          {steps.map((step,i)=>{
+            const icon=stepIcons[i]??"📍"; const convColor=getConvColor(step.overallConv);
+            return(
+              <div key={i} style={{ background:'rgba(255,255,255,0.035)', border:`1px solid rgba(80,120,80,0.22)`, borderRadius:'7px', padding:'9px 10px' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'6px', marginBottom:'5px' }}><span style={{fontSize:'15px',lineHeight:1}}>{icon}</span><span style={{ fontSize:'11px', fontWeight:600, color:'rgba(255,255,255,0.82)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{step.label}</span></div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:'5px' }}>
+                  <span style={{fontSize:'14px',fontWeight:700,color:'#fff'}}>{fmtCount(step.count)}</span>
+                  <span style={{fontSize:'11px',color:convColor,fontWeight:700}}>{fmtPct(step.overallConv)}</span>
+                </div>
+                <div style={{ height:'3px', background:'rgba(255,255,255,0.08)', borderRadius:'2px', overflow:'hidden' }}>
+                  <div style={{ height:'100%', width:`${Math.min(100,step.overallConv)}%`, background:convColor, borderRadius:'2px' }}/>
+                </div>
+                {i>0&&<div style={{ fontSize:'9.5px', color:'rgba(255,255,255,0.38)', marginTop:'4px' }}>↳ {fmtPct(step.convFromPrev)} from previous</div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${borderColor}`, borderRadius:'8px', overflow:'hidden', display:'flex', alignItems:'stretch' }}>
+        <svg viewBox="0 0 680 455" style={{ width:'100%', height:'100%', display:'block' }}>
+          <defs>
+            <linearGradient id="hb-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#162840"/><stop offset="55%" stopColor="#2c6496"/><stop offset="100%" stopColor="#e89840"/></linearGradient>
+            <linearGradient id="hb-hill-far" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1e5228"/><stop offset="100%" stopColor="#0f3018"/></linearGradient>
+            <linearGradient id="hb-hill-mid" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2a6e36"/><stop offset="100%" stopColor="#163e1e"/></linearGradient>
+            <linearGradient id="hb-hill-near" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#34864a"/><stop offset="100%" stopColor="#1c4a26"/></linearGradient>
+            <linearGradient id="hb-road" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#383028"/><stop offset="100%" stopColor="#504840"/></linearGradient>
+            <linearGradient id="hb-wall-main" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#eedcb2"/><stop offset="100%" stopColor="#c8b47a"/></linearGradient>
+            <linearGradient id="hb-wall-side" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#c8b47a"/><stop offset="100%" stopColor="#b0985a"/></linearGradient>
+            <linearGradient id="hb-roof-main" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#5a3018"/><stop offset="100%" stopColor="#3c1e0a"/></linearGradient>
+            <linearGradient id="hb-garage-door" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#d4c490"/><stop offset="100%" stopColor="#b8a870"/></linearGradient>
+            <linearGradient id="hb-path-walk" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#8a7a60" stopOpacity="0.25"/><stop offset="100%" stopColor="#c8a860" stopOpacity="0.9"/></linearGradient>
+            <radialGradient id="hb-sun-rg" cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="#fff9b0" stopOpacity="1"/><stop offset="35%" stopColor="#ffc840" stopOpacity="0.85"/><stop offset="100%" stopColor="#ff7020" stopOpacity="0"/></radialGradient>
+            <radialGradient id="hb-win-warm" cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="#ffe898" stopOpacity="1"/><stop offset="100%" stopColor="#ff9820" stopOpacity="0.15"/></radialGradient>
+            <linearGradient id="hb-key-gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#ffe060"/><stop offset="100%" stopColor="#b87820"/></linearGradient>
+            <filter id="hb-glow-sm" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <filter id="hb-glow-lg" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <filter id="hb-shadow-house"><feDropShadow dx="3" dy="6" stdDeviation="5" floodColor="rgba(0,0,0,0.6)"/></filter>
+            <filter id="hb-win-glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+          <rect x="0" y="0" width="680" height="455" fill="url(#hb-sky)"/>
+          <circle cx="108" cy="138" r="58" fill="url(#hb-sun-rg)" filter="url(#hb-glow-lg)"/>
+          <circle cx="108" cy="138" r="26" fill="#fff9c0" opacity="0.96"/>
+          {([0,30,60,90,120,150,180,210,240,270,300,330] as number[]).map((deg,ri)=>{const r=(deg*Math.PI)/180;return<line key={ri} x1={108+Math.cos(r)*30} y1={138+Math.sin(r)*30} x2={108+Math.cos(r)*46} y2={138+Math.sin(r)*46} stroke="#ffe050" strokeWidth="2.2" opacity="0.55"/>;} )}
+          <g opacity="0.7"><ellipse cx="290" cy="78" rx="42" ry="19" fill="#f0e8d8"/><ellipse cx="322" cy="68" rx="32" ry="21" fill="#f6f0e2"/><ellipse cx="260" cy="76" rx="26" ry="15" fill="#ece4d0"/></g>
+          <g opacity="0.55"><ellipse cx="520" cy="58" rx="36" ry="14" fill="#e8e0d0"/><ellipse cx="548" cy="49" rx="27" ry="17" fill="#eee6da"/></g>
+          <path d="M0,285 Q90,205 210,248 Q310,205 420,258 Q510,205 600,238 Q645,228 680,248 L680,455 L0,455 Z" fill="url(#hb-hill-far)" opacity="0.75"/>
+          <path d="M0,318 Q110,272 230,300 Q350,258 490,308 Q590,272 680,298 L680,455 L0,455 Z" fill="url(#hb-hill-mid)"/>
+          <path d="M0,368 Q180,348 340,360 Q500,348 680,368 L680,455 L0,455 Z" fill="url(#hb-hill-near)"/>
+          <path d="M0,425 Q200,400 340,388 Q480,400 680,425 L680,455 L0,455 Z" fill="url(#hb-road)"/>
+          <path d="M0,442 Q340,412 680,442" stroke="#e0c050" strokeWidth="1.5" strokeDasharray="22,16" opacity="0.45" fill="none"/>
+          <path d="M18,420 Q140,406 275,396 Q330,392 395,390 Q445,389 475,391" stroke="url(#hb-path-walk)" strokeWidth="10" fill="none" strokeLinecap="round"/>
+          <path d="M18,420 Q140,406 275,396 Q330,392 395,390 Q445,389 475,391" stroke="#d0b870" strokeWidth="2.5" fill="none" strokeDasharray="9,7" opacity="0.45"/>
+          {steps.map((step,i)=>{const pos=milestonePositions[i];if(!pos)return null;const mc=getConvColor(step.overallConv);return(<g key={i}><rect x={pos.x-1.5} y={pos.y-26} width="3" height="20" fill="#7a6a50" rx="1"/><circle cx={pos.x} cy={pos.y-32} r="11" fill="rgba(5,8,14,0.88)" stroke={mc} strokeWidth="2"/><text x={pos.x} y={pos.y-28} textAnchor="middle" fontSize="9" fill={mc} fontWeight="bold">{i+1}</text></g>);})}
+          <g transform="translate(18,268) scale(0.5)" opacity="0.78"><polygon points="0,66 50,4 100,66" fill="#4a2e18"/><rect x="8" y="66" width="84" height="72" fill="#c8b07e"/><rect x="34" y="108" width="20" height="30" fill="#7a4020" rx="1"/><rect x="12" y="76" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/><rect x="66" y="76" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/></g>
+          <g transform="translate(520,256) scale(0.5)" opacity="0.78"><polygon points="0,62 52,2 104,62" fill="#4a2818"/><rect x="8" y="62" width="88" height="76" fill="#c8b88a"/><rect x="36" y="102" width="20" height="36" fill="#7a4020" rx="1"/><rect x="12" y="72" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/><rect x="68" y="72" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/></g>
+          <g transform="translate(218,188)" filter="url(#hb-shadow-house)">
+            <polygon points="144,106 152,62 236,62 228,106" fill="url(#hb-roof-main)"/>
+            <rect x="152" y="106" width="76" height="82" fill="url(#hb-wall-side)"/>
+            <rect x="158" y="114" width="64" height="56" fill="url(#hb-garage-door)" rx="2"/>
+            {[0,1,2].map(j=><line key={j} x1="158" y1={132+j*18} x2="222" y2={132+j*18} stroke="#988858" strokeWidth="0.9" opacity="0.55"/>)}
+            <line x1="190" y1="114" x2="190" y2="170" stroke="#988858" strokeWidth="0.9" opacity="0.55"/>
+            <rect x="104" y="-22" width="20" height="38" fill="#6a4530"/><rect x="100" y="-26" width="28" height="6" fill="#543820" rx="1"/>
+            <path d="M109,-28 Q115,-46 110,-62" stroke="rgba(210,200,190,0.45)" strokeWidth="3.5" fill="none" strokeLinecap="round"/>
+            <polygon points="-6,106 76,-6 158,106" fill="url(#hb-roof-main)"/>
+            <rect x="0" y="106" width="152" height="88" fill="url(#hb-wall-main)"/>
+            <g filter="url(#hb-win-glow)"><rect x="8" y="116" width="40" height="32" fill="#ffe888" opacity="0.95" rx="2"/></g>
+            <rect x="6" y="114" width="44" height="36" fill="none" stroke="#c0a068" strokeWidth="2.2" rx="2"/>
+            <line x1="28" y1="114" x2="28" y2="150" stroke="#a08048" strokeWidth="1.5"/><line x1="6" y1="132" x2="50" y2="132" stroke="#a08048" strokeWidth="1.5"/>
+            <g filter="url(#hb-win-glow)"><rect x="104" y="116" width="40" height="32" fill="#ffe888" opacity="0.95" rx="2"/></g>
+            <rect x="102" y="114" width="44" height="36" fill="none" stroke="#c0a068" strokeWidth="2.2" rx="2"/>
+            <line x1="124" y1="114" x2="124" y2="150" stroke="#a08048" strokeWidth="1.5"/><line x1="102" y1="132" x2="146" y2="132" stroke="#a08048" strokeWidth="1.5"/>
+            <rect x="52" y="141" width="48" height="53" fill="#7a3e1c" rx="3"/>
+            <path d="M54,156 Q76,134 98,156" fill="#8a5028"/>
+            <circle cx="95" cy="168" r="3.5" fill="#c8a030"/><circle cx="95" cy="168" r="2" fill="#e0b840"/>
+            <rect x="38" y="152" width="76" height="6" fill="#c0a060" rx="1"/>
+            <rect x="44" y="155" width="6" height="39" fill="#d8c890" rx="2"/><rect x="102" y="155" width="6" height="39" fill="#d8c890" rx="2"/>
+            <ellipse cx="14" cy="194" rx="16" ry="11" fill="#256e30"/><ellipse cx="30" cy="192" rx="13" ry="10" fill="#2e8039"/>
+            <ellipse cx="138" cy="194" rx="16" ry="11" fill="#256e30"/><ellipse cx="122" cy="192" rx="14" ry="10" fill="#2e8039"/>
+            <circle cx="22" cy="188" r="3" fill="#ff8040" opacity="0.8"/><circle cx="130" cy="188" r="3" fill="#ffd040" opacity="0.8"/>
+            <g transform="translate(-42,150)">
+              <rect x="15" y="24" width="3.5" height="30" fill="#6a5030" rx="1"/>
+              <rect x="0" y="4" width="34" height="22" fill="#d02020" rx="3"/>
+              <text x="17" y="19.5" textAnchor="middle" fontSize="9" fontWeight="900" fill="#ffffff" letterSpacing="0.8">SOLD</text>
+              <rect x="3" y="22" width="28" height="9" fill="#f8f4e8" rx="1"/>
+              <text x="17" y="29.5" textAnchor="middle" fontSize="5.5" fill="#444" letterSpacing="0.4">FOR SALE</text>
+            </g>
+          </g>
+          <g transform="translate(548,42)" filter="url(#hb-glow-sm)">
+            <g transform="rotate(-22,44,36)">
+              <circle cx="22" cy="22" r="16" fill="none" stroke="url(#hb-key-gold)" strokeWidth="5.5"/>
+              <circle cx="22" cy="22" r="9" fill="none" stroke="url(#hb-key-gold)" strokeWidth="2.5"/>
+              <rect x="36" y="18" width="56" height="7" fill="url(#hb-key-gold)" rx="2.5"/>
+              <rect x="72" y="25" width="6" height="11" fill="url(#hb-key-gold)" rx="1.5"/>
+              <rect x="61" y="25" width="6" height="8" fill="url(#hb-key-gold)" rx="1.5"/>
+              <rect x="50" y="25" width="6" height="10" fill="url(#hb-key-gold)" rx="1.5"/>
+            </g>
+          </g>
+          <rect x="0" y="0" width="680" height="36" fill="rgba(5,8,14,0.68)"/>
+          <text x="340" y="23" textAnchor="middle" fontSize="12.5" fontWeight="700" fill="#ffe8a0" letterSpacing="2.5">{funnelName??'HOME BUYING JOURNEY'}</text>
+          <rect x="0" y="420" width="680" height="35" fill="rgba(5,8,14,0.72)"/>
+          <text x="14" y="442" fontSize="10" fill="rgba(255,232,160,0.68)" fontWeight="600">{fmtCount(totalSeekers)} SEEKERS</text>
+          <text x="340" y="442" textAnchor="middle" fontSize="10.5" fill={GREEN} fontWeight="700">→ {fmtCount(buyersClosed)} CLOSED ({fmtPct(closeRate)})</text>
+          <text x="666" y="442" textAnchor="end" fontSize="10" fill="rgba(255,232,160,0.68)" fontWeight="600">AVG: {fmtCurrency(aov)}</text>
+        </svg>
+      </div>
+      <div style={{ background:'rgba(255,255,255,0.03)', border:`1px solid ${borderColor}`, borderRadius:'8px', padding:'14px', display:'flex', flexDirection:'column', gap:'9px' }}>
+        <div style={{ fontSize:'10px', fontWeight:700, letterSpacing:'1.5px', color:'rgba(255,255,255,0.38)', marginBottom:'2px', textTransform:'uppercase' as const }}>Property Metrics</div>
+        {([
+          {icon:'🔍',label:'Total Seekers',value:fmtCount(totalSeekers),sub:'entered funnel',color:BLUE},
+          {icon:'🏠',label:'Buyers Closed',value:fmtCount(buyersClosed),sub:'completed purchase',color:GREEN},
+          {icon:'📊',label:'Close Rate',value:fmtPct(closeRate),sub:'overall conversion',color:getConvColor(closeRate)},
+          {icon:'💰',label:'Property Value',value:fmtCurrency(aov),sub:'avg order value',color:YELLOW},
+          {icon:'🚪',label:'Lost Buyers',value:fmtCount(lostBuyers),sub:'did not close',color:RED},
+        ] as {icon:string;label:string;value:string;sub:string;color:string}[]).map((m,i)=>(
+          <div key={i} style={{ background:'rgba(255,255,255,0.04)', border:`1px solid rgba(80,120,80,0.2)`, borderLeft:`3px solid ${m.color}`, borderRadius:'6px', padding:'9px 11px', display:'flex', alignItems:'center', gap:'10px' }}>
+            <span style={{fontSize:'19px',flexShrink:0,lineHeight:1}}>{m.icon}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:'9.5px',color:'rgba(255,255,255,0.42)',marginBottom:'1px'}}>{m.label}</div>
+              <div style={{fontSize:'17px',fontWeight:700,color:m.color,lineHeight:1.15}}>{m.value}</div>
+              <div style={{fontSize:'9px',color:'rgba(255,255,255,0.28)',marginTop:'1px'}}>{m.sub}</div>
+            </div>
+          </div>
+        ))}
+        {steps.length>1&&(
+          <div style={{ background:'rgba(255,255,255,0.03)', border:`1px solid rgba(80,120,80,0.14)`, borderRadius:'6px', padding:'10px', marginTop:'1px' }}>
+            <div style={{ fontSize:'9px', fontWeight:700, letterSpacing:'1.2px', color:'rgba(255,255,255,0.32)', marginBottom:'8px', textTransform:'uppercase' as const }}>Step-by-Step</div>
+            {steps.slice(1).map((step,i)=>{
+              const mc=getConvColor(step.convFromPrev);
+              return(
+                <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingBottom:'6px', marginBottom:i<steps.length-2?'6px':'0', borderBottom:i<steps.length-2?'1px solid rgba(255,255,255,0.05)':'none' }}>
+                  <span style={{ fontSize:'9.5px', color:'rgba(255,255,255,0.5)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'150px' }}>{steps[i].label} → {step.label}</span>
+                  <span style={{ fontSize:'10.5px', fontWeight:700, color:mc, background:`${mc}1a`, padding:'2px 7px', borderRadius:'4px', flexShrink:0, marginLeft:'6px' }}>{fmtPct(step.convFromPrev)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
@@ -7304,7 +8165,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           </button>
         </Flex>
       </Flex>
-      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && funnelStyle !== "mri" && funnelStyle !== "autoFinance" && (
+      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && funnelStyle !== "mri" && funnelStyle !== "autoFinance" && funnelStyle !== "rocketLaunch" && funnelStyle !== "airport" && funnelStyle !== "retail" && funnelStyle !== "cyber" && funnelStyle !== "stadium" && funnelStyle !== "homebuying" && (
         <div style={{ textAlign: "center", padding: "6px 0 2px" }}>
           <Heading level={3} style={{ fontWeight: 700, margin: 0 }}>{funnelName}</Heading>
         </div>
@@ -7318,6 +8179,12 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         {funnelStyle === "elevator" && <ElevatorFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "mri" && <MRIFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "autoFinance" && <AutoFinanceFunnel steps={funnelSteps} aov={aov} />}
+        {funnelStyle === "rocketLaunch" && <RocketLaunchFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "airport" && <AirportFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "retail" && <RetailFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "cyber" && <CyberFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "stadium" && <StadiumFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "homebuying" && <HomebuyingFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
