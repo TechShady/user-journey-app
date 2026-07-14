@@ -17,6 +17,7 @@ import { TimeseriesChart, TimeseriesAnnotations } from "@dynatrace/strato-compon
 import type { Timeseries } from "@dynatrace/strato-components/charts";
 import { DataTable } from "@dynatrace/strato-components-preview/tables";
 import "./UserJourney.css";
+import lamboCar from "../../assets/lambo.png";
 import { useSettings, DEFAULT_FRONTEND, DEFAULT_FUNNEL_STEPS, DEFAULT_FUNNELS, MIN_STEPS, MAX_STEPS, MAX_FUNNELS, DEFAULT_AOV, INDUSTRY_OPTIONS, INDUSTRY_BENCHMARKS, IndustryType, IndustryBenchmark } from "../SettingsContext";
 import type { StepDef, FunnelDef } from "../SettingsContext";
 import { HyperlyzerTab } from "./HyperlyzerTab";
@@ -6812,88 +6813,8 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
             <ellipse cx="220" cy="408" rx="118" ry="18" fill="rgba(20,12,4,0.94)" stroke="rgba(64,42,8,0.38)" strokeWidth="1"/>
             <ellipse cx="220" cy="406" rx="60" ry="8" fill="rgba(175,125,32,0.09)"/>
 
-            {/* ── SUPERCAR — front view, driving out of vault toward viewer ── */}
-            <g clipPath="url(#afvVaultClip)">
-              <g transform="translate(122, 316) scale(0.68)">
-                {/* Ground shadow */}
-                <ellipse cx="143" cy="109" rx="132" ry="8" fill="rgba(0,0,0,0.55)"/>
-
-                {/* LEFT FRONT WHEEL — tire sidewall seen from front: axle is horizontal so ry >> rx */}
-                <ellipse cx="64" cy="97" rx="24" ry="40" fill="#0B0D12" stroke="rgba(78,98,122,0.52)" strokeWidth="2"/>
-                <ellipse cx="64" cy="97" rx="18" ry="33" fill="rgba(13,17,25,0.97)" stroke="rgba(48,62,82,0.33)" strokeWidth="1.2"/>
-                <ellipse cx="64" cy="97" rx="8" ry="20" fill="rgba(62,80,102,0.88)" stroke="rgba(118,142,170,0.62)" strokeWidth="1"/>
-                <ellipse cx="64" cy="97" rx="4" ry="9" fill="rgba(170,192,216,0.8)" stroke="rgba(105,130,158,0.5)" strokeWidth="0.6"/>
-
-                {/* RIGHT FRONT WHEEL */}
-                <ellipse cx="222" cy="97" rx="24" ry="40" fill="#0B0D12" stroke="rgba(78,98,122,0.52)" strokeWidth="2"/>
-                <ellipse cx="222" cy="97" rx="18" ry="33" fill="rgba(13,17,25,0.97)" stroke="rgba(48,62,82,0.33)" strokeWidth="1.2"/>
-                <ellipse cx="222" cy="97" rx="8" ry="20" fill="rgba(62,80,102,0.88)" stroke="rgba(118,142,170,0.62)" strokeWidth="1"/>
-                <ellipse cx="222" cy="97" rx="4" ry="9" fill="rgba(170,192,216,0.8)" stroke="rgba(105,130,158,0.5)" strokeWidth="0.6"/>
-
-                {/* FRONT SPLITTER / underbody */}
-                <path d="M 12 102 L 274 102 L 270 92 L 16 92 Z" fill="rgba(6,8,14,0.97)"/>
-                <line x1="14" y1="95" x2="272" y2="95" stroke="rgba(155,175,200,0.18)" strokeWidth="0.8"/>
-
-                {/* FRONT BUMPER FACE — arch cutouts reveal wheels inside fender wells */}
-                <path d="M 31 52 L 255 52 L 270 92 Q 222 55 174 92 L 112 92 Q 64 55 16 92 L 31 52 Z" fill="url(#afvScBody)" stroke="#661000" strokeWidth="1"/>
-
-                {/* LEFT headlight housing (dark surround) */}
-                <path d="M 20 76 L 118 76 L 112 54 L 24 54 Z" fill="rgba(6,10,18,0.96)" stroke="rgba(72,105,148,0.22)" strokeWidth="0.8"/>
-                {/* Left LED main strip */}
-                <path d="M 24 72 L 112 72 L 108 64 L 26 64 Z" fill="rgba(255,242,192,0.97)"/>
-                <ellipse cx="67" cy="68" rx="40" ry="4" fill="rgba(255,215,90,0.32)" filter="url(#afvHLGlow)"/>
-                {/* Left DRL lower strip */}
-                <path d="M 22 81 L 110 80 L 110 77 L 22 78 Z" fill="rgba(255,230,160,0.78)"/>
-
-                {/* RIGHT headlight housing */}
-                <path d="M 168 76 L 266 76 L 262 54 L 174 54 Z" fill="rgba(6,10,18,0.96)" stroke="rgba(72,105,148,0.22)" strokeWidth="0.8"/>
-                {/* Right LED main strip */}
-                <path d="M 172 72 L 262 72 L 260 64 L 176 64 Z" fill="rgba(255,242,192,0.97)"/>
-                <ellipse cx="217" cy="68" rx="40" ry="4" fill="rgba(255,215,90,0.32)" filter="url(#afvHLGlow)"/>
-                {/* Right DRL lower strip */}
-                <path d="M 174 81 L 264 80 L 264 77 L 174 78 Z" fill="rgba(255,230,160,0.78)"/>
-
-                {/* CENTRAL GRILL */}
-                <path d="M 118 82 L 168 82 L 164 56 L 122 56 Z" fill="rgba(5,8,13,0.97)"/>
-                {[0,1,2,3].map(gi => (
-                  <line key={gi} x1={120} y1={60+gi*5} x2={166} y2={60+gi*5} stroke="rgba(44,62,88,0.62)" strokeWidth="1.1"/>
-                ))}
-                {/* Center badge */}
-                <circle cx="143" cy="72" r="8" fill="rgba(175,95,0,0.9)" stroke="rgba(255,150,50,0.62)" strokeWidth="1.2"/>
-                <line x1="138.5" y1="67.5" x2="147.5" y2="76.5" stroke="rgba(255,155,55,0.7)" strokeWidth="1.5" strokeLinecap="round"/>
-                <line x1="147.5" y1="67.5" x2="138.5" y2="76.5" stroke="rgba(255,155,55,0.7)" strokeWidth="1.5" strokeLinecap="round"/>
-
-                {/* HOOD — top surface receding away from viewer */}
-                <path d="M 31 52 L 255 52 L 238 10 L 48 10 Z" fill="url(#afvScHood)"/>
-                {/* Hood surface highlight toward front */}
-                <path d="M 55 46 L 231 46 L 238 36 L 48 36 Z" fill="rgba(255,130,35,0.1)"/>
-                {/* Hood center spine (left ridge) */}
-                <path d="M 135 52 L 128 10" stroke="rgba(255,105,18,0.35)" strokeWidth="3" fill="none" strokeLinecap="round"/>
-                {/* Hood center spine (right ridge) */}
-                <path d="M 151 52 L 158 10" stroke="rgba(65,6,0,0.3)" strokeWidth="2" fill="none" strokeLinecap="round"/>
-
-                {/* WINDSHIELD */}
-                <path d="M 48 10 L 238 10 L 220 -30 L 66 -30 Z" fill="url(#afvScGlass)" stroke="rgba(115,162,215,0.28)" strokeWidth="1"/>
-                {/* Windshield glare */}
-                <path d="M 72 8 L 140 8 L 126 -28 L 82 -28 Z" fill="rgba(195,218,255,0.08)"/>
-
-                {/* A-PILLARS */}
-                <path d="M 48 10 L 66 -30 L 54 -32 L 36 8 Z" fill="url(#afvScRoof)"/>
-                <path d="M 238 10 L 220 -30 L 232 -32 L 250 8 Z" fill="url(#afvScRoof)"/>
-
-                {/* ROOF */}
-                <path d="M 66 -30 L 220 -30 L 205 -48 L 81 -48 Z" fill="url(#afvScRoof)" stroke="#551000" strokeWidth="0.8"/>
-                {/* Roof highlight center */}
-                <path d="M 100 -31 L 186 -31 L 176 -46 L 110 -46 Z" fill="rgba(255,115,38,0.1)"/>
-
-                {/* REAR WING blade + posts */}
-                <path d="M 60 -56 L 226 -56 L 226 -50 L 60 -50 Z" fill="#CC2000"/>
-                <path d="M 56 -60 L 230 -60 L 230 -54 L 56 -54 Z" fill="url(#afvScSpoiler)" stroke="#5A0E00" strokeWidth="0.8"/>
-                <rect x="68" y="-62" width="7" height="14" rx="2" fill="#881200"/>
-                <rect x="211" y="-62" width="7" height="14" rx="2" fill="#881200"/>
-
-              </g>
-            </g>
+            {/* ── LAMBO PHOTO — clipped to vault circle ── */}
+            <image href={lamboCar} x="74" y="140" width="292" height="292" clipPath="url(#afvVaultClip)" preserveAspectRatio="xMidYMid meet"/>
 
             {/* ── VAULT DOOR FRAME BEVEL OVERLAY ── */}
             <circle cx="220" cy="286" r="172" fill="none" stroke="rgba(155,175,200,0.2)" strokeWidth="14"/>
