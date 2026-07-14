@@ -17,7 +17,7 @@ import { TimeseriesChart, TimeseriesAnnotations } from "@dynatrace/strato-compon
 import type { Timeseries } from "@dynatrace/strato-components/charts";
 import { DataTable } from "@dynatrace/strato-components-preview/tables";
 import "./UserJourney.css";
-import lamboCar from "../../assets/lambo.png";
+import { LAMBO_CAR } from "../lamboCarImage";
 import { useSettings, DEFAULT_FRONTEND, DEFAULT_FUNNEL_STEPS, DEFAULT_FUNNELS, MIN_STEPS, MAX_STEPS, MAX_FUNNELS, DEFAULT_AOV, INDUSTRY_OPTIONS, INDUSTRY_BENCHMARKS, IndustryType, IndustryBenchmark } from "../SettingsContext";
 import type { StepDef, FunnelDef } from "../SettingsContext";
 import { HyperlyzerTab } from "./HyperlyzerTab";
@@ -6814,7 +6814,7 @@ function AutoFinanceFunnel({ steps, aov }: { steps: FunnelStep[]; aov: number })
             <ellipse cx="220" cy="406" rx="60" ry="8" fill="rgba(175,125,32,0.09)"/>
 
             {/* ── LAMBO PHOTO — clipped to vault circle ── */}
-            <image href={lamboCar} x="74" y="140" width="292" height="292" clipPath="url(#afvVaultClip)" preserveAspectRatio="xMidYMid meet"/>
+            <image href={LAMBO_CAR} x="74" y="140" width="292" height="292" clipPath="url(#afvVaultClip)" preserveAspectRatio="xMidYMid meet"/>
 
             {/* ── VAULT DOOR FRAME BEVEL OVERLAY ── */}
             <circle cx="220" cy="286" r="172" fill="none" stroke="rgba(155,175,200,0.2)" strokeWidth="14"/>
