@@ -7105,7 +7105,7 @@ function RocketLaunchFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; a
             <path d={`M${cx-hw+5} ${bodyBotY+3}L${cx-bellHW+6} ${bellBotY-2}L${cx+bellHW-6} ${bellBotY-2}L${cx+hw-5} ${bodyBotY+3}Z`} fill="rgba(7,13,26,0.92)"/>
             {steps.map((step, i) => {
               const bTop = bodyTopY + (N - 1 - i) * bandH; const bBot = bTop + bandH; const bMid = (bTop + bBot) / 2;
-              const clr = bandColor(step, i); const fs = Math.max(8, Math.min(11, bandH * 0.38));
+              const clr = bandColor(step, i); const fs = Math.max(10, Math.min(14, bandH * 0.45));
               const maxCh = Math.max(4, Math.floor((hw * 2 - 12) / (fs * 0.62)));
               const lbl = step.label.length > maxCh ? step.label.slice(0, maxCh - 1) + "…" : step.label;
               return (
@@ -7115,17 +7115,17 @@ function RocketLaunchFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; a
                   <rect x={cx - hw} y={bTop} width={hw * 2} height={Math.max(2.5, bandH * 0.10)} fill={clr} opacity={0.70}/>
                   {i < N - 1 && <line x1={cx - hw} y1={bBot} x2={cx + hw} y2={bBot} stroke="rgba(45,65,105,0.55)" strokeWidth="1.2"/>}
                   {bandH > 22 && <text x={cx} y={bMid} textAnchor="middle" dominantBaseline="middle" fontSize={fs} fontWeight="700" fill="rgba(255,255,255,0.82)" fontFamily="system-ui">{lbl}</text>}
-                  <circle cx={cx - hw - 17} cy={bMid} r="10" fill={`${clr}28`} stroke={clr} strokeWidth="1.3"/>
-                  <text x={cx - hw - 17} y={bMid} textAnchor="middle" dominantBaseline="middle" fontSize="9" fontWeight="800" fill={clr} fontFamily="system-ui">{i + 1}</text>
-                  {i > 0 && bandH > 14 && <text x={cx + hw + 14} y={bMid} textAnchor="start" dominantBaseline="middle" fontSize={Math.max(7.5, Math.min(10, bandH * 0.35))} fontWeight="600" fill={step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED} fontFamily="system-ui">{fmtPct(step.convFromPrev)}</text>}
+                  <circle cx={cx - hw - 19} cy={bMid} r="12" fill={`${clr}28`} stroke={clr} strokeWidth="1.3"/>
+                  <text x={cx - hw - 19} y={bMid} textAnchor="middle" dominantBaseline="middle" fontSize="11" fontWeight="800" fill={clr} fontFamily="system-ui">{i + 1}</text>
+                  {i > 0 && bandH > 14 && <text x={cx + hw + 14} y={bMid} textAnchor="start" dominantBaseline="middle" fontSize={Math.max(9, Math.min(13, bandH * 0.42))} fontWeight="600" fill={step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 35 ? YELLOW : RED} fontFamily="system-ui">{fmtPct(step.convFromPrev)}</text>}
                 </g>
               );
             })}
             <rect x={cx - hw} y={bodyTopY} width={hw * 2} height={bodyBotY - bodyTopY} fill="none" stroke="rgba(158,176,200,0.65)" strokeWidth="1.5"/>
             <path d={`M${cx-hw} ${bodyTopY}Q${cx-hw} ${bodyTopY-34} ${cx} ${noseY}Q${cx+hw} ${bodyTopY-34} ${cx+hw} ${bodyTopY}Z`} fill="url(#rlf_nose)" stroke="rgba(158,174,198,0.65)" strokeWidth="1.5"/>
             <circle cx={cx} cy={noseY} r="5" fill="rgba(188,222,255,0.72)" filter="url(#rlf_glow)"/>
-            <circle cx={cx} cy={bodyTopY + 28} r="11" fill="rgba(5,16,46,0.96)" stroke="rgba(132,160,194,0.72)" strokeWidth="1.6"/>
-            <circle cx={cx} cy={bodyTopY + 28} r="7.5" fill="rgba(36,88,192,0.52)"/>
+            <circle cx={cx} cy={noseY + 43} r="11" fill="rgba(5,16,46,0.96)" stroke="rgba(132,160,194,0.72)" strokeWidth="1.6"/>
+            <circle cx={cx} cy={noseY + 43} r="7.5" fill="rgba(36,88,192,0.52)"/>
             <ellipse cx={cx} cy={bellBotY + 4} rx="50" ry="7" fill="rgba(255,148,0,0.52)" filter="url(#rlf_blur8)" className="rlf-pulse"/>
           </svg>
         </div>
@@ -7216,23 +7216,21 @@ function AirportFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
           <rect x="92" y="202" width="302" height="108" fill="#192235"/>
           {[0,1,2,3,4,5,6,7].map(j => <rect key={j} x={100+j*35} y={208} width={27} height={58} rx={2} fill="url(#af-glass)" opacity={0.68-j*0.025}/>)}
           {[0,1,2].map(j => <rect key={j} x={168+j*32} y={288} width={22} height={22} rx={2} fill="#e89220" opacity={0.45}/>)}
-          <rect x="108" y="215" width="162" height="56" rx="3" fill="#070c18" opacity={0.96}/>
-          <rect x="108" y="215" width="162" height="14" rx="3" fill="#131e30"/>
-          <text x="189" y="225" textAnchor="middle" fill={YELLOW} fontSize="7.5" fontWeight="700" letterSpacing="1.8" fontFamily="'Courier New',monospace">✈ DEPARTURES</text>
+          <rect x="96" y="205" width="298" height={14 + 18 + steps.slice(0,5).length * 16 + 8} rx="4" fill="#070c18" opacity={0.97}/>
+          <rect x="96" y="205" width="298" height="22" rx="4" fill="#0e1d30"/>
+          <text x="245" y="220" textAnchor="middle" fill={YELLOW} fontSize="11" fontWeight="700" letterSpacing="2.2" fontFamily="'Courier New',monospace">✈  DEPARTURES</text>
           {steps.slice(0, 5).map((step, i) => {
             const statusColor = i === 0 ? GREEN : i === steps.length - 1 ? YELLOW : BLUE;
             const statusLabel = i === 0 ? "BOARDING" : i === steps.length - 1 ? "DEPARTED" : "ON TIME";
             return (
               <g key={i}>
-                <rect x="110" y={230+i*8} width="158" height="7.5" fill={i%2===0?"#0b1220":"#090f1c"}/>
-                <text x="113" y={236.5+i*8} fill={BLUE} fontSize="5.8" fontWeight="700" fontFamily="'Courier New',monospace">{`FL${String(i+1).padStart(3,"0")}`}</text>
-                <text x="136" y={236.5+i*8} fill="#c0ccdf" fontSize="5.8" fontFamily="'Courier New',monospace">{step.label.length>15?step.label.slice(0,13).toUpperCase()+"..":step.label.toUpperCase()}</text>
-                <text x="264" y={236.5+i*8} textAnchor="end" fill={statusColor} fontSize="5.8" fontWeight="700" fontFamily="'Courier New',monospace">{statusLabel}</text>
+                <rect x="98" y={227+i*16} width="294" height="15" fill={i%2===0?"#0b1422":"#090f1c"}/>
+                <text x="102" y={238.5+i*16} fill={BLUE} fontSize="10" fontWeight="700" fontFamily="'Courier New',monospace">{`FL${String(i+1).padStart(3,"0")}`}</text>
+                <text x="138" y={238.5+i*16} fill="#c0ccdf" fontSize="10" fontFamily="'Courier New',monospace">{step.label.length>18?step.label.slice(0,16).toUpperCase()+"..":step.label.toUpperCase()}</text>
+                <text x="388" y={238.5+i*16} textAnchor="end" fill={statusColor} fontSize="10" fontWeight="700" fontFamily="'Courier New',monospace">{statusLabel}</text>
               </g>
             );
           })}
-          <rect x="284" y="215" width="104" height="22" rx="3" fill="#0c1828" opacity={0.92}/>
-          <text x="336" y="229" textAnchor="middle" fill={BLUE} fontSize="8.5" fontWeight="700" letterSpacing="1.2" fontFamily="'Inter',sans-serif">{funnelName?funnelName.toUpperCase().slice(0,14):"TERMINAL A"}</text>
           <polygon points="272,308 408,308 578,455 102,455" fill="#1b211b"/>
           {Array.from({length:8},(_,i)=>{const t0=i/8;const y0=310+143*t0;const y1=310+143*(i+0.45)/8;return<line key={i} x1={340} y1={y0} x2={340} y2={Math.min(y1,454)} stroke="white" strokeWidth={1.5+((i+0.45)/8)*2.5} opacity={0.4}/>;})}
           {Array.from({length:runwayCount},(_,i)=>{const t=(i+0.5)/runwayCount;const y=312+138*t;const xL=272-170*t;const xR=408+170*t;const r=1.5+t*2;return(<g key={i} filter="url(#af-glow)"><circle cx={xL} cy={y} r={r} fill={YELLOW} opacity={0.88}/><circle cx={xR} cy={y} r={r} fill={YELLOW} opacity={0.88}/></g>);})}
@@ -7401,7 +7399,7 @@ function RetailFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: nu
               <path d="M14,18 Q17,-8 30,-8 Q43,-8 46,18" fill="none" stroke="rgba(0,180,90,0.9)" strokeWidth="4" strokeLinecap="round"/>
               <text x="30" y="62" textAnchor="middle" fontSize="22" fill="rgba(0,0,0,0.4)">✓</text>
             </g>
-            <g>{steps.map((step,i)=>{const cx2=beltStartX+(i+0.5)*sectionWidth;const pY=(i+0.5)/beltSections;const lY=beltBottomY+30-pY*10;return(<g key={i}><text x={cx2} y={lY+2} textAnchor="middle" fontSize="7.5" fill="rgba(220,200,240,0.7)" fontWeight="600">{step.label.length>12?step.label.slice(0,12)+"…":step.label}</text><text x={cx2} y={lY+14} textAnchor="middle" fontSize="9" fill="#fff" fontWeight="800">{fmtCount(step.count)}</text>{i>0&&<text x={cx2} y={lY+25} textAnchor="middle" fontSize="8" fill={getConvColor(step.convFromPrev)} fontWeight="700">{fmtPct(step.convFromPrev)}</text>}</g>);})}</g>
+            <g>{steps.map((step,i)=>{const cx2=beltStartX+(i+0.5)*sectionWidth;const pY=(i+0.5)/beltSections;const lY=beltBottomY+28-pY*10;return(<g key={i}><text x={cx2} y={lY+2} textAnchor="middle" fontSize="11" fill="rgba(220,200,240,0.88)" fontWeight="600">{step.label.length>11?step.label.slice(0,11)+"…":step.label}</text><text x={cx2} y={lY+20} textAnchor="middle" fontSize="16" fill="#fff" fontWeight="800">{fmtCount(step.count)}</text>{i>0&&<text x={cx2} y={lY+35} textAnchor="middle" fontSize="12" fill={getConvColor(step.convFromPrev)} fontWeight="700">{fmtPct(step.convFromPrev)}</text>}</g>);})}</g>
             <text x="340" y="430" textAnchor="middle" fontSize="9" fill="rgba(255,200,60,0.4)" letterSpacing="2" fontWeight="700">E-COMMERCE CHECKOUT FLOW</text>
           </svg>
         </div>
@@ -7503,7 +7501,7 @@ function CyberFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: num
               <g key={`ring${i}`}>
                 <polygon points={pts} fill="none" stroke={color.replace('0.9)','0.18)')} strokeWidth="10" filter="url(#cfGlowMd)" className={animClass} style={{animationDelay:delay}}/>
                 <polygon points={pts} fill={color.replace('0.9)','0.04)')} stroke={color} strokeWidth="1.5" filter="url(#cfGlow)" className={animClass} style={{animationDelay:delay}}/>
-                <text x={(cx+Math.cos((5/6)*Math.PI*2-Math.PI/6)*r+5).toFixed(1)} y={(cy+Math.sin((5/6)*Math.PI*2-Math.PI/6)*r-3).toFixed(1)} fontSize="7" fill={color} opacity="0.75" fontFamily="'Courier New',monospace">ZONE-{i+1}</text>
+                <text x={(cx+Math.cos((5/6)*Math.PI*2-Math.PI/6)*r+5).toFixed(1)} y={(cy+Math.sin((5/6)*Math.PI*2-Math.PI/6)*r-3).toFixed(1)} fontSize="10" fill={color} opacity="0.85" fontFamily="'Courier New',monospace" fontWeight="700">ZONE-{i+1}</text>
               </g>
             );
           })}
@@ -7518,7 +7516,7 @@ function CyberFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: num
             <g key={`th${i}`}>
               <circle cx={dot.x.toFixed(1)} cy={dot.y.toFixed(1)} r="8" fill="rgba(255,20,20,0.07)" className="cf-threat" style={{animationDelay:`${dot.delay}s`}}/>
               <circle cx={dot.x.toFixed(1)} cy={dot.y.toFixed(1)} r="3.5" fill="rgba(255,55,55,0.95)" filter="url(#cfGlow)" className="cf-threat" style={{animationDelay:`${dot.delay}s`}}/>
-              {i%4===0&&<text x={(dot.x+7).toFixed(1)} y={(dot.y+3).toFixed(1)} fontSize="7" fill="rgba(255,80,80,0.55)" fontFamily="'Courier New',monospace">THREAT</text>}
+              {i%4===0&&<text x={(dot.x+8).toFixed(1)} y={(dot.y+4).toFixed(1)} fontSize="9.5" fill="rgba(255,80,80,0.7)" fontFamily="'Courier New',monospace" fontWeight="700">THREAT</text>}
             </g>
           ))}
           {hexPositions.map((pos,i)=><text key={`hl${i}`} x={pos.x} y={pos.y} fontSize="8" fill="rgba(0,170,255,0.22)" fontFamily="'Courier New',monospace">{hexLabels[i%hexLabels.length]}</text>)}
@@ -7529,12 +7527,12 @@ function CyberFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: num
             <path d={`M${cx},${cy-20}L${cx+14},${cy-11}L${cx+14},${cy+3}Q${cx+14},${cy+17}${cx},${cy+23}Q${cx-14},${cy+17}${cx-14},${cy+3}L${cx-14},${cy-11}Z`} fill="rgba(0,219,117,0.18)" stroke="rgba(0,219,117,0.95)" strokeWidth="1.4" filter="url(#cfGlow)"/>
             <rect x={cx-6} y={cy-3} width="12" height="10" rx="2" fill="rgba(0,219,117,0.85)" stroke="rgba(0,255,160,0.9)" strokeWidth="0.8"/>
             <path d={`M${cx-4},${cy-3}L${cx-4},${cy-9}Q${cx-4},${cy-13}${cx},${cy-13}Q${cx+4},${cy-13}${cx+4},${cy-9}L${cx+4},${cy-3}`} fill="none" stroke="rgba(0,255,160,0.9)" strokeWidth="1.5"/>
-            <text x={cx} y={cy+40} textAnchor="middle" fontSize="8" fontWeight="700" fill="rgba(0,219,117,0.9)" fontFamily="'Courier New',monospace" letterSpacing="2.5" filter="url(#cfGlow)">SECURED</text>
+            <text x={cx} y={cy+44} textAnchor="middle" fontSize="12" fontWeight="700" fill="rgba(0,219,117,0.9)" fontFamily="'Courier New',monospace" letterSpacing="2.5" filter="url(#cfGlow)">SECURED</text>
           </g>
           {steps.map((step,i)=>{
             const rFrac=1-i/steps.length; const r=minRadius+(maxRadius-minRadius)*rFrac;
             const angle=Math.PI*1.15; const color=ringColors[Math.min(i,ringColors.length-1)];
-            return<text key={`sl${i}`} x={(cx+Math.cos(angle)*r).toFixed(1)} y={(cy+Math.sin(angle)*r).toFixed(1)} textAnchor="middle" fontSize="8.5" fontWeight="700" fill={color} fontFamily="'Courier New',monospace" filter="url(#cfGlow)">{fmtCount(step.count)}</text>;
+            return<text key={`sl${i}`} x={(cx+Math.cos(angle)*r).toFixed(1)} y={(cy+Math.sin(angle)*r).toFixed(1)} textAnchor="middle" fontSize="14" fontWeight="700" fill={color} fontFamily="'Courier New',monospace" filter="url(#cfGlow)">{fmtCount(step.count)}</text>;
           })}
         </svg>
       </div>
@@ -7647,16 +7645,16 @@ function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
           <line x1={425} y1={7} x2={415} y2={93} stroke="#162640" strokeWidth="2.5"/>
           <rect x={212} y={5} width={256} height={90} rx={8} fill="#00091e" stroke="#1b3562" strokeWidth="2.5"/>
           <rect x={216} y={9} width={248} height={82} rx={6} fill="url(#sf-board)"/>
-          <text x={340} y={30} textAnchor="middle" fill="#ffffff" fontSize={10.5} fontWeight={800} letterSpacing={3.5} fontFamily="'Courier New',monospace">{(funnelName??"STADIUM FUNNEL").toUpperCase().slice(0,26)}</text>
-          <line x1={220} y1={35} x2={460} y2={35} stroke="rgba(55,125,255,0.25)" strokeWidth="0.8"/>
-          <text x={262} y={50} textAnchor="middle" fill="#3e7ab8" fontSize={7.5} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">FANS IN</text>
-          <text x={340} y={50} textAnchor="middle" fill="#3e7ab8" fontSize={7.5} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">FILL RATE</text>
-          <text x={418} y={50} textAnchor="middle" fill="#3e7ab8" fontSize={7.5} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">REVENUE</text>
-          <text x={262} y={65} textAnchor="middle" fill="#c8e0ff" fontSize={13} fontWeight={800} fontFamily="'Courier New',monospace">{fmtCount(totalFans)}</text>
-          <text x={340} y={65} textAnchor="middle" fill={fillRate>=50?GREEN:fillRate>=25?YELLOW:RED} fontSize={13} fontWeight={800} fontFamily="'Courier New',monospace">{fmtPct(fillRate)}</text>
-          <text x={418} y={65} textAnchor="middle" fill="#ffd060" fontSize={12} fontWeight={800} fontFamily="'Courier New',monospace">{fmtCurrency(ticketRevenue)}</text>
-          <rect x={216} y={78} width={248} height={11} rx={3} fill="rgba(0,8,24,0.9)"/>
-          <text x={221} y={87} fill="#2860aa" fontSize={7.5} fontFamily="'Courier New',monospace" letterSpacing={1.5}>{'› '+steps.map(s=>s.label.toUpperCase()).join('  ›  ').slice(0,54)}</text>
+          <text x={340} y={28} textAnchor="middle" fill="#ffffff" fontSize={14} fontWeight={800} letterSpacing={3} fontFamily="'Courier New',monospace">{(funnelName??"STADIUM FUNNEL").toUpperCase().slice(0,26)}</text>
+          <line x1={220} y1={36} x2={460} y2={36} stroke="rgba(55,125,255,0.25)" strokeWidth="0.8"/>
+          <text x={262} y={51} textAnchor="middle" fill="#3e7ab8" fontSize={10} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">FANS IN</text>
+          <text x={340} y={51} textAnchor="middle" fill="#3e7ab8" fontSize={10} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">FILL RATE</text>
+          <text x={418} y={51} textAnchor="middle" fill="#3e7ab8" fontSize={10} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">REVENUE</text>
+          <text x={262} y={70} textAnchor="middle" fill="#c8e0ff" fontSize={17} fontWeight={800} fontFamily="'Courier New',monospace">{fmtCount(totalFans)}</text>
+          <text x={340} y={70} textAnchor="middle" fill={fillRate>=50?GREEN:fillRate>=25?YELLOW:RED} fontSize={17} fontWeight={800} fontFamily="'Courier New',monospace">{fmtPct(fillRate)}</text>
+          <text x={418} y={70} textAnchor="middle" fill="#ffd060" fontSize={16} fontWeight={800} fontFamily="'Courier New',monospace">{fmtCurrency(ticketRevenue)}</text>
+          <rect x={216} y={80} width={248} height={12} rx={3} fill="rgba(0,8,24,0.9)"/>
+          <text x={221} y={89} fill="#2860aa" fontSize={9} fontFamily="'Courier New',monospace" letterSpacing={1.5}>{'› '+steps.map(s=>s.label.toUpperCase()).join('  ›  ').slice(0,54)}</text>
           {lightPositions.map(([bx,by,hx,hy],li)=>(
             <g key={`lt-${li}`} filter="url(#sf-lg)">
               <line x1={bx} y1={by} x2={hx} y2={hy} stroke="#1e3050" strokeWidth={4} strokeLinecap="round"/>
@@ -7664,7 +7662,7 @@ function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
               {([-9,-3,3,9] as number[]).map((offset,bi)=><circle key={bi} cx={hx+offset} cy={Math.min(hy,by)+3} r={2.6} fill="rgba(255,248,210,0.95)"/>)}
             </g>
           ))}
-          <text x={CX} y={417} textAnchor="middle" fill="rgba(91,163,255,0.65)" fontSize={7.5} fontWeight={700} letterSpacing={3} fontFamily="'Courier New',monospace">MAIN ENTRANCE</text>
+          <text x={CX} y={415} textAnchor="middle" fill="rgba(91,163,255,0.72)" fontSize={11} fontWeight={700} letterSpacing={3} fontFamily="'Courier New',monospace">MAIN ENTRANCE</text>
           <rect x={288} y={421} width={104} height={30} rx={5} fill="#0d1d34" stroke="#1c3458" strokeWidth="1.5"/>
           {([0,1,2,3] as number[]).map(gi=><rect key={gi} x={295+gi*24} y={424} width={16} height={22} rx={8} fill="#060e1c"/>)}
         </svg>
@@ -7776,7 +7774,7 @@ function HomebuyingFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov
           <path d="M0,442 Q340,412 680,442" stroke="#e0c050" strokeWidth="1.5" strokeDasharray="22,16" opacity="0.45" fill="none"/>
           <path d="M18,420 Q140,406 275,396 Q330,392 395,390 Q445,389 475,391" stroke="url(#hb-path-walk)" strokeWidth="10" fill="none" strokeLinecap="round"/>
           <path d="M18,420 Q140,406 275,396 Q330,392 395,390 Q445,389 475,391" stroke="#d0b870" strokeWidth="2.5" fill="none" strokeDasharray="9,7" opacity="0.45"/>
-          {steps.map((step,i)=>{const pos=milestonePositions[i];if(!pos)return null;const mc=getConvColor(step.overallConv);return(<g key={i}><rect x={pos.x-1.5} y={pos.y-26} width="3" height="20" fill="#7a6a50" rx="1"/><circle cx={pos.x} cy={pos.y-32} r="11" fill="rgba(5,8,14,0.88)" stroke={mc} strokeWidth="2"/><text x={pos.x} y={pos.y-28} textAnchor="middle" fontSize="9" fill={mc} fontWeight="bold">{i+1}</text></g>);})}
+          {steps.map((step,i)=>{const pos=milestonePositions[i];if(!pos)return null;const mc=getConvColor(step.overallConv);return(<g key={i}><rect x={pos.x-1.5} y={pos.y-26} width="3" height="20" fill="#7a6a50" rx="1"/><circle cx={pos.x} cy={pos.y-32} r="13" fill="rgba(5,8,14,0.88)" stroke={mc} strokeWidth="2.5"/><text x={pos.x} y={pos.y-27.5} textAnchor="middle" fontSize="12" fill={mc} fontWeight="bold">{i+1}</text></g>);})}
           <g transform="translate(18,268) scale(0.5)" opacity="0.78"><polygon points="0,66 50,4 100,66" fill="#4a2e18"/><rect x="8" y="66" width="84" height="72" fill="#c8b07e"/><rect x="34" y="108" width="20" height="30" fill="#7a4020" rx="1"/><rect x="12" y="76" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/><rect x="66" y="76" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/></g>
           <g transform="translate(520,256) scale(0.5)" opacity="0.78"><polygon points="0,62 52,2 104,62" fill="#4a2818"/><rect x="8" y="62" width="88" height="76" fill="#c8b88a"/><rect x="36" y="102" width="20" height="36" fill="#7a4020" rx="1"/><rect x="12" y="72" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/><rect x="68" y="72" width="22" height="18" fill="#ffe890" opacity="0.88" rx="2"/></g>
           <g transform="translate(218,188)" filter="url(#hb-shadow-house)">
@@ -7822,11 +7820,11 @@ function HomebuyingFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov
             </g>
           </g>
           <rect x="0" y="0" width="680" height="36" fill="rgba(5,8,14,0.68)"/>
-          <text x="340" y="23" textAnchor="middle" fontSize="12.5" fontWeight="700" fill="#ffe8a0" letterSpacing="2.5">{funnelName??'HOME BUYING JOURNEY'}</text>
-          <rect x="0" y="420" width="680" height="35" fill="rgba(5,8,14,0.72)"/>
-          <text x="14" y="442" fontSize="10" fill="rgba(255,232,160,0.68)" fontWeight="600">{fmtCount(totalSeekers)} SEEKERS</text>
-          <text x="340" y="442" textAnchor="middle" fontSize="10.5" fill={GREEN} fontWeight="700">→ {fmtCount(buyersClosed)} CLOSED ({fmtPct(closeRate)})</text>
-          <text x="666" y="442" textAnchor="end" fontSize="10" fill="rgba(255,232,160,0.68)" fontWeight="600">AVG: {fmtCurrency(aov)}</text>
+          <text x="340" y="25" textAnchor="middle" fontSize="16" fontWeight="700" fill="#ffe8a0" letterSpacing="2.5">{funnelName??'HOME BUYING JOURNEY'}</text>
+          <rect x="0" y="418" width="680" height="37" fill="rgba(5,8,14,0.78)"/>
+          <text x="14" y="442" fontSize="14" fill="rgba(255,232,160,0.82)" fontWeight="600">{fmtCount(totalSeekers)} SEEKERS</text>
+          <text x="340" y="442" textAnchor="middle" fontSize="15" fill={GREEN} fontWeight="700">→ {fmtCount(buyersClosed)} CLOSED ({fmtPct(closeRate)})</text>
+          <text x="666" y="442" textAnchor="end" fontSize="14" fill="rgba(255,232,160,0.82)" fontWeight="600">AVG: {fmtCurrency(aov)}</text>
         </svg>
       </div>
       <div style={{ background:'rgba(255,255,255,0.03)', border:`1px solid ${borderColor}`, borderRadius:'8px', padding:'14px', display:'flex', flexDirection:'column', gap:'9px' }}>
