@@ -7026,9 +7026,9 @@ function RocketLaunchFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; a
     if (step.convFromPrev >= 45) return YELLOW;
     return RED;
   };
-  const cx = 340; const hw = 44; const noseY = 32; const bodyTopY = 98;
-  const bodyBotY = 315; const bodyH = bodyBotY - bodyTopY;
-  const bandH = bodyH / N; const bellBotY = 372; const bellHW = 58;
+  const cx = 340; const hw = 68; const noseY = 32; const bodyTopY = 98;
+  const bodyBotY = 350; const bodyH = bodyBotY - bodyTopY;
+  const bandH = bodyH / N; const bellBotY = 410; const bellHW = 86;
   const stars: [number, number, number][] = [
     [38,18,1.4],[85,52,0.8],[142,22,1.2],[198,38,0.7],[268,14,1.5],[312,45,0.9],
     [460,20,1.3],[524,48,0.8],[588,16,1.6],[640,40,0.7],[662,22,1.0],[672,82,0.9],
@@ -7213,21 +7213,21 @@ function AirportFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
           <line x1={55} y1={108} x2={55} y2={147} stroke="#3c4c60" strokeWidth={2.5}/>
           <circle cx={55} cy={106} r={3.5} fill={RED} filter="url(#af-glow)" opacity={0.85}/>
           <polygon points="92,188 392,188 402,178 82,178" fill="#20293a"/>
-          <rect x="92" y="202" width="302" height="108" fill="#192235"/>
+          <rect x="92" y="202" width="302" height="130" fill="#192235"/>
           {[0,1,2,3,4,5,6,7].map(j => <rect key={j} x={100+j*35} y={208} width={27} height={58} rx={2} fill="url(#af-glass)" opacity={0.68-j*0.025}/>)}
           {[0,1,2].map(j => <rect key={j} x={168+j*32} y={288} width={22} height={22} rx={2} fill="#e89220" opacity={0.45}/>)}
-          <rect x="96" y="205" width="298" height={14 + 18 + steps.slice(0,5).length * 16 + 8} rx="4" fill="#070c18" opacity={0.97}/>
-          <rect x="96" y="205" width="298" height="22" rx="4" fill="#0e1d30"/>
-          <text x="245" y="220" textAnchor="middle" fill={YELLOW} fontSize="11" fontWeight="700" letterSpacing="2.2" fontFamily="'Courier New',monospace">✈  DEPARTURES</text>
+          <rect x="96" y="205" width="298" height={14 + 26 + steps.slice(0,5).length * 20 + 8} rx="4" fill="#070c18" opacity={0.97}/>
+          <rect x="96" y="205" width="298" height="28" rx="4" fill="#0e1d30"/>
+          <text x="245" y="223" textAnchor="middle" fill={YELLOW} fontSize="14" fontWeight="700" letterSpacing="2.2" fontFamily="'Courier New',monospace">✈  DEPARTURES</text>
           {steps.slice(0, 5).map((step, i) => {
             const statusColor = i === 0 ? GREEN : i === steps.length - 1 ? YELLOW : BLUE;
             const statusLabel = i === 0 ? "BOARDING" : i === steps.length - 1 ? "DEPARTED" : "ON TIME";
             return (
               <g key={i}>
-                <rect x="98" y={227+i*16} width="294" height="15" fill={i%2===0?"#0b1422":"#090f1c"}/>
-                <text x="102" y={238.5+i*16} fill={BLUE} fontSize="10" fontWeight="700" fontFamily="'Courier New',monospace">{`FL${String(i+1).padStart(3,"0")}`}</text>
-                <text x="138" y={238.5+i*16} fill="#c0ccdf" fontSize="10" fontFamily="'Courier New',monospace">{step.label.length>18?step.label.slice(0,16).toUpperCase()+"..":step.label.toUpperCase()}</text>
-                <text x="388" y={238.5+i*16} textAnchor="end" fill={statusColor} fontSize="10" fontWeight="700" fontFamily="'Courier New',monospace">{statusLabel}</text>
+                <rect x="98" y={233+i*20} width="294" height="18" fill={i%2===0?"#0b1422":"#090f1c"}/>
+                <text x="102" y={245+i*20} fill={BLUE} fontSize="12" fontWeight="700" fontFamily="'Courier New',monospace">{`FL${String(i+1).padStart(3,"0")}`}</text>
+                <text x="138" y={245+i*20} fill="#c0ccdf" fontSize="12" fontFamily="'Courier New',monospace">{step.label.length>22?step.label.slice(0,20).toUpperCase()+"..":step.label.toUpperCase()}</text>
+                <text x="388" y={245+i*20} textAnchor="end" fill={statusColor} fontSize="12" fontWeight="700" fontFamily="'Courier New',monospace">{statusLabel}</text>
               </g>
             );
           })}
@@ -7236,19 +7236,22 @@ function AirportFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
           {Array.from({length:runwayCount},(_,i)=>{const t=(i+0.5)/runwayCount;const y=312+138*t;const xL=272-170*t;const xR=408+170*t;const r=1.5+t*2;return(<g key={i} filter="url(#af-glow)"><circle cx={xL} cy={y} r={r} fill={YELLOW} opacity={0.88}/><circle cx={xR} cy={y} r={r} fill={YELLOW} opacity={0.88}/></g>);})}
           {[-4,-3,-2,-1,0,1,2,3,4].map((off,i)=><circle key={i} cx={340+off*24} cy={451} r={3} fill={off===0?RED:"rgba(255,255,240,0.9)"} filter="url(#af-glow)" opacity={0.9}/>)}
           <g transform="translate(482,262) scale(0.95)">
-            <polygon points="-6,22 -78,54 -68,62 -5,36" fill="url(#af-wing)" opacity={0.96}/>
-            <rect x="-52" y="36" width="9" height="16" rx="2" fill="#606a84"/><ellipse cx="-48" cy="50" rx="10" ry="6.5" fill="url(#af-eng)"/><ellipse cx="-48" cy="50" rx="7.5" ry="4.5" fill="#22283a"/>
-            <ellipse cx="-48" cy="56" rx="4.5" ry="2.5" fill={ORANGE} opacity={0.35} filter="url(#af-glow)"/>
-            <path d="M -8,12 Q 0,-6 16,-16 Q 30,-22 42,-20 Q 54,-16 57,-6 Q 60,5 55,26 Q 50,44 44,58 Q 37,68 26,73 Q 14,77 4,76 Q -6,75 -10,66 Q -13,57 -13,42 Q -13,26 -8,12 Z" fill="url(#af-fuse)"/>
-            <path d="M 42,-20 Q 58,-22 70,-13 Q 75,-5 73,3 Q 70,10 65,12 Q 60,13 55,-6 Q 54,-16 42,-20 Z" fill="#c6d4ea"/>
-            <path d="M 48,-13 Q 56,-16 62,-10 Q 58,-6 50,-6 Z" fill="#12203a" opacity={0.92}/>
-            {[0,1,2,3,4,5,6,7].map(j=><rect key={j} x={24-j*8-2} y={-2+j} width={5.5} height={4.5} rx={1.2} fill={j%3===0?"#e6f0ff":"#ccd8f2"} opacity={0.92}/>)}
-            <path d="M -8,12 Q -13,6 -17,-6 Q -21,-20 -16,-24 Q -12,-22 -10,-12 Q -8,0 -8,12 Z" fill="#b4c4da"/>
-            <path d="M -8,20 Q -34,18 -40,25 Q -32,29 -8,27 Z" fill="#a0b2ca"/>
-            <circle cx="-16" cy="-25" r={3} fill={RED} filter="url(#af-glow)" opacity={0.9}/>
-            <circle cx="32" cy="15" r={2} fill={GREEN} filter="url(#af-glow)" opacity={0.85}/>
-            <line x1="54" y1="62" x2="54" y2="76" stroke="#404858" strokeWidth={2.5}/><ellipse cx="54" cy="77" rx="5.5" ry="3" fill="#303848"/>
-            <line x1="6" y1="68" x2="4" y2="80" stroke="#404858" strokeWidth={3}/><ellipse cx="1" cy="81" rx="8" ry="4.5" fill="#303848"/>
+            <path d="M -68,6 Q -76,2 -76,-2 Q -76,-8 -68,-10 L 55,-10 Q 68,-10 76,-4 Q 80,0 76,4 Q 68,8 55,8 Z" fill="url(#af-fuse)"/>
+            <path d="M 76,-4 Q 84,0 76,4 Z" fill="#c6d4ea"/>
+            <path d="M 58,-10 Q 70,-10 76,-4 Q 65,-3 55,-4 Z" fill="#c6d4ea" opacity={0.7}/>
+            <path d="M 60,-9 Q 70,-9 74,-4 Q 65,-3.5 57,-4 Z" fill="#12203a" opacity={0.85}/>
+            {[0,1,2,3,4].map(j=><rect key={j} x={44-j*14} y={-9} width={9} height={6} rx={1.5} fill="#e6f0ff" opacity={0.9}/>)}
+            <polygon points="5,4 -15,6 -68,46 -52,50 -10,18 10,8" fill="url(#af-wing)" opacity={0.96}/>
+            <rect x="-56" y="16" width="12" height="22" rx="2" fill="#606a84"/>
+            <ellipse cx="-50" cy="36" rx="13" ry="7" fill="url(#af-eng)"/>
+            <ellipse cx="-50" cy="36" rx="10" ry="5" fill="#22283a"/>
+            <ellipse cx="-50" cy="43" rx="5" ry="2.5" fill={ORANGE} opacity={0.35} filter="url(#af-glow)"/>
+            <path d="M -68,-2 Q -74,-20 -62,-30 L -58,-4 Z" fill="#b4c4da"/>
+            <polygon points="-68,2 -92,12 -80,14 -60,6" fill="#a0b2ca"/>
+            <circle cx="-62" cy="-30" r={3} fill={RED} filter="url(#af-glow)" opacity={0.9}/>
+            <circle cx="-55" cy="48" r={2} fill={GREEN} filter="url(#af-glow)" opacity={0.85}/>
+            <line x1="55" y1="8" x2="55" y2="22" stroke="#404858" strokeWidth={2.5}/><ellipse cx="55" cy="23" rx="5.5" ry="3" fill="#303848"/>
+            <line x1="-8" y1="8" x2="-8" y2="22" stroke="#404858" strokeWidth={3}/><ellipse cx="-8" cy="23" rx="8" ry="4.5" fill="#303848"/>
           </g>
           <text x="340" y="34" textAnchor="middle" fill="rgba(255,255,255,0.82)" fontSize="17" fontWeight="700" fontFamily="'Inter',sans-serif" letterSpacing="3.5">{funnelName?funnelName.toUpperCase():"DEPARTURE FUNNEL"}</text>
           <text x="340" y="50" textAnchor="middle" fill={YELLOW} fontSize="9" opacity={0.55} letterSpacing="2.2" fontFamily="'Inter',sans-serif">{`${steps.length} GATES · TERMINAL A`}</text>
@@ -7641,20 +7644,20 @@ function StadiumFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: n
           <line x1={CX-FIELD_RX+8} y1={CY} x2={CX+FIELD_RX-8} y2={CY} stroke="rgba(255,255,255,0.26)" strokeWidth={1.5}/>
           <circle cx={CX} cy={CY} r={17} fill="none" stroke="rgba(255,255,255,0.26)" strokeWidth={1.5}/>
           <circle cx={CX} cy={CY} r={2.2} fill="rgba(255,255,255,0.65)"/>
-          <line x1={255} y1={7} x2={265} y2={93} stroke="#162640" strokeWidth="2.5"/>
-          <line x1={425} y1={7} x2={415} y2={93} stroke="#162640" strokeWidth="2.5"/>
-          <rect x={212} y={5} width={256} height={90} rx={8} fill="#00091e" stroke="#1b3562" strokeWidth="2.5"/>
-          <rect x={216} y={9} width={248} height={82} rx={6} fill="url(#sf-board)"/>
+          <line x1={205} y1={7} x2={215} y2={93} stroke="#162640" strokeWidth="2.5"/>
+          <line x1={475} y1={7} x2={465} y2={93} stroke="#162640" strokeWidth="2.5"/>
+          <rect x={162} y={5} width={356} height={90} rx={8} fill="#00091e" stroke="#1b3562" strokeWidth="2.5"/>
+          <rect x={166} y={9} width={348} height={82} rx={6} fill="url(#sf-board)"/>
           <text x={340} y={28} textAnchor="middle" fill="#ffffff" fontSize={14} fontWeight={800} letterSpacing={3} fontFamily="'Courier New',monospace">{(funnelName??"STADIUM FUNNEL").toUpperCase().slice(0,26)}</text>
-          <line x1={220} y1={36} x2={460} y2={36} stroke="rgba(55,125,255,0.25)" strokeWidth="0.8"/>
+          <line x1={170} y1={36} x2={510} y2={36} stroke="rgba(55,125,255,0.25)" strokeWidth="0.8"/>
           <text x={262} y={51} textAnchor="middle" fill="#3e7ab8" fontSize={10} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">FANS IN</text>
           <text x={340} y={51} textAnchor="middle" fill="#3e7ab8" fontSize={10} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">FILL RATE</text>
           <text x={418} y={51} textAnchor="middle" fill="#3e7ab8" fontSize={10} fontWeight={700} letterSpacing={1} fontFamily="'Courier New',monospace">REVENUE</text>
           <text x={262} y={70} textAnchor="middle" fill="#c8e0ff" fontSize={17} fontWeight={800} fontFamily="'Courier New',monospace">{fmtCount(totalFans)}</text>
           <text x={340} y={70} textAnchor="middle" fill={fillRate>=50?GREEN:fillRate>=25?YELLOW:RED} fontSize={17} fontWeight={800} fontFamily="'Courier New',monospace">{fmtPct(fillRate)}</text>
           <text x={418} y={70} textAnchor="middle" fill="#ffd060" fontSize={16} fontWeight={800} fontFamily="'Courier New',monospace">{fmtCurrency(ticketRevenue)}</text>
-          <rect x={216} y={80} width={248} height={12} rx={3} fill="rgba(0,8,24,0.9)"/>
-          <text x={221} y={89} fill="#2860aa" fontSize={9} fontFamily="'Courier New',monospace" letterSpacing={1.5}>{'› '+steps.map(s=>s.label.toUpperCase()).join('  ›  ').slice(0,54)}</text>
+          <rect x={166} y={80} width={348} height={12} rx={3} fill="rgba(0,8,24,0.9)"/>
+          <text x={170} y={89} fill="#2860aa" fontSize={9} fontFamily="'Courier New',monospace" letterSpacing={0.5}>{'› '+steps.map(s=>s.label.toUpperCase()).join('  ›  ').slice(0,64)}</text>
           {lightPositions.map(([bx,by,hx,hy],li)=>(
             <g key={`lt-${li}`} filter="url(#sf-lg)">
               <line x1={bx} y1={by} x2={hx} y2={hy} stroke="#1e3050" strokeWidth={4} strokeLinecap="round"/>
