@@ -6398,13 +6398,13 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
             </defs>
             <style>{`
               @keyframes mriTableIn {
-                0%   { transform: translateY(22px); opacity: 0.65; }
-                100% { transform: translateY(0px);  opacity: 1.0;  }
+                0%   { transform: translateY(28px); opacity: 0; }
+                100% { transform: translateY(0px);  opacity: 1; }
               }
               .mri-table-anim {
                 transform-box: fill-box;
                 transform-origin: bottom center;
-                animation: mriTableIn 3.4s ease-in-out infinite alternate;
+                animation: mriTableIn 1.1s cubic-bezier(0.22,1,0.36,1) forwards;
               }
             `}</style>
 
