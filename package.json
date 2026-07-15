@@ -1,6 +1,6 @@
 {
   "name": "user-journey-app",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Not an official Dynatrace app & not something you can open a support ticket on.",
   "scripts": {
     "build": "dt-app build",
