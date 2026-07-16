@@ -6359,7 +6359,7 @@ function MRIFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: numbe
           {funnelName && (
             <div style={{ textAlign: "center", padding: "6px 0 4px", fontSize: 24, fontWeight: 900, color: "rgba(255,255,255,0.92)", letterSpacing: 0.2 }}>{funnelName}</div>
           )}
-          <svg width="100%" height="455" viewBox="0 0 680 455" style={{ display: "block" }}>
+          <svg width="100%" height="500" viewBox="0 0 680 500" style={{ display: "block" }}>
             <defs>
               <radialGradient id="mriGantry" cx="48%" cy="28%" r="72%">
                 <stop offset="0%" stopColor="#B8C8DC"/>
@@ -7028,8 +7028,8 @@ function RocketLaunchFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; a
     return RED;
   };
   const cx = 340; const hw = 68; const noseY = 32; const bodyTopY = 98;
-  const bodyBotY = 350; const bodyH = bodyBotY - bodyTopY;
-  const bandH = bodyH / N; const bellBotY = 410; const bellHW = 86;
+  const bodyBotY = 340; const bodyH = bodyBotY - bodyTopY;
+  const bandH = bodyH / N; const bellBotY = 390; const bellHW = 86;
   const stars: [number, number, number][] = [
     [38,18,1.4],[85,52,0.8],[142,22,1.2],[198,38,0.7],[268,14,1.5],[312,45,0.9],
     [460,20,1.3],[524,48,0.8],[588,16,1.6],[640,40,0.7],[662,22,1.0],[672,82,0.9],
@@ -7064,7 +7064,7 @@ function RocketLaunchFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; a
         </div>
         <div style={{ border: "1px solid rgba(70,120,200,0.35)", borderRadius: 14, padding: "8px 6px 6px", background: "radial-gradient(ellipse at 50% 12%, rgba(14,30,75,0.45) 0%, rgba(2,5,15,0.99) 58%)", overflow: "hidden" }}>
           {funnelName && <div style={{ textAlign: "center", fontSize: 13, fontWeight: 800, color: "rgba(160,205,255,0.88)", letterSpacing: 1.8, textTransform: "uppercase", paddingBottom: 4 }}>{funnelName}</div>}
-          <svg width="100%" height="455" viewBox="0 0 680 455" style={{ display: "block" }}>
+          <svg width="100%" height="525" viewBox="0 0 680 525" style={{ display: "block" }}>
             <defs>
               <radialGradient id="rlf_bg" cx="50%" cy="15%" r="68%"><stop offset="0%" stopColor="#0C1C50" stopOpacity="0.88"/><stop offset="100%" stopColor="#020510" stopOpacity="1"/></radialGradient>
               <linearGradient id="rlf_body" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#788898"/><stop offset="18%" stopColor="#C4CDD8"/><stop offset="50%" stopColor="#E8EEF5"/><stop offset="82%" stopColor="#BDC7D3"/><stop offset="100%" stopColor="#6D7988"/></linearGradient>
@@ -7092,14 +7092,16 @@ function RocketLaunchFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; a
               <rect x="13" y="-4" width="17" height="8" rx="1.5" fill="rgba(32,88,205,0.90)"/><line x1="13" y1="0" x2="30" y2="0" stroke="rgba(155,198,255,0.50)" strokeWidth="0.7"/>
               <line x1="0" y1="-7" x2="0" y2="-19" stroke="rgba(188,212,255,0.72)" strokeWidth="0.9"/><circle cx="0" cy="-20.5" r="2.2" fill="none" stroke="rgba(148,192,255,0.82)" strokeWidth="0.9"/>
             </g>
-            <ellipse cx={cx} cy={bellBotY + 8} rx="90" ry="10" fill="rgba(255,120,0,0.20)" filter="url(#rlf_blur14)" className="rlf-pulse"/>
+            <ellipse cx={cx} cy={bellBotY + 10} rx="108" ry="14" fill="rgba(255,120,0,0.24)" filter="url(#rlf_blur14)" className="rlf-pulse"/>
+            <ellipse cx={cx} cy={bellBotY + 16} rx="76" ry="9" fill="rgba(255,210,90,0.18)" filter="url(#rlf_blur8)" className="rlf-pulse"/>
             <g className="rlf-ex">
-              <path d={`M${cx-58} ${bellBotY}Q${cx-44} ${bellBotY+40} ${cx} ${bellBotY+84}Q${cx+44} ${bellBotY+40} ${cx+58} ${bellBotY}Z`} fill="url(#rlf_exOuter)"/>
-              <path d={`M${cx-35} ${bellBotY-4}Q${cx-21} ${bellBotY+30} ${cx} ${bellBotY+68}Q${cx+21} ${bellBotY+30} ${cx+35} ${bellBotY-4}Z`} fill="url(#rlf_exCore)"/>
-              <path d={`M${cx-12} ${bellBotY-2}Q${cx} ${bellBotY+30} ${cx} ${bellBotY+54}Q${cx} ${bellBotY+30} ${cx+12} ${bellBotY-2}Z`} fill="rgba(255,252,240,0.88)"/>
+              <path d={`M${cx-64} ${bellBotY-1}Q${cx-52} ${bellBotY+48} ${cx} ${bellBotY+96}Q${cx+52} ${bellBotY+48} ${cx+64} ${bellBotY-1}Z`} fill="url(#rlf_exOuter)"/>
+              <path d={`M${cx-40} ${bellBotY-5}Q${cx-26} ${bellBotY+36} ${cx} ${bellBotY+78}Q${cx+26} ${bellBotY+36} ${cx+40} ${bellBotY-5}Z`} fill="url(#rlf_exCore)"/>
+              <path d={`M${cx-14} ${bellBotY-3}Q${cx} ${bellBotY+34} ${cx} ${bellBotY+60}Q${cx} ${bellBotY+34} ${cx+14} ${bellBotY-3}Z`} fill="rgba(255,252,240,0.95)"/>
+              <path d={`M${cx-7} ${bellBotY+10}Q${cx} ${bellBotY+48} ${cx} ${bellBotY+78}Q${cx} ${bellBotY+48} ${cx+7} ${bellBotY+10}Z`} fill="rgba(255,184,48,0.32)"/>
             </g>
-            <path d="M -10 428 Q 340 400 690 428 L 690 460 L -10 460 Z" fill="url(#rlf_earth)"/>
-            <path d="M -10 428 Q 340 400 690 428" fill="none" stroke="rgba(90,168,255,0.65)" strokeWidth="2.2"/>
+            <path d="M -10 485 Q 340 457 690 485 L 690 525 L -10 525 Z" fill="url(#rlf_earth)"/>
+            <path d="M -10 485 Q 340 457 690 485" fill="none" stroke="rgba(90,168,255,0.65)" strokeWidth="2.2"/>
             <path d={`M${cx-hw} ${bodyBotY-88}L${cx-hw-66} ${bodyBotY+10}L${cx-hw} ${bodyBotY}Z`} fill="url(#rlf_body)" stroke="rgba(152,170,194,0.52)" strokeWidth="1.2"/>
             <path d={`M${cx+hw} ${bodyBotY-88}L${cx+hw+66} ${bodyBotY+10}L${cx+hw} ${bodyBotY}Z`} fill="url(#rlf_body)" stroke="rgba(152,170,194,0.52)" strokeWidth="1.2"/>
             <path d={`M${cx-hw} ${bodyBotY}L${cx-bellHW} ${bellBotY}L${cx+bellHW} ${bellBotY}L${cx+hw} ${bodyBotY}Z`} fill="url(#rlf_bell)" stroke="rgba(112,132,158,0.60)" strokeWidth="1.5"/>
@@ -7127,7 +7129,7 @@ function RocketLaunchFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; a
             <circle cx={cx} cy={noseY} r="5" fill="rgba(188,222,255,0.72)" filter="url(#rlf_glow)"/>
             <circle cx={cx} cy={noseY + 43} r="11" fill="rgba(5,16,46,0.96)" stroke="rgba(132,160,194,0.72)" strokeWidth="1.6"/>
             <circle cx={cx} cy={noseY + 43} r="7.5" fill="rgba(36,88,192,0.52)"/>
-            <ellipse cx={cx} cy={bellBotY + 4} rx="50" ry="7" fill="rgba(255,148,0,0.52)" filter="url(#rlf_blur8)" className="rlf-pulse"/>
+            <ellipse cx={cx} cy={bellBotY + 6} rx="62" ry="9" fill="rgba(255,148,0,0.58)" filter="url(#rlf_blur8)" className="rlf-pulse"/>
           </svg>
         </div>
         <div style={{ border: "1px solid rgba(70,120,200,0.35)", borderRadius: 14, padding: "12px 14px", background: "rgba(6,10,22,0.97)", display: "flex", flexDirection: "column", gap: 9 }}>
