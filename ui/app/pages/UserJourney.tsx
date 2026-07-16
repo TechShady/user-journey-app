@@ -767,6 +767,37 @@ ${iAnyLines}
 ${countLines}`;
 }
 
+// Funnel Time-Lapse — per-bucket step counts.
+// Buckets by each session's earliest event timestamp so a session lives in exactly one bucket.
+function funnelTimelapseQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket): string {
+  const period = periodClause(days);
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const countLines = steps.map((_, i) => {
+    const conds = Array.from({ length: i + 1 }, (__, j) => `reached_step${j + 1} == true`).join(" and ");
+    return `    at_step${i + 1} = countIf(${conds})`;
+  }).join(",\n");
+  return `fetch user.events, ${period}
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd event_ts = coalesce(start_time, timestamp)
+| summarize
+    session_start = min(event_ts),
+    steps = collectDistinct(step_tag),
+    by: {dt.rum.session.id}
+| fieldsAdd bucket_ts = bin(session_start, ${bucket})
+| fieldsAdd bucket = formatTimestamp(bucket_ts, format: "yyyy-MM-dd HH:mm")
+| fieldsAdd
+${iAnyLines}
+| summarize
+    total_sessions = count(),
+${countLines},
+    by: {bucket}
+| sort bucket asc
+| limit 5000`;
+}
+
 function stepMetricsQuery(days: number, frontend: string, steps: StepDef[], nonce = 0, prev = false): string {
   const period = periodClause(days, prev);
   const tagExpr = stepTagExpr(steps, steps.map((s) => s.label));
@@ -1358,9 +1389,30 @@ ${userFilter}
 | limit 40000`;
 }
 
-// NEW: Navigation Flow Time-Lapse — per-bucket backend request edges (from RUM has_request events)
+// NEW: Navigation Flow Time-Lapse — per-bucket backend service telemetry (from server spans).
+// Rationale: RUM peer.service.name is unreliable in many envs; spans data always resolves service.name.
+// For session/user filters, restrict spans to trace IDs originating from the scoped RUM sessions.
 function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket, appFilter?: string, appFilters?: string[], sessionId?: string, userId?: string): string {
   const period = periodClause(days);
+  const scoped = !!(sessionId || userId);
+  if (!scoped) {
+    // Unfiltered: cover ALL server spans for the timeframe.
+    return `fetch spans, ${period}
+| filter span.kind == "server"
+| filter isNotNull(service.name)
+| fieldsAdd bucket_ts = bin(start_time, ${bucket})
+| fieldsAdd bucket = formatTimestamp(bucket_ts, format: "yyyy-MM-dd HH:mm")
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| summarize
+    requests = count(),
+    errors = countIf(coalesce(toString(span.status_code), "UNSET") == "ERROR"),
+    avg_dur = avg(dur_ms),
+    by: {bucket, service_name = service.name}
+| filter requests >= 1
+| sort bucket asc
+| limit 40000`;
+  }
+  // Filtered: restrict spans to trace IDs from scoped RUM events.
   const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
   const userFilter = !sessionId && userId ? `| filter effective_user_id == "${userId}"` : "";
   const userLookup = !sessionId && userId ? `
@@ -1374,22 +1426,27 @@ function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepD
     | fields sid, session_user_id
   ], sourceField:sid, lookupField:sid, prefix:"sess."
 | fieldsAdd effective_user_id = coalesce(sess.session_user_id, nav_user_id, concat("session:", substring(sid, from: 0, to: 16)))` : "";
-  return `fetch user.events, ${period}
-| filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
-| filter characteristics.has_request == true${userLookup}
-${sessionFilter}
-${userFilter}
-| fieldsAdd from_service = coalesce(service.name, dt.entity.service.name, "frontend")
-| fieldsAdd to_service = coalesce(peer.service.name, request.service.name, "unknown")
-| filter to_service != "unknown"
-| fieldsAdd bucket_ts = bin(coalesce(start_time, timestamp), ${bucket})
+  return `fetch spans, ${period}
+| filter span.kind == "server"
+| filter isNotNull(service.name)
+| fieldsAdd bucket_ts = bin(start_time, ${bucket})
 | fieldsAdd bucket = formatTimestamp(bucket_ts, format: "yyyy-MM-dd HH:mm")
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| lookup [
+    fetch user.events, ${period}
+    | filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
+    | filter isNotNull(dt.rum.trace_id)${userLookup}
+    ${sessionFilter}
+    ${userFilter}
+    | fields tid = dt.rum.trace_id
+    | dedup tid
+  ], sourceField:trace.id, lookupField:tid, prefix:"rum."
+| filter isNotNull(rum.tid)
 | summarize
     requests = count(),
-    errors = countIf(characteristics.has_error == true),
+    errors = countIf(coalesce(toString(span.status_code), "UNSET") == "ERROR"),
     avg_dur = avg(dur_ms),
-    by: {bucket, from_service, to_service}
+    by: {bucket, service_name = service.name}
 | filter requests >= 1
 | sort bucket asc
 | limit 40000`;
@@ -4697,7 +4754,7 @@ export function UserJourney() {
                 {subTabs.map(tabId => {
                   let content: React.ReactNode = null;
                   switch (tabId) {
-            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} />; break;
+            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} timeframeDays={timeframeDays} frontend={frontend} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} />; break;
@@ -8347,7 +8404,7 @@ function UHaulFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: num
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
-function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast, funnelName }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnelName?: string; }) {
+function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast, funnelName, timeframeDays, frontend }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnelName?: string; timeframeDays: number; frontend: string; }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap]));
   // Ticker to keep "last refreshed X ago" text updating
   const [, setTick] = React.useState(0);
@@ -8362,6 +8419,138 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     stepLabel: string;
     pages: Array<{ name: string; sessions: number; apdex: number; avgMs: number; p90Ms: number; errors: number; errorRate: number }>;
   } | null>(null);
+
+  // ===== Funnel Time-Lapse =====
+  const [funnelTlEnabled, setFunnelTlEnabled] = React.useState(false);
+  const [funnelTlPlaying, setFunnelTlPlaying] = React.useState(false);
+  const [funnelTlIndex, setFunnelTlIndex] = React.useState(0);
+  const [funnelTlBucket, setFunnelTlBucket] = React.useState<TlBucket>("1h");
+  const [funnelTlSpeedMs, setFunnelTlSpeedMs] = React.useState(1200);
+  const funnelTlIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const funnelTlTotalRef = React.useRef(0);
+
+  const funnelTlData = useDql({
+    query: funnelTlEnabled ? funnelTimelapseQuery(timeframeDays, frontend, steps, funnelTlBucket) : "fetch user.events | limit 0",
+  });
+
+  React.useEffect(() => {
+    setFunnelTlIndex(0);
+    setFunnelTlPlaying(false);
+  }, [funnelTlBucket, funnelTlEnabled, timeframeDays, frontend, steps.length]);
+
+  React.useEffect(() => {
+    if (!funnelTlEnabled || !funnelTlPlaying) {
+      if (funnelTlIntervalRef.current) { clearInterval(funnelTlIntervalRef.current); funnelTlIntervalRef.current = null; }
+      return;
+    }
+    funnelTlIntervalRef.current = setInterval(() => {
+      setFunnelTlIndex((i) => {
+        const total = funnelTlTotalRef.current;
+        if (total <= 0) return i;
+        if (i >= total - 1) { setFunnelTlPlaying(false); return i; }
+        return i + 1;
+      });
+    }, funnelTlSpeedMs);
+    return () => {
+      if (funnelTlIntervalRef.current) { clearInterval(funnelTlIntervalRef.current); funnelTlIntervalRef.current = null; }
+    };
+  }, [funnelTlEnabled, funnelTlPlaying, funnelTlSpeedMs]);
+
+  // Parse per-bucket funnel counts into Map<bucket, number[]>
+  const funnelTlBuckets = React.useMemo(() => {
+    const m = new Map<string, number[]>();
+    const rows = (funnelTlData.data?.records ?? []) as any[];
+    rows.forEach((r) => {
+      const b = String(r.bucket ?? "");
+      if (!b) return;
+      const counts = steps.map((_, i) => Number(r[`at_step${i + 1}`] ?? 0));
+      m.set(b, counts);
+    });
+    return m;
+  }, [funnelTlData.data, steps]);
+
+  const funnelTlBucketList = React.useMemo(
+    () => Array.from(funnelTlBuckets.keys()).sort(),
+    [funnelTlBuckets]
+  );
+  React.useEffect(() => { funnelTlTotalRef.current = funnelTlBucketList.length; }, [funnelTlBucketList]);
+
+  // Per-step baseline (mean + std) for conversion rate from previous step, and for entry sessions.
+  // Used to detect anomalous drop-offs vs "typical" behavior.
+  const funnelTlBaselines = React.useMemo(() => {
+    const convByStep: number[][] = steps.map(() => []);
+    const entries: number[] = [];
+    funnelTlBucketList.forEach((b) => {
+      const c = funnelTlBuckets.get(b);
+      if (!c) return;
+      entries.push(c[0]);
+      steps.forEach((_, i) => {
+        if (i === 0) return;
+        const prev = c[i - 1];
+        const now = c[i];
+        if (prev > 0) convByStep[i].push((now / prev) * 100);
+      });
+    });
+    const stat = (arr: number[]) => {
+      if (arr.length === 0) return { mean: 0, std: 1 };
+      const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+      const variance = arr.reduce((a, b) => a + (b - mean) ** 2, 0) / arr.length;
+      return { mean, std: Math.max(Math.sqrt(variance), 0.5) };
+    };
+    return {
+      conv: convByStep.map((s) => stat(s)),
+      entry: stat(entries),
+    };
+  }, [funnelTlBucketList, funnelTlBuckets, steps]);
+
+  // Spike strip — per bucket, the worst step's conversion-drop severity (Z-score below mean)
+  // OR entry-volume Z-score if traffic is unusually high/low. Higher = hotter.
+  const funnelTlSpikeStrip = React.useMemo(() => {
+    return funnelTlBucketList.map((b) => {
+      const c = funnelTlBuckets.get(b);
+      if (!c) return 0;
+      let worstDropZ = 0;
+      steps.forEach((_, i) => {
+        if (i === 0) return;
+        const prev = c[i - 1];
+        if (prev <= 0) return;
+        const conv = (c[i] / prev) * 100;
+        const base = funnelTlBaselines.conv[i];
+        // Drop below the mean is bad → positive Z
+        const z = (base.mean - conv) / base.std;
+        if (z > worstDropZ) worstDropZ = z;
+      });
+      const entryZ = Math.abs(c[0] - funnelTlBaselines.entry.mean) / funnelTlBaselines.entry.std;
+      return Math.max(worstDropZ, entryZ * 0.6); // volume weighted lower than drop-offs
+    });
+  }, [funnelTlBucketList, funnelTlBuckets, funnelTlBaselines, steps]);
+
+  // Per-step hotness for current bucket — used to highlight the step that's degraded
+  const funnelTlStepHot = React.useMemo(() => {
+    if (!funnelTlEnabled || funnelTlBucketList.length === 0) return steps.map(() => 0);
+    const b = funnelTlBucketList[Math.min(funnelTlIndex, funnelTlBucketList.length - 1)];
+    const c = funnelTlBuckets.get(b);
+    if (!c) return steps.map(() => 0);
+    return steps.map((_, i) => {
+      if (i === 0) return 0;
+      const prev = c[i - 1];
+      if (prev <= 0) return 0;
+      const conv = (c[i] / prev) * 100;
+      const base = funnelTlBaselines.conv[i];
+      return Math.max(0, (base.mean - conv) / base.std);
+    });
+  }, [funnelTlEnabled, funnelTlBucketList, funnelTlIndex, funnelTlBuckets, funnelTlBaselines, steps]);
+
+  // Active counts — the numbers driving the visible funnel. Swap in TL bucket when enabled.
+  const activeFunnelCounts = React.useMemo(() => {
+    if (!funnelTlEnabled || funnelTlBucketList.length === 0) return funnelCounts;
+    const b = funnelTlBucketList[Math.min(funnelTlIndex, funnelTlBucketList.length - 1)];
+    return funnelTlBuckets.get(b) ?? funnelCounts;
+  }, [funnelTlEnabled, funnelTlBucketList, funnelTlIndex, funnelTlBuckets, funnelCounts]);
+
+  const funnelTlCurrentKey = funnelTlEnabled && funnelTlBucketList.length > 0
+    ? funnelTlBucketList[Math.min(funnelTlIndex, funnelTlBucketList.length - 1)]
+    : null;
 
   // Parse sparkline series for KPI cards (must be before early return — Rules of Hooks)
   const sparkSeries = useMemo(() => {
@@ -8396,8 +8585,8 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     };
   });
 
-  const funnelSteps = makeFunnelSteps(funnelCounts);
-  const prevFunnelSteps = compareMode ? makeFunnelSteps(funnelCountsPrev) : undefined;
+  const funnelSteps = makeFunnelSteps(activeFunnelCounts);
+  const prevFunnelSteps = compareMode && !funnelTlEnabled ? makeFunnelSteps(funnelCountsPrev) : undefined;
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
   const errorRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
 
@@ -8648,6 +8837,153 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           <Heading level={3} style={{ fontWeight: 700, margin: 0 }}>{funnelName}</Heading>
         </div>
       )}
+
+      {/* === Funnel Time-Lapse control bar === */}
+      <div style={{ padding: "10px 12px", borderRadius: 8, background: funnelTlEnabled ? "rgba(69,137,255,0.08)" : "rgba(128,128,128,0.06)", border: `1px solid ${funnelTlEnabled ? "rgba(69,137,255,0.35)" : "rgba(128,128,128,0.2)"}`, transition: "all 0.2s" }}>
+        <Flex alignItems="center" gap={12} flexWrap="wrap">
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, color: funnelTlEnabled ? BLUE : "inherit" }}>
+            <input type="checkbox" checked={funnelTlEnabled} onChange={(e) => setFunnelTlEnabled(e.target.checked)} style={{ cursor: "pointer" }} />
+            <span>⏱ Time-Lapse</span>
+          </label>
+          {funnelTlEnabled && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, opacity: 0.55 }}>Bucket</span>
+                <select value={funnelTlBucket} onChange={(e) => setFunnelTlBucket(e.target.value as TlBucket)} style={{ fontSize: 11, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.9)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "3px 6px" }}>
+                  {(Object.keys(TL_BUCKET_LABELS) as TlBucket[]).map((b) => (
+                    <option key={b} value={b} style={{ background: "#13182b", color: "#e8efff" }}>{TL_BUCKET_LABELS[b]}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, opacity: 0.55 }}>Speed</span>
+                <select value={funnelTlSpeedMs} onChange={(e) => setFunnelTlSpeedMs(Number(e.target.value))} style={{ fontSize: 11, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.9)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "3px 6px" }}>
+                  <option value={2400} style={{ background: "#13182b" }}>0.5x</option>
+                  <option value={1600} style={{ background: "#13182b" }}>0.75x</option>
+                  <option value={1200} style={{ background: "#13182b" }}>1x</option>
+                  <option value={600} style={{ background: "#13182b" }}>2x</option>
+                  <option value={300} style={{ background: "#13182b" }}>4x</option>
+                </select>
+              </div>
+              <button
+                onClick={() => {
+                  if (funnelTlBucketList.length === 0) return;
+                  if (funnelTlIndex >= funnelTlBucketList.length - 1) setFunnelTlIndex(0);
+                  setFunnelTlPlaying((p) => !p);
+                }}
+                disabled={funnelTlBucketList.length === 0}
+                style={{ fontSize: 12, padding: "5px 14px", cursor: funnelTlBucketList.length === 0 ? "not-allowed" : "pointer", background: funnelTlPlaying ? "rgba(255,131,43,0.2)" : "rgba(69,137,255,0.2)", border: `1px solid ${funnelTlPlaying ? ORANGE : BLUE}`, borderRadius: 4, color: funnelTlPlaying ? ORANGE : BLUE, fontWeight: 700 }}
+              >{funnelTlPlaying ? "⏸ Pause" : "▶ Play"}</button>
+              <button
+                onClick={() => { setFunnelTlPlaying(false); setFunnelTlIndex(0); }}
+                disabled={funnelTlBucketList.length === 0}
+                style={{ fontSize: 12, padding: "5px 10px", cursor: funnelTlBucketList.length === 0 ? "not-allowed" : "pointer", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.7)" }}
+              >⏮ Reset</button>
+              <div style={{ flex: 1, minWidth: 200, display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(0, funnelTlBucketList.length - 1)}
+                  step={1}
+                  value={Math.min(funnelTlIndex, Math.max(0, funnelTlBucketList.length - 1))}
+                  onChange={(e) => { setFunnelTlPlaying(false); setFunnelTlIndex(Number(e.target.value)); }}
+                  disabled={funnelTlBucketList.length === 0}
+                  style={{ flex: 1, cursor: funnelTlBucketList.length === 0 ? "not-allowed" : "pointer" }}
+                />
+                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", minWidth: 140, textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>
+                  {funnelTlCurrentKey ?? (funnelTlData.isLoading ? "Loading…" : "No data")}
+                </span>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", minWidth: 60, textAlign: "right" }}>
+                  {funnelTlBucketList.length > 0 ? `${funnelTlIndex + 1} / ${funnelTlBucketList.length}` : ""}
+                </span>
+              </div>
+            </>
+          )}
+          {!funnelTlEnabled && (
+            <span style={{ fontSize: 11, opacity: 0.5 }}>Watch the funnel evolve over time. Detect which time windows had abnormal drop-offs or entry-traffic spikes.</span>
+          )}
+        </Flex>
+        {funnelTlEnabled && funnelTlData.error && (
+          <div style={{ marginTop: 6, fontSize: 11, color: ORANGE }}>Time-lapse query error — check console.</div>
+        )}
+      </div>
+
+      {/* === Funnel Hotness Spike Strip === */}
+      {funnelTlEnabled && funnelTlBucketList.length > 0 && (() => {
+        const maxHot = Math.max(0.5, ...funnelTlSpikeStrip);
+        const stripW = 800;
+        const stripH = 42;
+        const barW = stripW / Math.max(1, funnelTlBucketList.length);
+        const cursorX = (Math.min(funnelTlIndex, funnelTlBucketList.length - 1) + 0.5) * barW;
+        const anyHot = funnelTlSpikeStrip.some(v => v >= 1.5);
+        return (
+          <div style={{ padding: "10px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)" }}>
+            <Flex alignItems="center" justifyContent="space-between" gap={8} style={{ marginBottom: 6 }}>
+              <Flex alignItems="center" gap={6}>
+                <div style={{ width: 3, height: 12, background: TL_HOT_WARM, borderRadius: 1 }} />
+                <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.75, fontWeight: 700, color: TL_HOT_WARM }}>Hotness spike strip</span>
+                <span style={{ fontSize: 10, opacity: 0.45 }}>drop-offs · entry-traffic Z-score</span>
+              </Flex>
+              <span style={{ fontSize: 10, opacity: 0.45, fontFamily: "monospace" }}>peak z={maxHot.toFixed(1)}{anyHot ? "" : " (calm)"}</span>
+            </Flex>
+            <svg width="100%" height={stripH + 10} viewBox={`0 0 ${stripW} ${stripH + 10}`} preserveAspectRatio="none" style={{ display: "block", cursor: "pointer" }}
+              onClick={(e) => {
+                const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+                const ratio = (e.clientX - rect.left) / rect.width;
+                const idx = Math.max(0, Math.min(funnelTlBucketList.length - 1, Math.floor(ratio * funnelTlBucketList.length)));
+                setFunnelTlPlaying(false);
+                setFunnelTlIndex(idx);
+              }}
+            >
+              {funnelTlSpikeStrip.map((h, i) => {
+                const bh = Math.max(2, (h / maxHot) * stripH);
+                const color = h >= 2.5 ? TL_HOT_HIGH : h >= 1.5 ? TL_HOT_WARM : h >= 0.75 ? TL_HOT_ELEV : "rgba(69,137,255,0.55)";
+                const isCurrent = i === Math.min(funnelTlIndex, funnelTlBucketList.length - 1);
+                return (
+                  <rect key={i} x={i * barW + 0.3} y={stripH - bh} width={Math.max(1, barW - 0.6)} height={bh} fill={color} opacity={isCurrent ? 1 : 0.8} />
+                );
+              })}
+              <line x1={cursorX} y1={0} x2={cursorX} y2={stripH} stroke="#fff" strokeWidth={1.5} strokeOpacity={0.85} />
+              <polygon points={`${cursorX - 5},${stripH + 2} ${cursorX + 5},${stripH + 2} ${cursorX},${stripH + 8}`} fill="#fff" opacity={0.9} />
+            </svg>
+            <Flex alignItems="center" gap={12} style={{ marginTop: 6, fontSize: 10, opacity: 0.6, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 10, opacity: 0.7 }}>{funnelTlBucketList[0]} → {funnelTlBucketList[funnelTlBucketList.length - 1]}</span>
+              <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: "rgba(69,137,255,0.55)", borderRadius: 2 }} /><span>Normal</span></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_ELEV, borderRadius: 2 }} /><span>Elevated</span></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_WARM, borderRadius: 2 }} /><span>Bad drop-off</span></Flex>
+              <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_HIGH, borderRadius: 2 }} /><span>Severe drop-off</span></Flex>
+              <span style={{ marginLeft: "auto" }}>Click a bar to jump to that moment.</span>
+            </Flex>
+            {/* Step-level hot list for current bucket */}
+            {(() => {
+              const hotSteps = funnelTlStepHot
+                .map((z, i) => ({ z, i }))
+                .filter(x => x.z >= 1.5)
+                .sort((a, b) => b.z - a.z)
+                .slice(0, 3);
+              if (hotSteps.length === 0) return null;
+              return (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(128,128,128,0.15)", fontSize: 11, opacity: 0.85 }}>
+                  <span style={{ fontWeight: 700, opacity: 0.7, marginRight: 8 }}>Hot drop-offs this bucket:</span>
+                  {hotSteps.map((h, k) => {
+                    const step = steps[h.i];
+                    const prevLabel = h.i > 0 ? steps[h.i - 1].label : "";
+                    const color = h.z >= 2.5 ? TL_HOT_HIGH : TL_HOT_WARM;
+                    return (
+                      <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 12 }}>
+                        <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color }} />
+                        <span style={{ color, fontWeight: 600 }}>{prevLabel} → {step?.label}</span>
+                        <span style={{ opacity: 0.6, fontFamily: "monospace" }}>z={h.z.toFixed(1)}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
+
       <div className="uj-funnel-container">
         {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} onStepSelect={handleFunnelStepDrill} title={funnelName} />}
         {funnelStyle === "horizontal" && <HorizontalBarFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
@@ -12073,24 +12409,23 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     return buckets;
   }, [navFlowTimelapsePagesData?.data?.records]);
 
+  // Edge buckets now key by service_name only (spans-based query returns per-service, not per-edge)
   const navTlEdgeBuckets = React.useMemo(() => {
     const buckets = new Map<string, Map<string, { requests: number; errors: number; avgDur: number }>>();
     const rows = (navFlowTimelapseEdgesData?.data?.records ?? []) as any[];
     rows.forEach((r) => {
       const b = String(r.bucket ?? "");
-      const f = String(r.from_service ?? "").toLowerCase().trim();
-      const t = String(r.to_service ?? "").toLowerCase().trim();
-      if (!b || !f || !t) return;
+      const svc = String(r.service_name ?? "").toLowerCase().trim();
+      if (!b || !svc) return;
       let inner = buckets.get(b);
       if (!inner) { inner = new Map(); buckets.set(b, inner); }
-      const key = `${f}\u0000${t}`;
-      const cur = inner.get(key) ?? { requests: 0, errors: 0, avgDur: 0 };
+      const cur = inner.get(svc) ?? { requests: 0, errors: 0, avgDur: 0 };
       const requests = Number(r.requests ?? 0);
       const dur = Number(r.avg_dur ?? 0);
       cur.avgDur = cur.requests + requests > 0 ? (cur.avgDur * cur.requests + dur * requests) / (cur.requests + requests) : dur;
       cur.requests += requests;
       cur.errors += Number(r.errors ?? 0);
-      inner.set(key, cur);
+      inner.set(svc, cur);
     });
     return buckets;
   }, [navFlowTimelapseEdgesData?.data?.records]);
@@ -12160,21 +12495,13 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
       const varr = arr.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1);
       return { mean, std: Math.max(0.01, Math.sqrt(varr)) };
     };
+    // Edge buckets are already keyed by service (spans-based per-service query).
     const perSvcSeries = new Map<string, { req: number; errRate: number; dur: number }[]>();
     navTlEdgeBuckets.forEach((emap) => {
-      const perSvc = new Map<string, { req: number; err: number; durSum: number; durN: number }>();
-      emap.forEach((v, k) => {
-        const t = k.split("\u0000")[1];
-        if (!t) return;
-        const cur = perSvc.get(t) ?? { req: 0, err: 0, durSum: 0, durN: 0 };
-        cur.req += v.requests; cur.err += v.errors;
-        if (v.avgDur > 0 && v.requests > 0) { cur.durSum += v.avgDur * v.requests; cur.durN += v.requests; }
-        perSvc.set(t, cur);
-      });
-      perSvc.forEach((v, t) => {
-        const arr = perSvcSeries.get(t) ?? [];
-        arr.push({ req: v.req, errRate: v.req > 0 ? (v.err / v.req) * 100 : 0, dur: v.durN > 0 ? v.durSum / v.durN : 0 });
-        perSvcSeries.set(t, arr);
+      emap.forEach((v, svc) => {
+        const arr = perSvcSeries.get(svc) ?? [];
+        arr.push({ req: v.requests, errRate: v.requests > 0 ? (v.errors / v.requests) * 100 : 0, dur: v.avgDur });
+        perSvcSeries.set(svc, arr);
       });
     });
     const base = new Map<string, { reqStat: { mean: number; std: number }; errRateStat: { mean: number; std: number }; durStat: { mean: number; std: number } }>();
@@ -13518,7 +13845,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             };
             const tlEdgeOverride = (fromName: string, toName: string): { color: string | null; width: number | null; z: number; data: { requests: number; errors: number; avgDur: number } | null } => {
               if (!tlEdgeMap || !navTlEnabled) return { color: null, width: null, z: 0, data: null };
-              const key = `${fromName.toLowerCase().trim()}\u0000${toName.toLowerCase().trim()}`;
+              // Spans-based per-service data: key by the destination service (server-span service.name).
+              const key = toName.toLowerCase().trim();
               const m = tlEdgeMap.get(key);
               const base = navTlEdgeBaseline.get(key);
               if (!m) return { color: null, width: null, z: 0, data: null };
@@ -13538,22 +13866,15 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             const tlServiceOverride = (serviceName: string): { color: string | null; z: number; ring: number; data: { req: number; err: number; avgDur: number } | null } => {
               if (!tlEdgeMap || !navTlEnabled) return { color: null, z: 0, ring: 0, data: null };
               const nrm = serviceName.toLowerCase().trim();
-              let req = 0, err = 0, durSum = 0, durN = 0;
-              tlEdgeMap.forEach((v, k) => {
-                const t = k.split("\u0000")[1];
-                if (t !== nrm) return;
-                req += v.requests; err += v.errors;
-                if (v.avgDur > 0 && v.requests > 0) { durSum += v.avgDur * v.requests; durN += v.requests; }
-              });
-              if (req === 0) return { color: null, z: 0, ring: 0, data: null };
-              const avgDur = durN > 0 ? durSum / durN : 0;
+              const m = tlEdgeMap.get(nrm);
+              if (!m || m.requests === 0) return { color: null, z: 0, ring: 0, data: null };
+              const data = { req: m.requests, err: m.errors, avgDur: m.avgDur };
               const base = navTlServiceBaseline.get(nrm);
-              const data = { req, err, avgDur };
               if (!base) return { color: null, z: 0, ring: 0, data };
-              const errRate = (err / req) * 100;
+              const errRate = (m.errors / m.requests) * 100;
               const errZ = (errRate - base.errRateStat.mean) / base.errRateStat.std;
-              const durZ = (avgDur - base.durStat.mean) / base.durStat.std;
-              const reqZ = (req - base.reqStat.mean) / base.reqStat.std;
+              const durZ = (m.avgDur - base.durStat.mean) / base.durStat.std;
+              const reqZ = (m.requests - base.reqStat.mean) / base.reqStat.std;
               const badZ = Math.max(errZ, durZ);
               const ring = Math.max(0, reqZ);
               let color: string | null = null;
@@ -14097,14 +14418,14 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     );
                   };
                   return (
-                    <div style={{ marginTop: 8, padding: "10px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)" }}>
+                    <div style={{ marginTop: 8, marginLeft: "auto", width: "min(560px, 60%)", padding: "10px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)" }}>
                       <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 8 }}>
-                        <span style={{ fontSize: 11, opacity: 0.65, fontWeight: 600 }}>Hotness spike strips — click a bar to jump</span>
+                        <span style={{ fontSize: 11, opacity: 0.65, fontWeight: 600 }}>Backend hotness spike strip — click a bar to jump</span>
                         <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
                       </Flex>
                       <Flex flexDirection="column" gap={12}>
+                        {renderStrip("Backend", "services · errors · latency", navTlSpikeStripBE, "#A56EFF")}
                         {renderStrip("Frontend", "pages · sessions · load", navTlSpikeStripFE, "#4589FF")}
-                        {renderStrip("Backend", "services · edges · latency", navTlSpikeStripBE, "#A56EFF")}
                       </Flex>
                       <Flex alignItems="center" gap={12} style={{ marginTop: 8, fontSize: 10, opacity: 0.6, flexWrap: "wrap" }}>
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: "rgba(69,137,255,0.55)", borderRadius: 2 }} /><span>Normal</span></Flex>
