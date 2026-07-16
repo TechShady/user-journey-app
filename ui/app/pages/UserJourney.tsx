@@ -11824,7 +11824,6 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [wasDragging, setWasDragging] = useState(false);
   const [showBackend, setShowBackend] = useState(true);
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
-  const [maxVisibleDepth, setMaxVisibleDepth] = useState(999);
   const [backendDividerOffset, setBackendDividerOffset] = useState(0);
   const [draggingDivider, setDraggingDivider] = useState(false);
   const [dividerDragStart, setDividerDragStart] = useState<{ mx: number; offset: number } | null>(null);
@@ -11898,7 +11897,6 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const navTier5ExtEdges = useDql({ query: serviceToExternalFromSourceIdsQuery(navTier5SourceIds) });
 
   React.useEffect(() => { setManualNodePos(new Map()); setBackendDividerOffset(0); setFrontendPanX(0); setBackendPanX(0); setNavZoom(1); }, [data]);
-  React.useEffect(() => { setMaxVisibleDepth(999); }, [backendServicesData, serviceToServiceData]);
   React.useEffect(() => {
     if (!selectedSessionId) return;
     const rows = (sessionCandidatesData.data?.records ?? []) as any[];
@@ -12488,7 +12486,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const serviceReqById = (id: string, name: string) => strictSessionMode
     ? (strictServiceHitsById.get(id) ?? 0)
     : Math.max(serviceReqCount(name), edgeReqById.get(id) ?? 0, propagatedReqById.get(id) ?? 0);
-  const visibleDepth = Math.min(maxVisibleDepth, Math.max(1, maxDataDepth || 1));
+  const visibleDepth = Math.max(1, maxDataDepth || 1);
   const scopedBackendNames = new Set(Array.from(reqByServiceName.keys()));
   const backendVisibleByDepth = allBeServices.filter(s => s.depth <= visibleDepth);
   const matchesScopedName = (serviceName: string) => {
@@ -13563,33 +13561,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                 </Flex>
 
                 {/* Expand / collapse deeper backend tiers */}
-                {showBackend && maxDataDepth > 0 && (
-                  <Flex alignItems="center" gap={8} style={{ marginTop: 8, flexWrap: "wrap" as any }}>
-                    {maxDataDepth > visibleDepth && (
-                      <button
-                        onClick={() => setMaxVisibleDepth(d => d + 1)}
-                        style={{ background: "rgba(156,39,176,0.12)", border: "1px solid rgba(156,39,176,0.5)", borderRadius: 6, color: FLOW_NODE_META["svc-direct"].color, cursor: "pointer", padding: "5px 14px", fontSize: 12, fontWeight: 600, transition: "background 0.15s" }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(156,39,176,0.28)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(156,39,176,0.12)")}
-                      >
-                        ▶ Expand Tier {visibleDepth + 1} downstream
-                      </button>
-                    )}
-                    {visibleDepth > 1 && (
-                      <button
-                        onClick={() => setMaxVisibleDepth(visibleDepth - 1)}
-                        style={{ background: "none", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, color: "rgba(255,255,255,0.45)", cursor: "pointer", padding: "5px 14px", fontSize: 12, transition: "background 0.15s" }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-                      >
-                        ◀ Collapse Tier {visibleDepth}
-                      </button>
-                    )}
-                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>
-                      {maxDataDepth > 0 ? `Showing Tier 1–${visibleDepth} of ${maxDataDepth} available` : ""}
-                    </span>
-                  </Flex>
-                )}
+                {/* Removed: backend tiers are always fully expanded. */}
                 {showBackend && (
                   <div style={{ marginTop: 4, fontSize: 10, color: "rgba(255,255,255,0.38)" }}>
                     Backend diagnostics: seeds {seedIds.size} | all {allBeServices.length} | shown {beServices.length} | edges {beEdges.length} | maxDepth {maxDataDepth} | DB1 all {db1All.length} shown {db1Shown.length} | DB-like shown {dbLikeShown.length}
