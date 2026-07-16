@@ -14418,23 +14418,33 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     );
                   };
                   return (
-                    <div style={{ marginTop: 8, marginLeft: "auto", width: "min(560px, 60%)", padding: "10px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)" }}>
-                      <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 8 }}>
-                        <span style={{ fontSize: 11, opacity: 0.65, fontWeight: 600 }}>Backend hotness spike strip — click a bar to jump</span>
-                        <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
-                      </Flex>
-                      <Flex flexDirection="column" gap={12}>
-                        {renderStrip("Backend", "services · errors · latency", navTlSpikeStripBE, "#A56EFF")}
-                        {renderStrip("Frontend", "pages · sessions · load", navTlSpikeStripFE, "#4589FF")}
-                      </Flex>
-                      <Flex alignItems="center" gap={12} style={{ marginTop: 8, fontSize: 10, opacity: 0.6, flexWrap: "wrap" }}>
+                    <Flex gap={12} alignItems="stretch" style={{ marginTop: 8, flexWrap: "wrap" }}>
+                      {/* Frontend hotness — left half, aligned under frontend column */}
+                      <div style={{ flex: "1 1 320px", minWidth: 260, padding: "10px 12px", background: "rgba(69,137,255,0.05)", borderRadius: 6, border: "1px solid rgba(69,137,255,0.25)" }}>
+                        <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
+                          <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#4589FF" }}>FRONTEND hotness</span>
+                          <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
+                        </Flex>
+                        {renderStrip("Pages", "sessions · load · errors", navTlSpikeStripFE, "#4589FF")}
+                      </div>
+                      {/* Backend hotness — right half, aligned under backend column */}
+                      <div style={{ flex: "1 1 320px", minWidth: 260, padding: "10px 12px", background: "rgba(165,110,255,0.05)", borderRadius: 6, border: "1px solid rgba(165,110,255,0.25)" }}>
+                        <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
+                          <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#A56EFF" }}>BACKEND hotness</span>
+                          <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
+                        </Flex>
+                        {renderStrip("Services", "errors · latency · throughput", navTlSpikeStripBE, "#A56EFF")}
+                      </div>
+                      {/* Legend row spanning full width */}
+                      <Flex alignItems="center" gap={12} style={{ width: "100%", marginTop: 2, fontSize: 10, opacity: 0.6, flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 600, opacity: 0.7 }}>Click a bar to jump.</span>
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: "rgba(69,137,255,0.55)", borderRadius: 2 }} /><span>Normal</span></Flex>
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_ELEV, borderRadius: 2 }} /><span>Elevated</span></Flex>
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_WARM, borderRadius: 2 }} /><span>Warm</span></Flex>
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_HIGH, borderRadius: 2 }} /><span>Hot spike</span></Flex>
-                        <span style={{ marginLeft: "auto" }}>Compare rows to see if a spike is frontend-driven or backend-driven.</span>
+                        <span style={{ marginLeft: "auto" }}>Compare left vs right to see if a spike is frontend-driven or backend-driven.</span>
                       </Flex>
-                    </div>
+                    </Flex>
                   );
                 })()}
 
