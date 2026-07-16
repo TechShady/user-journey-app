@@ -1317,6 +1317,49 @@ function navigationSessionTimelineQuery(days: number, frontend: string, steps: S
 | limit 400`;
 }
 
+// NEW: Navigation Flow Time-Lapse — per-bucket page telemetry (sessions/actions/errors/avg duration)
+function navFlowTimelapsePagesQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket, appFilter?: string, appFilters?: string[]): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| fieldsAdd page_name = coalesce(view.name, page.name, url.path, "unknown")
+| fieldsAdd bucket_ts = bin(coalesce(start_time, timestamp), ${bucket})
+| fieldsAdd bucket = formatTimestamp(bucket_ts, format: "yyyy-MM-dd HH:mm")
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| summarize
+    actions = count(),
+    sessions = countDistinct(dt.rum.session.id),
+    errors = countIf(characteristics.has_error == true),
+    avg_dur = avg(dur_ms),
+    by: {bucket, page_name}
+| filter actions >= 2
+| sort bucket asc
+| limit 40000`;
+}
+
+// NEW: Navigation Flow Time-Lapse — per-bucket backend request edges (from RUM has_request events)
+function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket, appFilter?: string, appFilters?: string[]): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
+| filter characteristics.has_request == true
+| fieldsAdd from_service = coalesce(service.name, dt.entity.service.name, "frontend")
+| fieldsAdd to_service = coalesce(peer.service.name, request.service.name, "unknown")
+| filter to_service != "unknown"
+| fieldsAdd bucket_ts = bin(coalesce(start_time, timestamp), ${bucket})
+| fieldsAdd bucket = formatTimestamp(bucket_ts, format: "yyyy-MM-dd HH:mm")
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| summarize
+    requests = count(),
+    errors = countIf(characteristics.has_error == true),
+    avg_dur = avg(dur_ms),
+    by: {bucket, from_service, to_service}
+| filter requests >= 1
+| sort bucket asc
+| limit 40000`;
+}
+
 // NEW: Sankey — multi-step page flow for Sankey diagram
 function sankeyQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
@@ -11939,6 +11982,201 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   React.useEffect(() => { saveState({ key: NAV_COMPARE_A_STATE_KEY, body: { value: compareSessionA } }); }, [compareSessionA, saveState]);
   React.useEffect(() => { saveState({ key: NAV_COMPARE_B_STATE_KEY, body: { value: compareSessionB } }); }, [compareSessionB, saveState]);
 
+  // === Navigation Flow Time-Lapse ===
+  const [navTlEnabled, setNavTlEnabled] = useState(false);
+  const [navTlPlaying, setNavTlPlaying] = useState(false);
+  const [navTlIndex, setNavTlIndex] = useState(0);
+  const [navTlBucket, setNavTlBucket] = useState<TlBucket>("1h");
+  const [navTlSpeedMs, setNavTlSpeedMs] = useState(1200);
+  const navTlIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const navTlTotalRef = useRef(0);
+
+  const navFlowTimelapsePagesData = useDql({ query: navTlEnabled ? navFlowTimelapsePagesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
+  const navFlowTimelapseEdgesData = useDql({ query: navTlEnabled ? navFlowTimelapseEdgesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
+
+  React.useEffect(() => {
+    setNavTlIndex(0);
+    setNavTlPlaying(false);
+  }, [navTlBucket, navTlEnabled, timeframeDays, frontend, navAppFilter, selectedUserTag]);
+
+  React.useEffect(() => {
+    if (!navTlEnabled || !navTlPlaying) {
+      if (navTlIntervalRef.current) { clearInterval(navTlIntervalRef.current); navTlIntervalRef.current = null; }
+      return;
+    }
+    navTlIntervalRef.current = setInterval(() => {
+      setNavTlIndex((i) => {
+        const total = navTlTotalRef.current;
+        if (total <= 0) return i;
+        const next = i + 1;
+        if (next >= total) { setNavTlPlaying(false); return total - 1; }
+        return next;
+      });
+    }, navTlSpeedMs);
+    return () => { if (navTlIntervalRef.current) { clearInterval(navTlIntervalRef.current); navTlIntervalRef.current = null; } };
+  }, [navTlEnabled, navTlPlaying, navTlSpeedMs]);
+
+  const navTlPageBuckets = React.useMemo(() => {
+    const buckets = new Map<string, Map<string, { sessions: number; actions: number; errors: number; avgDur: number }>>();
+    const rows = (navFlowTimelapsePagesData?.data?.records ?? []) as any[];
+    rows.forEach((r) => {
+      const b = String(r.bucket ?? "");
+      const raw = String(r.page_name ?? "");
+      if (!b || !raw) return;
+      const p = normalizePageForRollup(raw);
+      let inner = buckets.get(b);
+      if (!inner) { inner = new Map(); buckets.set(b, inner); }
+      const cur = inner.get(p) ?? { sessions: 0, actions: 0, errors: 0, avgDur: 0 };
+      const actions = Number(r.actions ?? 0);
+      const dur = Number(r.avg_dur ?? 0);
+      cur.avgDur = cur.actions + actions > 0 ? (cur.avgDur * cur.actions + dur * actions) / (cur.actions + actions) : dur;
+      cur.actions += actions;
+      cur.sessions += Number(r.sessions ?? 0);
+      cur.errors += Number(r.errors ?? 0);
+      inner.set(p, cur);
+    });
+    return buckets;
+  }, [navFlowTimelapsePagesData?.data?.records]);
+
+  const navTlEdgeBuckets = React.useMemo(() => {
+    const buckets = new Map<string, Map<string, { requests: number; errors: number; avgDur: number }>>();
+    const rows = (navFlowTimelapseEdgesData?.data?.records ?? []) as any[];
+    rows.forEach((r) => {
+      const b = String(r.bucket ?? "");
+      const f = String(r.from_service ?? "").toLowerCase().trim();
+      const t = String(r.to_service ?? "").toLowerCase().trim();
+      if (!b || !f || !t) return;
+      let inner = buckets.get(b);
+      if (!inner) { inner = new Map(); buckets.set(b, inner); }
+      const key = `${f}\u0000${t}`;
+      const cur = inner.get(key) ?? { requests: 0, errors: 0, avgDur: 0 };
+      const requests = Number(r.requests ?? 0);
+      const dur = Number(r.avg_dur ?? 0);
+      cur.avgDur = cur.requests + requests > 0 ? (cur.avgDur * cur.requests + dur * requests) / (cur.requests + requests) : dur;
+      cur.requests += requests;
+      cur.errors += Number(r.errors ?? 0);
+      inner.set(key, cur);
+    });
+    return buckets;
+  }, [navFlowTimelapseEdgesData?.data?.records]);
+
+  const navTlBucketList = React.useMemo(() => {
+    const set = new Set<string>();
+    navTlPageBuckets.forEach((_, b) => set.add(b));
+    navTlEdgeBuckets.forEach((_, b) => set.add(b));
+    return Array.from(set).sort();
+  }, [navTlPageBuckets, navTlEdgeBuckets]);
+
+  React.useEffect(() => { navTlTotalRef.current = navTlBucketList.length; }, [navTlBucketList.length]);
+
+  const navTlPageBaseline = React.useMemo(() => {
+    const stat = (arr: number[]) => {
+      const n = arr.length;
+      if (n === 0) return { mean: 0, std: 1 };
+      const mean = arr.reduce((a, b) => a + b, 0) / n;
+      const varr = arr.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1);
+      return { mean, std: Math.max(0.01, Math.sqrt(varr)) };
+    };
+    const errBy = new Map<string, number[]>();
+    const durBy = new Map<string, number[]>();
+    const loadBy = new Map<string, number[]>();
+    const push = (m: Map<string, number[]>, k: string, v: number) => { const a = m.get(k) ?? []; a.push(v); m.set(k, a); };
+    navTlPageBuckets.forEach((pmap) => {
+      pmap.forEach((v, p) => {
+        push(errBy, p, v.actions > 0 ? (v.errors / v.actions) * 100 : 0);
+        push(durBy, p, v.avgDur);
+        push(loadBy, p, v.sessions);
+      });
+    });
+    const base = new Map<string, { errStat: { mean: number; std: number }; durStat: { mean: number; std: number }; loadStat: { mean: number; std: number } }>();
+    errBy.forEach((arr, p) => base.set(p, { errStat: stat(arr), durStat: stat(durBy.get(p) ?? []), loadStat: stat(loadBy.get(p) ?? []) }));
+    return base;
+  }, [navTlPageBuckets]);
+
+  const navTlEdgeBaseline = React.useMemo(() => {
+    const stat = (arr: number[]) => {
+      const n = arr.length;
+      if (n === 0) return { mean: 0, std: 1 };
+      const mean = arr.reduce((a, b) => a + b, 0) / n;
+      const varr = arr.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1);
+      return { mean, std: Math.max(0.01, Math.sqrt(varr)) };
+    };
+    const errBy = new Map<string, number[]>();
+    const durBy = new Map<string, number[]>();
+    const reqBy = new Map<string, number[]>();
+    const push = (m: Map<string, number[]>, k: string, v: number) => { const a = m.get(k) ?? []; a.push(v); m.set(k, a); };
+    navTlEdgeBuckets.forEach((emap) => {
+      emap.forEach((v, k) => {
+        push(errBy, k, v.requests > 0 ? (v.errors / v.requests) * 100 : 0);
+        push(durBy, k, v.avgDur);
+        push(reqBy, k, v.requests);
+      });
+    });
+    const base = new Map<string, { errStat: { mean: number; std: number }; durStat: { mean: number; std: number }; reqStat: { mean: number; std: number } }>();
+    errBy.forEach((arr, k) => base.set(k, { errStat: stat(arr), durStat: stat(durBy.get(k) ?? []), reqStat: stat(reqBy.get(k) ?? []) }));
+    return base;
+  }, [navTlEdgeBuckets]);
+
+  const navTlServiceBaseline = React.useMemo(() => {
+    const stat = (arr: number[]) => {
+      const n = arr.length;
+      if (n === 0) return { mean: 0, std: 1 };
+      const mean = arr.reduce((a, b) => a + b, 0) / n;
+      const varr = arr.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1);
+      return { mean, std: Math.max(0.01, Math.sqrt(varr)) };
+    };
+    const perSvcSeries = new Map<string, { req: number; errRate: number; dur: number }[]>();
+    navTlEdgeBuckets.forEach((emap) => {
+      const perSvc = new Map<string, { req: number; err: number; durSum: number; durN: number }>();
+      emap.forEach((v, k) => {
+        const t = k.split("\u0000")[1];
+        if (!t) return;
+        const cur = perSvc.get(t) ?? { req: 0, err: 0, durSum: 0, durN: 0 };
+        cur.req += v.requests; cur.err += v.errors;
+        if (v.avgDur > 0 && v.requests > 0) { cur.durSum += v.avgDur * v.requests; cur.durN += v.requests; }
+        perSvc.set(t, cur);
+      });
+      perSvc.forEach((v, t) => {
+        const arr = perSvcSeries.get(t) ?? [];
+        arr.push({ req: v.req, errRate: v.req > 0 ? (v.err / v.req) * 100 : 0, dur: v.durN > 0 ? v.durSum / v.durN : 0 });
+        perSvcSeries.set(t, arr);
+      });
+    });
+    const base = new Map<string, { reqStat: { mean: number; std: number }; errRateStat: { mean: number; std: number }; durStat: { mean: number; std: number } }>();
+    perSvcSeries.forEach((arr, t) => base.set(t, {
+      reqStat: stat(arr.map((x) => x.req)),
+      errRateStat: stat(arr.map((x) => x.errRate)),
+      durStat: stat(arr.map((x) => x.dur)),
+    }));
+    return base;
+  }, [navTlEdgeBuckets]);
+
+  const navTlSpikeStrip = React.useMemo(() => {
+    return navTlBucketList.map((b) => {
+      let hotSum = 0;
+      let cnt = 0;
+      const pmap = navTlPageBuckets.get(b);
+      pmap?.forEach((v, p) => {
+        const base = navTlPageBaseline.get(p); if (!base) return;
+        const errRate = v.actions > 0 ? (v.errors / v.actions) * 100 : 0;
+        const errZ = (errRate - base.errStat.mean) / base.errStat.std;
+        const durZ = (v.avgDur - base.durStat.mean) / base.durStat.std;
+        const loadZ = (v.sessions - base.loadStat.mean) / base.loadStat.std;
+        hotSum += Math.max(0, errZ, durZ, loadZ); cnt++;
+      });
+      const emap = navTlEdgeBuckets.get(b);
+      emap?.forEach((v, k) => {
+        const base = navTlEdgeBaseline.get(k); if (!base) return;
+        const errRate = v.requests > 0 ? (v.errors / v.requests) * 100 : 0;
+        const errZ = (errRate - base.errStat.mean) / base.errStat.std;
+        const durZ = (v.avgDur - base.durStat.mean) / base.durStat.std;
+        const reqZ = (v.requests - base.reqStat.mean) / base.reqStat.std;
+        hotSum += Math.max(0, errZ, durZ, reqZ); cnt++;
+      });
+      return cnt > 0 ? hotSum / cnt : 0;
+    });
+  }, [navTlBucketList, navTlPageBuckets, navTlEdgeBuckets, navTlPageBaseline, navTlEdgeBaseline]);
+
   const navData = hasScopedNavQuery ? scopedNavData : data;
   const loadingNow = (hasScopedNavQuery ? scopedNavData.isLoading : isLoading);
 
@@ -13208,6 +13446,75 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               }).join(" ");
             };
 
+            // === Time-Lapse per-bucket overrides ===
+            const tlBucketKey = navTlEnabled && navTlBucketList.length > 0 ? navTlBucketList[Math.min(navTlIndex, navTlBucketList.length - 1)] : null;
+            const tlPageMap = tlBucketKey ? navTlPageBuckets.get(tlBucketKey) : null;
+            const tlEdgeMap = tlBucketKey ? navTlEdgeBuckets.get(tlBucketKey) : null;
+            const tlPageOverride = (pageName: string): { color: string | null; z: number; ring: number; data: { sessions: number; actions: number; errors: number; avgDur: number } | null } => {
+              if (!tlPageMap || !navTlEnabled) return { color: null, z: 0, ring: 0, data: null };
+              const key = normalizePageForRollup(pageName);
+              const m = tlPageMap.get(key);
+              const base = navTlPageBaseline.get(key);
+              if (!m || !base) return { color: null, z: 0, ring: 0, data: m ?? null };
+              const errRate = m.actions > 0 ? (m.errors / m.actions) * 100 : 0;
+              const errZ = (errRate - base.errStat.mean) / base.errStat.std;
+              const durZ = (m.avgDur - base.durStat.mean) / base.durStat.std;
+              const loadZ = (m.sessions - base.loadStat.mean) / base.loadStat.std;
+              const badZ = Math.max(errZ, durZ);
+              const ring = Math.max(0, loadZ);
+              let color: string | null = null;
+              if (badZ >= 2.5) color = RED;
+              else if (badZ >= 1.5) color = ORANGE;
+              else if (loadZ >= 2) color = YELLOW;
+              return { color, z: Math.max(badZ, loadZ), ring, data: m };
+            };
+            const tlEdgeOverride = (fromName: string, toName: string): { color: string | null; width: number | null; z: number; data: { requests: number; errors: number; avgDur: number } | null } => {
+              if (!tlEdgeMap || !navTlEnabled) return { color: null, width: null, z: 0, data: null };
+              const key = `${fromName.toLowerCase().trim()}\u0000${toName.toLowerCase().trim()}`;
+              const m = tlEdgeMap.get(key);
+              const base = navTlEdgeBaseline.get(key);
+              if (!m) return { color: null, width: null, z: 0, data: null };
+              const width = Math.max(1.5, Math.min(10, 1 + m.requests / 40));
+              if (!base) return { color: null, width, z: 0, data: m };
+              const errRate = m.requests > 0 ? (m.errors / m.requests) * 100 : 0;
+              const errZ = (errRate - base.errStat.mean) / base.errStat.std;
+              const durZ = (m.avgDur - base.durStat.mean) / base.durStat.std;
+              const reqZ = (m.requests - base.reqStat.mean) / base.reqStat.std;
+              const badZ = Math.max(errZ, durZ);
+              let color: string | null = null;
+              if (badZ >= 2.5) color = RED;
+              else if (badZ >= 1.5) color = ORANGE;
+              else if (reqZ >= 2) color = YELLOW;
+              return { color, width, z: Math.max(badZ, reqZ), data: m };
+            };
+            const tlServiceOverride = (serviceName: string): { color: string | null; z: number; ring: number; data: { req: number; err: number; avgDur: number } | null } => {
+              if (!tlEdgeMap || !navTlEnabled) return { color: null, z: 0, ring: 0, data: null };
+              const nrm = serviceName.toLowerCase().trim();
+              let req = 0, err = 0, durSum = 0, durN = 0;
+              tlEdgeMap.forEach((v, k) => {
+                const t = k.split("\u0000")[1];
+                if (t !== nrm) return;
+                req += v.requests; err += v.errors;
+                if (v.avgDur > 0 && v.requests > 0) { durSum += v.avgDur * v.requests; durN += v.requests; }
+              });
+              if (req === 0) return { color: null, z: 0, ring: 0, data: null };
+              const avgDur = durN > 0 ? durSum / durN : 0;
+              const base = navTlServiceBaseline.get(nrm);
+              const data = { req, err, avgDur };
+              if (!base) return { color: null, z: 0, ring: 0, data };
+              const errRate = (err / req) * 100;
+              const errZ = (errRate - base.errRateStat.mean) / base.errRateStat.std;
+              const durZ = (avgDur - base.durStat.mean) / base.durStat.std;
+              const reqZ = (req - base.reqStat.mean) / base.reqStat.std;
+              const badZ = Math.max(errZ, durZ);
+              const ring = Math.max(0, reqZ);
+              let color: string | null = null;
+              if (badZ >= 2.5) color = RED;
+              else if (badZ >= 1.5) color = ORANGE;
+              else if (reqZ >= 2) color = YELLOW;
+              return { color, z: Math.max(badZ, reqZ), ring, data };
+            };
+
             return (
               <div className="uj-table-tile" style={{ padding: 16, overflow: "auto", maxWidth: "100%", maxHeight: "78vh", position: "relative" }}>
                 <Flex alignItems="center" justifyContent="space-between" gap={12} flexWrap="nowrap" style={{ marginBottom: 10, overflowX: "auto", paddingBottom: 4 }}>
@@ -13242,6 +13549,79 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     )}
                   </Flex>
                 </Flex>
+
+                {/* === Time-Lapse control bar === */}
+                <div style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 8, background: navTlEnabled ? "rgba(69,137,255,0.08)" : "rgba(128,128,128,0.06)", border: `1px solid ${navTlEnabled ? "rgba(69,137,255,0.35)" : "rgba(128,128,128,0.2)"}`, transition: "all 0.2s" }}>
+                  <Flex alignItems="center" gap={12} flexWrap="wrap">
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, color: navTlEnabled ? BLUE : "inherit" }}>
+                      <input type="checkbox" checked={navTlEnabled} onChange={(e) => setNavTlEnabled(e.target.checked)} style={{ cursor: "pointer" }} />
+                      <span>⏱ Time-Lapse</span>
+                    </label>
+                    {navTlEnabled && (
+                      <>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 11, opacity: 0.55 }}>Bucket</span>
+                          <select value={navTlBucket} onChange={(e) => setNavTlBucket(e.target.value as TlBucket)} style={{ fontSize: 11, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.9)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "3px 6px" }}>
+                            {(Object.keys(TL_BUCKET_LABELS) as TlBucket[]).map((b) => (
+                              <option key={b} value={b} style={{ background: "#13182b", color: "#e8efff" }}>{TL_BUCKET_LABELS[b]}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 11, opacity: 0.55 }}>Speed</span>
+                          <select value={navTlSpeedMs} onChange={(e) => setNavTlSpeedMs(Number(e.target.value))} style={{ fontSize: 11, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.9)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "3px 6px" }}>
+                            <option value={2400} style={{ background: "#13182b" }}>0.5x</option>
+                            <option value={1600} style={{ background: "#13182b" }}>0.75x</option>
+                            <option value={1200} style={{ background: "#13182b" }}>1x</option>
+                            <option value={600} style={{ background: "#13182b" }}>2x</option>
+                            <option value={300} style={{ background: "#13182b" }}>4x</option>
+                          </select>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (navTlBucketList.length === 0) return;
+                            if (navTlIndex >= navTlBucketList.length - 1) setNavTlIndex(0);
+                            setNavTlPlaying((p) => !p);
+                          }}
+                          disabled={navTlBucketList.length === 0}
+                          style={{ fontSize: 12, padding: "5px 14px", cursor: navTlBucketList.length === 0 ? "not-allowed" : "pointer", background: navTlPlaying ? "rgba(255,131,43,0.2)" : "rgba(69,137,255,0.2)", border: `1px solid ${navTlPlaying ? ORANGE : BLUE}`, borderRadius: 4, color: navTlPlaying ? ORANGE : BLUE, fontWeight: 700 }}
+                        >
+                          {navTlPlaying ? "⏸ Pause" : "▶ Play"}
+                        </button>
+                        <button
+                          onClick={() => { setNavTlPlaying(false); setNavTlIndex(0); }}
+                          disabled={navTlBucketList.length === 0}
+                          style={{ fontSize: 12, padding: "5px 10px", cursor: navTlBucketList.length === 0 ? "not-allowed" : "pointer", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.7)" }}
+                        >⏮ Reset</button>
+                        <div style={{ flex: 1, minWidth: 200, display: "flex", alignItems: "center", gap: 8 }}>
+                          <input
+                            type="range"
+                            min={0}
+                            max={Math.max(0, navTlBucketList.length - 1)}
+                            step={1}
+                            value={Math.min(navTlIndex, Math.max(0, navTlBucketList.length - 1))}
+                            onChange={(e) => { setNavTlPlaying(false); setNavTlIndex(Number(e.target.value)); }}
+                            disabled={navTlBucketList.length === 0}
+                            style={{ flex: 1, cursor: navTlBucketList.length === 0 ? "not-allowed" : "pointer" }}
+                          />
+                          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", minWidth: 140, textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>
+                            {tlBucketKey ? tlBucketKey : (navFlowTimelapsePagesData?.isLoading || navFlowTimelapseEdgesData?.isLoading ? "Loading…" : "No data")}
+                          </span>
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", minWidth: 60, textAlign: "right" }}>
+                            {navTlBucketList.length > 0 ? `${navTlIndex + 1} / ${navTlBucketList.length}` : ""}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    {!navTlEnabled && (
+                      <span style={{ fontSize: 11, opacity: 0.5 }}>Enable to see traffic pulse, latency, and error rate evolve over time. Hot pages &amp; services will glow in real time.</span>
+                    )}
+                  </Flex>
+                  {navTlEnabled && (navFlowTimelapsePagesData?.error || navFlowTimelapseEdgesData?.error) && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: ORANGE }}>Time-lapse query error — check console.</div>
+                  )}
+                </div>
+
                 <svg ref={navSvgRef} width={totalSvgW * navZoom} height={totalSvgH * navZoom} viewBox={`0 0 ${totalSvgW} ${totalSvgH}`}
                   style={{ display: "block", minWidth: totalSvgW * navZoom, cursor: draggingDivider || draggingNode ? "grabbing" : (hasFocus ? "pointer" : "default") }}
                   onMouseMove={(e) => {
@@ -13324,12 +13704,36 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const beEdgeFocused = !!focusedSvcId && svcFocusSet.has(edge.src) && svcFocusSet.has(edge.tgt);
                     const pageSvcEdgeFocused = pageSvcFocusSet.has(edge.src) && pageSvcFocusSet.has(edge.tgt);
                     const edgeReq = reqForPair(edge.srcName, edge.tgtName);
-                    const beEdgeOp = focusedSvcId ? (beEdgeFocused ? 0.75 : 0.05) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcEdgeFocused ? 0.75 : 0.05) : 0.07) : 0.22;
+                    const tlOv = tlEdgeOverride(edge.srcName, edge.tgtName);
+                    const focusOp = focusedSvcId ? (beEdgeFocused ? 0.75 : 0.05) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcEdgeFocused ? 0.75 : 0.05) : 0.07) : 0.22;
+                    let strokeColor: string; let strokeOp: number; let strokeW: number;
+                    if (navTlEnabled && tlOv.color) {
+                      strokeColor = tlOv.color; strokeOp = 0.95;
+                      strokeW = (tlOv.width ?? 2) + (tlOv.color === RED ? 1.5 : tlOv.color === ORANGE ? 0.5 : 0);
+                    } else if (navTlEnabled && tlOv.width != null) {
+                      strokeColor = "rgba(255,255,255,1)"; strokeOp = 0.55; strokeW = tlOv.width;
+                    } else if (navTlEnabled) {
+                      strokeColor = "rgba(255,255,255,1)"; strokeOp = 0.08;
+                      strokeW = beEdgeFocused || pageSvcEdgeFocused ? 2.5 : Math.max(1.2, Math.min(4, 1 + edgeReq / 200));
+                    } else {
+                      strokeColor = "rgba(255,255,255,1)"; strokeOp = focusOp;
+                      strokeW = beEdgeFocused || pageSvcEdgeFocused ? 2.5 : Math.max(1.5, Math.min(6, 1.2 + edgeReq / 120));
+                    }
+                    const showHalo = navTlEnabled && tlOv.color && (tlOv.color === RED || tlOv.color === ORANGE);
+                    const tlReq = tlOv.data?.requests ?? 0;
                     return (
-                      <path key={`be-${ei}`} d={`M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}`}
-                        fill="none" stroke={`rgba(255,255,255,${beEdgeOp})`} strokeWidth={beEdgeFocused || pageSvcEdgeFocused ? 2.5 : Math.max(1.5, Math.min(6, 1.2 + edgeReq / 120))} style={{ transition: "all 0.2s" }}>
-                        <title>{`${edge.srcName} → ${edge.tgtName}: ${fmtCount(edgeReq)} req`}</title>
-                      </path>
+                      <g key={`be-${ei}`}>
+                        {showHalo && (
+                          <path d={`M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}`}
+                            fill="none" stroke={tlOv.color!} strokeWidth={strokeW + 6} strokeOpacity={0.2} strokeLinecap="round" />
+                        )}
+                        <path d={`M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}`}
+                          fill="none" stroke={strokeColor} strokeOpacity={strokeOp} strokeWidth={strokeW} style={{ transition: "all 0.2s" }}>
+                          <title>{navTlEnabled && tlBucketKey
+                            ? `${edge.srcName} → ${edge.tgtName}: ${fmtCount(tlReq)} req @ ${tlBucketKey}${tlOv.color ? ` · HOT (${tlOv.color === RED ? "high error/latency" : tlOv.color === ORANGE ? "elevated error/latency" : "traffic spike"})` : ""}`
+                            : `${edge.srcName} → ${edge.tgtName}: ${fmtCount(edgeReq)} req`}</title>
+                        </path>
+                      </g>
                     );
                   })}
 
@@ -13375,14 +13779,24 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const isHighlightedNode = !hasFocus || highlightedNodes.has(name);
                     const nodeOpacity = hasFocus ? (isHighlightedNode ? 1 : 0.12) : focusedPageName ? (pageFocusSet.has(name) ? 1 : 0.1) : focusedSvcId ? (svcFocusIncludesFrontend ? (svcFocusPageSet.has(name) ? 1 : 0.12) : 0.12) : 1;
                     const isActive = activeTooltip === `page:${name}`;
+                    const pageTl = tlPageOverride(name);
+                    const useTl = navTlEnabled && pageTl.color;
+                    const showLoadRing = navTlEnabled && pageTl.ring > 1;
+                    const strokeCol = useTl ? pageTl.color! : meta.color;
+                    const fillCol = useTl ? `${pageTl.color!}22` : (isActive ? `${meta.color}22` : "rgba(128,128,128,0.1)");
+                    const strokeW = useTl ? meta.borderWidth + 1.5 : (isActive ? meta.borderWidth + 1 : meta.borderWidth);
                     return (
                       <g key={name}
                         style={{ opacity: nodeOpacity, transition: draggingNode === name ? "none" : "opacity 0.2s", cursor: draggingNode === name ? "grabbing" : "grab" }}
                         onMouseDown={(e) => { e.stopPropagation(); setDraggingNode(name); setDragStart({ mx: e.clientX, my: e.clientY, nx: pos.x, ny: pos.y }); setWasDragging(false); }}
                         onClick={(e) => { e.stopPropagation(); if (!wasDragging) setActiveTooltip(prev => prev === `page:${name}` ? null : `page:${name}`); }}
                       >
+                        {showLoadRing && (
+                          <rect x={pos.x - 4} y={pos.y - 4} width={nodeW + 8} height={pos.h + 8} rx={9}
+                            fill="none" stroke={pageTl.color ?? YELLOW} strokeWidth={2 + Math.min(3, pageTl.ring)} strokeOpacity={0.3} />
+                        )}
                         <rect x={pos.x} y={pos.y} width={nodeW} height={pos.h} rx={6}
-                          fill={isActive ? `${meta.color}22` : "rgba(128,128,128,0.1)"} stroke={meta.color} strokeWidth={isActive ? meta.borderWidth + 1 : meta.borderWidth} strokeOpacity={0.85} />
+                          fill={fillCol} stroke={strokeCol} strokeWidth={strokeW} strokeOpacity={0.85} />
                         {isFunnel && (() => {
                           const fsi = steps.findIndex(s => s.identifiers.some(id => identifierMatchesLabel(id, name)));
                           const fsiLabel = fsi >= 0 ? steps[fsi].label : "";
@@ -13393,7 +13807,9 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           {shortName}
                         </text>
                         <text x={pos.x + 10} y={isFunnel ? pos.y + 56 : pos.y + 38} fontSize={10} fill="rgba(255,255,255,0.75)" opacity={0.9}>
-                          {nodeCountLabel} {fmtCount(reqCount)}{conv !== undefined && conv < 100 ? ` · Conv ${fmtPct(conv)}` : ""}
+                          {navTlEnabled && pageTl.data
+                            ? `${fmtCount(pageTl.data.sessions)} sess · ${(pageTl.data.actions > 0 ? (pageTl.data.errors / pageTl.data.actions) * 100 : 0).toFixed(1)}% err`
+                            : `${nodeCountLabel} ${fmtCount(reqCount)}${conv !== undefined && conv < 100 ? ` · Conv ${fmtPct(conv)}` : ""}`}
                         </text>
                       </g>
                     );
@@ -13409,19 +13825,31 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const svcReq = serviceReqById(svc.id, svc.name);
                     const isSessionContextOnly = strictSessionMode && svcReq <= 0 && !strictDirectServiceIds.has(svcId);
                     const isActive = activeTooltip === `svc:${svcId}`;
+                    const svcTl = tlServiceOverride(svc.name);
+                    const useTl = navTlEnabled && svcTl.color;
+                    const showSvcRing = navTlEnabled && svcTl.ring > 1;
+                    const strokeCol = useTl ? svcTl.color! : meta.color;
+                    const fillCol = useTl ? `${svcTl.color!}22` : (isActive ? `${meta.color}22` : "rgba(128,128,128,0.08)");
+                    const strokeW = useTl ? meta.borderWidth + 1.5 : (isActive ? meta.borderWidth + 1 : meta.borderWidth);
                     return (
                       <g key={svcId}
                         style={{ cursor: draggingNode === `be:${svcId}` ? "grabbing" : "grab", transition: draggingNode === `be:${svcId}` ? "none" : "opacity 0.2s", opacity: focusedSvcId ? (svcFocusSet.has(svcId) ? 1 : 0.1) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcFocusSet.has(svcId) ? 1 : 0.1) : 0.15) : 1 }}
                         onMouseDown={(e) => { e.stopPropagation(); setDraggingNode(`be:${svcId}`); setDragStart({ mx: e.clientX, my: e.clientY, nx: bePos.x, ny: bePos.y }); setWasDragging(false); }}
                         onClick={(e) => { e.stopPropagation(); if (!wasDragging) setActiveTooltip(prev => prev === `svc:${svcId}` ? null : `svc:${svcId}`); }}
                       >
+                        {showSvcRing && (
+                          <rect x={bePos.x - 4} y={bePos.y - 4} width={beNodeW + 8} height={beNodeH + 8} rx={9}
+                            fill="none" stroke={svcTl.color ?? YELLOW} strokeWidth={2 + Math.min(3, svcTl.ring)} strokeOpacity={0.3} />
+                        )}
                         <rect x={bePos.x} y={bePos.y} width={beNodeW} height={beNodeH} rx={6}
-                          fill={isActive ? `${meta.color}22` : "rgba(128,128,128,0.08)"} stroke={meta.color} strokeWidth={isActive ? meta.borderWidth + 1 : meta.borderWidth} strokeOpacity={0.85} />
+                          fill={fillCol} stroke={strokeCol} strokeWidth={strokeW} strokeOpacity={0.85} />
                         <text x={bePos.x + 8} y={bePos.y + 15} fontSize={11} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
                           {shortName}
                         </text>
                         <text x={bePos.x + 8} y={bePos.y + 34} fontSize={9} fill="rgba(255,255,255,0.4)" style={{ dominantBaseline: "middle" } as any}>
-                          Tier {bePos.depth} · {strictSessionMode ? (isSessionContextOnly ? "ScopeCtx" : `SessHits ${fmtCount(svcReq)}`) : `ReqEvt ${fmtCount(svcReq)}`}
+                          {navTlEnabled && svcTl.data
+                            ? `Tier ${bePos.depth} · ${fmtCount(svcTl.data.req)} req · ${svcTl.data.req > 0 ? ((svcTl.data.err / svcTl.data.req) * 100).toFixed(1) : "0.0"}% err`
+                            : `Tier ${bePos.depth} · ${strictSessionMode ? (isSessionContextOnly ? "ScopeCtx" : `SessHits ${fmtCount(svcReq)}`) : `ReqEvt ${fmtCount(svcReq)}`}`}
                         </text>
                       </g>
                     );
@@ -13546,6 +13974,55 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     );
                   })()}
                 </svg>
+
+                {/* === Time-Lapse Spike Strip === */}
+                {navTlEnabled && navTlBucketList.length > 0 && (
+                  <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)" }}>
+                    <Flex alignItems="center" justifyContent="space-between" gap={8} style={{ marginBottom: 6 }}>
+                      <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, fontWeight: 700 }}>Hotness spike strip</span>
+                      <span style={{ fontSize: 10, opacity: 0.5 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
+                    </Flex>
+                    {(() => {
+                      const maxHot = Math.max(0.5, ...navTlSpikeStrip);
+                      const stripW = 800;
+                      const stripH = 42;
+                      const barW = stripW / Math.max(1, navTlBucketList.length);
+                      const cursorX = (navTlIndex + 0.5) * barW;
+                      return (
+                        <svg width="100%" height={stripH + 14} viewBox={`0 0 ${stripW} ${stripH + 14}`} preserveAspectRatio="none" style={{ display: "block", cursor: "pointer" }}
+                          onClick={(e) => {
+                            const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+                            const ratio = (e.clientX - rect.left) / rect.width;
+                            const idx = Math.max(0, Math.min(navTlBucketList.length - 1, Math.floor(ratio * navTlBucketList.length)));
+                            setNavTlPlaying(false);
+                            setNavTlIndex(idx);
+                          }}
+                        >
+                          {navTlSpikeStrip.map((h, i) => {
+                            const bh = Math.max(2, (h / maxHot) * stripH);
+                            const color = h >= 2.5 ? RED : h >= 1.5 ? ORANGE : h >= 0.75 ? YELLOW : "rgba(69,137,255,0.6)";
+                            const isCurrent = i === Math.min(navTlIndex, navTlBucketList.length - 1);
+                            return (
+                              <rect key={i} x={i * barW + 0.3} y={stripH - bh} width={Math.max(1, barW - 0.6)} height={bh} fill={color} opacity={isCurrent ? 1 : 0.75} />
+                            );
+                          })}
+                          {/* Cursor */}
+                          <line x1={cursorX} y1={0} x2={cursorX} y2={stripH} stroke="#fff" strokeWidth={1.5} strokeOpacity={0.85} />
+                          <polygon points={`${cursorX - 5},${stripH + 2} ${cursorX + 5},${stripH + 2} ${cursorX},${stripH + 10}`} fill="#fff" opacity={0.9} />
+                          {/* Baseline label */}
+                          <text x={4} y={12} fontSize={9} fill="rgba(255,255,255,0.55)">peak z={maxHot.toFixed(1)}</text>
+                        </svg>
+                      );
+                    })()}
+                    <Flex alignItems="center" gap={12} style={{ marginTop: 4, fontSize: 10, opacity: 0.6 }}>
+                      <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: "rgba(69,137,255,0.6)", borderRadius: 2 }} /><span>Normal</span></Flex>
+                      <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: YELLOW, borderRadius: 2 }} /><span>Elevated</span></Flex>
+                      <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: ORANGE, borderRadius: 2 }} /><span>Warm</span></Flex>
+                      <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: RED, borderRadius: 2 }} /><span>Hot spike</span></Flex>
+                      <span style={{ marginLeft: "auto" }}>Click any bar to jump to that moment.</span>
+                    </Flex>
+                  </div>
+                )}
 
                 {/* Legend */}
                 <Flex flexWrap="wrap" gap={12} style={{ marginTop: 10, padding: "7px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 6 }}>
