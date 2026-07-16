@@ -1,6 +1,6 @@
 ﻿import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
 import { createPortal } from "react-dom";
-import { useDql, useUserAppState, useSetUserAppState } from "@dynatrace-sdk/react-hooks";
+import { useDql, useUserAppState, useSetUserAppState, useAppState, useSetAppState } from "@dynatrace-sdk/react-hooks";
 import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment";
 import { Flex } from "@dynatrace/strato-components/layouts";
 import { Heading, Text, Strong, Paragraph, Link } from "@dynatrace/strato-components/typography";
@@ -198,6 +198,8 @@ const TAB_STATE_KEY = "uj-tab-visibility";
 const TAB_ORDER_STATE_KEY = "uj-tab-order";
 const BUDGET_THRESHOLDS_STATE_KEY = "uj-budget-thresholds";
 const SLO_TARGETS_STATE_KEY = "uj-slo-targets";
+// Keys whose values are shared across ALL users of this app. Every other saveState call is per-user.
+const GLOBAL_STATE_KEYS = new Set<string>([BUDGET_THRESHOLDS_STATE_KEY, SLO_TARGETS_STATE_KEY]);
 const DEFAULT_TAB_ORDER: TabKey[] = [...TAB_KEYS];
 
 const CWV = {
@@ -3580,6 +3582,8 @@ export function UserJourney() {
   const [draggedParentIdx, setDraggedParentIdx] = useState<number | null>(null);
   const [draggedSubIdx, setDraggedSubIdx] = useState<number | null>(null);
   const [settingsExpandedGroup, setSettingsExpandedGroup] = useState<ParentTabKey | null>(null);
+  const [globalSettingsExpanded, setGlobalSettingsExpanded] = useState(true);
+  const [userSettingsExpanded, setUserSettingsExpanded] = useState(true);
   const [activeSubTabKey, setActiveSubTabKey] = useState<TabKey | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const closeAiInsights = React.useCallback(() => setAiOpen(false), []);
@@ -3629,9 +3633,29 @@ export function UserJourney() {
   const savedSankeyStyle = useUserAppState({ key: SANKEY_STYLE_STATE_KEY });
   const savedFunnelStyle = useUserAppState({ key: FUNNEL_STYLE_STATE_KEY });
   const savedMapView = useUserAppState({ key: MAP_VIEW_STATE_KEY });
-  const savedBudgetThresholds = useUserAppState({ key: BUDGET_THRESHOLDS_STATE_KEY });
-  const savedSloTargets = useUserAppState({ key: SLO_TARGETS_STATE_KEY });
-  const { execute: saveState } = useSetUserAppState();
+  // Perf-budget thresholds and SLO targets are now shared with every user of this app.
+  // Fall back to any pre-migration per-user value so nothing is lost.
+  const savedBudgetThresholdsGlobal = useAppState({ key: BUDGET_THRESHOLDS_STATE_KEY });
+  const savedSloTargetsGlobal = useAppState({ key: SLO_TARGETS_STATE_KEY });
+  const savedBudgetThresholdsLegacy = useUserAppState({ key: BUDGET_THRESHOLDS_STATE_KEY });
+  const savedSloTargetsLegacy = useUserAppState({ key: SLO_TARGETS_STATE_KEY });
+  const savedBudgetThresholds = React.useMemo(() => {
+    const value = savedBudgetThresholdsGlobal.data?.value ?? savedBudgetThresholdsLegacy.data?.value;
+    return { data: value !== undefined ? { value } : undefined };
+  }, [savedBudgetThresholdsGlobal.data?.value, savedBudgetThresholdsLegacy.data?.value]);
+  const savedSloTargets = React.useMemo(() => {
+    const value = savedSloTargetsGlobal.data?.value ?? savedSloTargetsLegacy.data?.value;
+    return { data: value !== undefined ? { value } : undefined };
+  }, [savedSloTargetsGlobal.data?.value, savedSloTargetsLegacy.data?.value]);
+  const { execute: saveUserState } = useSetUserAppState();
+  const { execute: saveGlobalState } = useSetAppState();
+  // Routes writes to the correct store based on the key. Keys in GLOBAL_STATE_KEYS go to the
+  // shared app-state (visible to every user of this app); everything else stays per-user.
+  const saveState = React.useCallback(
+    (params: { key: string; body: { value: string } }) =>
+      GLOBAL_STATE_KEYS.has(params.key) ? saveGlobalState(params) : saveUserState(params),
+    [saveUserState, saveGlobalState]
+  );
 
   useEffect(() => {
     if (savedState.data?.value) {
@@ -4224,6 +4248,33 @@ export function UserJourney() {
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
       <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
         <div style={{ padding: "4px 0" }}>
+          {/* Intro caption explaining the two scopes */}
+          <div style={{ marginBottom: 12, padding: "8px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.15)" }}>
+            <Text style={{ fontSize: 12, opacity: 0.75 }}>Settings are grouped into <Strong>Global</Strong> (shared with everyone using this app in your Dynatrace environment) and <Strong>User</Strong> preferences (only affect you).</Text>
+          </div>
+
+          {/* ============================================================= */}
+          {/* GLOBAL SETTINGS — shared across all users of this app          */}
+          {/* ============================================================= */}
+          <div style={{ marginBottom: 14, border: "1px solid rgba(69,137,255,0.25)", borderRadius: 8, overflow: "hidden" }}>
+            <button
+              type="button"
+              onClick={() => setGlobalSettingsExpanded(v => !v)}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "rgba(69,137,255,0.08)", border: "none", cursor: "pointer", color: "inherit" }}
+            >
+              <Flex alignItems="center" gap={12}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="12" r="9" stroke="#4589FF" strokeWidth="1.8" />
+                  <ellipse cx="12" cy="12" rx="4" ry="9" stroke="#4589FF" strokeWidth="1.5" />
+                  <path d="M3 12h18M12 3v18" stroke="#4589FF" strokeWidth="1.5" />
+                </svg>
+                <Text style={{ fontSize: 14, fontWeight: 700, color: "#4589FF" }}>Global Settings</Text>
+                <Text style={{ fontSize: 11, opacity: 0.55 }}>shared with all users of this app</Text>
+              </Flex>
+              <span style={{ color: "#4589FF", fontSize: 14, fontWeight: 600 }}>{globalSettingsExpanded ? "▾" : "▸"}</span>
+            </button>
+            {globalSettingsExpanded && (
+              <div style={{ padding: "14px" }}>
           {/* Frontend Application Name */}
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Default Frontend Application</Paragraph>
           <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Default app for new funnel steps and non-step queries (Sankey, CWV, Session Replay). Each step can override this.</Paragraph>
@@ -4428,7 +4479,31 @@ export function UserJourney() {
               <TextInput value={engineerHourlyRate > 0 ? String(engineerHourlyRate) : ""} onChange={(val) => { const v = Number(val); if (!isNaN(v) && v >= 0) saveEngineerHourlyRate(v); else if (!val) saveEngineerHourlyRate(0); }} placeholder="e.g. 150" />
             </Flex>
           </div>
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
+              </div>
+            )}
+          </div>
+
+          {/* ============================================================= */}
+          {/* USER PREFERENCES — only affect the current user                */}
+          {/* ============================================================= */}
+          <div style={{ marginBottom: 14, border: "1px solid rgba(165,110,255,0.25)", borderRadius: 8, overflow: "hidden" }}>
+            <button
+              type="button"
+              onClick={() => setUserSettingsExpanded(v => !v)}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "rgba(165,110,255,0.08)", border: "none", cursor: "pointer", color: "inherit" }}
+            >
+              <Flex alignItems="center" gap={12}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="8" r="4" stroke="#A56EFF" strokeWidth="1.8" />
+                  <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" stroke="#A56EFF" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+                <Text style={{ fontSize: 14, fontWeight: 700, color: "#A56EFF" }}>User Preferences</Text>
+                <Text style={{ fontSize: 11, opacity: 0.55 }}>only affect you</Text>
+              </Flex>
+              <span style={{ color: "#A56EFF", fontSize: 14, fontWeight: 600 }}>{userSettingsExpanded ? "▾" : "▸"}</span>
+            </button>
+            {userSettingsExpanded && (
+              <div style={{ padding: "14px" }}>
           {/* Default Sankey Chart Style */}
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Default Sankey Chart Style</Paragraph>
           <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Choose the default visualization style for the Sankey tab. Can also be changed inline on the Sankey tab.</Paragraph>
@@ -4523,6 +4598,9 @@ export function UserJourney() {
             );
           })}
           <button onClick={() => { saveParentTabOrder([...DEFAULT_PARENT_TAB_ORDER]); setParentTabVisibility(DEFAULT_PARENT_TAB_VISIBILITY); setSubTabOrder(DEFAULT_SUB_TAB_ORDER); setTabVisibility(DEFAULT_TAB_VISIBILITY); saveState({ key: PARENT_TAB_ORDER_STATE_KEY, body: { value: JSON.stringify(DEFAULT_PARENT_TAB_ORDER) } }); saveState({ key: PARENT_TAB_VISIBILITY_STATE_KEY, body: { value: JSON.stringify(DEFAULT_PARENT_TAB_VISIBILITY) } }); saveState({ key: SUB_TAB_ORDER_STATE_KEY, body: { value: JSON.stringify(DEFAULT_SUB_TAB_ORDER) } }); saveState({ key: TAB_STATE_KEY, body: { value: JSON.stringify(DEFAULT_TAB_VISIBILITY) } }); }} style={{ width: "100%", padding: "6px", background: "none", border: "1px solid rgba(128,128,128,0.2)", borderRadius: 6, color: "rgba(128,128,128,0.7)", cursor: "pointer", fontSize: 13, marginTop: 8 }}>Reset All Tab Groups</button>
+              </div>
+            )}
+          </div>
         </div>
       </Sheet>
 

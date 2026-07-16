@@ -3,7 +3,7 @@
   "environmentUrl": "https://guu84124.apps.dynatrace.com",
   "app": {
     "name": "User Journey & Experience",
-    "version": "4.57.55",
+    "version": "4.58.0",
     "description": "Not an official Dynatrace app. https://github.com/TechShady/user-journey-app.",
     "id": "my.user.journey.app",
     "icon": "./assets/icon.png",
@@ -17,7 +17,9 @@
       { "name": "storage:system:read", "comment": "read system data" },
       { "name": "storage:buckets:read", "comment": "read storage buckets" },
       { "name": "state:user-app-states:read", "comment": "read user tab settings" },
-      { "name": "state:user-app-states:write", "comment": "save user tab settings" }
+      { "name": "state:user-app-states:write", "comment": "save user tab settings" },
+      { "name": "state:app-states:read", "comment": "read global (shared) app settings" },
+      { "name": "state:app-states:write", "comment": "save global (shared) app settings" }
     ],
     "functionSandbox": {}
   }

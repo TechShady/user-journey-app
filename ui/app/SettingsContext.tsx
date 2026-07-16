@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { useUserAppState, useSetUserAppState } from "@dynatrace-sdk/react-hooks";
+import { useAppState, useSetAppState, useUserAppState } from "@dynatrace-sdk/react-hooks";
 
 // ---------------------------------------------------------------------------
 // Types & defaults
@@ -144,32 +144,45 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [funnels, setFunnels] = useState<FunnelDef[]>(DEFAULT_FUNNELS);
   const [activeFunnelIndex, setActiveFunnelIndex] = useState<number>(0);
 
-  const savedFrontend = useUserAppState({ key: FRONTEND_STATE_KEY });
-  const savedFunnels = useUserAppState({ key: FUNNELS_STATE_KEY });
-  const savedActiveFunnel = useUserAppState({ key: ACTIVE_FUNNEL_STATE_KEY });
-  const savedLegacySteps = useUserAppState({ key: STEPS_STATE_KEY });
-  // Legacy global keys — kept for migration fallback only
-  const savedAov = useUserAppState({ key: AOV_STATE_KEY });
-  const savedMonthlyInfraCost = useUserAppState({ key: MONTHLY_INFRA_COST_STATE_KEY });
-  const savedCdnMonthlyCost = useUserAppState({ key: CDN_MONTHLY_COST_STATE_KEY });
-  const savedComputeCostPerHour = useUserAppState({ key: COMPUTE_COST_PER_HOUR_STATE_KEY });
-  const savedCostPerGb = useUserAppState({ key: COST_PER_GB_STATE_KEY });
-  const savedEngineerHourlyRate = useUserAppState({ key: ENGINEER_HOURLY_RATE_STATE_KEY });
-  const savedIndustry = useUserAppState({ key: INDUSTRY_STATE_KEY });
-  const { execute: saveState } = useSetUserAppState();
+  // Global (app-scoped) reads — shared across every user of this app in the Dynatrace environment.
+  const savedFrontend = useAppState({ key: FRONTEND_STATE_KEY });
+  const savedFunnels = useAppState({ key: FUNNELS_STATE_KEY });
+  const savedActiveFunnel = useAppState({ key: ACTIVE_FUNNEL_STATE_KEY });
+  const savedLegacySteps = useAppState({ key: STEPS_STATE_KEY });
+  const savedAov = useAppState({ key: AOV_STATE_KEY });
+  const savedMonthlyInfraCost = useAppState({ key: MONTHLY_INFRA_COST_STATE_KEY });
+  const savedCdnMonthlyCost = useAppState({ key: CDN_MONTHLY_COST_STATE_KEY });
+  const savedComputeCostPerHour = useAppState({ key: COMPUTE_COST_PER_HOUR_STATE_KEY });
+  const savedCostPerGb = useAppState({ key: COST_PER_GB_STATE_KEY });
+  const savedEngineerHourlyRate = useAppState({ key: ENGINEER_HOURLY_RATE_STATE_KEY });
+  const savedIndustry = useAppState({ key: INDUSTRY_STATE_KEY });
+  // Per-user fallbacks — pre-migration these keys were stored per-user. Fall back to those values
+  // when the global bucket has not been written yet, so nothing is lost on first load after upgrade.
+  const userLegacyFrontend = useUserAppState({ key: FRONTEND_STATE_KEY });
+  const userLegacyFunnels = useUserAppState({ key: FUNNELS_STATE_KEY });
+  const userLegacyActiveFunnel = useUserAppState({ key: ACTIVE_FUNNEL_STATE_KEY });
+  const userLegacySteps = useUserAppState({ key: STEPS_STATE_KEY });
+  const userLegacyAov = useUserAppState({ key: AOV_STATE_KEY });
+  const userLegacyInfra = useUserAppState({ key: MONTHLY_INFRA_COST_STATE_KEY });
+  const userLegacyCdn = useUserAppState({ key: CDN_MONTHLY_COST_STATE_KEY });
+  const userLegacyCompute = useUserAppState({ key: COMPUTE_COST_PER_HOUR_STATE_KEY });
+  const userLegacyGb = useUserAppState({ key: COST_PER_GB_STATE_KEY });
+  const userLegacyEngineer = useUserAppState({ key: ENGINEER_HOURLY_RATE_STATE_KEY });
+  const userLegacyIndustry = useUserAppState({ key: INDUSTRY_STATE_KEY });
+  const { execute: saveState } = useSetAppState();
 
   useEffect(() => {
-    if (savedFrontend.data?.value) {
-      const val = savedFrontend.data.value as string;
-      if (val.trim()) setFrontend(val.trim());
-    }
-  }, [savedFrontend.data?.value]);
+    const raw = (savedFrontend.data?.value ?? userLegacyFrontend.data?.value) as string | undefined;
+    if (raw && raw.trim()) setFrontend(raw.trim());
+  }, [savedFrontend.data?.value, userLegacyFrontend.data?.value]);
 
-  // Load multi-funnel state (or migrate from legacy single-funnel)
+  // Load multi-funnel state (or migrate from legacy single-funnel).
+  // Prefer the shared/global bucket; fall back to the per-user bucket for pre-migration data.
   useEffect(() => {
-    if (savedFunnels.data?.value) {
+    const funnelsRaw = (savedFunnels.data?.value ?? userLegacyFunnels.data?.value) as string | undefined;
+    if (funnelsRaw) {
       try {
-        const parsed = JSON.parse(savedFunnels.data.value as string) as any[];
+        const parsed = JSON.parse(funnelsRaw) as any[];
         if (Array.isArray(parsed) && parsed.length > 0) {
           const migrated: FunnelDef[] = parsed.map((f: any) => ({
             name: f.name ?? "Unnamed Funnel",
@@ -192,10 +205,11 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       } catch { /* ignore */ }
     }
-    // Migrate from legacy single-funnel format
-    if (savedLegacySteps.data?.value) {
+    // Migrate from legacy single-funnel format (global bucket first, then per-user).
+    const legacyStepsRaw = (savedLegacySteps.data?.value ?? userLegacySteps.data?.value) as string | undefined;
+    if (legacyStepsRaw) {
       try {
-        const parsed = JSON.parse(savedLegacySteps.data.value as string) as any[];
+        const parsed = JSON.parse(legacyStepsRaw) as any[];
         if (Array.isArray(parsed) && parsed.length >= MIN_STEPS && parsed.length <= MAX_STEPS) {
           const migratedSteps: StepDef[] = parsed.map((s: any) => ({
             label: s.label ?? "",
@@ -207,14 +221,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       } catch { /* ignore */ }
     }
-  }, [savedFunnels.data?.value, savedLegacySteps.data?.value]);
+  }, [savedFunnels.data?.value, userLegacyFunnels.data?.value, savedLegacySteps.data?.value, userLegacySteps.data?.value]);
 
   useEffect(() => {
-    if (savedActiveFunnel.data?.value) {
-      const v = Number(savedActiveFunnel.data.value);
+    const raw = savedActiveFunnel.data?.value ?? userLegacyActiveFunnel.data?.value;
+    if (raw !== undefined && raw !== null) {
+      const v = Number(raw);
       if (!isNaN(v) && v >= 0) setActiveFunnelIndex(v);
     }
-  }, [savedActiveFunnel.data?.value]);
+  }, [savedActiveFunnel.data?.value, userLegacyActiveFunnel.data?.value]);
 
   const saveFrontend = (v: string) => {
     setFrontend(v);
@@ -238,14 +253,21 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const activeFunnel = funnels[safeIndex];
   const steps = activeFunnel?.steps ?? DEFAULT_FUNNEL_STEPS;
 
-  // Legacy fallbacks: use old global state keys if the funnel doesn't have these fields yet
-  const legacyAov = savedAov.data?.value ? Number(savedAov.data.value) : NaN;
-  const legacyInfra = savedMonthlyInfraCost.data?.value ? Number(savedMonthlyInfraCost.data.value) : NaN;
-  const legacyCdn = savedCdnMonthlyCost.data?.value ? Number(savedCdnMonthlyCost.data.value) : NaN;
-  const legacyCompute = savedComputeCostPerHour.data?.value ? Number(savedComputeCostPerHour.data.value) : NaN;
-  const legacyGb = savedCostPerGb.data?.value ? Number(savedCostPerGb.data.value) : NaN;
-  const legacyEngineer = savedEngineerHourlyRate.data?.value ? Number(savedEngineerHourlyRate.data.value) : NaN;
-  const legacyIndustry = savedIndustry.data?.value as string | undefined;
+  // Legacy fallbacks: use old top-level state keys if the funnel doesn't have these fields yet.
+  // Read the shared bucket first, then fall back to any pre-migration per-user value.
+  const legacyAovRaw = savedAov.data?.value ?? userLegacyAov.data?.value;
+  const legacyAov = legacyAovRaw ? Number(legacyAovRaw) : NaN;
+  const legacyInfraRaw = savedMonthlyInfraCost.data?.value ?? userLegacyInfra.data?.value;
+  const legacyInfra = legacyInfraRaw ? Number(legacyInfraRaw) : NaN;
+  const legacyCdnRaw = savedCdnMonthlyCost.data?.value ?? userLegacyCdn.data?.value;
+  const legacyCdn = legacyCdnRaw ? Number(legacyCdnRaw) : NaN;
+  const legacyComputeRaw = savedComputeCostPerHour.data?.value ?? userLegacyCompute.data?.value;
+  const legacyCompute = legacyComputeRaw ? Number(legacyComputeRaw) : NaN;
+  const legacyGbRaw = savedCostPerGb.data?.value ?? userLegacyGb.data?.value;
+  const legacyGb = legacyGbRaw ? Number(legacyGbRaw) : NaN;
+  const legacyEngineerRaw = savedEngineerHourlyRate.data?.value ?? userLegacyEngineer.data?.value;
+  const legacyEngineer = legacyEngineerRaw ? Number(legacyEngineerRaw) : NaN;
+  const legacyIndustry = (savedIndustry.data?.value ?? userLegacyIndustry.data?.value) as string | undefined;
 
   const aov = activeFunnel?.aov ?? (!isNaN(legacyAov) ? legacyAov : DEFAULT_AOV);
   const monthlyInfraCost = activeFunnel?.monthlyInfraCost ?? (!isNaN(legacyInfra) ? legacyInfra : DEFAULT_MONTHLY_INFRA_COST);
