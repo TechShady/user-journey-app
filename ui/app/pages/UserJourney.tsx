@@ -1266,7 +1266,8 @@ function navigationBackendRequestEdgesQuery(days: number, frontend: string, step
 ${sessionFilter}
 ${userFilter}
 | fieldsAdd from_service = coalesce(service.name, dt.entity.service.name, "frontend")
-| fieldsAdd to_service = coalesce(peer.service.name, request.service.name, url.domain, "unknown")
+| fieldsAdd to_service = coalesce(peer.service.name, request.service.name, "unknown")
+| filter to_service != "unknown"
 | fieldsAdd duration_ms = toDouble(duration) / 1000000.0
 | summarize
     requests = count(),
@@ -12583,10 +12584,28 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     }
     return expanded;
   };
-  const strictExpandedNodeIds = expandConnectedNodeIds(strictReqNodeIds, 2);
+  // Strict session mode expands 8 hops through Smartscape topology from the session's directly-hit services,
+  // so the downstream chain (e.g. Booking → CreditCardValidation → DB1) is fully visible instead of stopping at
+  // whichever service the browser reached first. If nothing was seeded (span join was empty), we fall back to
+  // the app's directly-called services and their 6-hop neighbourhood so the diagram is never blank.
+  const strictExpandedNodeIds = expandConnectedNodeIds(strictReqNodeIds, 8);
+  let strictFallbackExpandedIds = strictExpandedNodeIds;
+  if (strictExpandedNodeIds.size === 0) {
+    const seedFallback = new Set<string>();
+    rawBeServiceIds.forEach((id) => { if (beNameById.has(id)) seedFallback.add(id); });
+    if (seedFallback.size > 0) {
+      strictFallbackExpandedIds = expandConnectedNodeIds(seedFallback, 6);
+    }
+  }
   const tierScopedServices = (hasSessionScope
     ? (strictSessionMode
-      ? backendVisibleByDepth.filter(s => strictExpandedNodeIds.has(s.id))
+      ? (() => {
+          const primary = backendVisibleByDepth.filter(s => strictExpandedNodeIds.has(s.id));
+          if (primary.length > 0) return primary;
+          const fallback = backendVisibleByDepth.filter(s => strictFallbackExpandedIds.has(s.id));
+          if (fallback.length > 0) return fallback;
+          return backendVisibleByDepth.filter(s => s.depth <= 3);
+        })()
       : (scopedAcrossTiers.length > 0 ? scopedAcrossTiers : backendVisibleByDepth.filter(s => s.depth === 1)))
     : backendVisibleByDepth);
   const beServices = (strictSessionMode
@@ -12597,7 +12616,22 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const db1Shown = beServices.filter(s => norm(s.name).includes("db1"));
   const dbLikeShown = beServices.filter(s => /db|postgres|mysql|maria|oracle|sql|redis/i.test(s.name));
   const visibleBeIds = new Set(beServices.map(s => s.id));
-  const beEdges = (strictSessionMode ? strictReqEdges : s2sEdges).filter(e => visibleBeIds.has(e.src) && visibleBeIds.has(e.tgt));
+  // Use the full Smartscape topology to draw edges between visible services. In strict session mode we still
+  // merge in the RUM-observed edges so a session that hit a synthetic REQ node gets that edge drawn too.
+  const beEdges = strictSessionMode
+    ? (() => {
+        const seen = new Set<string>();
+        const merged: typeof s2sEdges = [];
+        [...s2sEdges, ...strictReqEdges].forEach((e) => {
+          if (!visibleBeIds.has(e.src) || !visibleBeIds.has(e.tgt)) return;
+          const key = `${e.src}->${e.tgt}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          merged.push(e);
+        });
+        return merged;
+      })()
+    : s2sEdges.filter(e => visibleBeIds.has(e.src) && visibleBeIds.has(e.tgt));
 
   // Entry/exit page classification
   const step1Pages = new Set<string>(); const step2Pages = new Set<string>();
