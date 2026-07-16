@@ -80,6 +80,11 @@ const BLUE = "#4589FF";
 const PURPLE = "#A56EFF";
 const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
+// Time-lapse hotness palette — chosen to be visually distinct from node tier colors
+// (blue/green/cyan/purple/red-orange for services) so the overlay reads as a separate signal.
+const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
+const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
+const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const APP_VERSION_LABEL = "4.57.39";
 
 
@@ -1318,11 +1323,26 @@ function navigationSessionTimelineQuery(days: number, frontend: string, steps: S
 }
 
 // NEW: Navigation Flow Time-Lapse — per-bucket page telemetry (sessions/actions/errors/avg duration)
-function navFlowTimelapsePagesQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket, appFilter?: string, appFilters?: string[]): string {
+function navFlowTimelapsePagesQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket, appFilter?: string, appFilters?: string[], sessionId?: string, userId?: string): string {
   const period = periodClause(days);
+  const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
+  const userFilter = !sessionId && userId ? `| filter effective_user_id == "${userId}"` : "";
+  const userLookup = !sessionId && userId ? `
+| fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
+| fieldsAdd sid = dt.rum.session.id
+| lookup [
+    fetch user.sessions, ${period}
+    | filter dt.system.bucket != "default_synthetic_user_sessions"
+    | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
+    | filter not(isNull(sid))
+    | fields sid, session_user_id
+  ], sourceField:sid, lookupField:sid, prefix:"sess."
+| fieldsAdd effective_user_id = coalesce(sess.session_user_id, nav_user_id, concat("session:", substring(sid, from: 0, to: 16)))` : "";
   return `fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
-| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true${userLookup}
+${sessionFilter}
+${userFilter}
 | fieldsAdd page_name = coalesce(view.name, page.name, url.path, "unknown")
 | fieldsAdd bucket_ts = bin(coalesce(start_time, timestamp), ${bucket})
 | fieldsAdd bucket = formatTimestamp(bucket_ts, format: "yyyy-MM-dd HH:mm")
@@ -1339,11 +1359,26 @@ function navFlowTimelapsePagesQuery(days: number, frontend: string, steps: StepD
 }
 
 // NEW: Navigation Flow Time-Lapse — per-bucket backend request edges (from RUM has_request events)
-function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket, appFilter?: string, appFilters?: string[]): string {
+function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket, appFilter?: string, appFilters?: string[], sessionId?: string, userId?: string): string {
   const period = periodClause(days);
+  const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
+  const userFilter = !sessionId && userId ? `| filter effective_user_id == "${userId}"` : "";
+  const userLookup = !sessionId && userId ? `
+| fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
+| fieldsAdd sid = dt.rum.session.id
+| lookup [
+    fetch user.sessions, ${period}
+    | filter dt.system.bucket != "default_synthetic_user_sessions"
+    | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
+    | filter not(isNull(sid))
+    | fields sid, session_user_id
+  ], sourceField:sid, lookupField:sid, prefix:"sess."
+| fieldsAdd effective_user_id = coalesce(sess.session_user_id, nav_user_id, concat("session:", substring(sid, from: 0, to: 16)))` : "";
   return `fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
-| filter characteristics.has_request == true
+| filter characteristics.has_request == true${userLookup}
+${sessionFilter}
+${userFilter}
 | fieldsAdd from_service = coalesce(service.name, dt.entity.service.name, "frontend")
 | fieldsAdd to_service = coalesce(peer.service.name, request.service.name, "unknown")
 | filter to_service != "unknown"
@@ -11991,13 +12026,13 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const navTlIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const navTlTotalRef = useRef(0);
 
-  const navFlowTimelapsePagesData = useDql({ query: navTlEnabled ? navFlowTimelapsePagesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
-  const navFlowTimelapseEdgesData = useDql({ query: navTlEnabled ? navFlowTimelapseEdgesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
+  const navFlowTimelapsePagesData = useDql({ query: navTlEnabled ? navFlowTimelapsePagesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps, selectedSessionId || undefined, navUserFilter) : "fetch user.events | limit 0" });
+  const navFlowTimelapseEdgesData = useDql({ query: navTlEnabled ? navFlowTimelapseEdgesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps, selectedSessionId || undefined, navUserFilter) : "fetch user.events | limit 0" });
 
   React.useEffect(() => {
     setNavTlIndex(0);
     setNavTlPlaying(false);
-  }, [navTlBucket, navTlEnabled, timeframeDays, frontend, navAppFilter, selectedUserTag]);
+  }, [navTlBucket, navTlEnabled, timeframeDays, frontend, navAppFilter, selectedUserTag, selectedSessionId]);
 
   React.useEffect(() => {
     if (!navTlEnabled || !navTlPlaying) {
@@ -12151,10 +12186,10 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     return base;
   }, [navTlEdgeBuckets]);
 
-  const navTlSpikeStrip = React.useMemo(() => {
+  // Frontend spike strip — mean-Z across page activity per bucket (pages only)
+  const navTlSpikeStripFE = React.useMemo(() => {
     return navTlBucketList.map((b) => {
-      let hotSum = 0;
-      let cnt = 0;
+      let hotSum = 0; let cnt = 0;
       const pmap = navTlPageBuckets.get(b);
       pmap?.forEach((v, p) => {
         const base = navTlPageBaseline.get(p); if (!base) return;
@@ -12164,6 +12199,14 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
         const loadZ = (v.sessions - base.loadStat.mean) / base.loadStat.std;
         hotSum += Math.max(0, errZ, durZ, loadZ); cnt++;
       });
+      return cnt > 0 ? hotSum / cnt : 0;
+    });
+  }, [navTlBucketList, navTlPageBuckets, navTlPageBaseline]);
+
+  // Backend spike strip — mean-Z across service edges per bucket (backend only)
+  const navTlSpikeStripBE = React.useMemo(() => {
+    return navTlBucketList.map((b) => {
+      let hotSum = 0; let cnt = 0;
       const emap = navTlEdgeBuckets.get(b);
       emap?.forEach((v, k) => {
         const base = navTlEdgeBaseline.get(k); if (!base) return;
@@ -12175,7 +12218,12 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
       });
       return cnt > 0 ? hotSum / cnt : 0;
     });
-  }, [navTlBucketList, navTlPageBuckets, navTlEdgeBuckets, navTlPageBaseline, navTlEdgeBaseline]);
+  }, [navTlBucketList, navTlEdgeBuckets, navTlEdgeBaseline]);
+
+  // Combined strip (kept for callers that may still reference it)
+  const navTlSpikeStrip = React.useMemo(() => {
+    return navTlBucketList.map((_, i) => (navTlSpikeStripFE[i] + navTlSpikeStripBE[i]) / 2);
+  }, [navTlBucketList, navTlSpikeStripFE, navTlSpikeStripBE]);
 
   const navData = hasScopedNavQuery ? scopedNavData : data;
   const loadingNow = (hasScopedNavQuery ? scopedNavData.isLoading : isLoading);
@@ -13463,9 +13511,9 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               const badZ = Math.max(errZ, durZ);
               const ring = Math.max(0, loadZ);
               let color: string | null = null;
-              if (badZ >= 2.5) color = RED;
-              else if (badZ >= 1.5) color = ORANGE;
-              else if (loadZ >= 2) color = YELLOW;
+              if (badZ >= 2.5) color = TL_HOT_HIGH;
+              else if (badZ >= 1.5) color = TL_HOT_WARM;
+              else if (loadZ >= 2) color = TL_HOT_ELEV;
               return { color, z: Math.max(badZ, loadZ), ring, data: m };
             };
             const tlEdgeOverride = (fromName: string, toName: string): { color: string | null; width: number | null; z: number; data: { requests: number; errors: number; avgDur: number } | null } => {
@@ -13482,9 +13530,9 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               const reqZ = (m.requests - base.reqStat.mean) / base.reqStat.std;
               const badZ = Math.max(errZ, durZ);
               let color: string | null = null;
-              if (badZ >= 2.5) color = RED;
-              else if (badZ >= 1.5) color = ORANGE;
-              else if (reqZ >= 2) color = YELLOW;
+              if (badZ >= 2.5) color = TL_HOT_HIGH;
+              else if (badZ >= 1.5) color = TL_HOT_WARM;
+              else if (reqZ >= 2) color = TL_HOT_ELEV;
               return { color, width, z: Math.max(badZ, reqZ), data: m };
             };
             const tlServiceOverride = (serviceName: string): { color: string | null; z: number; ring: number; data: { req: number; err: number; avgDur: number } | null } => {
@@ -13509,9 +13557,9 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               const badZ = Math.max(errZ, durZ);
               const ring = Math.max(0, reqZ);
               let color: string | null = null;
-              if (badZ >= 2.5) color = RED;
-              else if (badZ >= 1.5) color = ORANGE;
-              else if (reqZ >= 2) color = YELLOW;
+              if (badZ >= 2.5) color = TL_HOT_HIGH;
+              else if (badZ >= 1.5) color = TL_HOT_WARM;
+              else if (reqZ >= 2) color = TL_HOT_ELEV;
               return { color, z: Math.max(badZ, reqZ), ring, data };
             };
 
@@ -13705,32 +13753,37 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const pageSvcEdgeFocused = pageSvcFocusSet.has(edge.src) && pageSvcFocusSet.has(edge.tgt);
                     const edgeReq = reqForPair(edge.srcName, edge.tgtName);
                     const tlOv = tlEdgeOverride(edge.srcName, edge.tgtName);
-                    const focusOp = focusedSvcId ? (beEdgeFocused ? 0.75 : 0.05) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcEdgeFocused ? 0.75 : 0.05) : 0.07) : 0.22;
+                    // Base edge styling — always applied so the diagram structure stays legible
+                    const baseOp = focusedSvcId ? (beEdgeFocused ? 0.75 : 0.05) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcEdgeFocused ? 0.75 : 0.05) : 0.07) : 0.22;
+                    const baseW = beEdgeFocused || pageSvcEdgeFocused ? 2.5 : Math.max(1.5, Math.min(6, 1.2 + edgeReq / 120));
+                    // TL overlay — additive only. Do NOT hide edges when there's no per-bucket data.
                     let strokeColor: string; let strokeOp: number; let strokeW: number;
                     if (navTlEnabled && tlOv.color) {
                       strokeColor = tlOv.color; strokeOp = 0.95;
-                      strokeW = (tlOv.width ?? 2) + (tlOv.color === RED ? 1.5 : tlOv.color === ORANGE ? 0.5 : 0);
+                      strokeW = (tlOv.width ?? baseW) + (tlOv.color === TL_HOT_HIGH ? 2 : tlOv.color === TL_HOT_WARM ? 1 : 0.5);
                     } else if (navTlEnabled && tlOv.width != null) {
-                      strokeColor = "rgba(255,255,255,1)"; strokeOp = 0.55; strokeW = tlOv.width;
-                    } else if (navTlEnabled) {
-                      strokeColor = "rgba(255,255,255,1)"; strokeOp = 0.08;
-                      strokeW = beEdgeFocused || pageSvcEdgeFocused ? 2.5 : Math.max(1.2, Math.min(4, 1 + edgeReq / 200));
+                      // Has bucket data but not hot → subtle bluish tint at scaled width
+                      strokeColor = "rgba(140,180,255,1)"; strokeOp = 0.6; strokeW = tlOv.width;
                     } else {
-                      strokeColor = "rgba(255,255,255,1)"; strokeOp = focusOp;
-                      strokeW = beEdgeFocused || pageSvcEdgeFocused ? 2.5 : Math.max(1.5, Math.min(6, 1.2 + edgeReq / 120));
+                      // Default styling — even when TL is on without per-bucket data
+                      strokeColor = "rgba(255,255,255,1)"; strokeOp = navTlEnabled ? baseOp * 0.55 : baseOp; strokeW = baseW;
                     }
-                    const showHalo = navTlEnabled && tlOv.color && (tlOv.color === RED || tlOv.color === ORANGE);
+                    const isHotHigh = navTlEnabled && tlOv.color === TL_HOT_HIGH;
+                    const isHotWarm = navTlEnabled && tlOv.color === TL_HOT_WARM;
+                    const showHalo = isHotHigh || isHotWarm;
                     const tlReq = tlOv.data?.requests ?? 0;
                     return (
                       <g key={`be-${ei}`}>
                         {showHalo && (
                           <path d={`M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}`}
-                            fill="none" stroke={tlOv.color!} strokeWidth={strokeW + 6} strokeOpacity={0.2} strokeLinecap="round" />
+                            fill="none" stroke={tlOv.color!} strokeWidth={strokeW + 8} strokeOpacity={0.25} strokeLinecap="round">
+                            {isHotHigh && <animate attributeName="stroke-opacity" values="0.15;0.45;0.15" dur="1.4s" repeatCount="indefinite" />}
+                          </path>
                         )}
                         <path d={`M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}`}
                           fill="none" stroke={strokeColor} strokeOpacity={strokeOp} strokeWidth={strokeW} style={{ transition: "all 0.2s" }}>
                           <title>{navTlEnabled && tlBucketKey
-                            ? `${edge.srcName} → ${edge.tgtName}: ${fmtCount(tlReq)} req @ ${tlBucketKey}${tlOv.color ? ` · HOT (${tlOv.color === RED ? "high error/latency" : tlOv.color === ORANGE ? "elevated error/latency" : "traffic spike"})` : ""}`
+                            ? `${edge.srcName} → ${edge.tgtName}: ${fmtCount(tlReq)} req @ ${tlBucketKey}${tlOv.color ? ` · HOT (${tlOv.color === TL_HOT_HIGH ? "high error/latency" : tlOv.color === TL_HOT_WARM ? "elevated error/latency" : "traffic spike"})` : ""}`
                             : `${edge.srcName} → ${edge.tgtName}: ${fmtCount(edgeReq)} req`}</title>
                         </path>
                       </g>
@@ -13780,23 +13833,36 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const nodeOpacity = hasFocus ? (isHighlightedNode ? 1 : 0.12) : focusedPageName ? (pageFocusSet.has(name) ? 1 : 0.1) : focusedSvcId ? (svcFocusIncludesFrontend ? (svcFocusPageSet.has(name) ? 1 : 0.12) : 0.12) : 1;
                     const isActive = activeTooltip === `page:${name}`;
                     const pageTl = tlPageOverride(name);
-                    const useTl = navTlEnabled && pageTl.color;
+                    const hotColor = navTlEnabled ? pageTl.color : null;
                     const showLoadRing = navTlEnabled && pageTl.ring > 1;
-                    const strokeCol = useTl ? pageTl.color! : meta.color;
-                    const fillCol = useTl ? `${pageTl.color!}22` : (isActive ? `${meta.color}22` : "rgba(128,128,128,0.1)");
-                    const strokeW = useTl ? meta.borderWidth + 1.5 : (isActive ? meta.borderWidth + 1 : meta.borderWidth);
+                    const isHotHigh = hotColor === TL_HOT_HIGH;
                     return (
                       <g key={name}
                         style={{ opacity: nodeOpacity, transition: draggingNode === name ? "none" : "opacity 0.2s", cursor: draggingNode === name ? "grabbing" : "grab" }}
                         onMouseDown={(e) => { e.stopPropagation(); setDraggingNode(name); setDragStart({ mx: e.clientX, my: e.clientY, nx: pos.x, ny: pos.y }); setWasDragging(false); }}
                         onClick={(e) => { e.stopPropagation(); if (!wasDragging) setActiveTooltip(prev => prev === `page:${name}` ? null : `page:${name}`); }}
                       >
-                        {showLoadRing && (
-                          <rect x={pos.x - 4} y={pos.y - 4} width={nodeW + 8} height={pos.h + 8} rx={9}
-                            fill="none" stroke={pageTl.color ?? YELLOW} strokeWidth={2 + Math.min(3, pageTl.ring)} strokeOpacity={0.3} />
+                        {/* TL halo — additive overlay, keeps tier color intact */}
+                        {hotColor && (
+                          <rect x={pos.x - 6} y={pos.y - 6} width={nodeW + 12} height={pos.h + 12} rx={10}
+                            fill="none" stroke={hotColor} strokeWidth={4} strokeOpacity={0.55}>
+                            {isHotHigh && <animate attributeName="stroke-opacity" values="0.3;0.75;0.3" dur="1.4s" repeatCount="indefinite" />}
+                          </rect>
                         )}
+                        {showLoadRing && !hotColor && (
+                          <rect x={pos.x - 4} y={pos.y - 4} width={nodeW + 8} height={pos.h + 8} rx={9}
+                            fill="none" stroke={TL_HOT_ELEV} strokeWidth={2 + Math.min(3, pageTl.ring)} strokeOpacity={0.4} />
+                        )}
+                        {/* Tier-colored node (unchanged) */}
                         <rect x={pos.x} y={pos.y} width={nodeW} height={pos.h} rx={6}
-                          fill={fillCol} stroke={strokeCol} strokeWidth={strokeW} strokeOpacity={0.85} />
+                          fill={isActive ? `${meta.color}22` : "rgba(128,128,128,0.1)"} stroke={meta.color} strokeWidth={isActive ? meta.borderWidth + 1 : meta.borderWidth} strokeOpacity={0.85} />
+                        {/* HOT badge — top-right corner dot */}
+                        {hotColor && (
+                          <g>
+                            <circle cx={pos.x + nodeW - 6} cy={pos.y + 6} r={7} fill={hotColor} stroke="#000" strokeWidth={1} strokeOpacity={0.4} />
+                            <text x={pos.x + nodeW - 6} y={pos.y + 9} textAnchor="middle" fontSize={8} fontWeight={900} fill="#000">!</text>
+                          </g>
+                        )}
                         {isFunnel && (() => {
                           const fsi = steps.findIndex(s => s.identifiers.some(id => identifierMatchesLabel(id, name)));
                           const fsiLabel = fsi >= 0 ? steps[fsi].label : "";
@@ -13826,23 +13892,36 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const isSessionContextOnly = strictSessionMode && svcReq <= 0 && !strictDirectServiceIds.has(svcId);
                     const isActive = activeTooltip === `svc:${svcId}`;
                     const svcTl = tlServiceOverride(svc.name);
-                    const useTl = navTlEnabled && svcTl.color;
+                    const hotColor = navTlEnabled ? svcTl.color : null;
                     const showSvcRing = navTlEnabled && svcTl.ring > 1;
-                    const strokeCol = useTl ? svcTl.color! : meta.color;
-                    const fillCol = useTl ? `${svcTl.color!}22` : (isActive ? `${meta.color}22` : "rgba(128,128,128,0.08)");
-                    const strokeW = useTl ? meta.borderWidth + 1.5 : (isActive ? meta.borderWidth + 1 : meta.borderWidth);
+                    const isHotHigh = hotColor === TL_HOT_HIGH;
                     return (
                       <g key={svcId}
                         style={{ cursor: draggingNode === `be:${svcId}` ? "grabbing" : "grab", transition: draggingNode === `be:${svcId}` ? "none" : "opacity 0.2s", opacity: focusedSvcId ? (svcFocusSet.has(svcId) ? 1 : 0.1) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcFocusSet.has(svcId) ? 1 : 0.1) : 0.15) : 1 }}
                         onMouseDown={(e) => { e.stopPropagation(); setDraggingNode(`be:${svcId}`); setDragStart({ mx: e.clientX, my: e.clientY, nx: bePos.x, ny: bePos.y }); setWasDragging(false); }}
                         onClick={(e) => { e.stopPropagation(); if (!wasDragging) setActiveTooltip(prev => prev === `svc:${svcId}` ? null : `svc:${svcId}`); }}
                       >
-                        {showSvcRing && (
-                          <rect x={bePos.x - 4} y={bePos.y - 4} width={beNodeW + 8} height={beNodeH + 8} rx={9}
-                            fill="none" stroke={svcTl.color ?? YELLOW} strokeWidth={2 + Math.min(3, svcTl.ring)} strokeOpacity={0.3} />
+                        {/* TL halo — additive overlay, keeps tier color intact */}
+                        {hotColor && (
+                          <rect x={bePos.x - 6} y={bePos.y - 6} width={beNodeW + 12} height={beNodeH + 12} rx={10}
+                            fill="none" stroke={hotColor} strokeWidth={4} strokeOpacity={0.55}>
+                            {isHotHigh && <animate attributeName="stroke-opacity" values="0.3;0.75;0.3" dur="1.4s" repeatCount="indefinite" />}
+                          </rect>
                         )}
+                        {showSvcRing && !hotColor && (
+                          <rect x={bePos.x - 4} y={bePos.y - 4} width={beNodeW + 8} height={beNodeH + 8} rx={9}
+                            fill="none" stroke={TL_HOT_ELEV} strokeWidth={2 + Math.min(3, svcTl.ring)} strokeOpacity={0.4} />
+                        )}
+                        {/* Tier-colored node (unchanged) */}
                         <rect x={bePos.x} y={bePos.y} width={beNodeW} height={beNodeH} rx={6}
-                          fill={fillCol} stroke={strokeCol} strokeWidth={strokeW} strokeOpacity={0.85} />
+                          fill={isActive ? `${meta.color}22` : "rgba(128,128,128,0.08)"} stroke={meta.color} strokeWidth={isActive ? meta.borderWidth + 1 : meta.borderWidth} strokeOpacity={0.85} />
+                        {/* HOT badge */}
+                        {hotColor && (
+                          <g>
+                            <circle cx={bePos.x + beNodeW - 6} cy={bePos.y + 6} r={7} fill={hotColor} stroke="#000" strokeWidth={1} strokeOpacity={0.4} />
+                            <text x={bePos.x + beNodeW - 6} y={bePos.y + 9} textAnchor="middle" fontSize={8} fontWeight={900} fill="#000">!</text>
+                          </g>
+                        )}
                         <text x={bePos.x + 8} y={bePos.y + 15} fontSize={11} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
                           {shortName}
                         </text>
@@ -13975,21 +14054,26 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                   })()}
                 </svg>
 
-                {/* === Time-Lapse Spike Strip === */}
-                {navTlEnabled && navTlBucketList.length > 0 && (
-                  <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)" }}>
-                    <Flex alignItems="center" justifyContent="space-between" gap={8} style={{ marginBottom: 6 }}>
-                      <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, fontWeight: 700 }}>Hotness spike strip</span>
-                      <span style={{ fontSize: 10, opacity: 0.5 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
-                    </Flex>
-                    {(() => {
-                      const maxHot = Math.max(0.5, ...navTlSpikeStrip);
-                      const stripW = 800;
-                      const stripH = 42;
-                      const barW = stripW / Math.max(1, navTlBucketList.length);
-                      const cursorX = (navTlIndex + 0.5) * barW;
-                      return (
-                        <svg width="100%" height={stripH + 14} viewBox={`0 0 ${stripW} ${stripH + 14}`} preserveAspectRatio="none" style={{ display: "block", cursor: "pointer" }}
+                {/* === Time-Lapse Spike Strips (Frontend + Backend) === */}
+                {navTlEnabled && navTlBucketList.length > 0 && (() => {
+                  const stripW = 800;
+                  const stripH = 42;
+                  const barW = stripW / Math.max(1, navTlBucketList.length);
+                  const cursorX = (Math.min(navTlIndex, navTlBucketList.length - 1) + 0.5) * barW;
+                  const renderStrip = (label: string, sub: string, strip: number[], accent: string) => {
+                    const maxHot = Math.max(0.5, ...strip);
+                    const anyHot = strip.some(v => v >= 1.5);
+                    return (
+                      <div>
+                        <Flex alignItems="center" justifyContent="space-between" gap={8} style={{ marginBottom: 4 }}>
+                          <Flex alignItems="center" gap={6}>
+                            <div style={{ width: 3, height: 12, background: accent, borderRadius: 1 }} />
+                            <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.75, fontWeight: 700, color: accent }}>{label}</span>
+                            <span style={{ fontSize: 10, opacity: 0.45 }}>{sub}</span>
+                          </Flex>
+                          <span style={{ fontSize: 10, opacity: 0.45, fontFamily: "monospace" }}>peak z={maxHot.toFixed(1)}{anyHot ? "" : " (calm)"}</span>
+                        </Flex>
+                        <svg width="100%" height={stripH + 10} viewBox={`0 0 ${stripW} ${stripH + 10}`} preserveAspectRatio="none" style={{ display: "block", cursor: "pointer" }}
                           onClick={(e) => {
                             const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
                             const ratio = (e.clientX - rect.left) / rect.width;
@@ -13998,31 +14082,40 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                             setNavTlIndex(idx);
                           }}
                         >
-                          {navTlSpikeStrip.map((h, i) => {
+                          {strip.map((h, i) => {
                             const bh = Math.max(2, (h / maxHot) * stripH);
-                            const color = h >= 2.5 ? RED : h >= 1.5 ? ORANGE : h >= 0.75 ? YELLOW : "rgba(69,137,255,0.6)";
+                            const color = h >= 2.5 ? TL_HOT_HIGH : h >= 1.5 ? TL_HOT_WARM : h >= 0.75 ? TL_HOT_ELEV : "rgba(69,137,255,0.55)";
                             const isCurrent = i === Math.min(navTlIndex, navTlBucketList.length - 1);
                             return (
-                              <rect key={i} x={i * barW + 0.3} y={stripH - bh} width={Math.max(1, barW - 0.6)} height={bh} fill={color} opacity={isCurrent ? 1 : 0.75} />
+                              <rect key={i} x={i * barW + 0.3} y={stripH - bh} width={Math.max(1, barW - 0.6)} height={bh} fill={color} opacity={isCurrent ? 1 : 0.8} />
                             );
                           })}
-                          {/* Cursor */}
                           <line x1={cursorX} y1={0} x2={cursorX} y2={stripH} stroke="#fff" strokeWidth={1.5} strokeOpacity={0.85} />
-                          <polygon points={`${cursorX - 5},${stripH + 2} ${cursorX + 5},${stripH + 2} ${cursorX},${stripH + 10}`} fill="#fff" opacity={0.9} />
-                          {/* Baseline label */}
-                          <text x={4} y={12} fontSize={9} fill="rgba(255,255,255,0.55)">peak z={maxHot.toFixed(1)}</text>
+                          <polygon points={`${cursorX - 5},${stripH + 2} ${cursorX + 5},${stripH + 2} ${cursorX},${stripH + 8}`} fill="#fff" opacity={0.9} />
                         </svg>
-                      );
-                    })()}
-                    <Flex alignItems="center" gap={12} style={{ marginTop: 4, fontSize: 10, opacity: 0.6 }}>
-                      <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: "rgba(69,137,255,0.6)", borderRadius: 2 }} /><span>Normal</span></Flex>
-                      <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: YELLOW, borderRadius: 2 }} /><span>Elevated</span></Flex>
-                      <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: ORANGE, borderRadius: 2 }} /><span>Warm</span></Flex>
-                      <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: RED, borderRadius: 2 }} /><span>Hot spike</span></Flex>
-                      <span style={{ marginLeft: "auto" }}>Click any bar to jump to that moment.</span>
-                    </Flex>
-                  </div>
-                )}
+                      </div>
+                    );
+                  };
+                  return (
+                    <div style={{ marginTop: 8, padding: "10px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)" }}>
+                      <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, opacity: 0.65, fontWeight: 600 }}>Hotness spike strips — click a bar to jump</span>
+                        <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
+                      </Flex>
+                      <Flex flexDirection="column" gap={12}>
+                        {renderStrip("Frontend", "pages · sessions · load", navTlSpikeStripFE, "#4589FF")}
+                        {renderStrip("Backend", "services · edges · latency", navTlSpikeStripBE, "#A56EFF")}
+                      </Flex>
+                      <Flex alignItems="center" gap={12} style={{ marginTop: 8, fontSize: 10, opacity: 0.6, flexWrap: "wrap" }}>
+                        <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: "rgba(69,137,255,0.55)", borderRadius: 2 }} /><span>Normal</span></Flex>
+                        <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_ELEV, borderRadius: 2 }} /><span>Elevated</span></Flex>
+                        <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_WARM, borderRadius: 2 }} /><span>Warm</span></Flex>
+                        <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_HIGH, borderRadius: 2 }} /><span>Hot spike</span></Flex>
+                        <span style={{ marginLeft: "auto" }}>Compare rows to see if a spike is frontend-driven or backend-driven.</span>
+                      </Flex>
+                    </div>
+                  );
+                })()}
 
                 {/* Legend */}
                 <Flex flexWrap="wrap" gap={12} style={{ marginTop: 10, padding: "7px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 6 }}>
