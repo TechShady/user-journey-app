@@ -33,12 +33,17 @@ export interface TimelapseState {
   index: number;
   totalBuckets: number;
   currentBucketKey: string;
+  hotness: number[];              // Per-bucket severity scores (Z-scores). Rendered as the shared hotness strip.
+  hotnessSource: string;          // Short label describing where the hotness came from (e.g. "Funnel drop-offs").
+  isLoading: boolean;             // At least one subscriber is fetching its per-bucket data.
   setEnabled: (v: boolean) => void;
   setBucket: (v: TlBucket) => void;
   setSpeedMs: (v: number) => void;
   setPlaying: React.Dispatch<React.SetStateAction<boolean>>;
   setIndex: React.Dispatch<React.SetStateAction<number>>;
   reportBuckets: (total: number, currentKey?: string) => void;
+  reportHotness: (arr: number[], source?: string) => void;
+  reportLoading: (source: string, loading: boolean) => void;
 }
 
 const TimelapseCtx = createContext<TimelapseState | null>(null);
@@ -57,6 +62,9 @@ export const TimelapseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [index, setIndex] = useState(0);
   const [totalBuckets, setTotalBuckets] = useState(0);
   const [currentBucketKey, setCurrentBucketKey] = useState("");
+  const [hotness, setHotness] = useState<number[]>([]);
+  const [hotnessSource, setHotnessSource] = useState<string>("");
+  const [loadingSources, setLoadingSources] = useState<Set<string>>(() => new Set());
 
   const totalRef = useRef(0);
   useEffect(() => { totalRef.current = totalBuckets; }, [totalBuckets]);
@@ -65,6 +73,12 @@ export const TimelapseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     setIndex(0);
     setPlaying(false);
+    if (!enabled) {
+      // Clear published hotness/loading when TL is turned off so stale state doesn't leak into future sessions.
+      setHotness([]);
+      setHotnessSource("");
+      setLoadingSources(new Set());
+    }
   }, [bucket, enabled]);
 
   // Advance the play cursor while playing.
@@ -90,10 +104,29 @@ export const TimelapseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (key != null) setCurrentBucketKey(key);
   }, []);
 
+  const reportHotness = useCallback((arr: number[], source?: string) => {
+    setHotness(arr);
+    if (source != null) setHotnessSource(source);
+  }, []);
+
+  const reportLoading = useCallback((source: string, loading: boolean) => {
+    setLoadingSources(prev => {
+      const has = prev.has(source);
+      if (loading && has) return prev;
+      if (!loading && !has) return prev;
+      const next = new Set(prev);
+      if (loading) next.add(source); else next.delete(source);
+      return next;
+    });
+  }, []);
+
+  const isLoading = loadingSources.size > 0;
+
   const value = useMemo<TimelapseState>(() => ({
     enabled, bucket, speedMs, playing, index, totalBuckets, currentBucketKey,
-    setEnabled, setBucket, setSpeedMs, setPlaying, setIndex, reportBuckets,
-  }), [enabled, bucket, speedMs, playing, index, totalBuckets, currentBucketKey, reportBuckets]);
+    hotness, hotnessSource, isLoading,
+    setEnabled, setBucket, setSpeedMs, setPlaying, setIndex, reportBuckets, reportHotness, reportLoading,
+  }), [enabled, bucket, speedMs, playing, index, totalBuckets, currentBucketKey, hotness, hotnessSource, isLoading, reportBuckets, reportHotness, reportLoading]);
 
   return <TimelapseCtx.Provider value={value}>{children}</TimelapseCtx.Provider>;
 };

@@ -87,7 +87,7 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.59.1";
+const APP_VERSION_LABEL = "4.60.0";
 
 
 
@@ -4124,8 +4124,8 @@ export function UserJourney() {
   const geoConversionData = useDql({ query: geoConversionQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const geoPriorPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays, frontend, steps, true) }, refetchOpts);
   const geoFunnelBounceData = useDql({ query: geoFunnelBounceQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const [mapTlBucket, setMapTlBucket] = useState<TlBucket>("1h");
-  const mapTimelapseData = useDql({ query: mapTimelapseQuery(timeframeDays, frontend, steps, mapTlBucket) }, refetchOpts);
+  // Maps time-lapse now uses the global TimelapseContext bucket. Only fires when TL is on to save quota.
+  const mapTimelapseData = useDql({ query: tl.enabled ? mapTimelapseQuery(timeframeDays, frontend, steps, tl.bucket) : "fetch user.events | limit 0" }, refetchOpts);
   const osVersionData = useDql({ query: osVersionQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const navPathConvData = useDql({ query: navPathConversionQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const clickReplayData = useDql({ query: clickIssuesReplayQuery(timeframeDays, frontend) }, refetchOpts);
@@ -4456,15 +4456,59 @@ export function UserJourney() {
                   style={{ flex: 1, accentColor: "#4589FF" }}
                 />
                 <span style={{ fontSize: 11, opacity: 0.7, fontFamily: "monospace", minWidth: 90, textAlign: "right" }}>
-                  {tl.totalBuckets === 0 ? "no data" : `${tl.index + 1} / ${tl.totalBuckets}`}
+                  {tl.isLoading && tl.totalBuckets === 0
+                    ? <><span className="uj-tl-spinner" style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", border: "2px solid rgba(69,137,255,0.3)", borderTopColor: "#4589FF", verticalAlign: "middle", marginRight: 6 }} /> Loading…</>
+                    : tl.totalBuckets === 0 ? "no data" : `${tl.index + 1} / ${tl.totalBuckets}`}
                 </span>
               </div>
+              {tl.isLoading && tl.totalBuckets > 0 && (
+                <span className="uj-tl-spinner" style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", border: "2px solid rgba(69,137,255,0.3)", borderTopColor: "#4589FF" }} title="Fetching bucketed data" />
+              )}
               {tl.currentBucketKey && (
                 <span style={{ fontSize: 11, opacity: 0.55, fontFamily: "monospace" }}>{tl.currentBucketKey}</span>
               )}
             </>
           )}
         </Flex>
+        {/* Shared hotness strip — populated by whichever viz publishes via reportHotness */}
+        {tl.enabled && tl.hotness.length > 0 && (() => {
+          const stripH = 26;
+          const maxHot = Math.max(0.5, ...tl.hotness);
+          const bars = tl.hotness;
+          const barCount = bars.length;
+          const cursorIdx = Math.min(tl.index, Math.max(0, barCount - 1));
+          return (
+            <div style={{ marginTop: 8, padding: "6px 4px 4px", borderTop: "1px solid rgba(69,137,255,0.15)" }}>
+              <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 4 }}>
+                <span style={{ fontSize: 10, opacity: 0.6, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase" }}>Hotness · {tl.hotnessSource || "signal"}</span>
+                <Flex alignItems="center" gap={8}>
+                  <span style={{ fontSize: 10, opacity: 0.55 }}><span style={{ display: "inline-block", width: 8, height: 8, background: "#4589FF", borderRadius: 2, marginRight: 4, verticalAlign: "middle" }} />Normal</span>
+                  <span style={{ fontSize: 10, opacity: 0.55 }}><span style={{ display: "inline-block", width: 8, height: 8, background: TL_HOT_ELEV, borderRadius: 2, marginRight: 4, verticalAlign: "middle" }} />Elevated</span>
+                  <span style={{ fontSize: 10, opacity: 0.55 }}><span style={{ display: "inline-block", width: 8, height: 8, background: TL_HOT_WARM, borderRadius: 2, marginRight: 4, verticalAlign: "middle" }} />Warm</span>
+                  <span style={{ fontSize: 10, opacity: 0.55 }}><span style={{ display: "inline-block", width: 8, height: 8, background: TL_HOT_HIGH, borderRadius: 2, marginRight: 4, verticalAlign: "middle" }} />Spike</span>
+                  <span style={{ fontSize: 10, opacity: 0.55, fontFamily: "monospace" }}>peak z={maxHot.toFixed(1)}</span>
+                </Flex>
+              </Flex>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 1, height: stripH, cursor: "pointer" }}>
+                {bars.map((v, i) => {
+                  const norm = Math.min(1, v / maxHot);
+                  const color = v >= 2.5 ? TL_HOT_HIGH : v >= 1.5 ? TL_HOT_WARM : v >= 0.75 ? TL_HOT_ELEV : "#4589FF";
+                  const opacity = i === cursorIdx ? 1 : 0.65;
+                  const h = Math.max(2, norm * stripH);
+                  return (
+                    <div
+                      key={i}
+                      onClick={() => { tl.setPlaying(false); tl.setIndex(i); }}
+                      title={`bucket ${i + 1} · z=${v.toFixed(2)}`}
+                      style={{ flex: 1, height: h, background: color, opacity, borderRadius: 1, transition: "opacity 0.15s", outline: i === cursorIdx ? "1px solid rgba(255,255,255,0.85)" : "none" }}
+                    />
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 10, opacity: 0.4, marginTop: 2, textAlign: "right" }}>Click a bar to jump to that moment</div>
+            </div>
+          );
+        })()}
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
       <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
@@ -4848,7 +4892,7 @@ export function UserJourney() {
             case "Click Issues": content = <ClickIssuesTab data={clickIssuesData} replayData={clickReplayData} isLoading={clickIssuesData.isLoading} frontend={frontend} onDrillToForecast={openForecast} />; break;
             case "Perf Budgets": content = <PerfBudgetsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading || qualityDataPrev.isLoading} saveState={saveState} savedThresholds={savedBudgetThresholds} onDrillToForecast={openForecast} />; break;
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} networkData={geoNetworkData} conversionData={geoConversionData} onDrillToForecast={openForecast} />; break;
-            case "Maps": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} timelapseData={mapTimelapseData} conversionData={geoConversionData} funnelBounceData={geoFunnelBounceData} tlBucket={mapTlBucket} onBucketChange={setMapTlBucket} onDrillToForecast={openForecast} priorData={geoPriorPerformanceData} />; break;
+            case "Maps": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} timelapseData={mapTimelapseData} conversionData={geoConversionData} funnelBounceData={geoFunnelBounceData} onDrillToForecast={openForecast} priorData={geoPriorPerformanceData} />; break;
             case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} navPathConvData={navPathConvData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} backendServicesData={backendServicesData} serviceToServiceData={serviceToServiceData} frontend={funnelDrillFrontend} timeframeDays={timeframeDays} onDrillToForecast={openForecast} />; break;
             case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} onDrillToForecast={openForecast} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov}  davisProblemsData={davisProblemsData} onDrillToForecast={openForecast} />; break;
@@ -8597,6 +8641,17 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     });
   }, [funnelTlBucketList, funnelTlBuckets, funnelTlBaselines, steps]);
 
+  // Publish hotness + loading state to the global TL header so the shared strip renders on every tab.
+  React.useEffect(() => {
+    if (!funnelTlEnabled) return;
+    tl.reportHotness(funnelTlSpikeStrip, "Funnel drop-offs · entry-traffic Z-score");
+  }, [funnelTlEnabled, funnelTlSpikeStrip, tl]);
+  React.useEffect(() => {
+    if (!funnelTlEnabled) return;
+    tl.reportLoading("funnel", !!funnelTlData.isLoading);
+    return () => tl.reportLoading("funnel", false);
+  }, [funnelTlEnabled, funnelTlData.isLoading, tl]);
+
   // Per-step hotness for current bucket — used to highlight the step that's degraded
   const funnelTlStepHot = React.useMemo(() => {
     if (!funnelTlEnabled || funnelTlBucketList.length === 0) return steps.map(() => 0);
@@ -8619,6 +8674,13 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     const b = funnelTlBucketList[Math.min(funnelTlIndex, funnelTlBucketList.length - 1)];
     return funnelTlBuckets.get(b) ?? funnelCounts;
   }, [funnelTlEnabled, funnelTlBucketList, funnelTlIndex, funnelTlBuckets, funnelCounts]);
+
+  // Conversion rate derived from the active (bucket-aware) counts — used by the Conversion Rate KPI card so it animates during TL playback.
+  const activeOverallConv = React.useMemo(() => {
+    const first = activeFunnelCounts[0];
+    const last = activeFunnelCounts[activeFunnelCounts.length - 1];
+    return first > 0 ? (last / first) * 100 : 0;
+  }, [activeFunnelCounts]);
 
   const funnelTlCurrentKey = funnelTlEnabled && funnelTlBucketList.length > 0
     ? funnelTlBucketList[Math.min(funnelTlIndex, funnelTlBucketList.length - 1)]
@@ -8784,28 +8846,28 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
       {/* KPI row */}
       <Flex gap={16} flexWrap="wrap">
         <KpiCard
-          label="Total Sessions"
-          value={fmtCount(funnelCounts[0])}
+          label={funnelTlEnabled ? "Total Sessions (bucket)" : "Total Sessions"}
+          value={fmtCount(activeFunnelCounts[0])}
           color={BLUE}
-          rawValue={funnelCounts[0]}
+          rawValue={activeFunnelCounts[0]}
           prevRawValue={funnelCountsPrev[0] ?? null}
           sparkline={sparkSeries.sessions}
           onDrillToForecast={onDrillToForecast}
         />
         <KpiCard
-          label="Conversions"
-          value={fmtCount(funnelCounts[funnelCounts.length - 1])}
+          label={funnelTlEnabled ? "Conversions (bucket)" : "Conversions"}
+          value={fmtCount(activeFunnelCounts[activeFunnelCounts.length - 1])}
           color={GREEN}
-          rawValue={funnelCounts[funnelCounts.length - 1]}
+          rawValue={activeFunnelCounts[activeFunnelCounts.length - 1]}
           prevRawValue={funnelCountsPrev[funnelCountsPrev.length - 1] ?? null}
           sparkline={sparkSeries.conversions}
           onDrillToForecast={onDrillToForecast}
         />
         <KpiCard
-          label="Conversion Rate"
-          value={fmtPct(overallConv)}
-          color={statusClr(overallConv)}
-          rawValue={overallConv}
+          label={funnelTlEnabled ? "Conversion Rate (bucket)" : "Conversion Rate"}
+          value={fmtPct(activeOverallConv)}
+          color={statusClr(activeOverallConv)}
+          rawValue={activeOverallConv}
           prevRawValue={overallConvPrev}
           sparkline={sparkSeries.convRate}
           onDrillToForecast={onDrillToForecast}
@@ -11043,7 +11105,8 @@ const TL_BUCKET_LABELS: Record<TlBucket, string> = { "1m": "1 min", "5m": "5 min
 const TL_BUCKET_MS: Record<TlBucket, number> = { "1m": 60000, "5m": 300000, "10m": 600000, "30m": 1800000, "1h": 3600000 };
 type MapView = "world" | "us" | "globe";
 
-function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0, overallConv = 0, timelapseData, conversionData, funnelBounceData, tlBucket = "1h", onBucketChange, onDrillToForecast, priorData }: { data: any; isLoading: boolean; frontend: string; defaultView?: MapView; aov?: number; overallConv?: number; timelapseData?: any; conversionData?: any; funnelBounceData?: any; tlBucket?: TlBucket; onBucketChange?: (b: TlBucket) => void; onDrillToForecast?: (label: string, sparkline: number[], color?: string) => void; priorData?: any }) {
+function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0, overallConv = 0, timelapseData, conversionData, funnelBounceData, onDrillToForecast, priorData }: { data: any; isLoading: boolean; frontend: string; defaultView?: MapView; aov?: number; overallConv?: number; timelapseData?: any; conversionData?: any; funnelBounceData?: any; onDrillToForecast?: (label: string, sparkline: number[], color?: string) => void; priorData?: any }) {
+  const tl = useTimelapse();
   const [metric, setMetric] = useState<MapMetric>("sessions");
   const [mapView, setMapView] = useState<MapView>(defaultView);
   const [animKey, setAnimKey] = useState(0);
@@ -11051,11 +11114,10 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
   const [hasUserChanged, setHasUserChanged] = useState(false);
   const [deltaMode, setDeltaMode] = useState(false);
   const [selectedCountryIso, setSelectedCountryIso] = useState<string | null>(null);
-  // Time-lapse state
-  const [tlPlaying, setTlPlaying] = useState(false);
-  const [tlIndex, setTlIndex] = useState(0);
-  const [tlMode, setTlMode] = useState(false);
-  const tlRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  // Time-lapse state — now driven by the global TimelapseContext.
+  const tlPlaying = tl.playing;
+  const tlIndex = tl.index;
+  const tlMode = tl.enabled;
   const tlTotalRef = React.useRef(0);
   // Globe rotation state (must be at top level — Rules of Hooks)
   const [rotLng, setRotLng] = useState(0);
@@ -11096,20 +11158,74 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
   useEffect(() => () => { if (spinRef.current) clearInterval(spinRef.current); }, []);
   // Sync with saved default if user hasn't manually changed yet
   useEffect(() => { if (!hasUserChanged) setMapView(defaultView); }, [defaultView, hasUserChanged]);
-  // Time-lapse auto-advance interval
-  useEffect(() => {
-    if (tlPlaying && tlMode) {
-      tlRef.current = setInterval(() => {
-        setTlIndex((i) => {
-          const next = i + 1;
-          if (next >= tlTotalRef.current) { setTlPlaying(false); return i; }
-          return next;
-        });
-      }, 1200);
-    } else { if (tlRef.current) { clearInterval(tlRef.current); tlRef.current = null; } }
-    return () => { if (tlRef.current) { clearInterval(tlRef.current); tlRef.current = null; } };
-  }, [tlPlaying, tlMode]);
+  // Time-lapse auto-advance is handled globally by TimelapseProvider — no local timer needed.
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeMapByMetric(data, metric, conversionData), [data, metric, conversionData]));
+
+  // Parse timelapse data into hourly snapshots — memoized so effect deps are stable across renders.
+  // MUST be defined before the early return below to satisfy Rules of Hooks.
+  const tlLoading = timelapseData?.isLoading ?? false;
+  const tlRecordsRef = timelapseData?.data?.records;
+  const mapsTlDerived = React.useMemo(() => {
+    const buckets = new Map<string, Map<string, { sessions: number; actions: number; avgDur: number; errors: number; sat: number; tol: number; fru: number; lcp: number; cls: number; inp: number }>>();
+    const rowsArr = (tlRecordsRef ?? []) as any[];
+    rowsArr.forEach((r: any) => {
+      const rawHour = r.hour_bucket;
+      const hour = typeof rawHour === "string" ? rawHour : (rawHour?.value ?? rawHour?.toString?.() ?? "");
+      const country = String(r.country ?? "").toUpperCase();
+      if (!hour || !country) return;
+      if (!buckets.has(hour)) buckets.set(hour, new Map());
+      const b = buckets.get(hour)!;
+      b.set(country, {
+        sessions: Number(r.sessions ?? 0),
+        actions: Number(r.actions ?? 0),
+        avgDur: Number(r.avg_dur ?? 0),
+        errors: Number(r.errors ?? 0),
+        sat: Number(r.satisfied ?? 0),
+        tol: Number(r.tolerating ?? 0),
+        fru: Number(r.frustrated ?? 0),
+        lcp: Number(r.lcp_avg ?? 0),
+        cls: Number(r.cls_avg ?? 0),
+        inp: Number(r.inp_avg ?? 0),
+      });
+    });
+    const hours = Array.from(buckets.keys()).sort();
+    // Per-bucket total-sessions Z-score strip.
+    let hot: number[] = [];
+    if (hours.length > 0) {
+      const totals = hours.map(h => {
+        let sum = 0;
+        const bucket = buckets.get(h);
+        if (bucket) bucket.forEach(v => { sum += v.sessions; });
+        return sum;
+      });
+      const mean = totals.reduce((a, b) => a + b, 0) / Math.max(1, totals.length);
+      const variance = totals.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, totals.length);
+      const std = Math.max(Math.sqrt(variance), 0.5);
+      hot = totals.map(v => Math.abs(v - mean) / std);
+    }
+    return { buckets, hours, hot };
+  }, [tlRecordsRef]);
+  tlTotalRef.current = mapsTlDerived.hours.length;
+
+  // Publish bucket count + current key to the global TL header so the shared strip renders on the Maps tab.
+  React.useEffect(() => {
+    if (!tl.enabled) return;
+    const hours = mapsTlDerived.hours;
+    const key = hours.length > 0 ? hours[Math.min(tl.index, hours.length - 1)] ?? "" : "";
+    tl.reportBuckets(hours.length, key);
+  }, [tl.enabled, mapsTlDerived.hours, tl.index, tl]);
+  // Publish loading state so the header shows a spinner while Maps TL query is pending.
+  React.useEffect(() => {
+    if (!tl.enabled) return;
+    tl.reportLoading("maps", !!tlLoading);
+    return () => tl.reportLoading("maps", false);
+  }, [tl.enabled, tlLoading, tl]);
+  // Publish hotness — per-bucket Z-score of aggregate session traffic vs the map's own mean.
+  React.useEffect(() => {
+    if (!tl.enabled || mapsTlDerived.hot.length === 0) return;
+    tl.reportHotness(mapsTlDerived.hot, "Global traffic volume Z-score");
+  }, [tl.enabled, mapsTlDerived.hot, tl]);
+
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -11145,35 +11261,13 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
     });
   });
 
-  // Parse timelapse data into hourly snapshots
-  const tlLoading = timelapseData?.isLoading ?? false;
+  // Parse timelapse data into hourly snapshots — see mapsTlDerived above (memoized before the early return).
   const tlError = timelapseData?.error;
   const tlRows = (timelapseData?.data?.records ?? []) as any[];
   if (tlRows.length > 0) console.log("[TimeLapse] row0:", JSON.stringify(tlRows[0]), "hour_bucket type:", typeof tlRows[0]?.hour_bucket, "value:", tlRows[0]?.hour_bucket);
-  const hourBuckets = new Map<string, Map<string, { sessions: number; actions: number; avgDur: number; errors: number; sat: number; tol: number; fru: number; lcp: number; cls: number; inp: number }>>();
-  tlRows.forEach((r: any) => {
-    const rawHour = r.hour_bucket;
-    const hour = typeof rawHour === "string" ? rawHour : (rawHour?.value ?? rawHour?.toString?.() ?? "");
-    const country = String(r.country ?? "").toUpperCase();
-    if (!hour || !country) return;
-    if (!hourBuckets.has(hour)) hourBuckets.set(hour, new Map());
-    const bucket = hourBuckets.get(hour)!;
-    bucket.set(country, {
-      sessions: Number(r.sessions ?? 0),
-      actions: Number(r.actions ?? 0),
-      avgDur: Number(r.avg_dur ?? 0),
-      errors: Number(r.errors ?? 0),
-      sat: Number(r.satisfied ?? 0),
-      tol: Number(r.tolerating ?? 0),
-      fru: Number(r.frustrated ?? 0),
-      lcp: Number(r.lcp_avg ?? 0),
-      cls: Number(r.cls_avg ?? 0),
-      inp: Number(r.inp_avg ?? 0),
-    });
-  });
-  const sortedHours = Array.from(hourBuckets.keys()).sort();
+  const hourBuckets = mapsTlDerived.buckets;
+  const sortedHours = mapsTlDerived.hours;
   const tlTotal = sortedHours.length;
-  tlTotalRef.current = tlTotal;
 
   // Aggregate by ISO alpha-2 country code
   const countryMap = new Map<string, { sessions: number; actions: number; avgDur: number; errors: number; sat: number; tol: number; fru: number; lcpSum: number; lcpCount: number; clsSum: number; clsCount: number; inpSum: number; inpCount: number; countryName: string }>();
@@ -11512,59 +11606,30 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
         </Flex>
       </Flex>
 
-      {/* Time-Lapse Controls */}
+      {/* Time-Lapse status — controls live in the global TL header at the top of the page. */}
       {(mapView === "world" || mapView === "globe") && (
-        <Flex alignItems="center" gap={12} style={{ background: "rgba(128,128,128,0.06)", borderRadius: 8, padding: "10px 16px", border: "1px solid rgba(128,128,128,0.15)", flexWrap: "wrap" }}>
-          <button
-            onClick={() => {
-              if (tlTotal < 2) return;
-              if (!tlMode) { setTlMode(true); setTlPlaying(true); setTlIndex(0); }
-              else { setTlMode(false); setTlPlaying(false); if (tlRef.current) { clearInterval(tlRef.current); tlRef.current = null; } }
-            }}
-            style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${tlMode ? ORANGE : "rgba(128,128,128,0.3)"}`, background: tlMode ? `${ORANGE}22` : "transparent", color: tlTotal < 2 ? "rgba(128,128,128,0.35)" : tlMode ? ORANGE : "rgba(128,128,128,0.7)", fontSize: 12, fontWeight: tlMode ? 700 : 400, cursor: tlTotal < 2 ? "default" : "pointer" }}
-          >
-            {tlMode ? "⏹ Exit Time-Lapse" : "▶ Time-Lapse"}
-          </button>
+        <Flex alignItems="center" gap={12} style={{ background: "rgba(128,128,128,0.06)", borderRadius: 8, padding: "8px 14px", border: "1px solid rgba(128,128,128,0.15)", flexWrap: "wrap" }}>
           <button
             onClick={() => setDeltaMode(d => !d)}
             style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${deltaMode ? "#69f0ae" : "rgba(128,128,128,0.3)"}`, background: deltaMode ? "rgba(105,240,174,0.12)" : "transparent", color: deltaMode ? "#69f0ae" : "rgba(128,128,128,0.7)", fontSize: 12, fontWeight: deltaMode ? 700 : 400, cursor: "pointer" }}
           >
             Δ vs Prior Period
           </button>
-          <select
-            value={tlBucket}
-            onChange={(e) => { onBucketChange?.(e.target.value as TlBucket); setTlIndex(0); setTlPlaying(false); }}
-            style={{ padding: "4px 8px", borderRadius: 5, border: "1px solid rgba(128,128,128,0.3)", background: "#1a1e2e", color: "#e0e0e0", fontSize: 11, cursor: "pointer" }}
-          >
-            {(["1m", "5m", "10m", "30m", "1h"] as TlBucket[]).map((b) => (
-              <option key={b} value={b} style={{ background: "#1a1e2e", color: "#e0e0e0" }}>{TL_BUCKET_LABELS[b]}</option>
-            ))}
-          </select>
-          {tlLoading && <Text style={{ fontSize: 11, opacity: 0.5 }}>Loading hourly data…</Text>}
-          {!tlLoading && tlError && <Text style={{ fontSize: 11, color: RED }}>Error: {String(tlError?.message ?? tlError)}</Text>}
-          {!tlLoading && !tlError && tlTotal < 2 && <Text style={{ fontSize: 11, opacity: 0.4 }}>No hourly snapshots ({tlRows.length} rows)</Text>}
-          {!tlLoading && tlTotal >= 2 && !tlMode && <Text style={{ fontSize: 11, opacity: 0.4 }}>{tlTotal} hourly snapshots</Text>}
-          {tlMode && (
+          {tlMode ? (
             <>
-              <button
-                onClick={() => { setTlPlaying(!tlPlaying); }}
-                style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.3)", background: "transparent", color: "rgba(128,128,128,0.8)", fontSize: 12, cursor: "pointer" }}
-              >
-                {tlPlaying ? "⏸ Pause" : "▶ Play"}
-              </button>
-              <input
-                type="range"
-                min={0}
-                max={tlTotal - 1}
-                value={tlIndex}
-                onChange={(e) => { setTlIndex(Number(e.target.value)); setTlPlaying(false); }}
-                style={{ flex: 1, cursor: "pointer", accentColor: BLUE }}
-              />
-              <Text style={{ fontSize: 12, fontWeight: 600, minWidth: 140, textAlign: "center" }}>
-                {sortedHours[tlIndex] ? new Date(sortedHours[tlIndex].replace(" ", "T") + ":00Z").toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+              <Text style={{ fontSize: 11, opacity: 0.65 }}>
+                Time-Lapse active · bucket {TL_BUCKET_LABELS[tl.bucket]} ·
+                {tlLoading ? " loading…" : tlTotal < 2 ? ` no hourly snapshots (${tlRows.length} rows)` : ` ${tlTotal} snapshots`}
               </Text>
-              <Text style={{ fontSize: 11, opacity: 0.4 }}>{tlIndex + 1}/{tlTotal}</Text>
+              {tlMode && tlTotal >= 1 && (
+                <Text style={{ fontSize: 12, fontWeight: 600, minWidth: 140 }}>
+                  {sortedHours[Math.min(tlIndex, tlTotal - 1)] ? new Date(sortedHours[Math.min(tlIndex, tlTotal - 1)].replace(" ", "T") + ":00Z").toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                </Text>
+              )}
+              {tlError && <Text style={{ fontSize: 11, color: RED }}>Error: {String(tlError?.message ?? tlError)}</Text>}
             </>
+          ) : (
+            <Text style={{ fontSize: 11, opacity: 0.5 }}>Turn on Time-Lapse in the header to animate the map by time bucket.</Text>
           )}
         </Flex>
       )}
@@ -11603,7 +11668,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
                       if (bucketStr) {
                         // Parse bucket string "2026-05-18 10:00" → ISO range
                         const startDate = new Date(bucketStr.replace(" ", "T") + ":00Z");
-                        const endDate = new Date(startDate.getTime() + TL_BUCKET_MS[tlBucket]);
+                        const endDate = new Date(startDate.getTime() + TL_BUCKET_MS[tl.bucket]);
                         const tfVal = encodeURIComponent(`${startDate.toISOString()};${endDate.toISOString()}`);
                         const filter = `Frontends = ${frontend} Location = "${c.countryName}"`;
                         openLink(`${ENV_URL}/ui/apps/dynatrace.users.sessions/sessions/sessions?tf=${tfVal}&perspective=general#filtering=${encodeURIComponent(filter)}`);
@@ -12559,6 +12624,18 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const navTlSpikeStrip = React.useMemo(() => {
     return navTlBucketList.map((_, i) => (navTlSpikeStripFE[i] + navTlSpikeStripBE[i]) / 2);
   }, [navTlBucketList, navTlSpikeStripFE, navTlSpikeStripBE]);
+
+  // Publish hotness + loading state to the global TL header so the shared strip renders on every tab.
+  React.useEffect(() => {
+    if (!navTlEnabled) return;
+    tl.reportHotness(navTlSpikeStrip, "Navigation flow · FE+BE spike Z-score");
+  }, [navTlEnabled, navTlSpikeStrip, tl]);
+  React.useEffect(() => {
+    if (!navTlEnabled) return;
+    const loading = !!(navFlowTimelapsePagesData?.isLoading || navFlowTimelapseEdgesData?.isLoading);
+    tl.reportLoading("nav-flow", loading);
+    return () => tl.reportLoading("nav-flow", false);
+  }, [navTlEnabled, navFlowTimelapsePagesData?.isLoading, navFlowTimelapseEdgesData?.isLoading, tl]);
 
   const navData = hasScopedNavQuery ? scopedNavData : data;
   const loadingNow = (hasScopedNavQuery ? scopedNavData.isLoading : isLoading);
