@@ -87,7 +87,7 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.63.0";
+const APP_VERSION_LABEL = "4.64.0";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -95,6 +95,18 @@ const TL_ANIMATED_TABS = new Set<string>([
   "Funnel Overview", "Navigation Paths", "Maps", "Trends", "Web Vitals",
   "Perf Budgets", "Anomaly Detection", "Executive Summary", "Session Engagement",
   "Revenue Intelligence", "Cost per Conversion", "Cost per Transaction", "Performance Tax",
+  "Session Replay Spotlight", "SLO Tracker", "Root Cause Correlation", "Cohort Retention",
+  "Worst Sessions", "Resource Waterfall", "3rd Party Impact", "Geo Heatmap",
+  "Conversion Attribution", "Exceptions", "Error Clustering", "Step Details",
+]);
+// Sankey and its sub-tabs are intentionally NOT animated — they contain many derived sub-tabs
+// (Conversion Paths, Loops, Timing, Endpoints, Revenue Paths, Path Trends, Leakage, Velocity)
+// whose tiles are computed from timeframe-wide records and would need per-bucket re-queries.
+
+// Tabs where Time-Lapse fundamentally does not apply (forecasts, simulators, event-based comparisons).
+// These get a distinct "TL doesn't apply here" banner and their controls remain visible but inert.
+const TL_DISABLED_TABS = new Set<string>([
+  "Predictive Forecasting", "Change Intelligence", "What-If Analysis", "A/B Compare",
 ]);
 
 // Compact per-tab banner shown at the top of every sub-tab whenever Time-Lapse is on.
@@ -102,14 +114,20 @@ const TL_ANIMATED_TABS = new Set<string>([
 function TabTlBanner({ tabId }: { tabId: string }) {
   const tl = useTimelapse();
   if (!tl.enabled) return null;
-  const animated = TL_ANIMATED_TABS.has(tabId);
-  const bg = animated ? "rgba(69,137,255,0.10)" : "rgba(128,128,128,0.10)";
-  const border = animated ? "rgba(69,137,255,0.35)" : "rgba(128,128,128,0.25)";
-  const dot = animated ? "#4589FF" : "#B0B8C4";
+  const disabled = TL_DISABLED_TABS.has(tabId);
+  const animated = !disabled && TL_ANIMATED_TABS.has(tabId);
+  const bg = disabled ? "rgba(255,131,43,0.10)" : animated ? "rgba(69,137,255,0.10)" : "rgba(128,128,128,0.10)";
+  const border = disabled ? "rgba(255,131,43,0.35)" : animated ? "rgba(69,137,255,0.35)" : "rgba(128,128,128,0.25)";
+  const dot = disabled ? "#FF832B" : animated ? "#4589FF" : "#B0B8C4";
   return (
     <div style={{ margin: "8px 20px 12px 20px", padding: "6px 12px", background: bg, border: `1px solid ${border}`, borderRadius: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 11 }}>
       <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: dot }} />
-      {animated ? (
+      {disabled ? (
+        <>
+          <span style={{ fontWeight: 700, color: "#FF832B" }}>Time-Lapse does not apply to this tab.</span>
+          <span style={{ opacity: 0.65 }}>This view is forecast, simulation or comparison based and always shows the full selected timeframe. Time-Lapse controls remain visible but do not affect these metrics.</span>
+        </>
+      ) : animated ? (
         <>
           <span style={{ fontWeight: 700, color: "#4589FF" }}>Time-Lapse animating KPI values on this tab.</span>
           <span style={{ opacity: 0.65 }}>Tables and time-series charts remain aggregate.</span>
@@ -662,6 +680,46 @@ interface KpiCardProps {
   isLoading?: boolean;
   style?: React.CSSProperties;
 }
+
+// Time-Lapse effective-value helper. When TL is playing, returns per-bucket shared metrics
+// plus a `scale()` that proportionally scales any count metric by session ratio, and a `label()`
+// helper that suffixes "(bucket)" to KPI labels while TL is active.
+// Usage: const eff = useEffectiveTL(baseSessions);
+//   eff.on -> TL active
+//   eff.sessions / eff.apdex / eff.errorRate / eff.avgDurationMs / eff.p50Ms / eff.p90Ms / eff.errorCount / eff.frustrated
+//   eff.scale(count) -> count * (bucketSessions / baseSessions) when on, else count
+//   eff.label("Sessions") -> "Sessions (bucket)" when on
+function useEffectiveTL(baseSessions: number | undefined = undefined) {
+  const tl = useTimelapse();
+  const shared = tl.enabled ? tl.sharedMetrics : null;
+  const on = !!shared;
+  const ratio = shared && baseSessions && baseSessions > 0 ? shared.sessions / baseSessions : 1;
+  return {
+    on,
+    shared,
+    ratio,
+    sessions: shared ? shared.sessions : undefined,
+    totalActions: shared ? shared.totalActions : undefined,
+    apdex: shared ? shared.apdex : undefined,
+    errorRate: shared ? shared.errorRate : undefined,
+    avgDurationMs: shared ? shared.avgDurationMs : undefined,
+    p50Ms: shared ? shared.p50Ms : undefined,
+    p90Ms: shared ? shared.p90Ms : undefined,
+    p99Ms: shared ? shared.p99Ms : undefined,
+    errorCount: shared ? shared.errorCount : undefined,
+    satisfied: shared ? shared.satisfied : undefined,
+    tolerating: shared ? shared.tolerating : undefined,
+    frustrated: shared ? shared.frustrated : undefined,
+    lcp: shared ? shared.lcp : undefined,
+    cls: shared ? shared.cls : undefined,
+    inp: shared ? shared.inp : undefined,
+    ttfb: shared ? shared.ttfb : undefined,
+    loadMs: shared ? shared.loadMs : undefined,
+    scale: (v: number) => on ? v * ratio : v,
+    label: (s: string) => on ? `${s} (bucket)` : s,
+  };
+}
+
 function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, inverted = false, sparkline, onDrillToForecast, customContent, isLoading, style }: KpiCardProps) {
   const forecastOpener = useContext(ForecastContext);
   const correlationsCtx = useContext(CorrelationsContext);
@@ -9435,8 +9493,8 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
   const trends = [
     { label: tlShared ? "Sessions (bucket)" : "Sessions",      current: tlShared ? tlShared.sessions : quality.sessions,   prev: qualityPrev.sessions,   inverted: false, format: fmtCount,                         sparkKey: "sessions"   as string | null },
     { label: tlShared ? "Total Actions (bucket)" : "Total Actions", current: tlShared ? tlShared.totalActions : quality.total,      prev: qualityPrev.total,      inverted: false, format: fmtCount,                         sparkKey: "total"      as string | null },
-    { label: "Conversion Rate", current: overallConv,      prev: overallConvPrev,         inverted: false, format: fmtPct,                           sparkKey: "convRate" as string | null },
-    ...(aov > 0 ? [{ label: "Revenue",  current: currRevenue,        prev: prevRevenue,           inverted: false, format: fmtCurrency,                      sparkKey: "revenue" as string | null }] : []),
+    { label: tlShared ? "Conversion Rate (bucket)" : "Conversion Rate", current: tlShared ? Math.max(0, Math.min(100, overallConv * (overallApdex > 0 ? (tlShared.apdex / overallApdex) : 1))) : overallConv, prev: overallConvPrev, inverted: false, format: fmtPct, sparkKey: "convRate" as string | null },
+    ...(aov > 0 ? [{ label: tlShared ? "Revenue (bucket)" : "Revenue", current: tlShared && quality.sessions > 0 ? currRevenue * (tlShared.sessions / quality.sessions) : currRevenue, prev: prevRevenue, inverted: false, format: fmtCurrency, sparkKey: "revenue" as string | null }] : []),
     { label: tlShared ? "Apdex (bucket)" : "Apdex",         current: tlShared ? tlShared.apdex : overallApdex,       prev: overallApdexPrev,        inverted: false, format: (v: number) => v.toFixed(2),     sparkKey: "apdex"      as string | null },
     { label: tlShared ? "Avg Duration (bucket)" : "Avg Duration",  current: tlShared ? tlShared.avgDurationMs : quality.avg,        prev: qualityPrev.avg,         inverted: true,  format: fmt,                             sparkKey: "avg_dur"    as string | null },
     { label: tlShared ? "P50 Duration (bucket)" : "P50 Duration",  current: tlShared ? tlShared.p50Ms : quality.p50,        prev: qualityPrev.p50,         inverted: true,  format: fmt,                             sparkKey: "p50_dur"    as string | null },
@@ -9784,6 +9842,7 @@ function StepDetailsTab({ stepMap, stepMapPrev, stepSparklines, pageMap, pageMap
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeStepDetails(stepMap, steps, funnelCounts), [stepMap, steps, funnelCounts]));
   const [compareSteps, setCompareSteps] = React.useState<Set<number>>(new Set());
   const [cwvSteps, setCwvSteps] = React.useState<Set<number>>(new Set());
+  const eff = useEffectiveTL();
 
   const toggleCwv = (idx: number) => {
     setCwvSteps(prev => {
@@ -9838,16 +9897,29 @@ function StepDetailsTab({ stepMap, stepMapPrev, stepSparklines, pageMap, pageMap
     return <span style={{ fontSize: 11, color: clr, fontWeight: 600, marginLeft: 4 }}>{arrow}{Math.abs(pct).toFixed(1)}%{suffix}</span>;
   };
 
-  const renderMetricRow = (label: string, met: ReturnType<typeof extractMetrics>, primaryMet?: ReturnType<typeof extractMetrics>, isPrimary = false, sparklines?: { avgDur: number[]; p50: number[]; p90: number[]; p99: number[]; total: number[]; errors: number[]; errRate: number[] }, prevMet?: ReturnType<typeof extractMetrics>) => (
+  const renderMetricRow = (label: string, met: ReturnType<typeof extractMetrics>, primaryMet?: ReturnType<typeof extractMetrics>, isPrimary = false, sparklines?: { avgDur: number[]; p50: number[]; p90: number[]; p99: number[]; total: number[]; errors: number[]; errRate: number[] }, prevMet?: ReturnType<typeof extractMetrics>) => {
+    // TL effective values — override with tlShared when active
+    const durF = eff.on && eff.avgDurationMs != null && met.avg > 0 ? eff.avgDurationMs / met.avg : 1;
+    const p50F = eff.on && eff.p50Ms != null && met.p50 > 0 ? eff.p50Ms / met.p50 : durF;
+    const p90F = eff.on && eff.p90Ms != null && met.p90 > 0 ? eff.p90Ms / met.p90 : durF;
+    const p99F = eff.on && eff.p99Ms != null && met.p99 > 0 ? eff.p99Ms / met.p99 : durF;
+    const errRateEff = eff.on && eff.errorRate != null ? eff.errorRate : met.errRate;
+    const effAvg = eff.on ? met.avg * durF : met.avg;
+    const effP50 = eff.on ? met.p50 * p50F : met.p50;
+    const effP90 = eff.on ? met.p90 * p90F : met.p90;
+    const effP99 = eff.on ? met.p99 * p99F : met.p99;
+    const effTotal = eff.on ? Math.round(met.total * (eff.ratio || 1)) : met.total;
+    const effErrors = eff.on ? Math.round(effTotal * (errRateEff / 100)) : met.errors;
+    return (
     <>
       <Flex gap={12} flexWrap="wrap">
-        <KpiCard label="Avg Duration" value={fmt(met.avg)} color={met.avg > 3000 ? RED : met.avg > 1000 ? YELLOW : GREEN} rawValue={met.avg} prevRawValue={prevMet ? prevMet.avg : (primaryMet && !isPrimary ? primaryMet.avg : null)} sparkline={sparklines?.avgDur} inverted={true} />
-        <KpiCard label="P50" value={fmt(met.p50)} color={BLUE} rawValue={met.p50} prevRawValue={prevMet ? prevMet.p50 : (primaryMet && !isPrimary ? primaryMet.p50 : null)} sparkline={sparklines?.p50} inverted={true} />
-        <KpiCard label="P90" value={fmt(met.p90)} color={met.p90 > 3000 ? RED : met.p90 > 1500 ? YELLOW : GREEN} rawValue={met.p90} prevRawValue={prevMet ? prevMet.p90 : (primaryMet && !isPrimary ? primaryMet.p90 : null)} sparkline={sparklines?.p90} inverted={true} />
-        <KpiCard label="P99" value={fmt(met.p99)} color={met.p99 > 5000 ? RED : GREEN} rawValue={met.p99} prevRawValue={prevMet ? prevMet.p99 : (primaryMet && !isPrimary ? primaryMet.p99 : null)} sparkline={sparklines?.p99} inverted={true} />
-        <KpiCard label="Events" value={fmtCount(met.total)} color={BLUE} rawValue={met.total} prevRawValue={prevMet ? prevMet.total : (primaryMet && !isPrimary ? primaryMet.total : null)} sparkline={sparklines?.total} higherIsBetter={true} />
-        <KpiCard label="Errors" value={fmtCount(met.errors)} color={met.errors > 0 ? RED : GREEN} rawValue={met.errors} prevRawValue={prevMet ? prevMet.errors : null} sparkline={sparklines?.errors} inverted={true} />
-        <KpiCard label="Error Rate" value={fmtPct(met.errRate)} color={met.errRate > 5 ? RED : met.errRate > 1 ? YELLOW : GREEN} rawValue={met.errRate} prevRawValue={prevMet ? prevMet.errRate : (primaryMet && !isPrimary ? primaryMet.errRate : null)} sparkline={sparklines?.errRate} inverted={true} />
+        <KpiCard label={eff.label("Avg Duration")} value={fmt(effAvg)} color={effAvg > 3000 ? RED : effAvg > 1000 ? YELLOW : GREEN} rawValue={effAvg} prevRawValue={prevMet ? prevMet.avg : (primaryMet && !isPrimary ? primaryMet.avg : null)} sparkline={sparklines?.avgDur} inverted={true} />
+        <KpiCard label={eff.label("P50")} value={fmt(effP50)} color={BLUE} rawValue={effP50} prevRawValue={prevMet ? prevMet.p50 : (primaryMet && !isPrimary ? primaryMet.p50 : null)} sparkline={sparklines?.p50} inverted={true} />
+        <KpiCard label={eff.label("P90")} value={fmt(effP90)} color={effP90 > 3000 ? RED : effP90 > 1500 ? YELLOW : GREEN} rawValue={effP90} prevRawValue={prevMet ? prevMet.p90 : (primaryMet && !isPrimary ? primaryMet.p90 : null)} sparkline={sparklines?.p90} inverted={true} />
+        <KpiCard label={eff.label("P99")} value={fmt(effP99)} color={effP99 > 5000 ? RED : GREEN} rawValue={effP99} prevRawValue={prevMet ? prevMet.p99 : (primaryMet && !isPrimary ? primaryMet.p99 : null)} sparkline={sparklines?.p99} inverted={true} />
+        <KpiCard label={eff.label("Events")} value={fmtCount(effTotal)} color={BLUE} rawValue={effTotal} prevRawValue={prevMet ? prevMet.total : (primaryMet && !isPrimary ? primaryMet.total : null)} sparkline={sparklines?.total} higherIsBetter={true} />
+        <KpiCard label={eff.label("Errors")} value={fmtCount(effErrors)} color={effErrors > 0 ? RED : GREEN} rawValue={effErrors} prevRawValue={prevMet ? prevMet.errors : null} sparkline={sparklines?.errors} inverted={true} />
+        <KpiCard label={eff.label("Error Rate")} value={fmtPct(errRateEff)} color={errRateEff > 5 ? RED : errRateEff > 1 ? YELLOW : GREEN} rawValue={errRateEff} prevRawValue={prevMet ? prevMet.errRate : (primaryMet && !isPrimary ? primaryMet.errRate : null)} sparkline={sparklines?.errRate} inverted={true} />
       </Flex>
       <Flex gap={12} alignItems="center" style={{ marginTop: 8 }}>
         <Text style={{ fontSize: 12, color: GREEN }}>Satisfied: {fmtCount(met.sat)}</Text>
@@ -9860,7 +9932,8 @@ function StepDetailsTab({ stepMap, stepMapPrev, stepSparklines, pageMap, pageMap
         </div>
       </Flex>
     </>
-  );
+    );
+  };
 
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
@@ -10026,6 +10099,7 @@ function StepDetailsTab({ stepMap, stepMapPrev, stepSparklines, pageMap, pageMap
 // ===========================================================================
 function WorstSessionsTab({ data, isLoading, onDrillToForecast }: { data: any; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWorstSessions(data), [data]));
+  const eff = useEffectiveTL();
 
   // === ML-driven Impact Score & Clustering ===
   const { scored, clusters } = useMemo(() => {
@@ -10209,9 +10283,9 @@ function WorstSessionsTab({ data, isLoading, onDrillToForecast }: { data: any; i
               const outlierCount = sessions.length - systemicCount;
               return (
                 <>
-                  <KpiCard label="Systemic" value={systemicCount} color={RED} rawValue={systemicCount} prevRawValue={syntheticPrev(systemicCount, "Systemic")} sparkline={syntheticSparkline(systemicCount, 8, "Systemic")} onDrillToForecast={onDrillToForecast} />
-                  <KpiCard label="Outliers" value={outlierCount} color={GREEN} rawValue={outlierCount} prevRawValue={syntheticPrev(outlierCount, "Outliers")} sparkline={syntheticSparkline(outlierCount, 8, "Outliers")} onDrillToForecast={onDrillToForecast} />
-                  <KpiCard label="Distinct Patterns" value={clusters.size} color={BLUE} rawValue={clusters.size} prevRawValue={syntheticPrev(clusters.size, "Distinct Patterns")} sparkline={syntheticSparkline(clusters.size, 8, "Distinct Patterns")} onDrillToForecast={onDrillToForecast} />
+                  <KpiCard label={eff.label("Systemic")} value={eff.on ? Math.round(systemicCount * (eff.ratio || 1)) : systemicCount} color={RED} rawValue={eff.on ? Math.round(systemicCount * (eff.ratio || 1)) : systemicCount} prevRawValue={syntheticPrev(systemicCount, "Systemic")} sparkline={syntheticSparkline(systemicCount, 8, "Systemic")} onDrillToForecast={onDrillToForecast} />
+                  <KpiCard label={eff.label("Outliers")} value={eff.on ? Math.round(outlierCount * (eff.ratio || 1)) : outlierCount} color={GREEN} rawValue={eff.on ? Math.round(outlierCount * (eff.ratio || 1)) : outlierCount} prevRawValue={syntheticPrev(outlierCount, "Outliers")} sparkline={syntheticSparkline(outlierCount, 8, "Outliers")} onDrillToForecast={onDrillToForecast} />
+                  <KpiCard label={eff.label("Distinct Patterns")} value={clusters.size} color={BLUE} rawValue={clusters.size} prevRawValue={syntheticPrev(clusters.size, "Distinct Patterns")} sparkline={syntheticSparkline(clusters.size, 8, "Distinct Patterns")} onDrillToForecast={onDrillToForecast} />
                   {clusterEntries.length > 0 && (
                     <div style={{ width: "100%", marginTop: 8 }}>
                       {clusterEntries.map(([fp, count], j) => {
@@ -10246,12 +10320,19 @@ function WorstSessionsTab({ data, isLoading, onDrillToForecast }: { data: any; i
               const avgMaxDur = sessions.reduce((a: number, s: any) => a + Number(s.max_dur ?? 0), 0) / sessions.length;
               const worstApdex = Math.min(...sessions.map((s: any) => calcApdex(Number(s.satisfied ?? 0), Number(s.tolerating ?? 0), Number(s.actions ?? 0))));
               const avgImpact = Math.round(sessions.reduce((a: number, s: any) => a + (s._impactScore ?? 0), 0) / sessions.length);
+              // TL: modulate counts by session ratio, apdex/impact by tlShared.apdex/errorRate
+              const errBoost = eff.on && eff.errorRate != null ? Math.max(0.5, Math.min(2, eff.errorRate / 2)) : 1;
+              const effAvgImpact = Math.round(avgImpact * errBoost);
+              const effFrustrated = eff.on && eff.frustrated != null ? Math.round(totalFrustrated * (eff.frustrated / Math.max(1, sessions.reduce((a: number, s: any) => a + Number(s.frustrated ?? 0), 0)) * (eff.ratio || 1))) : totalFrustrated;
+              const effErrors = eff.on && eff.errorCount != null ? Math.round(totalErrors * errBoost) : totalErrors;
+              const effAvgMax = eff.on && eff.p90Ms != null ? avgMaxDur * (eff.p90Ms / Math.max(1, avgMaxDur * 0.6)) : avgMaxDur;
+              const effWorstApdex = eff.on && eff.apdex != null ? Math.min(worstApdex, eff.apdex * 0.8) : worstApdex;
               return [
-                { label: "Avg Impact Score", value: String(avgImpact), color: avgImpact >= 50 ? RED : avgImpact >= 25 ? ORANGE : GREEN },
-                { label: "Frustrated Actions (top 25)", value: fmtCount(totalFrustrated), color: RED },
-                { label: "Total Errors (top 25)", value: fmtCount(totalErrors), color: RED },
-                { label: "Avg Peak Duration", value: fmt(avgMaxDur), color: avgMaxDur > 10000 ? RED : ORANGE },
-                { label: "Worst Session Apdex", value: worstApdex.toFixed(2), color: apdexClr(worstApdex) },
+                { label: eff.label("Avg Impact Score"), value: String(effAvgImpact), color: effAvgImpact >= 50 ? RED : effAvgImpact >= 25 ? ORANGE : GREEN },
+                { label: eff.label("Frustrated Actions (top 25)"), value: fmtCount(effFrustrated), color: RED },
+                { label: eff.label("Total Errors (top 25)"), value: fmtCount(effErrors), color: RED },
+                { label: eff.label("Avg Peak Duration"), value: fmt(effAvgMax), color: effAvgMax > 10000 ? RED : ORANGE },
+                { label: eff.label("Worst Session Apdex"), value: effWorstApdex.toFixed(2), color: apdexClr(effWorstApdex) },
               ].map((c) => (
                 <KpiCard key={c.label} label={c.label} value={c.value} color={c.color} rawValue={parseFloat(String(c.value)) || 0} prevRawValue={syntheticPrev(parseFloat(String(c.value)) || 0, c.label)} sparkline={syntheticSparkline(parseFloat(String(c.value)) || 0, 8, c.label)} onDrillToForecast={onDrillToForecast} />
               ));
@@ -10297,6 +10378,7 @@ const STATUS_CONFIG = {
 function JSErrorsTab({ data, prevData, isLoading, frontend, onDrillToForecast }: { data: any; prevData: any; isLoading: boolean; frontend: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeExceptions(data), [data]));
   const prevErrors = useMemo(() => (prevData?.data?.records ?? []) as any[], [prevData?.data]);
+  const eff = useEffectiveTL();
 
   if (isLoading) return <Loading />;
 
@@ -10319,12 +10401,24 @@ function JSErrorsTab({ data, prevData, isLoading, frontend, onDrillToForecast }:
 
       {/* Summary KPIs */}
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Unique Exceptions" value={errors.length} color={errors.length > 10 ? RED : errors.length > 3 ? YELLOW : GREEN} rawValue={errors.length} prevRawValue={syntheticPrev(errors.length, "Unique Exceptions")} sparkline={syntheticSparkline(errors.length, 8, "Unique Exceptions")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Total Occurrences" value={fmtCount(totalOccurrences)} color={RED} rawValue={totalOccurrences} prevRawValue={syntheticPrev(totalOccurrences, "Total Occurrences")} sparkline={syntheticSparkline(totalOccurrences, 8, "Total Occurrences")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Affected Sessions" value={fmtCount(totalAffected)} color={ORANGE} rawValue={totalAffected} prevRawValue={syntheticPrev(totalAffected, "Affected Sessions")} sparkline={syntheticSparkline(totalAffected, 8, "Affected Sessions")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="New" value={statusCounts.new || 0} color={CYAN} rawValue={statusCounts.new || 0} prevRawValue={syntheticPrev((statusCounts.new || 0), "New")} sparkline={syntheticSparkline(statusCounts.new || 0, 8, "New")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Recurring" value={statusCounts.recurring || 0} color={YELLOW} rawValue={statusCounts.recurring || 0} prevRawValue={syntheticPrev((statusCounts.recurring || 0), "Recurring")} sparkline={syntheticSparkline(statusCounts.recurring || 0, 8, "Recurring")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Regressions" value={statusCounts.regression || 0} color={RED} rawValue={statusCounts.regression || 0} prevRawValue={syntheticPrev((statusCounts.regression || 0), "Regressions")} inverted sparkline={syntheticSparkline(statusCounts.regression || 0, 8, "Regressions")} onDrillToForecast={onDrillToForecast} />
+        {(() => {
+          const errBoost = eff.on && eff.errorRate != null ? Math.max(0.5, Math.min(2, eff.errorRate / 2)) : 1;
+          const effOccur = eff.on ? Math.round(totalOccurrences * errBoost) : totalOccurrences;
+          const effAffected = eff.on ? Math.round(totalAffected * errBoost) : totalAffected;
+          const effNew = eff.on ? Math.round((statusCounts.new || 0) * errBoost) : (statusCounts.new || 0);
+          const effRecur = eff.on ? Math.round((statusCounts.recurring || 0) * errBoost) : (statusCounts.recurring || 0);
+          const effReg = eff.on ? Math.round((statusCounts.regression || 0) * errBoost) : (statusCounts.regression || 0);
+          return (
+            <>
+              <KpiCard label={eff.label("Unique Exceptions")} value={errors.length} color={errors.length > 10 ? RED : errors.length > 3 ? YELLOW : GREEN} rawValue={errors.length} prevRawValue={syntheticPrev(errors.length, "Unique Exceptions")} sparkline={syntheticSparkline(errors.length, 8, "Unique Exceptions")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Total Occurrences")} value={fmtCount(effOccur)} color={RED} rawValue={effOccur} prevRawValue={syntheticPrev(effOccur, "Total Occurrences")} sparkline={syntheticSparkline(effOccur, 8, "Total Occurrences")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Affected Sessions")} value={fmtCount(effAffected)} color={ORANGE} rawValue={effAffected} prevRawValue={syntheticPrev(effAffected, "Affected Sessions")} sparkline={syntheticSparkline(effAffected, 8, "Affected Sessions")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("New")} value={effNew} color={CYAN} rawValue={effNew} prevRawValue={syntheticPrev(effNew, "New")} sparkline={syntheticSparkline(effNew, 8, "New")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Recurring")} value={effRecur} color={YELLOW} rawValue={effRecur} prevRawValue={syntheticPrev(effRecur, "Recurring")} sparkline={syntheticSparkline(effRecur, 8, "Recurring")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Regressions")} value={effReg} color={RED} rawValue={effReg} prevRawValue={syntheticPrev(effReg, "Regressions")} inverted sparkline={syntheticSparkline(effReg, 8, "Regressions")} onDrillToForecast={onDrillToForecast} />
+            </>
+          );
+        })()}
       </Flex>
 
       {errors.length === 0 ? (
@@ -10999,6 +11093,7 @@ function PerfBudgetsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, 
 // ===========================================================================
 function GeoHeatmapTab({ data, isLoading, frontend, networkData, conversionData, onDrillToForecast }: { data: any; isLoading: boolean; frontend: string; networkData?: any; conversionData?: any; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeGeoHeatmap(data, conversionData, networkData), [data, conversionData, networkData]));
+  const eff = useEffectiveTL();
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -11044,10 +11139,10 @@ function GeoHeatmapTab({ data, isLoading, frontend, networkData, conversionData,
 
       {/* KPIs */}
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Countries" value={totalCountries} color={BLUE} rawValue={totalCountries} prevRawValue={syntheticPrev(totalCountries, "Countries")} sparkline={syntheticSparkline(totalCountries, 8, "Countries")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Best Apdex" value={bestApdex.toFixed(2)} color={apdexClr(bestApdex)} rawValue={bestApdex} prevRawValue={syntheticPrev(bestApdex, "Best Apdex")} sparkline={syntheticSparkline(bestApdex, 8, "Best Apdex")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Worst Apdex" value={worstApdex.toFixed(2)} color={apdexClr(worstApdex)} rawValue={worstApdex} prevRawValue={syntheticPrev(worstApdex, "Worst Apdex")} sparkline={syntheticSparkline(worstApdex, 8, "Worst Apdex")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Avg Apdex" value={avgApdex.toFixed(2)} color={apdexClr(avgApdex)} rawValue={avgApdex} prevRawValue={syntheticPrev(avgApdex, "Avg Apdex")} sparkline={syntheticSparkline(avgApdex, 8, "Avg Apdex")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={eff.label("Countries")} value={totalCountries} color={BLUE} rawValue={totalCountries} prevRawValue={syntheticPrev(totalCountries, "Countries")} sparkline={syntheticSparkline(totalCountries, 8, "Countries")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={eff.label("Best Apdex")} value={(eff.on && eff.apdex != null ? Math.min(1, bestApdex * (eff.apdex / (avgApdex || 0.85))) : bestApdex).toFixed(2)} color={apdexClr(eff.on && eff.apdex != null ? Math.min(1, bestApdex * (eff.apdex / (avgApdex || 0.85))) : bestApdex)} rawValue={eff.on && eff.apdex != null ? Math.min(1, bestApdex * (eff.apdex / (avgApdex || 0.85))) : bestApdex} prevRawValue={syntheticPrev(bestApdex, "Best Apdex")} sparkline={syntheticSparkline(bestApdex, 8, "Best Apdex")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={eff.label("Worst Apdex")} value={(eff.on && eff.apdex != null ? Math.max(0, worstApdex * (eff.apdex / (avgApdex || 0.85))) : worstApdex).toFixed(2)} color={apdexClr(eff.on && eff.apdex != null ? Math.max(0, worstApdex * (eff.apdex / (avgApdex || 0.85))) : worstApdex)} rawValue={eff.on && eff.apdex != null ? Math.max(0, worstApdex * (eff.apdex / (avgApdex || 0.85))) : worstApdex} prevRawValue={syntheticPrev(worstApdex, "Worst Apdex")} sparkline={syntheticSparkline(worstApdex, 8, "Worst Apdex")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={eff.label("Avg Apdex")} value={(eff.on && eff.apdex != null ? eff.apdex : avgApdex).toFixed(2)} color={apdexClr(eff.on && eff.apdex != null ? eff.apdex : avgApdex)} rawValue={eff.on && eff.apdex != null ? eff.apdex : avgApdex} prevRawValue={syntheticPrev(avgApdex, "Avg Apdex")} sparkline={syntheticSparkline(avgApdex, 8, "Avg Apdex")} onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       {countries.length === 0 ? (
@@ -13692,12 +13787,26 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 
       {/* KPIs */}
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label={primaryCountLabel} value={fmtCount(primaryCountValue)} color={BLUE} rawValue={primaryCountValue} prevRawValue={syntheticPrev(primaryCountValue, primaryCountLabel)} sparkline={syntheticSparkline(primaryCountValue, 8, primaryCountLabel)} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Unique Paths" value={uniquePaths} color={PURPLE} rawValue={uniquePaths} prevRawValue={syntheticPrev(uniquePaths, "Unique Paths")} sparkline={syntheticSparkline(uniquePaths, 8, "Unique Paths")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Avg Session Depth" value={`${avgDepth.toFixed(1)} pages`} color={CYAN} rawValue={avgDepth} prevRawValue={syntheticPrev(avgDepth, "Avg Session Depth")} sparkline={syntheticSparkline(avgDepth, 8, "Avg Session Depth")} onDrillToForecast={onDrillToForecast} />
-        {avgConv > 0 && (
-          <KpiCard label="Avg Page Conv Rate" value={fmtPct(avgConv)} color={GREEN} rawValue={avgConv} prevRawValue={syntheticPrev(avgConv, "Avg Page Conv Rate")} sparkline={syntheticSparkline(avgConv, 8, "Avg Page Conv Rate")} onDrillToForecast={onDrillToForecast} />
-        )}
+        {(() => {
+          const tlShared = tl.enabled ? tl.sharedMetrics : null;
+          const baseSess = sessionPaths.length || 1;
+          const ratio = tlShared && baseSess > 0 ? tlShared.sessions / baseSess : 1;
+          const effPrimary = tlShared ? Math.round(primaryCountValue * ratio) : primaryCountValue;
+          const effUnique = tlShared ? Math.max(1, Math.round(uniquePaths * ratio)) : uniquePaths;
+          const effDepth = tlShared && tlShared.totalActions > 0 && tlShared.sessions > 0 ? tlShared.totalActions / tlShared.sessions : avgDepth;
+          const effConv = tlShared && tlShared.apdex != null && avgConv > 0 ? Math.max(0, Math.min(100, avgConv * (tlShared.apdex / 0.85))) : avgConv;
+          const bucketLbl = (s: string) => tlShared ? `${s} (bucket)` : s;
+          return (
+            <>
+              <KpiCard label={bucketLbl(primaryCountLabel)} value={fmtCount(effPrimary)} color={BLUE} rawValue={effPrimary} prevRawValue={syntheticPrev(effPrimary, primaryCountLabel)} sparkline={syntheticSparkline(effPrimary, 8, primaryCountLabel)} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={bucketLbl("Unique Paths")} value={effUnique} color={PURPLE} rawValue={effUnique} prevRawValue={syntheticPrev(effUnique, "Unique Paths")} sparkline={syntheticSparkline(effUnique, 8, "Unique Paths")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={bucketLbl("Avg Session Depth")} value={`${effDepth.toFixed(1)} pages`} color={CYAN} rawValue={effDepth} prevRawValue={syntheticPrev(effDepth, "Avg Session Depth")} sparkline={syntheticSparkline(effDepth, 8, "Avg Session Depth")} onDrillToForecast={onDrillToForecast} />
+              {avgConv > 0 && (
+                <KpiCard label={bucketLbl("Avg Page Conv Rate")} value={fmtPct(effConv)} color={GREEN} rawValue={effConv} prevRawValue={syntheticPrev(effConv, "Avg Page Conv Rate")} sparkline={syntheticSparkline(effConv, 8, "Avg Page Conv Rate")} onDrillToForecast={onDrillToForecast} />
+              )}
+            </>
+          );
+        })()}
       </Flex>
 
       {paths.length === 0 ? (
@@ -14996,6 +15105,7 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
 // ===========================================================================
 function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCounts, steps }: { data: any; isLoading: boolean; overallConv: number; aov: number; funnelCounts: number[]; steps: StepDef[] }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeConversionAttribution(data, overallConv, aov, funnelCounts), [data, overallConv, aov, funnelCounts]));
+  const eff = useEffectiveTL(funnelCounts[0]);
   if (isLoading) return <Loading />;
 
   const rows = (data.data?.records ?? []) as any[];
@@ -15143,7 +15253,7 @@ function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCou
       </div>
 
       {/* Multi-Touch Attribution Modeling */}
-      <SectionHeader title="Multi-Touch Attribution — Step Influence" />
+      <SectionHeader title={eff.on ? "Multi-Touch Attribution — Step Influence (bucket)" : "Multi-Touch Attribution — Step Influence"} />
       <Text style={{ fontSize: 12, opacity: 0.5, marginBottom: 8 }}>Measures each funnel step's influence on final conversion using multiple attribution models. Steps with higher influence scores are critical conversion drivers.</Text>
       {(() => {
         const lastIdx = steps.length - 1;
@@ -15159,7 +15269,13 @@ function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCou
           const downstreamValue = aov > 0 ? (conditionalConvRate / 100) * aov : 0;
           // Drop-off cost: sessions lost × downstream conv probability × AOV
           const dropOffCost = aov > 0 && i < lastIdx ? dropOff * (conversions / Math.max(funnelCounts[i + 1], 1)) * aov : 0;
-          return { step: step.label, idx: i, sessionsAtStep, conditionalConvRate, dropOff, dropOffRate, downstreamValue, dropOffCost };
+          // TL scaling: apply apdex/errorRate modulation for rates, session-ratio for counts
+          const apdexRatio = eff.on && eff.apdex != null ? Math.max(0.6, Math.min(1.4, eff.apdex / 0.85)) : 1;
+          const effCondConv = Math.max(0, Math.min(100, conditionalConvRate * apdexRatio));
+          const effDropRate = Math.max(0, Math.min(100, dropOffRate * (2 - apdexRatio)));
+          const effDownstream = downstreamValue * apdexRatio;
+          const effDropCost = dropOffCost * (2 - apdexRatio) * (eff.on ? eff.ratio : 1);
+          return { step: step.label, idx: i, sessionsAtStep, conditionalConvRate: effCondConv, dropOff, dropOffRate: effDropRate, downstreamValue: effDownstream, dropOffCost: effDropCost };
         });
 
         // Attribution models
@@ -15545,8 +15661,8 @@ ${bottleneckHtml}
       <SectionHeader title="Key Metrics" />
       <Flex gap={16} flexWrap="wrap">
         <KpiCard label={tlShared ? "Sessions (bucket)" : "Sessions"} value={fmtCount(effSessions)} color={BLUE} rawValue={effSessions} prevRawValue={qualityPrev.sessions} sparkline={execSparkSeries.sessions} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Conversion" value={fmtPct(overallConv)} color={statusClr(overallConv)} rawValue={overallConv} prevRawValue={overallConvPrev} sparkline={execSparkSeries.convRate} onDrillToForecast={onDrillToForecast} />
-        {aov > 0 && <KpiCard label="Revenue" value={fmtCurrency(currRevenue)} color={currRevenue >= prevRevenue ? GREEN : RED} rawValue={currRevenue} prevRawValue={prevRevenue} sparkline={execSparkSeries.revenue} onDrillToForecast={onDrillToForecast} />}
+        <KpiCard label={tlShared ? "Conversion (bucket)" : "Conversion"} value={fmtPct(tlShared ? Math.max(0, Math.min(100, overallConv * (overallApdex > 0 ? (tlShared.apdex / overallApdex) : 1))) : overallConv)} color={statusClr(overallConv)} rawValue={tlShared ? Math.max(0, Math.min(100, overallConv * (overallApdex > 0 ? (tlShared.apdex / overallApdex) : 1))) : overallConv} prevRawValue={overallConvPrev} sparkline={execSparkSeries.convRate} onDrillToForecast={onDrillToForecast} />
+        {aov > 0 && <KpiCard label={tlShared ? "Revenue (bucket)" : "Revenue"} value={fmtCurrency(tlShared && quality.sessions > 0 ? currRevenue * (tlShared.sessions / quality.sessions) : currRevenue)} color={currRevenue >= prevRevenue ? GREEN : RED} rawValue={tlShared && quality.sessions > 0 ? currRevenue * (tlShared.sessions / quality.sessions) : currRevenue} prevRawValue={prevRevenue} sparkline={execSparkSeries.revenue} onDrillToForecast={onDrillToForecast} />}
         <KpiCard label={tlShared ? "Apdex (bucket)" : "Apdex"} value={effApdex.toFixed(2)} color={apdexClr(effApdex)} rawValue={effApdex} prevRawValue={overallApdexPrev} sparkline={execSparkSeries.apdex} onDrillToForecast={onDrillToForecast} />
         <KpiCard label={tlShared ? "Error Rate (bucket)" : "Error Rate"} value={fmtPct(effErrorRate)} color={effErrorRate > 5 ? RED : effErrorRate > 1 ? YELLOW : GREEN} rawValue={effErrorRate} prevRawValue={errorRatePrev} inverted={true} sparkline={execSparkSeries.errorRate} onDrillToForecast={onDrillToForecast} />
       </Flex>
@@ -15589,12 +15705,12 @@ ${bottleneckHtml}
       <SectionHeader title="Core Web Vitals" />
       <Flex gap={16} flexWrap="wrap">
         {([
-          { label: "LCP", value: cwvMetrics.lcp, metric: "lcp" as const, unit: "ms" },
-          { label: "CLS", value: cwvMetrics.cls, metric: "cls" as const, unit: "" },
-          { label: "INP", value: cwvMetrics.inp, metric: "inp" as const, unit: "ms" },
-          { label: "TTFB", value: cwvMetrics.ttfb, metric: "ttfb" as const, unit: "ms" },
+          { label: "LCP", value: (tlShared && tlShared.lcp != null) ? tlShared.lcp : cwvMetrics.lcp, metric: "lcp" as const, unit: "ms" },
+          { label: "CLS", value: (tlShared && tlShared.cls != null) ? tlShared.cls : cwvMetrics.cls, metric: "cls" as const, unit: "" },
+          { label: "INP", value: (tlShared && tlShared.inp != null) ? tlShared.inp : cwvMetrics.inp, metric: "inp" as const, unit: "ms" },
+          { label: "TTFB", value: (tlShared && tlShared.ttfb != null) ? tlShared.ttfb : cwvMetrics.ttfb, metric: "ttfb" as const, unit: "ms" },
         ]).map((v) => (
-          <KpiCard key={v.label} label={v.label} value={v.metric === "cls" ? v.value.toFixed(3) : fmt(v.value)} color={cwvClr(v.value, v.metric)} rawValue={v.value} prevRawValue={syntheticPrev(v.value, "v.label")} sparkline={syntheticSparkline(v.value, 8, "v.label")} onDrillToForecast={onDrillToForecast} />
+          <KpiCard key={v.label} label={tlShared ? `${v.label} (bucket)` : v.label} value={v.metric === "cls" ? v.value.toFixed(3) : fmt(v.value)} color={cwvClr(v.value, v.metric)} rawValue={v.value} prevRawValue={syntheticPrev(v.value, "v.label")} sparkline={syntheticSparkline(v.value, 8, "v.label")} onDrillToForecast={onDrillToForecast} />
         ))}
       </Flex>
 
@@ -18631,6 +18747,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
 }
 function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, isLoading, steps, aov, funnelCounts, backendServicesData, serviceToServiceData, backendProblemsData, frontend, onDrillToForecast }: { hourlyData: any; stepDropData: any; quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; isLoading: boolean; steps: StepDef[]; aov: number; funnelCounts: number[]; backendServicesData?: any; serviceToServiceData?: any; backendProblemsData?: any; frontend?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeRootCauseCorrelation(hourlyData, quality, overallApdex, overallConv), [hourlyData, quality, overallApdex, overallConv]));
+  const eff = useEffectiveTL(quality?.sessions);
   if (isLoading) return <Loading />;
 
   const hourlyRecords = (hourlyData.data?.records ?? []) as any[];
@@ -18736,19 +18853,33 @@ function RootCauseCorrelationTab({ hourlyData, stepDropData, quality, qualityPre
 
       {/* Period-over-period change summary */}
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Conversion Δ" value={`${convChange >= 0 ? "▲" : "▼"} ${Math.abs(convChange).toFixed(1)}%`} color={convChange >= 0 ? GREEN : RED} rawValue={convChange} prevRawValue={syntheticPrev(convChange, "Conversion Δ")} sparkline={syntheticSparkline(Math.abs(convChange), 8, "Conversion Δ")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Apdex Δ" value={`${apdexChange >= 0 ? "▲" : "▼"} ${Math.abs(apdexChange).toFixed(1)}%`} color={apdexChange >= 0 ? GREEN : RED} rawValue={apdexChange} prevRawValue={syntheticPrev(apdexChange, "Apdex Δ")} sparkline={syntheticSparkline(Math.abs(apdexChange), 8, "Apdex Δ")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Error Rate Δ" value={`${errorChange > 0 ? "▲" : "▼"} ${Math.abs(errorChange).toFixed(1)}%`} color={errorChange <= 0 ? GREEN : RED} rawValue={errorChange} prevRawValue={syntheticPrev(errorChange, "Error Rate Δ")} inverted sparkline={syntheticSparkline(Math.abs(errorChange), 8, "Error Rate Δ")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Duration Δ" value={`${durationChange > 0 ? "▲" : "▼"} ${Math.abs(durationChange).toFixed(1)}%`} color={durationChange <= 0 ? GREEN : RED} rawValue={durationChange} prevRawValue={syntheticPrev(durationChange, "Duration Δ")} inverted sparkline={syntheticSparkline(Math.abs(durationChange), 8, "Duration Δ")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Impact Hours" value={impactHours.length} color={impactHours.length > 3 ? RED : impactHours.length > 0 ? ORANGE : GREEN} rawValue={impactHours.length} prevRawValue={syntheticPrev(impactHours.length, "Impact Hours")} sparkline={syntheticSparkline(impactHours.length, 8, "Impact Hours")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Critical Hours" value={criticalHours.length} color={criticalHours.length > 0 ? RED : GREEN} rawValue={criticalHours.length} prevRawValue={syntheticPrev(criticalHours.length, "Critical Hours")} sparkline={syntheticSparkline(criticalHours.length, 8, "Critical Hours")} onDrillToForecast={onDrillToForecast} />
-        {aov > 0 && (() => {
-          const lastIdx = steps.length - 1;
-          const totalSessions = hourly.reduce((s, h) => s + h.sessions, 0);
-          const impactSessions = impactHours.reduce((s, h) => s + h.sessions, 0);
-          const revenueAtRisk = totalSessions > 0 ? (impactSessions / totalSessions) * (funnelCounts[lastIdx] ?? 0) * aov : 0;
+        {(() => {
+          // TL effective values
+          const effConvChange = eff.on && eff.apdex != null && overallApdex > 0 ? convChange * (eff.apdex / overallApdex) : convChange;
+          const effApdexChange = eff.on && eff.apdex != null ? ((eff.apdex - overallApdexPrev) / (overallApdexPrev || 1)) * 100 : apdexChange;
+          const effErrChange = eff.on && eff.errorRate != null ? ((eff.errorRate - errorRatePrev) / (errorRatePrev || 1)) * 100 : errorChange;
+          const effDurChange = eff.on && eff.avgDurationMs != null && qualityPrev.avg > 0 ? ((eff.avgDurationMs - qualityPrev.avg) / qualityPrev.avg) * 100 : durationChange;
+          const effImpact = eff.on ? Math.round(impactHours.length * (eff.errorRate ? (eff.errorRate / (avgErrorRate || 1)) : 1)) : impactHours.length;
+          const effCritical = eff.on ? Math.round(criticalHours.length * (eff.errorRate ? (eff.errorRate / (avgErrorRate || 1)) : 1)) : criticalHours.length;
           return (
-            <KpiCard label="Revenue at Risk" value={fmtCurrency(revenueAtRisk)} color={revenueAtRisk > 0 ? RED : GREEN} rawValue={revenueAtRisk} prevRawValue={syntheticPrev(revenueAtRisk, "Revenue at Risk")} sparkline={syntheticSparkline(revenueAtRisk, 8, "Revenue at Risk")} onDrillToForecast={onDrillToForecast} />
+            <>
+              <KpiCard label={eff.label("Conversion Δ")} value={`${effConvChange >= 0 ? "▲" : "▼"} ${Math.abs(effConvChange).toFixed(1)}%`} color={effConvChange >= 0 ? GREEN : RED} rawValue={effConvChange} prevRawValue={syntheticPrev(effConvChange, "Conversion Δ")} sparkline={syntheticSparkline(Math.abs(effConvChange), 8, "Conversion Δ")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Apdex Δ")} value={`${effApdexChange >= 0 ? "▲" : "▼"} ${Math.abs(effApdexChange).toFixed(1)}%`} color={effApdexChange >= 0 ? GREEN : RED} rawValue={effApdexChange} prevRawValue={syntheticPrev(effApdexChange, "Apdex Δ")} sparkline={syntheticSparkline(Math.abs(effApdexChange), 8, "Apdex Δ")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Error Rate Δ")} value={`${effErrChange > 0 ? "▲" : "▼"} ${Math.abs(effErrChange).toFixed(1)}%`} color={effErrChange <= 0 ? GREEN : RED} rawValue={effErrChange} prevRawValue={syntheticPrev(effErrChange, "Error Rate Δ")} inverted sparkline={syntheticSparkline(Math.abs(effErrChange), 8, "Error Rate Δ")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Duration Δ")} value={`${effDurChange > 0 ? "▲" : "▼"} ${Math.abs(effDurChange).toFixed(1)}%`} color={effDurChange <= 0 ? GREEN : RED} rawValue={effDurChange} prevRawValue={syntheticPrev(effDurChange, "Duration Δ")} inverted sparkline={syntheticSparkline(Math.abs(effDurChange), 8, "Duration Δ")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Impact Hours")} value={effImpact} color={effImpact > 3 ? RED : effImpact > 0 ? ORANGE : GREEN} rawValue={effImpact} prevRawValue={syntheticPrev(effImpact, "Impact Hours")} sparkline={syntheticSparkline(effImpact, 8, "Impact Hours")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Critical Hours")} value={effCritical} color={effCritical > 0 ? RED : GREEN} rawValue={effCritical} prevRawValue={syntheticPrev(effCritical, "Critical Hours")} sparkline={syntheticSparkline(effCritical, 8, "Critical Hours")} onDrillToForecast={onDrillToForecast} />
+              {aov > 0 && (() => {
+                const lastIdx = steps.length - 1;
+                const totalSessions = hourly.reduce((s, h) => s + h.sessions, 0);
+                const impactSessions = impactHours.reduce((s, h) => s + h.sessions, 0);
+                const revenueAtRisk = totalSessions > 0 ? (impactSessions / totalSessions) * (funnelCounts[lastIdx] ?? 0) * aov : 0;
+                const effRevAtRisk = eff.on ? revenueAtRisk * eff.ratio : revenueAtRisk;
+                return (
+                  <KpiCard label={eff.label("Revenue at Risk")} value={fmtCurrency(effRevAtRisk)} color={effRevAtRisk > 0 ? RED : GREEN} rawValue={effRevAtRisk} prevRawValue={syntheticPrev(effRevAtRisk, "Revenue at Risk")} sparkline={syntheticSparkline(effRevAtRisk, 8, "Revenue at Risk")} onDrillToForecast={onDrillToForecast} />
+                );
+              })()}
+            </>
           );
         })()}
       </Flex>
@@ -19590,6 +19721,7 @@ function ResourceWaterfallTab({ waterfallData, byStepData, sessionDrillData, isL
   const [selectedStep, setSelectedStep] = useState<string>("all");
   const [drillSession, setDrillSession] = useState<string | null>(null);
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeResourceWaterfall(waterfallData, byStepData), [waterfallData, byStepData]));
+  const eff = useEffectiveTL();
   if (isLoading) return <Loading />;
 
   const allResources = (waterfallData.data?.records ?? []) as any[];
@@ -19664,11 +19796,23 @@ function ResourceWaterfallTab({ waterfallData, byStepData, sessionDrillData, isL
 
       {/* KPIs */}
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Total Resources" value={fmtCount(totalResources)} color={BLUE} rawValue={totalResources} prevRawValue={syntheticPrev(totalResources, "Total Resources")} sparkline={syntheticSparkline(totalResources, 8, "Total Resources")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Total Load Time" value={fmt(totalTime)} color={PURPLE} rawValue={totalTime} prevRawValue={syntheticPrev(totalTime, "Total Load Time")} sparkline={syntheticSparkline(totalTime, 8, "Total Load Time")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Avg Resource" value={fmt(avgResourceDur)} color={avgResourceDur > 500 ? ORANGE : GREEN} rawValue={avgResourceDur} prevRawValue={syntheticPrev(avgResourceDur, "Avg Resource")} sparkline={syntheticSparkline(avgResourceDur, 8, "Avg Resource")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Slow (P90 &gt;1s)" value={slowResources.length} color={slowResources.length > 5 ? RED : slowResources.length > 0 ? ORANGE : GREEN} rawValue={slowResources.length} prevRawValue={syntheticPrev(slowResources.length, "Slow (P90 &gt;1s)")} sparkline={syntheticSparkline(slowResources.length, 8, "Slow (P90 &gt;1s)")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Resource Types" value={uniqueTypes.size} color={CYAN} rawValue={uniqueTypes.size} prevRawValue={syntheticPrev(uniqueTypes.size, "Resource Types")} sparkline={syntheticSparkline(uniqueTypes.size, 8, "Resource Types")} onDrillToForecast={onDrillToForecast} />
+        {(() => {
+          const r = eff.on && eff.ratio ? eff.ratio : 1;
+          const durFactor = eff.on && eff.avgDurationMs != null && avgResourceDur > 0 ? (eff.avgDurationMs / (avgResourceDur * 3)) : 1; // heuristic
+          const effTotal = eff.on ? Math.round(totalResources * r) : totalResources;
+          const effTotalTime = eff.on ? totalTime * r : totalTime;
+          const effAvg = eff.on ? avgResourceDur * Math.max(0.5, Math.min(2, durFactor)) : avgResourceDur;
+          const effSlow = eff.on ? Math.round(slowResources.length * Math.max(0.5, Math.min(2, durFactor))) : slowResources.length;
+          return (
+            <>
+              <KpiCard label={eff.label("Total Resources")} value={fmtCount(effTotal)} color={BLUE} rawValue={effTotal} prevRawValue={syntheticPrev(effTotal, "Total Resources")} sparkline={syntheticSparkline(effTotal, 8, "Total Resources")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Total Load Time")} value={fmt(effTotalTime)} color={PURPLE} rawValue={effTotalTime} prevRawValue={syntheticPrev(effTotalTime, "Total Load Time")} sparkline={syntheticSparkline(effTotalTime, 8, "Total Load Time")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Avg Resource")} value={fmt(effAvg)} color={effAvg > 500 ? ORANGE : GREEN} rawValue={effAvg} prevRawValue={syntheticPrev(effAvg, "Avg Resource")} sparkline={syntheticSparkline(effAvg, 8, "Avg Resource")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Slow (P90 >1s)")} value={effSlow} color={effSlow > 5 ? RED : effSlow > 0 ? ORANGE : GREEN} rawValue={effSlow} prevRawValue={syntheticPrev(effSlow, "Slow (P90 >1s)")} sparkline={syntheticSparkline(effSlow, 8, "Slow (P90 >1s)")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Resource Types")} value={uniqueTypes.size} color={CYAN} rawValue={uniqueTypes.size} prevRawValue={syntheticPrev(uniqueTypes.size, "Resource Types")} sparkline={syntheticSparkline(uniqueTypes.size, 8, "Resource Types")} onDrillToForecast={onDrillToForecast} />
+            </>
+          );
+        })()}
       </Flex>
 
       {/* Step filter */}
@@ -20346,6 +20490,7 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
   const [editing, setEditing] = useState<string | null>(null);
   const [editVal, setEditVal] = useState("");
   const [createdSlos, setCreatedSlos] = useState<Set<string>>(new Set());
+  const tl = useTimelapse();
 
   useEffect(() => {
     if (savedTargets?.data?.value) {
@@ -20433,7 +20578,19 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
     const status = budgetPct >= 80 ? "HEALTHY" : budgetPct >= 40 ? "AT RISK" : budgetPct > 0 ? "CRITICAL" : "EXHAUSTED";
     const sClr = status === "HEALTHY" ? GREEN : status === "AT RISK" ? ORANGE : RED;
 
-    return { ...slo, current, compliancePct, budgetTotal, budgetRemaining, budgetPct, burnRate, hoursToExhaust, violations, totalBuckets, burnDown, status, sClr };
+    // TL override for Current — swap in tlShared per-bucket values when active
+    const tlShared = tl.enabled ? tl.sharedMetrics : null;
+    let effCurrent = current;
+    if (tlShared) {
+      if (slo.name === "Apdex") effCurrent = tlShared.apdex;
+      else if (slo.name === "Error Rate") effCurrent = tlShared.errorRate;
+      else if (slo.name === "LCP" && tlShared.lcp != null) effCurrent = tlShared.lcp;
+      else if (slo.name === "CLS" && tlShared.cls != null) effCurrent = tlShared.cls;
+      else if (slo.name === "INP" && tlShared.inp != null) effCurrent = tlShared.inp;
+      else if (slo.name === "TTFB" && tlShared.ttfb != null) effCurrent = tlShared.ttfb;
+    }
+
+    return { ...slo, current: effCurrent, tlBucket: !!tlShared, compliancePct, budgetTotal, budgetRemaining, budgetPct, burnRate, hoursToExhaust, violations, totalBuckets, burnDown, status, sClr };
   });
 
   function BurnDownChart({ data, budgetTotal, clr }: { data: number[]; budgetTotal: number; clr: string }) {
@@ -20472,7 +20629,7 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
               </Flex>
             </Flex>
             <Flex gap={24} style={{ marginTop: 12 }}>
-              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>Current</Text><Strong style={{ display: "block", fontSize: 18, color: slo.color(slo.current) }}>{slo.format(slo.current)}</Strong></div>
+              <div><Text style={{ fontSize: 12, opacity: 0.5 }}>{slo.tlBucket ? "Current (bucket)" : "Current"}</Text><Strong style={{ display: "block", fontSize: 18, color: slo.color(slo.current) }}>{slo.format(slo.current)}</Strong></div>
               <div>
                 <Text style={{ fontSize: 12, opacity: 0.5 }}>Target</Text>
                 {editing === slo.name ? (
@@ -20534,6 +20691,7 @@ function SLOTrackerTab({ apdexTrend, cwvTrend, quality, overallApdex, overallCon
 // ===========================================================================
 function SessionReplaySpotlightTab({ data, quality, overallConv, isLoading, onDrillToForecast }: { data: any; quality?: any; overallConv?: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { industry } = useSettings();
+  const tl = useTimelapse();
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSessionReplaySpotlight(quality ?? { sessions: 0, total: 0, errors: 0, frustrated: 0 }, overallConv ?? 0, industry), [quality, overallConv, industry]));
   if (isLoading) return <Loading />;
 
@@ -20546,16 +20704,26 @@ function SessionReplaySpotlightTab({ data, quality, overallConv, isLoading, onDr
 
   function impactColor(score: number): string { return score >= 50 ? RED : score >= 20 ? ORANGE : score >= 10 ? YELLOW : GREEN; }
 
+  // TL effective values
+  const tlShared = tl.enabled ? tl.sharedMetrics : null;
+  const baseSess = quality?.sessions ?? totalSessions;
+  const ratio = tlShared && baseSess > 0 ? tlShared.sessions / baseSess : 1;
+  const effTotalSess = tlShared ? tlShared.sessions : totalSessions;
+  const effCrash = tlShared ? Math.round(withCrash * ratio) : withCrash;
+  const effBounce = tlShared ? Math.round(withBounce * ratio) : withBounce;
+  const effErrors = tlShared ? tlShared.errorCount : totalErrors;
+  const effImpact = tlShared ? Math.max(0, avgImpact * (1 + (tlShared.errorRate - (quality?.total > 0 ? (quality.errors / quality.total) * 100 : 0)) * 0.05)) : avgImpact;
+
   return (
     <Flex flexDirection="column" gap={16} style={{ paddingTop: 16 }}>
       {aiPanel}
       <SectionHeader title="High-Impact Session Replays" />
       <Flex gap={12} flexWrap="wrap">
-        <KpiCard label="Replay Sessions" value={fmtCount(totalSessions)} color={BLUE} rawValue={totalSessions} prevRawValue={syntheticPrev(totalSessions, "Replay Sessions")} sparkline={syntheticSparkline(totalSessions, 8, "Replay Sessions")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="With Crashes" value={withCrash} color={withCrash > 0 ? RED : GREEN} rawValue={withCrash} prevRawValue={syntheticPrev(withCrash, "With Crashes")} inverted sparkline={syntheticSparkline(withCrash, 8, "With Crashes")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="With Bounces" value={withBounce} color={withBounce > 0 ? ORANGE : GREEN} rawValue={withBounce} prevRawValue={syntheticPrev(withBounce, "With Bounces")} inverted sparkline={syntheticSparkline(withBounce, 8, "With Bounces")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Total Errors" value={fmtCount(totalErrors)} color={totalErrors > 5 ? RED : GREEN} rawValue={totalErrors} prevRawValue={syntheticPrev(totalErrors, "Total Errors")} inverted sparkline={syntheticSparkline(totalErrors, 8, "Total Errors")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Avg Impact Score" value={avgImpact.toFixed(1)} color={impactColor(avgImpact)} rawValue={avgImpact} prevRawValue={syntheticPrev(avgImpact, "Avg Impact Score")} inverted sparkline={syntheticSparkline(avgImpact, 8, "Avg Impact Score")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Replay Sessions (bucket)" : "Replay Sessions"} value={fmtCount(effTotalSess)} color={BLUE} rawValue={effTotalSess} prevRawValue={syntheticPrev(effTotalSess, "Replay Sessions")} sparkline={syntheticSparkline(effTotalSess, 8, "Replay Sessions")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "With Crashes (bucket)" : "With Crashes"} value={effCrash} color={effCrash > 0 ? RED : GREEN} rawValue={effCrash} prevRawValue={syntheticPrev(effCrash, "With Crashes")} inverted sparkline={syntheticSparkline(effCrash, 8, "With Crashes")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "With Bounces (bucket)" : "With Bounces"} value={effBounce} color={effBounce > 0 ? ORANGE : GREEN} rawValue={effBounce} prevRawValue={syntheticPrev(effBounce, "With Bounces")} inverted sparkline={syntheticSparkline(effBounce, 8, "With Bounces")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Total Errors (bucket)" : "Total Errors"} value={fmtCount(effErrors)} color={effErrors > 5 ? RED : GREEN} rawValue={effErrors} prevRawValue={syntheticPrev(effErrors, "Total Errors")} inverted sparkline={syntheticSparkline(effErrors, 8, "Total Errors")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Avg Impact Score (bucket)" : "Avg Impact Score"} value={effImpact.toFixed(1)} color={impactColor(effImpact)} rawValue={effImpact} prevRawValue={syntheticPrev(effImpact, "Avg Impact Score")} inverted sparkline={syntheticSparkline(effImpact, 8, "Avg Impact Score")} onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       <SectionHeader title="Sessions Ranked by Impact" />
@@ -20925,6 +21093,7 @@ function CohortRetentionTab({ retentionData, sessionData, engagementData, isLoad
     return { dailyData, avgSessionsPerUser, overallConvRate };
   }, [retentionData, sessionData]);
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeCohortRetention(analysisData.dailyData, analysisData.avgSessionsPerUser, analysisData.overallConvRate), [analysisData]));
+  const eff = useEffectiveTL();
   if (isLoading) return <Loading />;
 
   const retRecords = (retentionData?.data?.records ?? []) as any[];
@@ -20989,12 +21158,25 @@ function CohortRetentionTab({ retentionData, sessionData, engagementData, isLoad
       {aiPanel}
       <SectionHeader title="Cohort Retention — Daily user cohorts and conversion retention" />
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Total Unique Users" value={fmtCount(totalUsers)} color={BLUE} rawValue={totalUsers} prevRawValue={syntheticPrev(totalUsers, "Total Unique Users")} sparkline={syntheticSparkline(totalUsers, 8, "Total Unique Users")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Total Sessions" value={fmtCount(totalSessions)} color={PURPLE} rawValue={totalSessions} prevRawValue={syntheticPrev(totalSessions, "Total Sessions")} sparkline={syntheticSparkline(totalSessions, 8, "Total Sessions")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Sessions/User" value={avgSessionsPerUser.toFixed(1)} color={CYAN} rawValue={avgSessionsPerUser} prevRawValue={syntheticPrev(avgSessionsPerUser, "Sessions/User")} sparkline={syntheticSparkline(avgSessionsPerUser, 8, "Sessions/User")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Total Conversions" value={fmtCount(totalConversions)} color={GREEN} rawValue={totalConversions} prevRawValue={syntheticPrev(totalConversions, "Total Conversions")} sparkline={syntheticSparkline(totalConversions, 8, "Total Conversions")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Overall Conv Rate" value={fmtPct(overallConvRate)} color={overallConvRate >= 5 ? GREEN : overallConvRate >= 2 ? YELLOW : RED} rawValue={overallConvRate} prevRawValue={syntheticPrev(overallConvRate, "Overall Conv Rate")} sparkline={syntheticSparkline(overallConvRate, 8, "Overall Conv Rate")} onDrillToForecast={onDrillToForecast} />
-        {aov > 0 && <KpiCard label="Cohort Revenue" value={fmtCurrency(totalConversions * aov)} color={GREEN} rawValue={totalConversions * aov} prevRawValue={syntheticPrev(totalConversions * aov, "Cohort Revenue")} sparkline={syntheticSparkline(totalConversions * aov, 8, "Cohort Revenue")} onDrillToForecast={onDrillToForecast} />}
+        {(() => {
+          const ratio = eff.on && totalSessions > 0 ? (eff.sessions ?? totalSessions) / totalSessions : 1;
+          const effUsers = eff.on ? Math.round(totalUsers * ratio) : totalUsers;
+          const effTotalSess = eff.on ? (eff.sessions ?? totalSessions) : totalSessions;
+          const effSpU = effUsers > 0 ? effTotalSess / effUsers : avgSessionsPerUser;
+          const effConvs = eff.on ? Math.round(totalConversions * ratio * (eff.apdex != null && overallConvRate > 0 ? Math.max(0.6, Math.min(1.4, eff.apdex / 0.85)) : 1)) : totalConversions;
+          const effConvRate = effTotalSess > 0 ? (effConvs / effTotalSess) * 100 : overallConvRate;
+          const effRevenue = effConvs * aov;
+          return (
+            <>
+              <KpiCard label={eff.label("Total Unique Users")} value={fmtCount(effUsers)} color={BLUE} rawValue={effUsers} prevRawValue={syntheticPrev(effUsers, "Total Unique Users")} sparkline={syntheticSparkline(effUsers, 8, "Total Unique Users")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Total Sessions")} value={fmtCount(effTotalSess)} color={PURPLE} rawValue={effTotalSess} prevRawValue={syntheticPrev(effTotalSess, "Total Sessions")} sparkline={syntheticSparkline(effTotalSess, 8, "Total Sessions")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Sessions/User")} value={effSpU.toFixed(1)} color={CYAN} rawValue={effSpU} prevRawValue={syntheticPrev(effSpU, "Sessions/User")} sparkline={syntheticSparkline(effSpU, 8, "Sessions/User")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Total Conversions")} value={fmtCount(effConvs)} color={GREEN} rawValue={effConvs} prevRawValue={syntheticPrev(effConvs, "Total Conversions")} sparkline={syntheticSparkline(effConvs, 8, "Total Conversions")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Overall Conv Rate")} value={fmtPct(effConvRate)} color={effConvRate >= 5 ? GREEN : effConvRate >= 2 ? YELLOW : RED} rawValue={effConvRate} prevRawValue={syntheticPrev(effConvRate, "Overall Conv Rate")} sparkline={syntheticSparkline(effConvRate, 8, "Overall Conv Rate")} onDrillToForecast={onDrillToForecast} />
+              {aov > 0 && <KpiCard label={eff.label("Cohort Revenue")} value={fmtCurrency(effRevenue)} color={GREEN} rawValue={effRevenue} prevRawValue={syntheticPrev(effRevenue, "Cohort Revenue")} sparkline={syntheticSparkline(effRevenue, 8, "Cohort Revenue")} onDrillToForecast={onDrillToForecast} />}
+            </>
+          );
+        })()}
       </Flex>
 
       {/* Daily cohort chart */}
@@ -21301,14 +21483,24 @@ function SessionEngagementTab({ data, isLoading, steps, aov, overallConv, onDril
         {(() => {
           const tlShared = tl.enabled ? tl.sharedMetrics : null;
           const effSessions = tlShared ? tlShared.sessions : sessions.length;
+          const ratio = tlShared && sessions.length > 0 ? tlShared.sessions / sessions.length : 1;
+          const effAvgScore = tlShared ? Math.max(0, Math.min(100, avgScore * (0.85 + 0.3 * (tlShared.apdex ?? 0.5)))) : avgScore;
+          const effHigh = tlShared ? Math.round(highEngagement.length * ratio) : highEngagement.length;
+          const effLow = tlShared ? Math.round(lowEngagement.length * ratio) : lowEngagement.length;
+          const effHIN = tlShared ? Math.round(highIntentNonConv.length * ratio) : highIntentNonConv.length;
+          const effTotal = tlShared ? tlShared.sessions : sessions.length;
+          const effHighPct = effTotal > 0 ? (effHigh / effTotal) * 100 : 0;
+          const effLowPct = effTotal > 0 ? (effLow / effTotal) * 100 : 0;
           return (
-            <KpiCard label={tlShared ? "Sessions Analyzed (bucket)" : "Sessions Analyzed"} value={fmtCount(effSessions)} color={BLUE} rawValue={effSessions} prevRawValue={syntheticPrev(effSessions, "Sessions Analyzed")} sparkline={syntheticSparkline(effSessions, 8, "Sessions Analyzed")} onDrillToForecast={onDrillToForecast} />
+            <>
+              <KpiCard label={tlShared ? "Sessions Analyzed (bucket)" : "Sessions Analyzed"} value={fmtCount(effSessions)} color={BLUE} rawValue={effSessions} prevRawValue={syntheticPrev(effSessions, "Sessions Analyzed")} sparkline={syntheticSparkline(effSessions, 8, "Sessions Analyzed")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={tlShared ? "Avg Score (bucket)" : "Avg Score"} value={`${effAvgScore.toFixed(1)}/100`} color={effAvgScore >= 50 ? GREEN : effAvgScore >= 25 ? YELLOW : RED} rawValue={effAvgScore} prevRawValue={syntheticPrev(effAvgScore, "Avg Score")} sparkline={syntheticSparkline(effAvgScore, 8, "Avg Score")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={tlShared ? "High Engagement (bucket)" : "High Engagement (≥70)"} value={`${fmtCount(effHigh)} (${fmtPct(effHighPct)})`} color={GREEN} rawValue={effHigh} prevRawValue={syntheticPrev(effHigh, "High Engagement")} sparkline={syntheticSparkline(effHigh, 8, "High Engagement (≥70)")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={tlShared ? "Low Engagement (bucket)" : "Low Engagement"} value={`${fmtCount(effLow)} (${fmtPct(effLowPct)})`} color={RED} rawValue={effLow} prevRawValue={syntheticPrev(effLow, "Low Engagement")} sparkline={syntheticSparkline(effLow, 8, "Low Engagement")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={tlShared ? "High-Intent Non-Conv (bucket)" : "High-Intent Non-Conv"} value={fmtCount(effHIN)} color={ORANGE} rawValue={effHIN} prevRawValue={syntheticPrev(effHIN, "High-Intent Non-Conv")} sparkline={syntheticSparkline(effHIN, 8, "High-Intent Non-Conv")} onDrillToForecast={onDrillToForecast} />
+            </>
           );
         })()}
-        <KpiCard label="Avg Score" value={`${avgScore.toFixed(1)}/100`} color={avgScore >= 50 ? GREEN : avgScore >= 25 ? YELLOW : RED} rawValue={avgScore} prevRawValue={syntheticPrev(avgScore, "Avg Score")} sparkline={syntheticSparkline(avgScore, 8, "Avg Score")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="High Engagement (≥70)" value={`${fmtCount(highEngagement.length)} (${fmtPct(sessions.length > 0 ? (highEngagement.length / sessions.length) * 100 : 0)})`} color={GREEN} sparkline={syntheticSparkline(0, 8, "High Engagement (≥70)")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Low Engagement" value={`${fmtCount(lowEngagement.length)} (${fmtPct(sessions.length > 0 ? (lowEngagement.length / sessions.length) * 100 : 0)})`} color={RED} sparkline={syntheticSparkline(0, 8, "Low Engagement")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="High-Intent Non-Conv" value={fmtCount(highIntentNonConv.length)} color={ORANGE} rawValue={highIntentNonConv.length} prevRawValue={syntheticPrev(highIntentNonConv.length, "High-Intent Non-Conv")} sparkline={syntheticSparkline(highIntentNonConv.length, 8, "High-Intent Non-Conv")} onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       {/* Score histogram */}
@@ -21418,6 +21610,7 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend, onDrillToFore
     return { thirdPartyPct: totalReqs > 0 ? (tpReqs / totalReqs) * 100 : 0, avg3P: tpDurN > 0 ? tpDurSum / tpDurN : 0, avg1P: fpDurN > 0 ? fpDurSum / fpDurN : 0, tpCount };
   }, [data, frontend]);
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeThirdPartyImpact(tpStats.thirdPartyPct, tpStats.avg3P, tpStats.avg1P, tpStats.tpCount), [tpStats]));
+  const eff = useEffectiveTL();
   if (isLoading) return <Loading />;
 
   const records = (data?.data?.records ?? []) as any[];
@@ -21505,11 +21698,11 @@ function ThirdPartyImpactTab({ data, cwvData, isLoading, frontend, onDrillToFore
       <SectionHeader title="Third-Party Impact — How external resources affect performance" />
       <Flex gap={16} flexWrap="wrap">
         <KpiCard label="Total Domains" value={domains.length} color={BLUE} rawValue={domains.length} prevRawValue={syntheticPrev(domains.length, "Total Domains")} sparkline={syntheticSparkline(domains.length, 8, "Total Domains")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="3rd-Party Domains" value={thirdParty.length} color={ORANGE} rawValue={thirdParty.length} prevRawValue={syntheticPrev(thirdParty.length, "3rd-Party Domains")} sparkline={syntheticSparkline(thirdParty.length, 8, "3rd-Party Domains")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="3rd-Party Request %" value={fmtPct(thirdPartyPct)} color={thirdPartyPct > 60 ? RED : thirdPartyPct > 30 ? YELLOW : GREEN} rawValue={thirdPartyPct} prevRawValue={syntheticPrev(thirdPartyPct, "3rd-Party Request %")} sparkline={syntheticSparkline(thirdPartyPct, 8, "3rd-Party Request %")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="3rd-Party Load Time" value={fmtBytes(thirdPartyBytes)} color={PURPLE} sparkline={syntheticSparkline(0, 8, "3rd-Party Load Time")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Avg 3P Duration" value={`${Math.round(avgThirdPartyDur)}ms`} color={avgThirdPartyDur > 500 ? RED : avgThirdPartyDur > 200 ? YELLOW : GREEN} sparkline={syntheticSparkline(0, 8, "Avg 3P Duration")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Avg 1P Duration" value={`${Math.round(avgFirstPartyDur)}ms`} color={GREEN} sparkline={syntheticSparkline(0, 8, "Avg 1P Duration")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={eff.label("3rd-Party Domains")} value={eff.on ? Math.round(thirdParty.length * (eff.ratio || 1)) : thirdParty.length} color={ORANGE} rawValue={eff.on ? Math.round(thirdParty.length * (eff.ratio || 1)) : thirdParty.length} prevRawValue={syntheticPrev(thirdParty.length, "3rd-Party Domains")} sparkline={syntheticSparkline(thirdParty.length, 8, "3rd-Party Domains")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={eff.label("3rd-Party Request %")} value={fmtPct(thirdPartyPct)} color={thirdPartyPct > 60 ? RED : thirdPartyPct > 30 ? YELLOW : GREEN} rawValue={thirdPartyPct} prevRawValue={syntheticPrev(thirdPartyPct, "3rd-Party Request %")} sparkline={syntheticSparkline(thirdPartyPct, 8, "3rd-Party Request %")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={eff.label("3rd-Party Load Time")} value={fmtBytes(eff.on ? thirdPartyBytes * (eff.ratio || 1) : thirdPartyBytes)} color={PURPLE} sparkline={syntheticSparkline(0, 8, "3rd-Party Load Time")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={eff.label("Avg 3P Duration")} value={`${Math.round(eff.on && eff.avgDurationMs != null ? avgThirdPartyDur * (eff.avgDurationMs / Math.max(1, avgThirdPartyDur + avgFirstPartyDur)) * 2 : avgThirdPartyDur)}ms`} color={avgThirdPartyDur > 500 ? RED : avgThirdPartyDur > 200 ? YELLOW : GREEN} sparkline={syntheticSparkline(0, 8, "Avg 3P Duration")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={eff.label("Avg 1P Duration")} value={`${Math.round(eff.on && eff.avgDurationMs != null ? avgFirstPartyDur * (eff.avgDurationMs / Math.max(1, avgThirdPartyDur + avgFirstPartyDur)) * 2 : avgFirstPartyDur)}ms`} color={GREEN} sparkline={syntheticSparkline(0, 8, "Avg 1P Duration")} onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       {/* 1P vs 3P comparison */}
@@ -21674,6 +21867,7 @@ function ErrorClusteringTab({ data, trendData, isLoading, frontend, deployData, 
     return { clusters, totalErrors };
   }, [data]);
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeErrorClustering(ecStats.clusters, ecStats.totalErrors), [ecStats]));
+  const eff = useEffectiveTL();
   if (isLoading) return <Loading />;
 
   const records = (data?.data?.records ?? []) as any[];
@@ -21719,10 +21913,19 @@ function ErrorClusteringTab({ data, trendData, isLoading, frontend, deployData, 
       {aiPanel}
       <SectionHeader title="Error Clustering — Group and analyze errors by pattern" />
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Total Errors" value={fmtCount(totalErrors)} color={RED} rawValue={totalErrors} prevRawValue={syntheticPrev(totalErrors, "Total Errors")} sparkline={syntheticSparkline(totalErrors, 8, "Total Errors")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Unique Error Types" value={uniqueClusters} color={ORANGE} rawValue={uniqueClusters} prevRawValue={syntheticPrev(uniqueClusters, "Unique Error Types")} sparkline={syntheticSparkline(uniqueClusters, 8, "Unique Error Types")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Sessions w/ Errors" value={fmtCount(totalSessions)} color={PURPLE} rawValue={totalSessions} prevRawValue={syntheticPrev(totalSessions, "Sessions w/ Errors")} sparkline={syntheticSparkline(totalSessions, 8, "Sessions w/ Errors")} onDrillToForecast={onDrillToForecast} />
-        {topCluster && <KpiCard label={`Top Error (${fmtPct(topClusterPct)})`} value={topCluster.name.substring(0, 30)} color={RED} sparkline={syntheticSparkline(0)} onDrillToForecast={onDrillToForecast} />}
+        {(() => {
+          const errFactor = eff.on && eff.errorRate != null ? Math.max(0.5, Math.min(2, eff.errorRate / 2)) : 1;
+          const effTotal = eff.on ? Math.round(totalErrors * errFactor) : totalErrors;
+          const effSessions = eff.on ? Math.round(totalSessions * errFactor) : totalSessions;
+          return (
+            <>
+              <KpiCard label={eff.label("Total Errors")} value={fmtCount(effTotal)} color={RED} rawValue={effTotal} prevRawValue={syntheticPrev(effTotal, "Total Errors")} sparkline={syntheticSparkline(effTotal, 8, "Total Errors")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Unique Error Types")} value={uniqueClusters} color={ORANGE} rawValue={uniqueClusters} prevRawValue={syntheticPrev(uniqueClusters, "Unique Error Types")} sparkline={syntheticSparkline(uniqueClusters, 8, "Unique Error Types")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Sessions w/ Errors")} value={fmtCount(effSessions)} color={PURPLE} rawValue={effSessions} prevRawValue={syntheticPrev(effSessions, "Sessions w/ Errors")} sparkline={syntheticSparkline(effSessions, 8, "Sessions w/ Errors")} onDrillToForecast={onDrillToForecast} />
+              {topCluster && <KpiCard label={`Top Error (${fmtPct(topClusterPct)})`} value={topCluster.name.substring(0, 30)} color={RED} sparkline={syntheticSparkline(0)} onDrillToForecast={onDrillToForecast} />}
+            </>
+          );
+        })()}
       </Flex>
 
       {/* Error trend over time */}
