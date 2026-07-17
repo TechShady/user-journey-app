@@ -14182,11 +14182,11 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                         {/* Tier-colored node (unchanged) */}
                         <rect x={pos.x} y={pos.y} width={nodeW} height={pos.h} rx={6}
                           fill={isActive ? `${meta.color}22` : "rgba(128,128,128,0.1)"} stroke={meta.color} strokeWidth={isActive ? meta.borderWidth + 1 : meta.borderWidth} strokeOpacity={0.85} />
-                        {/* HOT badge — top-right corner dot */}
+                        {/* HOT badge — Z-score pill in top-right corner (higher = worse) */}
                         {hotColor && (
                           <g>
-                            <circle cx={pos.x + nodeW - 6} cy={pos.y + 6} r={7} fill={hotColor} stroke="#000" strokeWidth={1} strokeOpacity={0.4} />
-                            <text x={pos.x + nodeW - 6} y={pos.y + 9} textAnchor="middle" fontSize={8} fontWeight={900} fill="#000">!</text>
+                            <rect x={pos.x + nodeW - 22} y={pos.y - 2} width={20} height={13} rx={6} fill={hotColor} stroke="#000" strokeWidth={1} strokeOpacity={0.4} />
+                            <text x={pos.x + nodeW - 12} y={pos.y + 7} textAnchor="middle" fontSize={8.5} fontWeight={900} fill="#000">{pageTl.z.toFixed(1)}</text>
                           </g>
                         )}
                         {isFunnel && (() => {
@@ -14241,11 +14241,11 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                         {/* Tier-colored node (unchanged) */}
                         <rect x={bePos.x} y={bePos.y} width={beNodeW} height={beNodeH} rx={6}
                           fill={isActive ? `${meta.color}22` : "rgba(128,128,128,0.08)"} stroke={meta.color} strokeWidth={isActive ? meta.borderWidth + 1 : meta.borderWidth} strokeOpacity={0.85} />
-                        {/* HOT badge */}
+                        {/* HOT badge — Z-score pill in top-right corner (higher = worse) */}
                         {hotColor && (
                           <g>
-                            <circle cx={bePos.x + beNodeW - 6} cy={bePos.y + 6} r={7} fill={hotColor} stroke="#000" strokeWidth={1} strokeOpacity={0.4} />
-                            <text x={bePos.x + beNodeW - 6} y={bePos.y + 9} textAnchor="middle" fontSize={8} fontWeight={900} fill="#000">!</text>
+                            <rect x={bePos.x + beNodeW - 22} y={bePos.y - 2} width={20} height={13} rx={6} fill={hotColor} stroke="#000" strokeWidth={1} strokeOpacity={0.4} />
+                            <text x={bePos.x + beNodeW - 12} y={bePos.y + 7} textAnchor="middle" fontSize={8.5} fontWeight={900} fill="#000">{svcTl.z.toFixed(1)}</text>
                           </g>
                         )}
                         <text x={bePos.x + 8} y={bePos.y + 15} fontSize={11} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
@@ -14465,7 +14465,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_ELEV, borderRadius: 2 }} /><span>Elevated</span></Flex>
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_WARM, borderRadius: 2 }} /><span>Warm</span></Flex>
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_HIGH, borderRadius: 2 }} /><span>Hot spike</span></Flex>
-                        <span style={{ marginLeft: "auto" }}>Hotness stays fleet-wide even when a session is filtered — use it to see if your session lands on a spike.</span>
+                        <span style={{ marginLeft: "auto" }}>Hotness stays fleet-wide when a session is filtered. Node badges show Z-score at the current bucket (≥0.75 elevated, ≥1.5 warm, ≥2.5 spike).</span>
                       </Flex>
                     </div>
                   );

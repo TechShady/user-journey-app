@@ -3,7 +3,7 @@
   "environmentUrl": "https://guu84124.apps.dynatrace.com",
   "app": {
     "name": "User Journey & Experience",
-    "version": "4.58.11",
+    "version": "4.58.12",
     "description": "Not an official Dynatrace app. https://github.com/TechShady/user-journey-app.",
     "id": "my.user.journey.app",
     "icon": "./assets/icon.png",
