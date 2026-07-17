@@ -14425,10 +14425,14 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                   const feHasData = navTlSpikeStripFE.some(v => v > 0);
                   const beHasData = navTlSpikeStripBE.some(v => v > 0);
                   const insufficient = navTlBucketList.length < 3;
+                  // Align hotness boxes with the actual SVG columns so FE hotness sits under FE nodes and
+                  // BE hotness sits under BE nodes. Widths derived from dividerX / totalSvgW at current zoom.
+                  const feW = Math.max(200, dividerX * navZoom - 6);
+                  const beW = Math.max(140, (totalSvgW - dividerX) * navZoom - 6);
                   return (
-                    <Flex gap={12} alignItems="stretch" style={{ marginTop: 8, flexWrap: "wrap", position: "sticky", left: 0, width: "min(calc(100vw - 140px), 1600px)" }}>
-                      {/* Frontend hotness — occupies left ~66% (matches width of frontend funnel + pages columns) */}
-                      <div style={{ flex: "2 1 360px", minWidth: 280, padding: "10px 12px", background: "rgba(69,137,255,0.05)", borderRadius: 6, border: "1px solid rgba(69,137,255,0.25)" }}>
+                    <Flex gap={12} alignItems="stretch" style={{ marginTop: 8, width: totalSvgW * navZoom, minWidth: totalSvgW * navZoom, flexWrap: "wrap" }}>
+                      {/* Frontend hotness — width = dividerX (matches FE columns in the SVG above) */}
+                      <div style={{ width: feW, flex: `0 0 ${feW}px`, padding: "10px 12px", background: "rgba(69,137,255,0.05)", borderRadius: 6, border: "1px solid rgba(69,137,255,0.25)" }}>
                         <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
                           <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#4589FF" }}>FRONTEND hotness <span style={{ opacity: 0.55, fontWeight: 500 }}>(fleet-wide)</span></span>
                           <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
@@ -14437,8 +14441,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           ? renderStrip("Pages", "sessions · load · errors", navTlSpikeStripFE, "#4589FF")
                           : <div style={{ fontSize: 10, opacity: 0.55, padding: "10px 0", fontStyle: "italic" }}>{insufficient ? `Only ${navTlBucketList.length} bucket(s) in this filter — not enough history for spike detection.` : "No frontend activity in the selected scope."}</div>}
                       </div>
-                      {/* Backend hotness — right ~33% (matches width of backend services column) */}
-                      <div style={{ flex: "1 1 220px", minWidth: 220, padding: "10px 12px", background: "rgba(165,110,255,0.05)", borderRadius: 6, border: "1px solid rgba(165,110,255,0.25)" }}>
+                      {/* Backend hotness — width = totalSvgW - dividerX (matches BE column in the SVG above) */}
+                      <div style={{ width: beW, flex: `0 0 ${beW}px`, padding: "10px 12px", background: "rgba(165,110,255,0.05)", borderRadius: 6, border: "1px solid rgba(165,110,255,0.25)" }}>
                         <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
                           <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#A56EFF" }}>BACKEND hotness <span style={{ opacity: 0.55, fontWeight: 500 }}>(fleet-wide)</span></span>
                           <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
