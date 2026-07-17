@@ -12363,7 +12363,9 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const navTlTotalRef = useRef(0);
 
   const navFlowTimelapsePagesData = useDql({ query: navTlEnabled ? navFlowTimelapsePagesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps, selectedSessionId || undefined, navUserFilter) : "fetch user.events | limit 0" });
-  const navFlowTimelapseEdgesData = useDql({ query: navTlEnabled ? navFlowTimelapseEdgesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps, selectedSessionId || undefined, navUserFilter) : "fetch user.events | limit 0" });
+  // Hotness intentionally does NOT filter by selectedSessionId or navUserFilter — the whole point is to see
+  // whether the selected session lands on a fleet-wide spike or a calm period. Only tf/app/frontend/steps apply.
+  const navFlowTimelapseEdgesData = useDql({ query: navTlEnabled ? navFlowTimelapseEdgesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps, undefined, undefined) : "fetch user.events | limit 0" });
 
   React.useEffect(() => {
     setNavTlIndex(0);
@@ -14420,23 +14422,30 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       </div>
                     );
                   };
+                  const feHasData = navTlSpikeStripFE.some(v => v > 0);
+                  const beHasData = navTlSpikeStripBE.some(v => v > 0);
+                  const insufficient = navTlBucketList.length < 3;
                   return (
-                    <Flex gap={12} alignItems="stretch" style={{ marginTop: 8, flexWrap: "wrap" }}>
+                    <Flex gap={12} alignItems="stretch" style={{ marginTop: 8, flexWrap: "wrap", position: "sticky", left: 0, width: "min(calc(100vw - 140px), 1600px)" }}>
                       {/* Frontend hotness — occupies left ~66% (matches width of frontend funnel + pages columns) */}
                       <div style={{ flex: "2 1 360px", minWidth: 280, padding: "10px 12px", background: "rgba(69,137,255,0.05)", borderRadius: 6, border: "1px solid rgba(69,137,255,0.25)" }}>
                         <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
-                          <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#4589FF" }}>FRONTEND hotness</span>
+                          <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#4589FF" }}>FRONTEND hotness <span style={{ opacity: 0.55, fontWeight: 500 }}>(fleet-wide)</span></span>
                           <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
                         </Flex>
-                        {renderStrip("Pages", "sessions · load · errors", navTlSpikeStripFE, "#4589FF")}
+                        {feHasData
+                          ? renderStrip("Pages", "sessions · load · errors", navTlSpikeStripFE, "#4589FF")
+                          : <div style={{ fontSize: 10, opacity: 0.55, padding: "10px 0", fontStyle: "italic" }}>{insufficient ? `Only ${navTlBucketList.length} bucket(s) in this filter — not enough history for spike detection.` : "No frontend activity in the selected scope."}</div>}
                       </div>
                       {/* Backend hotness — right ~33% (matches width of backend services column) */}
                       <div style={{ flex: "1 1 220px", minWidth: 220, padding: "10px 12px", background: "rgba(165,110,255,0.05)", borderRadius: 6, border: "1px solid rgba(165,110,255,0.25)" }}>
                         <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
-                          <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#A56EFF" }}>BACKEND hotness</span>
+                          <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#A56EFF" }}>BACKEND hotness <span style={{ opacity: 0.55, fontWeight: 500 }}>(fleet-wide)</span></span>
                           <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
                         </Flex>
-                        {renderStrip("Services", "errors · latency · throughput", navTlSpikeStripBE, "#A56EFF")}
+                        {beHasData
+                          ? renderStrip("Services", "errors · latency · throughput", navTlSpikeStripBE, "#A56EFF")
+                          : <div style={{ fontSize: 10, opacity: 0.55, padding: "10px 0", fontStyle: "italic" }}>{insufficient ? `Only ${navTlBucketList.length} bucket(s) in this filter — not enough history for spike detection.` : "No backend spans matched this scope (session may have no server-side traces)."}</div>}
                       </div>
                       {/* Legend row spanning full width */}
                       <Flex alignItems="center" gap={12} style={{ width: "100%", marginTop: 2, fontSize: 10, opacity: 0.6, flexWrap: "wrap" }}>
@@ -14445,7 +14454,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_ELEV, borderRadius: 2 }} /><span>Elevated</span></Flex>
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_WARM, borderRadius: 2 }} /><span>Warm</span></Flex>
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_HIGH, borderRadius: 2 }} /><span>Hot spike</span></Flex>
-                        <span style={{ marginLeft: "auto" }}>Compare left vs right to see if a spike is frontend-driven or backend-driven.</span>
+                        <span style={{ marginLeft: "auto" }}>Hotness stays fleet-wide even when a session is filtered — use it to see if your session lands on a spike.</span>
                       </Flex>
                     </Flex>
                   );
