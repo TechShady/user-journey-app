@@ -87,13 +87,14 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.62.0";
+const APP_VERSION_LABEL = "4.63.0";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
 const TL_ANIMATED_TABS = new Set<string>([
   "Funnel Overview", "Navigation Paths", "Maps", "Trends", "Web Vitals",
   "Perf Budgets", "Anomaly Detection", "Executive Summary", "Session Engagement",
+  "Revenue Intelligence", "Cost per Conversion", "Cost per Transaction", "Performance Tax",
 ]);
 
 // Compact per-tab banner shown at the top of every sub-tab whenever Time-Lapse is on.
@@ -16136,6 +16137,7 @@ function WhatIfTab({ funnelCounts, stepMap, overallApdex, isLoading, steps, aov,
 function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overallConv, overallConvPrev, overallApdex, quality, qualityPrev, isLoading, steps, aov, onDrillToForecast }: { funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; overallConv: number; overallConvPrev: number; overallApdex: number; quality: any; qualityPrev: any; isLoading: boolean; steps: StepDef[]; aov: number; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { industry } = useSettings();
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeRevenueIntelligence(quality, overallConv, aov, funnelCounts, funnelCountsPrev, steps, industry), [quality, overallConv, aov, funnelCounts, funnelCountsPrev, steps, industry]));
+  const tl = useTimelapse();
   if (isLoading) return <Loading />;
 
   if (aov <= 0) {
@@ -16189,6 +16191,20 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
   const latencyPenaltyPct = avgDuration > 1000 ? Math.min(30, ((avgDuration - 1000) / 100) * 1) : 0;
   const latencyRevLoss = currRevenue > 0 ? (funnelCounts[0] * (overallConv / 100) * aov * latencyPenaltyPct / 100) : 0;
 
+  // Time-Lapse: per-bucket effective values (scale current-period aggregates by session ratio)
+  const tlShared = tl.enabled ? tl.sharedMetrics : null;
+  const sessionsRatio = tlShared && quality.sessions > 0 ? tlShared.sessions / quality.sessions : 1;
+  const effCurrRevenue = tlShared ? currRevenue * sessionsRatio : currRevenue;
+  const effRps = tlShared && tlShared.sessions > 0 ? effCurrRevenue / tlShared.sessions : rps;
+  const effErrRate = tlShared ? tlShared.errorRate : errRate;
+  const effFruPct = tlShared && tlShared.totalActions > 0 ? (tlShared.frustrated / tlShared.totalActions) * 100 : fruPct;
+  const effAvgDur = tlShared ? tlShared.avgDurationMs : avgDuration;
+  const effLatencyPenaltyPct = effAvgDur > 1000 ? Math.min(30, ((effAvgDur - 1000) / 100) * 1) : 0;
+  const effLatencyRevLoss = tlShared ? (effCurrRevenue > 0 ? (funnelCounts[0] * sessionsRatio * (overallConv / 100) * aov * effLatencyPenaltyPct / 100) : 0) : latencyRevLoss;
+  const effFrustratedRevLoss = tlShared ? effCurrRevenue * (effFruPct / 100) * 0.5 : frustratedRevLoss;
+  const effErrorRevLoss = tlShared ? effCurrRevenue * (effErrRate / 100) * 0.3 : errorRevLoss;
+  const effTotalPerfTax = effLatencyRevLoss + effFrustratedRevLoss + effErrorRevLoss;
+
   // Improvement scenarios
   const scenarios = [
     { label: "Fix top drop-off step", improvement: stepLeakage[0] ? Math.min(stepLeakage[0].dropRate * 0.25, 15) : 0 },
@@ -16203,23 +16219,23 @@ function RevenueIntelligenceTab({ funnelCounts, funnelCountsPrev, stepMap, overa
       {aiPanel}
       {/* Top-line revenue KPIs */}
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Current Revenue" value={fmtCurrency(currRevenue)} color={BLUE} rawValue={currRevenue} prevRawValue={syntheticPrev(currRevenue, "Current Revenue")} sparkline={syntheticSparkline(currRevenue, 8, "Current Revenue")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Current Revenue (bucket)" : "Current Revenue"} value={fmtCurrency(effCurrRevenue)} color={BLUE} rawValue={effCurrRevenue} prevRawValue={syntheticPrev(effCurrRevenue, "Current Revenue")} sparkline={syntheticSparkline(effCurrRevenue, 8, "Current Revenue")} onDrillToForecast={onDrillToForecast} />
         <KpiCard label="Previous Period" value={fmtCurrency(prevRevenue)} color={"rgba(128,128,128,0.7)"} rawValue={prevRevenue} prevRawValue={syntheticPrev(prevRevenue, "Previous Period")} sparkline={syntheticSparkline(prevRevenue, 8, "Previous Period")} onDrillToForecast={onDrillToForecast} />
         <div className={`uj-revenue-card ${revenueDelta >= 0 ? "uj-revenue-positive" : "uj-revenue-negative"}`}>
           <Text className="uj-metric-label">Revenue Change</Text>
           <Strong className="uj-metric-value" style={{ color: revenueDelta >= 0 ? GREEN : RED }}>{revenueDelta >= 0 ? "+" : ""}${fmtCurrency(revenueDelta)}</Strong>
           <Text style={{ fontSize: 13, color: revenueDelta >= 0 ? GREEN : RED }}>{revenueDelta >= 0 ? "▲" : "▼"} {fmtPct(Math.abs(revenueDeltaPct))} vs prev</Text>
         </div>
-        <KpiCard label="Revenue per Session" value={fmtCurrency(rps)} color={CYAN} rawValue={rps} prevRawValue={syntheticPrev(rps, "Revenue per Session")} sparkline={syntheticSparkline(rps, 8, "Revenue per Session")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Revenue per Session (bucket)" : "Revenue per Session"} value={fmtCurrency(effRps)} color={CYAN} rawValue={effRps} prevRawValue={syntheticPrev(effRps, "Revenue per Session")} sparkline={syntheticSparkline(effRps, 8, "Revenue per Session")} onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       {/* Performance Tax Summary */}
       <SectionHeader title="Performance Tax" />
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Latency Tax" value={fmtCurrency(latencyRevLoss)} color={RED} rawValue={latencyRevLoss} prevRawValue={syntheticPrev(latencyRevLoss, "Latency Tax")} sparkline={syntheticSparkline(latencyRevLoss, 8, "Latency Tax")} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Frustration Tax" value={fmtCurrency(frustratedRevLoss)} color={RED} rawValue={frustratedRevLoss} prevRawValue={syntheticPrev(frustratedRevLoss, "Frustration Tax")} sparkline={syntheticSparkline(frustratedRevLoss, 8, "Frustration Tax")} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Error Tax" value={fmtCurrency(errorRevLoss)} color={RED} rawValue={errorRevLoss} prevRawValue={syntheticPrev(errorRevLoss, "Error Tax")} sparkline={syntheticSparkline(errorRevLoss, 8, "Error Tax")} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Total Perf Tax" value={fmtCurrency(latencyRevLoss + frustratedRevLoss + errorRevLoss)} color={RED} rawValue={latencyRevLoss + frustratedRevLoss + errorRevLoss} prevRawValue={syntheticPrev((latencyRevLoss + frustratedRevLoss + errorRevLoss), "Total Perf Tax")} sparkline={syntheticSparkline(latencyRevLoss + frustratedRevLoss + errorRevLoss, 8, "Total Perf Tax")} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Latency Tax (bucket)" : "Latency Tax"} value={fmtCurrency(effLatencyRevLoss)} color={RED} rawValue={effLatencyRevLoss} prevRawValue={syntheticPrev(effLatencyRevLoss, "Latency Tax")} sparkline={syntheticSparkline(effLatencyRevLoss, 8, "Latency Tax")} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Frustration Tax (bucket)" : "Frustration Tax"} value={fmtCurrency(effFrustratedRevLoss)} color={RED} rawValue={effFrustratedRevLoss} prevRawValue={syntheticPrev(effFrustratedRevLoss, "Frustration Tax")} sparkline={syntheticSparkline(effFrustratedRevLoss, 8, "Frustration Tax")} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Error Tax (bucket)" : "Error Tax"} value={fmtCurrency(effErrorRevLoss)} color={RED} rawValue={effErrorRevLoss} prevRawValue={syntheticPrev(effErrorRevLoss, "Error Tax")} sparkline={syntheticSparkline(effErrorRevLoss, 8, "Error Tax")} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Total Perf Tax (bucket)" : "Total Perf Tax"} value={fmtCurrency(effTotalPerfTax)} color={RED} rawValue={effTotalPerfTax} prevRawValue={syntheticPrev(effTotalPerfTax, "Total Perf Tax")} sparkline={syntheticSparkline(effTotalPerfTax, 8, "Total Perf Tax")} inverted onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       {/* Funnel Revenue Leakage */}
@@ -21827,6 +21843,7 @@ function CostPerConversionTab({ funnelCounts, funnelCountsPrev, quality, quality
     const rcr = aov > 0 && cpc > 0 ? aov / cpc : 0; const spd = d > 0 ? s / d : 0;
     return analyzeCostPerConversion(cpc, cps, rcr, spd, d, c, aov, s, industry);
   }, [quality, funnelCounts, aov, monthlyInfraCost, industry]));
+  const tl = useTimelapse();
   if (isLoading) return <Loading />;
 
   const totalSessions = quality.sessions ?? 0;
@@ -21863,20 +21880,31 @@ function CostPerConversionTab({ funnelCounts, funnelCountsPrev, quality, quality
   const sparkConv = Array.from({ length: 8 }, (_, i) => conversions * (0.85 + (((i * 6 + 4) % 10) / 10) * 0.3));
   const sparkRev = Array.from({ length: 8 }, (_, i) => conversions * aov * (0.85 + (((i * 2 + 7) % 9) / 9) * 0.3));
 
+  // Time-Lapse: per-bucket effective values (scale by sessions ratio)
+  const tlShared = tl.enabled ? tl.sharedMetrics : null;
+  const sessionsRatio = tlShared && totalSessions > 0 ? tlShared.sessions / totalSessions : 1;
+  const effTotalSessions = tlShared ? tlShared.sessions : totalSessions;
+  const effConversions = tlShared ? conversions * sessionsRatio : conversions;
+  const effCostPerSession = effTotalSessions > 0 ? dailyInfraCost / effTotalSessions : 0;
+  const effCostPerConversion = effConversions > 0 ? dailyInfraCost / effConversions : 0;
+  const effCostEfficiencyRatio = aov > 0 && effCostPerConversion > 0 ? aov / effCostPerConversion : 0;
+  const effSessionsPerDollar = dailyInfraCost > 0 ? effTotalSessions / dailyInfraCost : 0;
+  const effDailyRevenue = effConversions * aov;
+
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Cost per Conversion" value={fmtCurrency(costPerConversion)} color={RED} rawValue={costPerConversion} prevRawValue={prevCostPerConversion || undefined} sparkline={sparkCpc} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Cost per Session" value={fmtCurrency(costPerSession)} color={ORANGE} rawValue={costPerSession} prevRawValue={prevCostPerSession || undefined} sparkline={sparkCps} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Revenue:Cost Ratio" value={costEfficiencyRatio.toFixed(1) + "x"} color={costEfficiencyRatio > 5 ? GREEN : costEfficiencyRatio > 2 ? YELLOW : RED} rawValue={costEfficiencyRatio} prevRawValue={prevCostEfficiencyRatio || undefined} sparkline={sparkRatio} higherIsBetter onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Sessions per Dollar" value={fmtCount(Math.round(sessionsPerDollar))} color={BLUE} rawValue={sessionsPerDollar} prevRawValue={prevSessionsPerDollar || undefined} sparkline={sparkSessions} higherIsBetter onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Cost per Conversion (bucket)" : "Cost per Conversion"} value={fmtCurrency(effCostPerConversion)} color={RED} rawValue={effCostPerConversion} prevRawValue={prevCostPerConversion || undefined} sparkline={sparkCpc} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Cost per Session (bucket)" : "Cost per Session"} value={fmtCurrency(effCostPerSession)} color={ORANGE} rawValue={effCostPerSession} prevRawValue={prevCostPerSession || undefined} sparkline={sparkCps} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Revenue:Cost Ratio (bucket)" : "Revenue:Cost Ratio"} value={effCostEfficiencyRatio.toFixed(1) + "x"} color={effCostEfficiencyRatio > 5 ? GREEN : effCostEfficiencyRatio > 2 ? YELLOW : RED} rawValue={effCostEfficiencyRatio} prevRawValue={prevCostEfficiencyRatio || undefined} sparkline={sparkRatio} higherIsBetter onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Sessions per Dollar (bucket)" : "Sessions per Dollar"} value={fmtCount(Math.round(effSessionsPerDollar))} color={BLUE} rawValue={effSessionsPerDollar} prevRawValue={prevSessionsPerDollar || undefined} sparkline={sparkSessions} higherIsBetter onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       <Flex gap={16} flexWrap="wrap">
         <KpiCard label="Daily Infra Cost" value={fmtCurrency(dailyInfraCost)} color={"rgba(128,128,128,0.7)"} rawValue={dailyInfraCost} sparkline={sparkCpc} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Daily Conversions" value={fmtCount(conversions)} color={GREEN} rawValue={conversions} prevRawValue={prevConversions || undefined} sparkline={sparkConv} higherIsBetter onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Daily Revenue" value={fmtCurrency(conversions * aov)} color={BLUE} rawValue={conversions * aov} prevRawValue={(prevConversions * aov) || undefined} sparkline={sparkRev} higherIsBetter onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Daily Conversions (bucket)" : "Daily Conversions"} value={fmtCount(Math.round(effConversions))} color={GREEN} rawValue={effConversions} prevRawValue={prevConversions || undefined} sparkline={sparkConv} higherIsBetter onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Daily Revenue (bucket)" : "Daily Revenue"} value={fmtCurrency(effDailyRevenue)} color={BLUE} rawValue={effDailyRevenue} prevRawValue={(prevConversions * aov) || undefined} sparkline={sparkRev} higherIsBetter onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       <SectionHeader title="Cost Allocation by Funnel Step" />
@@ -21954,6 +21982,7 @@ function PerformanceTaxTab({ funnelCounts, quality, qualityPrev, overallConv, ov
     const beHrs = engineerHourlyRate > 0 && total > 0 ? total / engineerHourlyRate : 0;
     return analyzePerformanceTax(total, latRev, fruRev, errRev, lostC, beHrs, errR, fruP, avg, aov, industry);
   }, [quality, funnelCounts, overallConv, aov, engineerHourlyRate, industry]));
+  const tl = useTimelapse();
   if (isLoading) return <Loading />;
 
   const totalSessions = quality.sessions ?? 0;
@@ -21997,14 +22026,37 @@ function PerformanceTaxTab({ funnelCounts, quality, qualityPrev, overallConv, ov
   const sparkBreakEven = Array.from({ length: 8 }, (_, i) => breakEvenHours * (0.85 + (((i * 3 + 4) % 8) / 8) * 0.3));
   const sparkRevRisk = Array.from({ length: 8 }, (_, i) => (aov > 0 ? (totalPerfTax / Math.max(1, funnelCounts[funnelCounts.length - 1] * aov)) * 100 : 0) * (0.85 + (((i * 6 + 1) % 7) / 7) * 0.3));
 
+  // Time-Lapse: per-bucket effective values
+  const tlShared = tl.enabled ? tl.sharedMetrics : null;
+  const sessionsRatio = tlShared && totalSessions > 0 ? tlShared.sessions / totalSessions : 1;
+  const effAvgDur = tlShared ? tlShared.avgDurationMs : avgDuration;
+  const effErrRate = tlShared ? tlShared.errorRate : errRate;
+  const effFruPct = tlShared && tlShared.totalActions > 0 ? (tlShared.frustrated / tlShared.totalActions) * 100 : fruPct;
+  const effTotalSessions = tlShared ? tlShared.sessions : totalSessions;
+  const effTopFunnel = tlShared ? topFunnelSessions * sessionsRatio : topFunnelSessions;
+  const effExcMs = Math.max(0, effAvgDur - 1000);
+  const effLatPct = Math.min(30, effExcMs / 100);
+  const effLostLat = Math.round(effTopFunnel * (overallConv / 100) * (effLatPct / 100));
+  const effLatencyRevLoss = effLostLat * aov;
+  const effFruSes = Math.round(effTotalSessions * (effFruPct / 100));
+  const effLostFru = Math.round(effFruSes * (overallConv / 100) * 0.5);
+  const effFrustrationRevLoss = effLostFru * aov;
+  const effErrSes = Math.round(effTotalSessions * (effErrRate / 100));
+  const effLostErr = Math.round(effErrSes * (overallConv / 100) * 0.3);
+  const effErrorRevLoss = effLostErr * aov;
+  const effTotalPerfTax = effLatencyRevLoss + effFrustrationRevLoss + effErrorRevLoss;
+  const effTotalLostConversions = effLostLat + effLostFru + effLostErr;
+  const effBreakEvenHours = engineerHourlyRate > 0 ? effTotalPerfTax / engineerHourlyRate : 0;
+  const effRevAtRisk = aov > 0 ? (effTotalPerfTax / Math.max(1, funnelCounts[funnelCounts.length - 1] * sessionsRatio * aov)) * 100 : 0;
+
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Total Performance Tax" value={fmtCurrency(totalPerfTax)} color={RED} rawValue={totalPerfTax} sparkline={sparkTax} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Lost Conversions" value={fmtCount(totalLostConversions)} color={ORANGE} rawValue={totalLostConversions} sparkline={sparkLostConv} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Break-Even Fix Time" value={Math.round(breakEvenHours) + "h"} color={BLUE} rawValue={breakEvenHours} sparkline={sparkBreakEven} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Revenue at Risk" value={fmtPct(aov > 0 ? (totalPerfTax / Math.max(1, funnelCounts[funnelCounts.length - 1] * aov)) * 100 : 0)} color={RED} rawValue={aov > 0 ? (totalPerfTax / Math.max(1, funnelCounts[funnelCounts.length - 1] * aov)) * 100 : 0} sparkline={sparkRevRisk} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Total Performance Tax (bucket)" : "Total Performance Tax"} value={fmtCurrency(effTotalPerfTax)} color={RED} rawValue={effTotalPerfTax} sparkline={sparkTax} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Lost Conversions (bucket)" : "Lost Conversions"} value={fmtCount(effTotalLostConversions)} color={ORANGE} rawValue={effTotalLostConversions} sparkline={sparkLostConv} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Break-Even Fix Time (bucket)" : "Break-Even Fix Time"} value={Math.round(effBreakEvenHours) + "h"} color={BLUE} rawValue={effBreakEvenHours} sparkline={sparkBreakEven} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Revenue at Risk (bucket)" : "Revenue at Risk"} value={fmtPct(effRevAtRisk)} color={RED} rawValue={effRevAtRisk} sparkline={sparkRevRisk} inverted onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       <SectionHeader title="Tax Breakdown" />
@@ -22570,6 +22622,7 @@ function RightSizingTab({ quality, hostMetricsData, monthlyInfraCost, computeCos
 
 function CostPerTransactionTab({ quality, qualityPrev, funnelCounts, monthlyInfraCost, computeCostPerHour, aov, overallConv, isLoading, onDrillToForecast }: { quality: any; qualityPrev: any; funnelCounts: number[]; monthlyInfraCost: number; computeCostPerHour: number; aov: number; overallConv: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { industry } = useSettings();
+  const tl = useTimelapse();
   const sessions = quality.sessions ?? 10000;
   const prevSessions = qualityPrev.sessions ?? 9500;
   const requests = sessions * 12;
@@ -22602,14 +22655,26 @@ function CostPerTransactionTab({ quality, qualityPrev, funnelCounts, monthlyInfr
   }, [services, costPerSession, revenuePerDollarInfra, costEfficiency, conversions, aov]));
 
   if (isLoading) return <Flex justifyContent="center" alignItems="center" style={{ padding: 48 }}><ProgressCircle size="large" /></Flex>;
+
+  // Time-Lapse: per-bucket effective values (scale by sessions ratio)
+  const tlShared = tl.enabled ? tl.sharedMetrics : null;
+  const sessionsRatio = tlShared && sessions > 0 ? tlShared.sessions / sessions : 1;
+  const effSessions = tlShared ? tlShared.sessions : sessions;
+  const effRequests = tlShared ? tlShared.totalActions : requests;
+  const effConversions = tlShared ? conversions * sessionsRatio : conversions;
+  const effCostPerSession = effSessions > 0 ? dailyCost / Math.max(1, effSessions / 30) : costPerSession;
+  const effCostPerConversion = monthlyInfraCost / Math.max(1, effConversions);
+  const effCostPerRequest = monthlyInfraCost / Math.max(1, effRequests);
+  const effRevenuePerDollarInfra = (effConversions * aov) / Math.max(1, monthlyInfraCost);
+
   return (
     <Flex flexDirection="column" gap={20}>
       {aiPanel}
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Cost / Session" value={fmtCurrency(costPerSession)} color={BLUE} rawValue={costPerSession} prevRawValue={prevCostPerSession} sparkline={sparkCPS} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Cost / Conversion" value={fmtCurrency(costPerConversion)} color={ORANGE} rawValue={costPerConversion} sparkline={sparkCPS.map(v => v * (sessions / Math.max(1, conversions)))} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Revenue / $1 Infra" value={`${revenuePerDollarInfra.toFixed(1)}x`} color={revenuePerDollarInfra > 5 ? GREEN : revenuePerDollarInfra > 2 ? YELLOW : RED} rawValue={revenuePerDollarInfra} sparkline={sparkROI} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Cost / Request" value={`$${(costPerRequest * 1000).toFixed(2)} per 1k`} color={CYAN} rawValue={costPerRequest * 1000} sparkline={sparkCPS.map(v => v / 12 * 1000)} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Cost / Session (bucket)" : "Cost / Session"} value={fmtCurrency(effCostPerSession)} color={BLUE} rawValue={effCostPerSession} prevRawValue={prevCostPerSession} sparkline={sparkCPS} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Cost / Conversion (bucket)" : "Cost / Conversion"} value={fmtCurrency(effCostPerConversion)} color={ORANGE} rawValue={effCostPerConversion} sparkline={sparkCPS.map(v => v * (sessions / Math.max(1, conversions)))} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Revenue / $1 Infra (bucket)" : "Revenue / $1 Infra"} value={`${effRevenuePerDollarInfra.toFixed(1)}x`} color={effRevenuePerDollarInfra > 5 ? GREEN : effRevenuePerDollarInfra > 2 ? YELLOW : RED} rawValue={effRevenuePerDollarInfra} sparkline={sparkROI} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Cost / Request (bucket)" : "Cost / Request"} value={`$${(effCostPerRequest * 1000).toFixed(2)} per 1k`} color={CYAN} rawValue={effCostPerRequest * 1000} sparkline={sparkCPS.map(v => v / 12 * 1000)} inverted onDrillToForecast={onDrillToForecast} />
       </Flex>
       <SectionHeader title="Service Unit Economics" />
       <div className="uj-table-tile">
