@@ -14427,32 +14427,39 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                   const insufficient = navTlBucketList.length < 3;
                   // Align hotness boxes with the actual SVG columns so FE hotness sits under FE nodes and
                   // BE hotness sits under BE nodes. Widths derived from dividerX / totalSvgW at current zoom.
-                  const feW = Math.max(200, dividerX * navZoom - 6);
-                  const beW = Math.max(140, (totalSvgW - dividerX) * navZoom - 6);
+                  const rowW = Math.max(600, totalSvgW * navZoom);
+                  const feW = Math.max(200, dividerX * navZoom);
+                  const beW = Math.max(140, rowW - feW);
                   return (
-                    <Flex gap={12} alignItems="stretch" style={{ marginTop: 8, width: totalSvgW * navZoom, minWidth: totalSvgW * navZoom, flexWrap: "wrap" }}>
-                      {/* Frontend hotness — width = dividerX (matches FE columns in the SVG above) */}
-                      <div style={{ width: feW, flex: `0 0 ${feW}px`, padding: "10px 12px", background: "rgba(69,137,255,0.05)", borderRadius: 6, border: "1px solid rgba(69,137,255,0.25)" }}>
-                        <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
-                          <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#4589FF" }}>FRONTEND hotness <span style={{ opacity: 0.55, fontWeight: 500 }}>(fleet-wide)</span></span>
-                          <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
-                        </Flex>
-                        {feHasData
-                          ? renderStrip("Pages", "sessions · load · errors", navTlSpikeStripFE, "#4589FF")
-                          : <div style={{ fontSize: 10, opacity: 0.55, padding: "10px 0", fontStyle: "italic" }}>{insufficient ? `Only ${navTlBucketList.length} bucket(s) in this filter — not enough history for spike detection.` : "No frontend activity in the selected scope."}</div>}
+                    <div style={{ marginTop: 8, width: rowW, minWidth: rowW }}>
+                      <div style={{ display: "grid", gridTemplateColumns: `${feW}px ${beW}px`, columnGap: 0, width: rowW }}>
+                        {/* Frontend hotness — width = dividerX (matches FE columns in the SVG above) */}
+                        <div style={{ marginRight: 6, padding: "10px 12px", background: "rgba(69,137,255,0.05)", borderRadius: 6, border: "1px solid rgba(69,137,255,0.25)", boxSizing: "border-box" }}>
+                          <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
+                            <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#4589FF" }}>FRONTEND hotness <span style={{ opacity: 0.55, fontWeight: 500 }}>(fleet-wide)</span></span>
+                            <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
+                          </Flex>
+                          {feHasData
+                            ? renderStrip("Pages", "sessions · load · errors", navTlSpikeStripFE, "#4589FF")
+                            : <div style={{ fontSize: 10, opacity: 0.55, padding: "10px 0", fontStyle: "italic" }}>{insufficient ? `Only ${navTlBucketList.length} bucket(s) in this filter — not enough history for spike detection.` : "No frontend activity in the selected scope."}</div>}
+                        </div>
+                        {/* Backend hotness — width = totalSvgW - dividerX (matches BE column in the SVG above) */}
+                        <div style={{ marginLeft: 6, padding: "10px 12px", background: "rgba(165,110,255,0.05)", borderRadius: 6, border: "1px solid rgba(165,110,255,0.25)", boxSizing: "border-box" }}>
+                          <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
+                            <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#A56EFF" }}>BACKEND hotness <span style={{ opacity: 0.55, fontWeight: 500 }}>(fleet-wide)</span></span>
+                            <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
+                          </Flex>
+                          {beHasData
+                            ? renderStrip("Services", "errors · latency · throughput", navTlSpikeStripBE, "#A56EFF")
+                            : <div style={{ fontSize: 10, opacity: 0.55, padding: "10px 0", fontStyle: "italic" }}>{insufficient ? `Only ${navTlBucketList.length} bucket(s) in this filter — not enough history for spike detection.` : "No backend spans matched this scope (session may have no server-side traces)."}</div>}
+                        </div>
                       </div>
-                      {/* Backend hotness — width = totalSvgW - dividerX (matches BE column in the SVG above) */}
-                      <div style={{ width: beW, flex: `0 0 ${beW}px`, padding: "10px 12px", background: "rgba(165,110,255,0.05)", borderRadius: 6, border: "1px solid rgba(165,110,255,0.25)" }}>
-                        <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
-                          <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#A56EFF" }}>BACKEND hotness <span style={{ opacity: 0.55, fontWeight: 500 }}>(fleet-wide)</span></span>
-                          <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
-                        </Flex>
-                        {beHasData
-                          ? renderStrip("Services", "errors · latency · throughput", navTlSpikeStripBE, "#A56EFF")
-                          : <div style={{ fontSize: 10, opacity: 0.55, padding: "10px 0", fontStyle: "italic" }}>{insufficient ? `Only ${navTlBucketList.length} bucket(s) in this filter — not enough history for spike detection.` : "No backend spans matched this scope (session may have no server-side traces)."}</div>}
+                      {/* Diagnostics — pixel widths so you can verify alignment */}
+                      <div style={{ marginTop: 4, fontSize: 9, opacity: 0.4, fontFamily: "monospace" }}>
+                        hotness align: totalSvgW={Math.round(totalSvgW)} dividerX={Math.round(dividerX)} navZoom={navZoom.toFixed(2)} → feW={Math.round(feW)}px beW={Math.round(beW)}px rowW={Math.round(rowW)}px
                       </div>
                       {/* Legend row spanning full width */}
-                      <Flex alignItems="center" gap={12} style={{ width: "100%", marginTop: 2, fontSize: 10, opacity: 0.6, flexWrap: "wrap" }}>
+                      <Flex alignItems="center" gap={12} style={{ width: "100%", marginTop: 6, fontSize: 10, opacity: 0.6, flexWrap: "wrap" }}>
                         <span style={{ fontWeight: 600, opacity: 0.7 }}>Click a bar to jump.</span>
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: "rgba(69,137,255,0.55)", borderRadius: 2 }} /><span>Normal</span></Flex>
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_ELEV, borderRadius: 2 }} /><span>Elevated</span></Flex>
@@ -14460,7 +14467,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                         <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_HIGH, borderRadius: 2 }} /><span>Hot spike</span></Flex>
                         <span style={{ marginLeft: "auto" }}>Hotness stays fleet-wide even when a session is filtered — use it to see if your session lands on a spike.</span>
                       </Flex>
-                    </Flex>
+                    </div>
                   );
                 })()}
 
