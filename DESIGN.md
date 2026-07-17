@@ -53,6 +53,36 @@ The 36 sub-tabs are organized into **8 parent tab groups** with nested Strato `<
 
 ## Cross-Cutting Features
 
+### Global Time-Lapse
+
+**Purpose**: A single, page-level Time-Lapse control that drives historical playback across every visualization that opts in — replacing the previous per-tab Time-Lapse control bars (Funnel, Navigation Flow) with one shared strip.
+
+**Implementation** (`ui/app/TimelapseContext.tsx`, `ui/app/App.tsx`, `ui/app/pages/UserJourney.tsx`):
+
+- **Provider** — `<TimelapseProvider>` wraps the entire app just below `<SettingsProvider>` in `App.tsx`. It owns all shared state:
+  - `enabled: boolean` — master switch (checkbox in the header strip)
+  - `bucket: TlBucket` (`"1m" | "5m" | "10m" | "30m" | "1h"`) — shared bucket size
+  - `speedMs: number` — playback speed (2000 / 1200 / 700 / 400 ms → 0.5x / 1x / 2x / 4x)
+  - `playing: boolean` — advances via a single `setInterval` living inside the provider
+  - `index: number` — current position in the shared cursor
+  - `totalBuckets: number` + `currentBucketKey: string` — published by whichever viz is currently driving playback via `reportBuckets(total, key?)`
+- **Header strip** (in `UserJourney.tsx`, immediately below the app title): Renders the shared checkbox, bucket dropdown, speed dropdown, ▶ Play / ⏸ Pause / ↺ Restart buttons, scrubber (`<input type="range">`), and a status readout showing `n/total` + the current bucket key. When disabled, the strip collapses to just the checkbox + tagline.
+- **Publish-subscribe pattern**: Each opt-in visualization computes its own DQL-derived bucket list (`funnelTlBucketList`, `navTlBucketList`, …) and publishes it back to the provider via a `useEffect` calling `tl.reportBuckets(list.length, list[tl.index])`. Only the visualization currently rendering "owns" the shared counter — other subscribers still read the same `tl.index` but simply ignore it when out of range.
+- **Reset semantics**: The provider auto-resets `index=0` and `playing=false` when `bucket` or `enabled` change. Each viz additionally resets on filter changes (timeframe, frontend, app filter, etc.) via its own `useEffect`.
+- **Per-viz hotness stays local**: The hotness Z-scores, spike strips, and node badges are computed independently by each tab from its own metrics. Only the `enabled` / `bucket` / `index` / `playing` state is shared.
+- **Migrated tabs**: `FunnelOverviewTab` and `NavigationPathsTab` no longer hold local TL state or render their own control bars — they only render a compact "Time-Lapse active — use header controls" status line while enabled.
+- **Filter isolation**: Navigation Flow hotness intentionally ignores session/user filters (`selectedSessionId`, `navUserFilter`) so the fleet-wide spike pattern remains visible regardless of the current session scope.
+
+**Extending to a new visualization**:
+1. `const tl = useTimelapse();` at the top of the tab component.
+2. Gate the TL-specific DQL query with `tl.enabled`.
+3. Compute a sorted `bucketList: string[]` from the query result.
+4. `useEffect(() => { if (!tl.enabled) return; tl.reportBuckets(bucketList.length, bucketList[Math.min(tl.index, bucketList.length - 1)] ?? ""); }, [tl.enabled, bucketList, tl.index, tl])`.
+5. Use `tl.index` (clamped against your local `bucketList.length`) to select the current bucket for rendering.
+6. Reset local filter-driven side-effects with `setIndex(0); setPlaying(false)` when filters change (bucket/enabled resets are handled by the provider).
+
+---
+
 ### Related Metrics — Cross-Metric Correlation Discovery
 
 **Purpose**: Allow users to discover which metrics have a statistically significant relationship with any given KPI, helping identify root causes and contributing factors.
@@ -1451,6 +1481,7 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------||
+| 2026-07-12 | 4.59.0 | **Global Time-Lapse — Shared Playback Across Every Viz**: New `TimelapseContext` provider wraps the entire app and owns all Time-Lapse state (`enabled`, `bucket`, `speedMs`, `playing`, `index`, `totalBuckets`, `currentBucketKey`). A single header strip immediately below the app title renders the shared checkbox, bucket dropdown (1m / 5m / 10m / 30m / 1h), speed dropdown (0.5x / 1x / 2x / 4x), ▶ Play / ⏸ Pause / ↺ Restart controls, scrubber, and status readout. Play cursor now lives in the provider's `setInterval`. Migrated `FunnelOverviewTab` and `NavigationPathsTab` to consume context instead of holding local TL state — both now render only a compact "Time-Lapse active — use header controls" status line while enabled. Each viz still publishes its own bucket list to the provider via `tl.reportBuckets(total, key)`. Per-viz hotness (Z-score badges, spike strips) stays local. Nav-flow hotness intentionally ignores session/user filters so the fleet-wide spike pattern is always visible. Help panel and DESIGN.md updated. |
 | 2026-06-11 | 4.53.5 | **AI Insights — Industry-Aware Analysis Engine**: All 30+ AI analysis functions now automatically enriched with industry-specific benchmarks via `enrichWithIndustryContext()` in the `useAIInsights` hook. New Industry setting (8 verticals: E-Commerce, SaaS, Media, Financial Services, Travel, Healthcare, Gaming, General) in SettingsContext with `INDUSTRY_BENCHMARKS` containing 22 per-industry metrics. New `IndustryBenchmark` interface. 9 data-driven analysis functions replace `analyzeGenericTab` calls: `analyzeCostPerConversion`, `analyzePerformanceTax`, `analyzeIdleCapacity`, `analyzeCdnRoi`, `analyzeCostAnomalies`, `analyzeWhatIf`, `analyzeRevenueIntelligence`, `analyzeSessionReplaySpotlight`, `analyzeABComparison`. Enrichment function detects metric keywords in existing insights and appends contextual industry comparisons (conversion rate, Apdex, error rate, latency, LCP, CLS, third-party, mobile share). Help panel and DESIGN.md updated. |
 | 2026-06-04 | 4.53.0 | **FinOps Tab Group — 5 New Sub-Tabs**: Added 8th parent tab group "FinOps" with 5 sub-tabs: Cost per Conversion (infrastructure spend per conversion, efficiency scorecard), Performance Tax (revenue lost to latency/frustration/errors with ROI scenarios), Idle Capacity (traffic pattern analysis detecting idle hours and autoscaling savings), CDN ROI (latency reduction → conversion improvement modeling with payback period), Cost Anomalies (z-score anomaly detection on daily cost trend with budget forecast). 5 new user-configurable cost settings in SettingsContext (Monthly Infra Cost, CDN Monthly Cost, Compute Cost/Hour, Cost Per GB, Engineer Hourly Rate) — all default to $100. Help panel, AI Insights descriptions, and DESIGN.md updated. App now has 36 sub-tabs across 8 parent groups. |
 | 2026-05-29 | 4.49.98 | **Forecast Modal — Multi-Model Popup Forecasting**: Clicking any KPI card now opens a full-screen `ForecastModal` popup (`ui/app/components/ForecastModal.tsx`) instead of navigating to the Predictive Forecasting tab. Modal displays historical sparkline data + 7-day forecast with confidence band in an interactive SVG chart. Users select from 6 forecasting models via dropdown: Holt-Winters (Double Exponential Smoothing), Triple Exponential Smoothing, Prophet (piecewise trend + Fourier seasonality), ARIMA(5,1,2), SARIMA(3,1,1)(1,1,1,m), and Linear Regression. Hover crosshair shows actual/forecast values with confidence interval. Click-outside or Close button dismisses. KpiCard `onDrillToForecast` prop changed from `() => void` to `(label, sparkline, color) => void`; cards only show clickable state when sparkline has ≥2 points. AI Assist recommendations updated to reference Forecast Modal. Help panel updated with new What's New entry and Tips section. |

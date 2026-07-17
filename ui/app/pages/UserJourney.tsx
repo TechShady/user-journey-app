@@ -20,6 +20,8 @@ import "./UserJourney.css";
 import { LAMBO_CAR } from "../lamboCarImage";
 import { useSettings, DEFAULT_FRONTEND, DEFAULT_FUNNEL_STEPS, DEFAULT_FUNNELS, MIN_STEPS, MAX_STEPS, MAX_FUNNELS, DEFAULT_AOV, INDUSTRY_OPTIONS, INDUSTRY_BENCHMARKS, IndustryType, IndustryBenchmark } from "../SettingsContext";
 import type { StepDef, FunnelDef } from "../SettingsContext";
+import { useTimelapse, TL_BUCKETS, TL_SPEEDS } from "../TimelapseContext";
+import type { TlBucket } from "../TimelapseContext";
 import { HyperlyzerTab } from "./HyperlyzerTab";
 import { ForecastModal } from "../components/ForecastModal";
 import { CorrelationsPanel, CorrelationsContext, computeCorrelations } from "../components/CorrelationsPanel";
@@ -85,7 +87,7 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.57.39";
+const APP_VERSION_LABEL = "4.59.0";
 
 
 
@@ -3102,6 +3104,14 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
     <div style={{ padding: "4px 0" }}>
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(255,131,43,0.7)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>July 12, 2026</Paragraph>
+            <Paragraph><Strong>Global Time-Lapse — one control drives every visualization</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Header strip</Strong>: A new Time-Lapse strip lives directly below the page title. Enable it once and every viz that supports playback (Funnel, Navigation Flow, and — coming soon — Sankey and Maps) animates in sync.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Shared bucket + speed</Strong>: Choose 1 min / 5 min / 10 min / 30 min / 1 hour buckets and 0.5x / 1x / 2x / 4x playback speed once — all opt-in visualizations follow.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Per-viz hotness stays local</Strong>: Each tab still shows its own hotness strip / Z-score badges tied to its own metrics — but the play cursor and scrubber are shared.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Reduced duplication</Strong>: Removed the per-tab Time-Lapse control bars from the Funnel and Navigation Flow tabs; the header strip is now the single source of truth.</Paragraph>
+          </div>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>July 9, 2026</Paragraph>
             <Paragraph><Strong>Navigation Paths — Session Parity + Trace-Based Backend Mapping</Strong></Paragraph>
@@ -3331,6 +3341,17 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       </HelpSection>
       <HelpSection title="Overview">
         <Paragraph>The <Strong>User Journey & Experience</Strong> app provides comprehensive frontend observability. You can define up to {MAX_FUNNELS} named funnels (managed in Settings); the active funnel tracks users through a {steps.length}-step conversion funnel using real-time DQL queries against Dynatrace Grail. The funnel is <Strong>strict sequential</Strong>: each step requires all previous steps.</Paragraph>
+      </HelpSection>
+      <HelpSection title="Global Time-Lapse">
+        <Paragraph>The <Strong>Time-Lapse strip</Strong> at the top of the page (right below the app title) drives playback for every visualization that supports historical animation. Enable the checkbox once and the Funnel, Navigation Flow, and other opt-in tabs all animate in sync.</Paragraph>
+        <div style={{ margin: "12px 0", padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8 }}>
+          <Paragraph style={{ fontSize: 13 }}>• <Strong>Bucket size</Strong> — 1 min, 5 min, 10 min, 30 min, or 1 hour. Smaller buckets show finer detail but load more data.</Paragraph>
+          <Paragraph style={{ fontSize: 13 }}>• <Strong>Speed</Strong> — 0.5x / 1x / 2x / 4x controls how fast the play cursor advances.</Paragraph>
+          <Paragraph style={{ fontSize: 13 }}>• <Strong>▶ Play / ⏸ Pause / ↺ Restart / scrubber</Strong> — advance the shared cursor across all visualizations at once.</Paragraph>
+          <Paragraph style={{ fontSize: 13 }}>• <Strong>Per-viz hotness stays local</Strong> — each tab renders its own hotness strip and Z-score badges tied to its own metrics. Only the play cursor and bucket size are shared.</Paragraph>
+          <Paragraph style={{ fontSize: 13 }}>• <Strong>Filter isolation</Strong> — the Navigation Flow hotness intentionally ignores session/user filters so the fleet-wide spike pattern is always visible.</Paragraph>
+        </div>
+        <Paragraph style={{ fontSize: 12, opacity: 0.7 }}>Z-score thresholds used across visualizations: <Strong>≥ 0.75</Strong> elevated (yellow), <Strong>≥ 1.5</Strong> warm (pink), <Strong>≥ 2.5</Strong> spike (red, pulsing).</Paragraph>
       </HelpSection>
       <HelpSection title="Funnel Steps">
         <div style={{ margin: "12px 0", padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8 }}>
@@ -3702,6 +3723,7 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
 // MAIN COMPONENT
 // ===========================================================================
 export function UserJourney() {
+  const tl = useTimelapse();
   const [timeframeDays, setTimeframeDays] = useState<number>(DEFAULT_TIMEFRAME);
   const [timeframeRaw, setTimeframeRaw] = useState<Timeframe | null>(null);
   const [timeframeAnchor, setTimeframeAnchor] = useState<number | null>(null);
@@ -4379,6 +4401,69 @@ export function UserJourney() {
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
           <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v{APP_VERSION_LABEL}</Text>
+        </Flex>
+      </div>
+
+      {/* Global Time-Lapse strip — controls TL playback for every viz that opts in */}
+      <div style={{ margin: "0 20px 12px 20px", padding: "8px 12px", background: "rgba(69,137,255,0.04)", border: "1px solid rgba(69,137,255,0.20)", borderRadius: 8 }}>
+        <Flex alignItems="center" gap={12} flexWrap="wrap">
+          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
+            <input type="checkbox" checked={tl.enabled} onChange={(e) => tl.setEnabled(e.target.checked)} style={{ cursor: "pointer" }} />
+            <svg width="16" height="16" viewBox="0 0 16 16" style={{ opacity: tl.enabled ? 0.85 : 0.5 }}>
+              <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+              <path d="M8 4 L8 8 L10.5 9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+            </svg>
+            <Strong style={{ fontSize: 12 }}>Time-Lapse</Strong>
+          </label>
+          {!tl.enabled && (
+            <Text style={{ fontSize: 11, opacity: 0.6 }}>Watch the funnel, Sankey and navigation flows evolve over time. Detect windows with abnormal drop-offs or spikes.</Text>
+          )}
+          {tl.enabled && (
+            <>
+              <Flex alignItems="center" gap={4}>
+                <span style={{ fontSize: 11, opacity: 0.65 }}>Bucket</span>
+                <select value={tl.bucket} onChange={(e) => tl.setBucket(e.target.value as TlBucket)} style={{ fontSize: 11, background: "rgba(128,128,128,0.08)", color: "inherit", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 4, padding: "3px 6px" }}>
+                  {TL_BUCKETS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+                </select>
+              </Flex>
+              <Flex alignItems="center" gap={4}>
+                <span style={{ fontSize: 11, opacity: 0.65 }}>Speed</span>
+                <select value={tl.speedMs} onChange={(e) => tl.setSpeedMs(Number(e.target.value))} style={{ fontSize: 11, background: "rgba(128,128,128,0.08)", color: "inherit", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 4, padding: "3px 6px" }}>
+                  {TL_SPEEDS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              </Flex>
+              <button
+                onClick={() => {
+                  if (tl.index >= tl.totalBuckets - 1) tl.setIndex(0);
+                  tl.setPlaying(p => !p);
+                }}
+                disabled={tl.totalBuckets === 0}
+                style={{ fontSize: 11, background: tl.playing ? "rgba(255,61,154,0.15)" : "rgba(69,137,255,0.15)", color: "inherit", border: `1px solid ${tl.playing ? "rgba(255,61,154,0.45)" : "rgba(69,137,255,0.45)"}`, borderRadius: 4, padding: "3px 12px", cursor: tl.totalBuckets === 0 ? "not-allowed" : "pointer", fontWeight: 600, opacity: tl.totalBuckets === 0 ? 0.4 : 1 }}
+              >{tl.playing ? "⏸ Pause" : "▶ Play"}</button>
+              <button
+                onClick={() => { tl.setPlaying(false); tl.setIndex(0); }}
+                disabled={tl.totalBuckets === 0}
+                style={{ fontSize: 11, background: "rgba(128,128,128,0.08)", color: "inherit", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 4, padding: "3px 10px", cursor: tl.totalBuckets === 0 ? "not-allowed" : "pointer", opacity: tl.totalBuckets === 0 ? 0.4 : 1 }}
+              >↺ Restart</button>
+              <div style={{ flex: 1, minWidth: 180, display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(0, tl.totalBuckets - 1)}
+                  value={Math.min(tl.index, Math.max(0, tl.totalBuckets - 1))}
+                  onChange={(e) => { tl.setPlaying(false); tl.setIndex(Number(e.target.value)); }}
+                  disabled={tl.totalBuckets === 0}
+                  style={{ flex: 1, accentColor: "#4589FF" }}
+                />
+                <span style={{ fontSize: 11, opacity: 0.7, fontFamily: "monospace", minWidth: 90, textAlign: "right" }}>
+                  {tl.totalBuckets === 0 ? "no data" : `${tl.index + 1} / ${tl.totalBuckets}`}
+                </span>
+              </div>
+              {tl.currentBucketKey && (
+                <span style={{ fontSize: 11, opacity: 0.55, fontFamily: "monospace" }}>{tl.currentBucketKey}</span>
+              )}
+            </>
+          )}
         </Flex>
       </div>
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
@@ -8420,14 +8505,14 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     pages: Array<{ name: string; sessions: number; apdex: number; avgMs: number; p90Ms: number; errors: number; errorRate: number }>;
   } | null>(null);
 
-  // ===== Funnel Time-Lapse =====
-  const [funnelTlEnabled, setFunnelTlEnabled] = React.useState(false);
-  const [funnelTlPlaying, setFunnelTlPlaying] = React.useState(false);
-  const [funnelTlIndex, setFunnelTlIndex] = React.useState(0);
-  const [funnelTlBucket, setFunnelTlBucket] = React.useState<TlBucket>("1h");
-  const [funnelTlSpeedMs, setFunnelTlSpeedMs] = React.useState(1200);
-  const funnelTlIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-  const funnelTlTotalRef = React.useRef(0);
+  // ===== Funnel Time-Lapse — driven by the global TimelapseContext =====
+  const tl = useTimelapse();
+  const funnelTlEnabled = tl.enabled;
+  const funnelTlPlaying = tl.playing;
+  const funnelTlIndex = tl.index;
+  const funnelTlBucket = tl.bucket;
+  const setFunnelTlIndex = tl.setIndex;
+  const setFunnelTlPlaying = tl.setPlaying;
 
   const funnelTlData = useDql({
     query: funnelTlEnabled ? funnelTimelapseQuery(timeframeDays, frontend, steps, funnelTlBucket) : "fetch user.events | limit 0",
@@ -8436,25 +8521,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
   React.useEffect(() => {
     setFunnelTlIndex(0);
     setFunnelTlPlaying(false);
-  }, [funnelTlBucket, funnelTlEnabled, timeframeDays, frontend, steps.length]);
-
-  React.useEffect(() => {
-    if (!funnelTlEnabled || !funnelTlPlaying) {
-      if (funnelTlIntervalRef.current) { clearInterval(funnelTlIntervalRef.current); funnelTlIntervalRef.current = null; }
-      return;
-    }
-    funnelTlIntervalRef.current = setInterval(() => {
-      setFunnelTlIndex((i) => {
-        const total = funnelTlTotalRef.current;
-        if (total <= 0) return i;
-        if (i >= total - 1) { setFunnelTlPlaying(false); return i; }
-        return i + 1;
-      });
-    }, funnelTlSpeedMs);
-    return () => {
-      if (funnelTlIntervalRef.current) { clearInterval(funnelTlIntervalRef.current); funnelTlIntervalRef.current = null; }
-    };
-  }, [funnelTlEnabled, funnelTlPlaying, funnelTlSpeedMs]);
+  }, [timeframeDays, frontend, steps.length, setFunnelTlIndex, setFunnelTlPlaying]);
 
   // Parse per-bucket funnel counts into Map<bucket, number[]>
   const funnelTlBuckets = React.useMemo(() => {
@@ -8473,7 +8540,12 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     () => Array.from(funnelTlBuckets.keys()).sort(),
     [funnelTlBuckets]
   );
-  React.useEffect(() => { funnelTlTotalRef.current = funnelTlBucketList.length; }, [funnelTlBucketList]);
+  // Publish bucket count + current key to the global TimelapseContext when funnel TL is driving playback.
+  React.useEffect(() => {
+    if (!funnelTlEnabled) return;
+    const key = funnelTlBucketList.length > 0 ? funnelTlBucketList[Math.min(funnelTlIndex, funnelTlBucketList.length - 1)] ?? "" : "";
+    tl.reportBuckets(funnelTlBucketList.length, key);
+  }, [funnelTlEnabled, funnelTlBucketList, funnelTlIndex, tl]);
 
   // Per-step baseline (mean + std) for conversion rate from previous step, and for entry sessions.
   // Used to detect anomalous drop-offs vs "typical" behavior.
@@ -8838,75 +8910,20 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         </div>
       )}
 
-      {/* === Funnel Time-Lapse control bar === */}
-      <div style={{ padding: "10px 12px", borderRadius: 8, background: funnelTlEnabled ? "rgba(69,137,255,0.08)" : "rgba(128,128,128,0.06)", border: `1px solid ${funnelTlEnabled ? "rgba(69,137,255,0.35)" : "rgba(128,128,128,0.2)"}`, transition: "all 0.2s" }}>
-        <Flex alignItems="center" gap={12} flexWrap="wrap">
-          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, color: funnelTlEnabled ? BLUE : "inherit" }}>
-            <input type="checkbox" checked={funnelTlEnabled} onChange={(e) => setFunnelTlEnabled(e.target.checked)} style={{ cursor: "pointer" }} />
-            <span>⏱ Time-Lapse</span>
-          </label>
-          {funnelTlEnabled && (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 11, opacity: 0.55 }}>Bucket</span>
-                <select value={funnelTlBucket} onChange={(e) => setFunnelTlBucket(e.target.value as TlBucket)} style={{ fontSize: 11, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.9)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "3px 6px" }}>
-                  {(Object.keys(TL_BUCKET_LABELS) as TlBucket[]).map((b) => (
-                    <option key={b} value={b} style={{ background: "#13182b", color: "#e8efff" }}>{TL_BUCKET_LABELS[b]}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 11, opacity: 0.55 }}>Speed</span>
-                <select value={funnelTlSpeedMs} onChange={(e) => setFunnelTlSpeedMs(Number(e.target.value))} style={{ fontSize: 11, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.9)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "3px 6px" }}>
-                  <option value={2400} style={{ background: "#13182b" }}>0.5x</option>
-                  <option value={1600} style={{ background: "#13182b" }}>0.75x</option>
-                  <option value={1200} style={{ background: "#13182b" }}>1x</option>
-                  <option value={600} style={{ background: "#13182b" }}>2x</option>
-                  <option value={300} style={{ background: "#13182b" }}>4x</option>
-                </select>
-              </div>
-              <button
-                onClick={() => {
-                  if (funnelTlBucketList.length === 0) return;
-                  if (funnelTlIndex >= funnelTlBucketList.length - 1) setFunnelTlIndex(0);
-                  setFunnelTlPlaying((p) => !p);
-                }}
-                disabled={funnelTlBucketList.length === 0}
-                style={{ fontSize: 12, padding: "5px 14px", cursor: funnelTlBucketList.length === 0 ? "not-allowed" : "pointer", background: funnelTlPlaying ? "rgba(255,131,43,0.2)" : "rgba(69,137,255,0.2)", border: `1px solid ${funnelTlPlaying ? ORANGE : BLUE}`, borderRadius: 4, color: funnelTlPlaying ? ORANGE : BLUE, fontWeight: 700 }}
-              >{funnelTlPlaying ? "⏸ Pause" : "▶ Play"}</button>
-              <button
-                onClick={() => { setFunnelTlPlaying(false); setFunnelTlIndex(0); }}
-                disabled={funnelTlBucketList.length === 0}
-                style={{ fontSize: 12, padding: "5px 10px", cursor: funnelTlBucketList.length === 0 ? "not-allowed" : "pointer", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.7)" }}
-              >⏮ Reset</button>
-              <div style={{ flex: 1, minWidth: 200, display: "flex", alignItems: "center", gap: 8 }}>
-                <input
-                  type="range"
-                  min={0}
-                  max={Math.max(0, funnelTlBucketList.length - 1)}
-                  step={1}
-                  value={Math.min(funnelTlIndex, Math.max(0, funnelTlBucketList.length - 1))}
-                  onChange={(e) => { setFunnelTlPlaying(false); setFunnelTlIndex(Number(e.target.value)); }}
-                  disabled={funnelTlBucketList.length === 0}
-                  style={{ flex: 1, cursor: funnelTlBucketList.length === 0 ? "not-allowed" : "pointer" }}
-                />
-                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", minWidth: 140, textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>
-                  {funnelTlCurrentKey ?? (funnelTlData.isLoading ? "Loading…" : "No data")}
-                </span>
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", minWidth: 60, textAlign: "right" }}>
-                  {funnelTlBucketList.length > 0 ? `${funnelTlIndex + 1} / ${funnelTlBucketList.length}` : ""}
-                </span>
-              </div>
-            </>
-          )}
-          {!funnelTlEnabled && (
-            <span style={{ fontSize: 11, opacity: 0.5 }}>Watch the funnel evolve over time. Detect which time windows had abnormal drop-offs or entry-traffic spikes.</span>
-          )}
-        </Flex>
-        {funnelTlEnabled && funnelTlData.error && (
-          <div style={{ marginTop: 6, fontSize: 11, color: ORANGE }}>Time-lapse query error — check console.</div>
-        )}
-      </div>
+      {/* === Funnel Time-Lapse status line (controls live in the global header strip) === */}
+      {funnelTlEnabled && (
+        <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(69,137,255,0.08)", border: "1px solid rgba(69,137,255,0.35)" }}>
+          <Flex alignItems="center" gap={12} flexWrap="wrap">
+            <span style={{ fontSize: 12, fontWeight: 600, color: BLUE }}>⏱ Time-Lapse active</span>
+            <span style={{ fontSize: 11, opacity: 0.75, fontFamily: "monospace" }}>{funnelTlCurrentKey ?? (funnelTlData.isLoading ? "Loading…" : "No data")}</span>
+            <span style={{ fontSize: 11, opacity: 0.55 }}>Bucket: {TL_BUCKET_LABELS[funnelTlBucket]}</span>
+            <span style={{ fontSize: 11, opacity: 0.55 }}>Use the header controls at the top of the page to Play, Pause, or scrub the timeline.</span>
+            {funnelTlData.error && (
+              <span style={{ fontSize: 11, color: ORANGE }}>Time-lapse query error — check console.</span>
+            )}
+          </Flex>
+        </div>
+      )}
 
       {/* === Funnel Hotness Spike Strip === */}
       {funnelTlEnabled && funnelTlBucketList.length > 0 && (() => {
@@ -11021,7 +11038,7 @@ const STATE_TO_NAME: Record<string, string> = {
 };
 
 type MapMetric = "sessions" | "avgDur" | "apdex" | "errRate" | "fruRate" | "actionsPerSession" | "funnelBounce" | "lcp" | "cls" | "inp" | "revenue" | "convRate";
-type TlBucket = "1m" | "5m" | "10m" | "30m" | "1h";
+// TlBucket is imported from ../TimelapseContext at the top of the file.
 const TL_BUCKET_LABELS: Record<TlBucket, string> = { "1m": "1 min", "5m": "5 min", "10m": "10 min", "30m": "30 min", "1h": "1 hour" };
 const TL_BUCKET_MS: Record<TlBucket, number> = { "1m": 60000, "5m": 300000, "10m": 600000, "30m": 1800000, "1h": 3600000 };
 type MapView = "world" | "us" | "globe";
@@ -12353,41 +12370,25 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   React.useEffect(() => { saveState({ key: NAV_COMPARE_A_STATE_KEY, body: { value: compareSessionA } }); }, [compareSessionA, saveState]);
   React.useEffect(() => { saveState({ key: NAV_COMPARE_B_STATE_KEY, body: { value: compareSessionB } }); }, [compareSessionB, saveState]);
 
-  // === Navigation Flow Time-Lapse ===
-  const [navTlEnabled, setNavTlEnabled] = useState(false);
-  const [navTlPlaying, setNavTlPlaying] = useState(false);
-  const [navTlIndex, setNavTlIndex] = useState(0);
-  const [navTlBucket, setNavTlBucket] = useState<TlBucket>("1h");
-  const [navTlSpeedMs, setNavTlSpeedMs] = useState(1200);
-  const navTlIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const navTlTotalRef = useRef(0);
+  // === Navigation Flow Time-Lapse — driven by the global TimelapseContext ===
+  const tl = useTimelapse();
+  const navTlEnabled = tl.enabled;
+  const navTlPlaying = tl.playing;
+  const navTlIndex = tl.index;
+  const navTlBucket = tl.bucket;
+  const setNavTlIndex = tl.setIndex;
+  const setNavTlPlaying = tl.setPlaying;
 
   const navFlowTimelapsePagesData = useDql({ query: navTlEnabled ? navFlowTimelapsePagesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps, selectedSessionId || undefined, navUserFilter) : "fetch user.events | limit 0" });
   // Hotness intentionally does NOT filter by selectedSessionId or navUserFilter — the whole point is to see
   // whether the selected session lands on a fleet-wide spike or a calm period. Only tf/app/frontend/steps apply.
   const navFlowTimelapseEdgesData = useDql({ query: navTlEnabled ? navFlowTimelapseEdgesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps, undefined, undefined) : "fetch user.events | limit 0" });
 
+  // Reset play position on filter changes (bucket/enabled resets are handled by the provider).
   React.useEffect(() => {
     setNavTlIndex(0);
     setNavTlPlaying(false);
-  }, [navTlBucket, navTlEnabled, timeframeDays, frontend, navAppFilter, selectedUserTag, selectedSessionId]);
-
-  React.useEffect(() => {
-    if (!navTlEnabled || !navTlPlaying) {
-      if (navTlIntervalRef.current) { clearInterval(navTlIntervalRef.current); navTlIntervalRef.current = null; }
-      return;
-    }
-    navTlIntervalRef.current = setInterval(() => {
-      setNavTlIndex((i) => {
-        const total = navTlTotalRef.current;
-        if (total <= 0) return i;
-        const next = i + 1;
-        if (next >= total) { setNavTlPlaying(false); return total - 1; }
-        return next;
-      });
-    }, navTlSpeedMs);
-    return () => { if (navTlIntervalRef.current) { clearInterval(navTlIntervalRef.current); navTlIntervalRef.current = null; } };
-  }, [navTlEnabled, navTlPlaying, navTlSpeedMs]);
+  }, [timeframeDays, frontend, navAppFilter, selectedUserTag, selectedSessionId, setNavTlIndex, setNavTlPlaying]);
 
   const navTlPageBuckets = React.useMemo(() => {
     const buckets = new Map<string, Map<string, { sessions: number; actions: number; errors: number; avgDur: number }>>();
@@ -12439,7 +12440,12 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     return Array.from(set).sort();
   }, [navTlPageBuckets, navTlEdgeBuckets]);
 
-  React.useEffect(() => { navTlTotalRef.current = navTlBucketList.length; }, [navTlBucketList.length]);
+  // Publish bucket count + current key to the global TimelapseContext when this tab drives the animation.
+  React.useEffect(() => {
+    if (!navTlEnabled) return;
+    const key = navTlBucketList.length > 0 ? navTlBucketList[Math.min(navTlIndex, navTlBucketList.length - 1)] ?? "" : "";
+    tl.reportBuckets(navTlBucketList.length, key);
+  }, [navTlEnabled, navTlBucketList, navTlIndex, tl]);
 
   const navTlPageBaseline = React.useMemo(() => {
     const stat = (arr: number[]) => {
@@ -13924,77 +13930,20 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                   </Flex>
                 </Flex>
 
-                {/* === Time-Lapse control bar === */}
-                <div style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 8, background: navTlEnabled ? "rgba(69,137,255,0.08)" : "rgba(128,128,128,0.06)", border: `1px solid ${navTlEnabled ? "rgba(69,137,255,0.35)" : "rgba(128,128,128,0.2)"}`, transition: "all 0.2s" }}>
-                  <Flex alignItems="center" gap={12} flexWrap="wrap">
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, color: navTlEnabled ? BLUE : "inherit" }}>
-                      <input type="checkbox" checked={navTlEnabled} onChange={(e) => setNavTlEnabled(e.target.checked)} style={{ cursor: "pointer" }} />
-                      <span>⏱ Time-Lapse</span>
-                    </label>
-                    {navTlEnabled && (
-                      <>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 11, opacity: 0.55 }}>Bucket</span>
-                          <select value={navTlBucket} onChange={(e) => setNavTlBucket(e.target.value as TlBucket)} style={{ fontSize: 11, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.9)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "3px 6px" }}>
-                            {(Object.keys(TL_BUCKET_LABELS) as TlBucket[]).map((b) => (
-                              <option key={b} value={b} style={{ background: "#13182b", color: "#e8efff" }}>{TL_BUCKET_LABELS[b]}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 11, opacity: 0.55 }}>Speed</span>
-                          <select value={navTlSpeedMs} onChange={(e) => setNavTlSpeedMs(Number(e.target.value))} style={{ fontSize: 11, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.9)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, padding: "3px 6px" }}>
-                            <option value={2400} style={{ background: "#13182b" }}>0.5x</option>
-                            <option value={1600} style={{ background: "#13182b" }}>0.75x</option>
-                            <option value={1200} style={{ background: "#13182b" }}>1x</option>
-                            <option value={600} style={{ background: "#13182b" }}>2x</option>
-                            <option value={300} style={{ background: "#13182b" }}>4x</option>
-                          </select>
-                        </div>
-                        <button
-                          onClick={() => {
-                            if (navTlBucketList.length === 0) return;
-                            if (navTlIndex >= navTlBucketList.length - 1) setNavTlIndex(0);
-                            setNavTlPlaying((p) => !p);
-                          }}
-                          disabled={navTlBucketList.length === 0}
-                          style={{ fontSize: 12, padding: "5px 14px", cursor: navTlBucketList.length === 0 ? "not-allowed" : "pointer", background: navTlPlaying ? "rgba(255,131,43,0.2)" : "rgba(69,137,255,0.2)", border: `1px solid ${navTlPlaying ? ORANGE : BLUE}`, borderRadius: 4, color: navTlPlaying ? ORANGE : BLUE, fontWeight: 700 }}
-                        >
-                          {navTlPlaying ? "⏸ Pause" : "▶ Play"}
-                        </button>
-                        <button
-                          onClick={() => { setNavTlPlaying(false); setNavTlIndex(0); }}
-                          disabled={navTlBucketList.length === 0}
-                          style={{ fontSize: 12, padding: "5px 10px", cursor: navTlBucketList.length === 0 ? "not-allowed" : "pointer", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.7)" }}
-                        >⏮ Reset</button>
-                        <div style={{ flex: 1, minWidth: 200, display: "flex", alignItems: "center", gap: 8 }}>
-                          <input
-                            type="range"
-                            min={0}
-                            max={Math.max(0, navTlBucketList.length - 1)}
-                            step={1}
-                            value={Math.min(navTlIndex, Math.max(0, navTlBucketList.length - 1))}
-                            onChange={(e) => { setNavTlPlaying(false); setNavTlIndex(Number(e.target.value)); }}
-                            disabled={navTlBucketList.length === 0}
-                            style={{ flex: 1, cursor: navTlBucketList.length === 0 ? "not-allowed" : "pointer" }}
-                          />
-                          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", minWidth: 140, textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>
-                            {tlBucketKey ? tlBucketKey : (navFlowTimelapsePagesData?.isLoading || navFlowTimelapseEdgesData?.isLoading ? "Loading…" : "No data")}
-                          </span>
-                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", minWidth: 60, textAlign: "right" }}>
-                            {navTlBucketList.length > 0 ? `${navTlIndex + 1} / ${navTlBucketList.length}` : ""}
-                          </span>
-                        </div>
-                      </>
-                    )}
-                    {!navTlEnabled && (
-                      <span style={{ fontSize: 11, opacity: 0.5 }}>Enable to see traffic pulse, latency, and error rate evolve over time. Hot pages &amp; services will glow in real time.</span>
-                    )}
-                  </Flex>
-                  {navTlEnabled && (navFlowTimelapsePagesData?.error || navFlowTimelapseEdgesData?.error) && (
-                    <div style={{ marginTop: 6, fontSize: 11, color: ORANGE }}>Time-lapse query error — check console.</div>
-                  )}
-                </div>
+                {/* === Time-Lapse status line (controls live in the global header strip) === */}
+                {navTlEnabled && (
+                  <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: "rgba(69,137,255,0.08)", border: "1px solid rgba(69,137,255,0.35)" }}>
+                    <Flex alignItems="center" gap={12} flexWrap="wrap">
+                      <span style={{ fontSize: 12, fontWeight: 600, color: BLUE }}>⏱ Time-Lapse active</span>
+                      <span style={{ fontSize: 11, opacity: 0.75, fontFamily: "monospace" }}>{tlBucketKey || (navFlowTimelapsePagesData?.isLoading || navFlowTimelapseEdgesData?.isLoading ? "Loading…" : "No data")}</span>
+                      <span style={{ fontSize: 11, opacity: 0.55 }}>Bucket: {TL_BUCKET_LABELS[navTlBucket]}</span>
+                      <span style={{ fontSize: 11, opacity: 0.55 }}>Use the header controls at the top of the page to Play, Pause, or scrub the timeline.</span>
+                      {(navFlowTimelapsePagesData?.error || navFlowTimelapseEdgesData?.error) && (
+                        <span style={{ fontSize: 11, color: ORANGE }}>Time-lapse query error — check console.</span>
+                      )}
+                    </Flex>
+                  </div>
+                )}
 
                 <svg ref={navSvgRef} width={totalSvgW * navZoom} height={totalSvgH * navZoom} viewBox={`0 0 ${totalSvgW} ${totalSvgH}`}
                   style={{ display: "block", minWidth: totalSvgW * navZoom, cursor: draggingDivider || draggingNode ? "grabbing" : (hasFocus ? "pointer" : "default") }}
