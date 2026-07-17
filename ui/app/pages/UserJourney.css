@@ -28,11 +28,14 @@
 /* Sticky top region — always-visible header + Time-Lapse controls; content scrolls behind. */
 .uj-sticky-top {
   position: sticky;
-  top: 0;
+  /* Overshoot upward by 40px so the top of the element extends above the viewport when stuck —
+     this covers any padding-top on Strato Page.Main / scroll ancestor so no content sliver ever
+     shows above the header. Extra padding-top compensates so visible content stays at the same height. */
+  top: -40px;
   z-index: 500;
   /* Extend edge-to-edge inside .uj-container's 32px horizontal padding */
-  margin: -24px -32px 12px -32px;
-  padding: 20px 32px 10px 32px;
+  margin: -64px -32px 12px -32px;
+  padding: 60px 32px 10px 32px;
   /* Solid backdrop so content underneath does NOT show through as it scrolls. */
   background: var(--dt-colors-background-base-default, #0f1428);
   border-bottom: 1px solid rgba(128, 128, 128, 0.22);

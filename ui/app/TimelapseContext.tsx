@@ -18,6 +18,14 @@ export const TL_BUCKETS: { value: TlBucket; label: string }[] = [
   { value: "1h", label: "1 hour" },
 ];
 
+export const TL_BUCKET_MS: Record<TlBucket, number> = {
+  "1m": 60_000,
+  "5m": 300_000,
+  "10m": 600_000,
+  "30m": 1_800_000,
+  "1h": 3_600_000,
+};
+
 export const TL_SPEEDS: { value: number; label: string }[] = [
   { value: 2000, label: "0.5x" },
   { value: 1200, label: "1x" },
@@ -25,9 +33,41 @@ export const TL_SPEEDS: { value: number; label: string }[] = [
   { value: 400, label: "4x" },
 ];
 
+/**
+ * Shared per-bucket KPIs. The parent component fires ONE DQL query that returns these
+ * values bucketed at `tl.bucket` size and publishes the parsed array via
+ * `reportSharedMetrics()`. Any tab can then read `tl.sharedMetrics` (the row for the
+ * current playback index) and swap in per-bucket values for its scalar KPI cards while
+ * leaving tables and time-series charts as aggregate.
+ */
+export interface SharedBucketMetrics {
+  bucket: string;
+  fromMs: number;
+  toMs: number;
+  sessions: number;
+  totalActions: number;
+  avgDurationMs: number;
+  p50Ms: number;
+  p90Ms: number;
+  p99Ms: number;
+  errorCount: number;
+  errorRate: number;    // 0..100
+  satisfied: number;
+  tolerating: number;
+  frustrated: number;
+  apdex: number;        // 0..1
+  // Web vitals — averages per bucket. null when timeseries has no samples.
+  lcp: number | null;
+  cls: number | null;
+  inp: number | null;
+  ttfb: number | null;
+  loadMs: number | null;
+}
+
 export interface TimelapseState {
   enabled: boolean;
   bucket: TlBucket;
+  bucketMs: number;
   speedMs: number;
   playing: boolean;
   index: number;
@@ -36,6 +76,8 @@ export interface TimelapseState {
   hotness: number[];              // Per-bucket severity scores (Z-scores). Rendered as the shared hotness strip.
   hotnessSource: string;          // Short label describing where the hotness came from (e.g. "Funnel drop-offs").
   isLoading: boolean;             // At least one subscriber is fetching its per-bucket data.
+  sharedMetrics: SharedBucketMetrics | null;      // Metrics row for the current playback bucket (or null when TL off / not published yet).
+  sharedMetricsAll: SharedBucketMetrics[];        // Full per-bucket array (used for trends/derivatives).
   setEnabled: (v: boolean) => void;
   setBucket: (v: TlBucket) => void;
   setSpeedMs: (v: number) => void;
@@ -44,6 +86,7 @@ export interface TimelapseState {
   reportBuckets: (total: number, currentKey?: string) => void;
   reportHotness: (arr: number[], source?: string) => void;
   reportLoading: (source: string, loading: boolean) => void;
+  reportSharedMetrics: (rows: SharedBucketMetrics[]) => void;
 }
 
 const TimelapseCtx = createContext<TimelapseState | null>(null);
@@ -65,6 +108,7 @@ export const TimelapseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [hotness, setHotness] = useState<number[]>([]);
   const [hotnessSource, setHotnessSource] = useState<string>("");
   const [loadingSources, setLoadingSources] = useState<Set<string>>(() => new Set());
+  const [sharedMetricsAll, setSharedMetricsAll] = useState<SharedBucketMetrics[]>([]);
 
   const totalRef = useRef(0);
   useEffect(() => { totalRef.current = totalBuckets; }, [totalBuckets]);
@@ -78,6 +122,7 @@ export const TimelapseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setHotness([]);
       setHotnessSource("");
       setLoadingSources(new Set());
+      setSharedMetricsAll([]);
     }
   }, [bucket, enabled]);
 
@@ -120,13 +165,22 @@ export const TimelapseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
   }, []);
 
+  const reportSharedMetrics = useCallback((rows: SharedBucketMetrics[]) => {
+    setSharedMetricsAll(rows);
+  }, []);
+
   const isLoading = loadingSources.size > 0;
+  const bucketMs = TL_BUCKET_MS[bucket];
+  const sharedMetrics = sharedMetricsAll.length > 0
+    ? sharedMetricsAll[Math.min(Math.max(index, 0), sharedMetricsAll.length - 1)]
+    : null;
 
   const value = useMemo<TimelapseState>(() => ({
-    enabled, bucket, speedMs, playing, index, totalBuckets, currentBucketKey,
-    hotness, hotnessSource, isLoading,
-    setEnabled, setBucket, setSpeedMs, setPlaying, setIndex, reportBuckets, reportHotness, reportLoading,
-  }), [enabled, bucket, speedMs, playing, index, totalBuckets, currentBucketKey, hotness, hotnessSource, isLoading, reportBuckets, reportHotness, reportLoading]);
+    enabled, bucket, bucketMs, speedMs, playing, index, totalBuckets, currentBucketKey,
+    hotness, hotnessSource, isLoading, sharedMetrics, sharedMetricsAll,
+    setEnabled, setBucket, setSpeedMs, setPlaying, setIndex,
+    reportBuckets, reportHotness, reportLoading, reportSharedMetrics,
+  }), [enabled, bucket, bucketMs, speedMs, playing, index, totalBuckets, currentBucketKey, hotness, hotnessSource, isLoading, sharedMetrics, sharedMetricsAll, reportBuckets, reportHotness, reportLoading, reportSharedMetrics]);
 
   return <TimelapseCtx.Provider value={value}>{children}</TimelapseCtx.Provider>;
 };

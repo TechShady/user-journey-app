@@ -87,11 +87,11 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.60.1";
+const APP_VERSION_LABEL = "4.61.0";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
-const TL_ANIMATED_TABS = new Set<string>(["Funnel Overview", "Navigation Paths", "Maps"]);
+const TL_ANIMATED_TABS = new Set<string>(["Funnel Overview", "Navigation Paths", "Maps", "Trends", "Web Vitals"]);
 
 // Compact per-tab banner shown at the top of every sub-tab whenever Time-Lapse is on.
 // Distinguishes tabs whose data animates from tabs that continue to show aggregate data.
@@ -107,14 +107,15 @@ function TabTlBanner({ tabId }: { tabId: string }) {
       <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: dot }} />
       {animated ? (
         <>
-          <span style={{ fontWeight: 700, color: "#4589FF" }}>Time-Lapse driving this tab.</span>
+          <span style={{ fontWeight: 700, color: "#4589FF" }}>Time-Lapse animating KPI values on this tab.</span>
+          <span style={{ opacity: 0.65 }}>Tables and time-series charts remain aggregate.</span>
           {tl.currentBucketKey && <span style={{ opacity: 0.75, fontFamily: "monospace" }}>bucket {tl.currentBucketKey}</span>}
           <span style={{ opacity: 0.5 }}>· {tl.index + 1} / {tl.totalBuckets}</span>
         </>
       ) : (
         <>
           <span style={{ fontWeight: 700, opacity: 0.75 }}>Time-Lapse aggregate view.</span>
-          <span style={{ opacity: 0.65 }}>This tab shows totals for the selected timeframe. Time-Lapse animation currently applies only to Funnel Overview, Navigation Paths, and Maps.</span>
+          <span style={{ opacity: 0.65 }}>This tab shows totals for the selected timeframe. Additional tabs are being wired for per-bucket KPIs in upcoming releases.</span>
         </>
       )}
     </div>
@@ -829,6 +830,50 @@ ${iAnyLines}
     total_sessions = count(),
 ${countLines},
     by: {bucket}
+| sort bucket asc
+| limit 5000`;
+}
+
+/**
+ * Shared per-bucket metrics query — powers per-bucket KPI cards on every animatable tab.
+ * Returns one row per bucket with sessions / apdex / error rate / duration percentiles /
+ * satisfied/tolerating/frustrated counts + web-vitals averages (LCP/CLS/INP/TTFB/load).
+ */
+function sharedTimelapseMetricsQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter ${frontendFilter(steps, frontend)}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd event_ts = coalesce(start_time, timestamp)
+| fieldsAdd bucket_ts = bin(event_ts, ${bucket})
+| fieldsAdd bucket = formatTimestamp(bucket_ts, format: "yyyy-MM-dd HH:mm")
+| fieldsAdd satisfaction = coalesce(
+    if(dur_ms <= ${APDEX_T}.0, "satisfied"),
+    if(dur_ms <= ${APDEX_4T}.0, "tolerating"),
+    "frustrated")
+| fieldsAdd
+    lcp_ms = if(characteristics.has_page_summary == true, toDouble(web_vitals.largest_contentful_paint) / 1000000.0),
+    cls_val = if(characteristics.has_page_summary == true, toDouble(web_vitals.cumulative_layout_shift)),
+    inp_ms = if(characteristics.has_page_summary == true, toDouble(web_vitals.interaction_to_next_paint) / 1000000.0),
+    ttfb_ms = if(characteristics.has_page_summary == true, toDouble(web_vitals.time_to_first_byte) / 1000000.0),
+    load_ms = if(characteristics.has_page_summary == true, toDouble(web_vitals.first_contentful_paint) / 1000000.0)
+| summarize
+    sessions = countDistinct(dt.rum.session.id),
+    total_actions = count(),
+    avg_duration_ms = avg(dur_ms),
+    p50_duration_ms = percentile(dur_ms, 50),
+    p90_duration_ms = percentile(dur_ms, 90),
+    p99_duration_ms = percentile(dur_ms, 99),
+    error_count = countIf(characteristics.has_error == true),
+    satisfied = countIf(satisfaction == "satisfied"),
+    tolerating = countIf(satisfaction == "tolerating"),
+    frustrated = countIf(satisfaction == "frustrated"),
+    lcp_avg = avg(lcp_ms),
+    cls_avg = avg(cls_val),
+    inp_avg = avg(inp_ms),
+    ttfb_avg = avg(ttfb_ms),
+    load_avg = avg(load_ms),
+    by: {bucket, bucket_ts}
 | sort bucket asc
 | limit 5000`;
 }
@@ -4159,6 +4204,9 @@ export function UserJourney() {
   const geoFunnelBounceData = useDql({ query: geoFunnelBounceQuery(timeframeDays, frontend, steps) }, refetchOpts);
   // Maps time-lapse now uses the global TimelapseContext bucket. Only fires when TL is on to save quota.
   const mapTimelapseData = useDql({ query: tl.enabled ? mapTimelapseQuery(timeframeDays, frontend, steps, tl.bucket) : "fetch user.events | limit 0" }, refetchOpts);
+  // Shared per-bucket KPI metrics — one query drives per-bucket values for every animatable tab's KPI cards
+  // (Overall Apdex, Error Rate, Avg Duration, Satisfied/Tolerating/Frustrated, Web Vitals, etc.). Only fires when TL is on.
+  const sharedTlMetricsData = useDql({ query: tl.enabled ? sharedTimelapseMetricsQuery(timeframeDays, frontend, steps, tl.bucket) : "fetch user.events | limit 0" }, refetchOpts);
   const osVersionData = useDql({ query: osVersionQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const navPathConvData = useDql({ query: navPathConversionQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const clickReplayData = useDql({ query: clickIssuesReplayQuery(timeframeDays, frontend) }, refetchOpts);
@@ -4169,6 +4217,57 @@ export function UserJourney() {
   const featureFlagData = useDql({ query: featureFlagEventsQuery(timeframeDays) }, refetchOpts);
   const utmAttributionData = useDql({ query: utmAttributionQuery(timeframeDays, frontend, steps) }, refetchOpts);
   const hostMetricsData = useDql({ query: hostMetricsQuery(timeframeDays) }, refetchOpts);
+
+  // ===== Publish shared per-bucket TL metrics =====
+  // Parses the shared TL query output and publishes to TimelapseContext so every tab's KPI cards
+  // can swap their scalar values to the current bucket while tables/timeseries stay aggregate.
+  React.useEffect(() => {
+    if (!tl.enabled) return;
+    const rows = (sharedTlMetricsData.data?.records ?? []) as any[];
+    const parsed: import("../TimelapseContext").SharedBucketMetrics[] = rows.map((r) => {
+      const bucketStr = String(r.bucket ?? "");
+      const bucketTs = r.bucket_ts != null ? new Date(r.bucket_ts).getTime() : Date.parse(bucketStr.replace(" ", "T") + "Z");
+      const fromMs = Number.isFinite(bucketTs) ? bucketTs : 0;
+      const toMs = fromMs + tl.bucketMs;
+      const sessions = Number(r.sessions ?? 0);
+      const totalActions = Number(r.total_actions ?? 0);
+      const errorCount = Number(r.error_count ?? 0);
+      const satisfied = Number(r.satisfied ?? 0);
+      const tolerating = Number(r.tolerating ?? 0);
+      const frustrated = Number(r.frustrated ?? 0);
+      const totalRated = satisfied + tolerating + frustrated;
+      const apdex = totalRated > 0 ? (satisfied + tolerating / 2) / totalRated : 0;
+      const errorRate = totalActions > 0 ? (errorCount / totalActions) * 100 : 0;
+      return {
+        bucket: bucketStr,
+        fromMs,
+        toMs,
+        sessions,
+        totalActions,
+        avgDurationMs: Number(r.avg_duration_ms ?? 0),
+        p50Ms: Number(r.p50_duration_ms ?? 0),
+        p90Ms: Number(r.p90_duration_ms ?? 0),
+        p99Ms: Number(r.p99_duration_ms ?? 0),
+        errorCount,
+        errorRate,
+        satisfied,
+        tolerating,
+        frustrated,
+        apdex,
+        lcp: r.lcp_avg == null ? null : Number(r.lcp_avg),
+        cls: r.cls_avg == null ? null : Number(r.cls_avg),
+        inp: r.inp_avg == null ? null : Number(r.inp_avg),
+        ttfb: r.ttfb_avg == null ? null : Number(r.ttfb_avg),
+        loadMs: r.load_avg == null ? null : Number(r.load_avg),
+      };
+    });
+    tl.reportSharedMetrics(parsed);
+    tl.reportLoading("shared-tl-metrics", false);
+  }, [tl.enabled, tl.bucketMs, sharedTlMetricsData.data]);
+  React.useEffect(() => {
+    if (!tl.enabled) return;
+    tl.reportLoading("shared-tl-metrics", sharedTlMetricsData.isLoading);
+  }, [tl.enabled, sharedTlMetricsData.isLoading]);
 
 
   // Parse funnel
@@ -8760,6 +8859,18 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
   const errorRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
 
+  // TL-effective KPI values — when Time-Lapse is on, swap in the current bucket's numbers
+  // from the shared per-bucket metrics query so scalar KPI cards animate. When TL is off
+  // (or metrics not yet loaded), fall back to the aggregate values as before.
+  const tlShared = funnelTlEnabled ? tl.sharedMetrics : null;
+  const effApdex = tlShared ? tlShared.apdex : overallApdex;
+  const effErrorRate = tlShared ? tlShared.errorRate : errorRate;
+  const effAvgDur = tlShared ? tlShared.avgDurationMs : quality.avg;
+  const effSatisfied = tlShared ? tlShared.satisfied : quality.satisfied;
+  const effTolerating = tlShared ? tlShared.tolerating : quality.tolerating;
+  const effFrustrated = tlShared ? tlShared.frustrated : quality.frustrated;
+  const effTotalRated = tlShared ? (tlShared.satisfied + tlShared.tolerating + tlShared.frustrated) : quality.total;
+
   const buildStepDrillCandidates = React.useCallback((stepIndex: number) => {
     const step = steps[stepIndex];
     if (!step) return [] as Array<{ name: string; sessions: number; apdex: number; avgMs: number; p90Ms: number; errors: number; errorRate: number }>;
@@ -8909,30 +9020,30 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           onDrillToForecast={onDrillToForecast}
         />
         <KpiCard
-          label="Overall Apdex"
-          value={overallApdex.toFixed(2)}
-          color={apdexClr(overallApdex)}
-          rawValue={overallApdex}
+          label={funnelTlEnabled ? "Overall Apdex (bucket)" : "Overall Apdex"}
+          value={effApdex.toFixed(2)}
+          color={apdexClr(effApdex)}
+          rawValue={effApdex}
           prevRawValue={overallApdexPrev}
           sparkline={sparkSeries.apdex}
           onDrillToForecast={onDrillToForecast}
-          customContent={<ApdexGauge score={overallApdex} size={72} />}
+          customContent={<ApdexGauge score={effApdex} size={72} />}
         />
         <KpiCard
-          label="Error Rate"
-          value={fmtPct(errorRate)}
-          color={errorRate > 5 ? RED : errorRate > 1 ? YELLOW : GREEN}
-          rawValue={errorRate}
+          label={funnelTlEnabled ? "Error Rate (bucket)" : "Error Rate"}
+          value={fmtPct(effErrorRate)}
+          color={effErrorRate > 5 ? RED : effErrorRate > 1 ? YELLOW : GREEN}
+          rawValue={effErrorRate}
           prevRawValue={errorRatePrev}
           inverted={true}
           sparkline={sparkSeries.errorRate}
           onDrillToForecast={onDrillToForecast}
         />
         <KpiCard
-          label="Avg Duration"
-          value={fmt(quality.avg)}
-          color={quality.avg > 3000 ? RED : quality.avg > 1000 ? YELLOW : GREEN}
-          rawValue={quality.avg}
+          label={funnelTlEnabled ? "Avg Duration (bucket)" : "Avg Duration"}
+          value={fmt(effAvgDur)}
+          color={effAvgDur > 3000 ? RED : effAvgDur > 1000 ? YELLOW : GREEN}
+          rawValue={effAvgDur}
           prevRawValue={qualityPrev.avg}
           inverted={true}
           sparkline={sparkSeries.avgDur}
@@ -8944,24 +9055,24 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
       <div className="uj-table-tile" style={{ padding: 16 }}>
         <Flex gap={24} alignItems="center" flexWrap="wrap">
           <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 13, opacity: 0.5 }}>Satisfied</Text>
-            <Heading level={4} style={{ color: GREEN, margin: "4px 0" }}>{fmtCount(quality.satisfied)}</Heading>
+            <Text style={{ fontSize: 13, opacity: 0.5 }}>Satisfied{funnelTlEnabled ? " (bucket)" : ""}</Text>
+            <Heading level={4} style={{ color: GREEN, margin: "4px 0" }}>{fmtCount(effSatisfied)}</Heading>
             <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_T / 1000}s</Text>
           </div>
           <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 13, opacity: 0.5 }}>Tolerating</Text>
-            <Heading level={4} style={{ color: YELLOW, margin: "4px 0" }}>{fmtCount(quality.tolerating)}</Heading>
+            <Text style={{ fontSize: 13, opacity: 0.5 }}>Tolerating{funnelTlEnabled ? " (bucket)" : ""}</Text>
+            <Heading level={4} style={{ color: YELLOW, margin: "4px 0" }}>{fmtCount(effTolerating)}</Heading>
             <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_4T / 1000}s</Text>
           </div>
           <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 13, opacity: 0.5 }}>Frustrated</Text>
-            <Heading level={4} style={{ color: RED, margin: "4px 0" }}>{fmtCount(quality.frustrated)}</Heading>
+            <Text style={{ fontSize: 13, opacity: 0.5 }}>Frustrated{funnelTlEnabled ? " (bucket)" : ""}</Text>
+            <Heading level={4} style={{ color: RED, margin: "4px 0" }}>{fmtCount(effFrustrated)}</Heading>
             <Text style={{ fontSize: 12, opacity: 0.4 }}>&gt; {APDEX_4T / 1000}s</Text>
           </div>
           <div style={{ flex: 1, height: 10, borderRadius: 5, overflow: "hidden", display: "flex", minWidth: 200 }}>
-            <div style={{ width: `${quality.total > 0 ? (quality.satisfied / quality.total) * 100 : 0}%`, background: GREEN, height: "100%" }} />
-            <div style={{ width: `${quality.total > 0 ? (quality.tolerating / quality.total) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
-            <div style={{ width: `${quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0}%`, background: RED, height: "100%" }} />
+            <div style={{ width: `${effTotalRated > 0 ? (effSatisfied / effTotalRated) * 100 : 0}%`, background: GREEN, height: "100%" }} />
+            <div style={{ width: `${effTotalRated > 0 ? (effTolerating / effTotalRated) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
+            <div style={{ width: `${effTotalRated > 0 ? (effFrustrated / effTotalRated) * 100 : 0}%`, background: RED, height: "100%" }} />
           </div>
         </Flex>
       </div>
@@ -9263,6 +9374,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
 function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, isLoading, steps, aov, sparklineRecords, convSparklineRecords, onDrillToForecast }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; isLoading: boolean; steps: StepDef[]; aov: number; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeTrends(quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov), [quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, aov]));
   const correlationsCtx = useContext(CorrelationsContext);
+  const tl = useTimelapse();
 
   if (isLoading) return <Loading />;
 
@@ -9271,6 +9383,9 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
   const lastIdx = steps.length - 1;
   const currRevenue = aov > 0 ? (funnelCounts[lastIdx] ?? 0) * aov : 0;
   const prevRevenue = aov > 0 ? (funnelCountsPrev[lastIdx] ?? 0) * aov : 0;
+
+  // TL-effective values — swap in per-bucket numbers from shared TL metrics when TL is active.
+  const tlShared = tl.enabled ? tl.sharedMetrics : null;
 
   // Parse daily sparkline rows
   const sparkRows = sparklineRecords.map((r: any) => ({
@@ -9314,17 +9429,17 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
   }
 
   const trends = [
-    { label: "Sessions",      current: quality.sessions,   prev: qualityPrev.sessions,   inverted: false, format: fmtCount,                         sparkKey: "sessions"   as string | null },
-    { label: "Total Actions", current: quality.total,      prev: qualityPrev.total,      inverted: false, format: fmtCount,                         sparkKey: "total"      as string | null },
+    { label: tlShared ? "Sessions (bucket)" : "Sessions",      current: tlShared ? tlShared.sessions : quality.sessions,   prev: qualityPrev.sessions,   inverted: false, format: fmtCount,                         sparkKey: "sessions"   as string | null },
+    { label: tlShared ? "Total Actions (bucket)" : "Total Actions", current: tlShared ? tlShared.totalActions : quality.total,      prev: qualityPrev.total,      inverted: false, format: fmtCount,                         sparkKey: "total"      as string | null },
     { label: "Conversion Rate", current: overallConv,      prev: overallConvPrev,         inverted: false, format: fmtPct,                           sparkKey: "convRate" as string | null },
     ...(aov > 0 ? [{ label: "Revenue",  current: currRevenue,        prev: prevRevenue,           inverted: false, format: fmtCurrency,                      sparkKey: "revenue" as string | null }] : []),
-    { label: "Apdex",         current: overallApdex,       prev: overallApdexPrev,        inverted: false, format: (v: number) => v.toFixed(2),     sparkKey: "apdex"      as string | null },
-    { label: "Avg Duration",  current: quality.avg,        prev: qualityPrev.avg,         inverted: true,  format: fmt,                             sparkKey: "avg_dur"    as string | null },
-    { label: "P50 Duration",  current: quality.p50,        prev: qualityPrev.p50,         inverted: true,  format: fmt,                             sparkKey: "p50_dur"    as string | null },
-    { label: "P90 Duration",  current: quality.p90,        prev: qualityPrev.p90,         inverted: true,  format: fmt,                             sparkKey: "p90_dur"    as string | null },
-    { label: "Error Rate",    current: errorRate,           prev: errorRatePrev,           inverted: true,  format: fmtPct,                          sparkKey: "errorRate"  as string | null },
-    { label: "Errors",        current: quality.errors,     prev: qualityPrev.errors,      inverted: true,  format: fmtCount,                        sparkKey: "errors"     as string | null },
-    { label: "Frustrated",    current: quality.frustrated, prev: qualityPrev.frustrated,  inverted: true,  format: fmtCount,                        sparkKey: "frustrated" as string | null },
+    { label: tlShared ? "Apdex (bucket)" : "Apdex",         current: tlShared ? tlShared.apdex : overallApdex,       prev: overallApdexPrev,        inverted: false, format: (v: number) => v.toFixed(2),     sparkKey: "apdex"      as string | null },
+    { label: tlShared ? "Avg Duration (bucket)" : "Avg Duration",  current: tlShared ? tlShared.avgDurationMs : quality.avg,        prev: qualityPrev.avg,         inverted: true,  format: fmt,                             sparkKey: "avg_dur"    as string | null },
+    { label: tlShared ? "P50 Duration (bucket)" : "P50 Duration",  current: tlShared ? tlShared.p50Ms : quality.p50,        prev: qualityPrev.p50,         inverted: true,  format: fmt,                             sparkKey: "p50_dur"    as string | null },
+    { label: tlShared ? "P90 Duration (bucket)" : "P90 Duration",  current: tlShared ? tlShared.p90Ms : quality.p90,        prev: qualityPrev.p90,         inverted: true,  format: fmt,                             sparkKey: "p90_dur"    as string | null },
+    { label: tlShared ? "Error Rate (bucket)" : "Error Rate",    current: tlShared ? tlShared.errorRate : errorRate,           prev: errorRatePrev,           inverted: true,  format: fmtPct,                          sparkKey: "errorRate"  as string | null },
+    { label: tlShared ? "Errors (bucket)" : "Errors",        current: tlShared ? tlShared.errorCount : quality.errors,     prev: qualityPrev.errors,      inverted: true,  format: fmtCount,                        sparkKey: "errors"     as string | null },
+    { label: tlShared ? "Frustrated (bucket)" : "Frustrated",    current: tlShared ? tlShared.frustrated : quality.frustrated, prev: qualityPrev.frustrated,  inverted: true,  format: fmtCount,                        sparkKey: "frustrated" as string | null },
   ];
 
   return (
@@ -9413,14 +9528,26 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
 // ===========================================================================
 function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onDrillToForecast }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; cwvByPage: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWebVitals(v), [v]));
+  const tl = useTimelapse();
   if (isLoading) return <Loading />;
+
+  // TL-effective Core Web Vitals — swap in per-bucket averages when TL is on and web vitals
+  // for the current bucket are available. Falls back to aggregate `v` otherwise.
+  const tlShared = tl.enabled ? tl.sharedMetrics : null;
+  const effV = tlShared ? {
+    lcp:  tlShared.lcp  != null ? tlShared.lcp  : v.lcp,
+    cls:  tlShared.cls  != null ? tlShared.cls  : v.cls,
+    inp:  tlShared.inp  != null ? tlShared.inp  : v.inp,
+    ttfb: tlShared.ttfb != null ? tlShared.ttfb : v.ttfb,
+    load: tlShared.loadMs != null ? tlShared.loadMs : v.load,
+  } : v;
 
   const pages = (cwvByPage.data?.records ?? []) as any[];
   const trendRecords = (cwvTrend?.data?.records ?? []) as any[];
-  const lcpScore = v.lcp <= CWV.lcp.good ? 100 : v.lcp <= CWV.lcp.poor ? 50 : 0;
-  const clsScore = v.cls <= CWV.cls.good ? 100 : v.cls <= CWV.cls.poor ? 50 : 0;
-  const inpScore = v.inp <= CWV.inp.good ? 100 : v.inp <= CWV.inp.poor ? 50 : 0;
-  const ttfbScore = v.ttfb <= CWV.ttfb.good ? 100 : v.ttfb <= CWV.ttfb.poor ? 50 : 0;
+  const lcpScore = effV.lcp <= CWV.lcp.good ? 100 : effV.lcp <= CWV.lcp.poor ? 50 : 0;
+  const clsScore = effV.cls <= CWV.cls.good ? 100 : effV.cls <= CWV.cls.poor ? 50 : 0;
+  const inpScore = effV.inp <= CWV.inp.good ? 100 : effV.inp <= CWV.inp.poor ? 50 : 0;
+  const ttfbScore = effV.ttfb <= CWV.ttfb.good ? 100 : effV.ttfb <= CWV.ttfb.poor ? 50 : 0;
   const healthScore = Math.round((lcpScore * 0.35 + clsScore * 0.25 + inpScore * 0.25 + ttfbScore * 0.15));
 
   // Remediation recommendations based on failing vitals + top offending pages
@@ -9430,10 +9557,10 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
   const sortedByInp = [...pages].sort((a, b) => Number(b.inp_avg ?? 0) - Number(a.inp_avg ?? 0));
   const sortedByTtfb = [...pages].sort((a, b) => Number(b.ttfb_avg ?? 0) - Number(a.ttfb_avg ?? 0));
 
-  if (v.lcp > CWV.lcp.good) {
-    const status = v.lcp > CWV.lcp.poor ? "poor" : "needs-improvement";
+  if (effV.lcp > CWV.lcp.good) {
+    const status = effV.lcp > CWV.lcp.poor ? "poor" : "needs-improvement";
     const topPages = sortedByLcp.slice(0, 3).map(p => String(p.pageName ?? "unknown"));
-    remediations.push({ vital: "LCP", status, value: fmt(v.lcp), topPages, recommendations: [
+    remediations.push({ vital: "LCP", status, value: fmt(effV.lcp), topPages, recommendations: [
       "Preload critical hero images and fonts using <link rel=\"preload\">",
       "Implement lazy loading for below-the-fold images and iframes",
       "Reduce server response time (TTFB) — consider CDN or edge caching",
@@ -9441,10 +9568,10 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
       "Optimize image formats (WebP/AVIF) and implement responsive srcset",
     ]});
   }
-  if (v.cls > CWV.cls.good) {
-    const status = v.cls > CWV.cls.poor ? "poor" : "needs-improvement";
+  if (effV.cls > CWV.cls.good) {
+    const status = effV.cls > CWV.cls.poor ? "poor" : "needs-improvement";
     const topPages = sortedByCls.slice(0, 3).map(p => String(p.pageName ?? "unknown"));
-    remediations.push({ vital: "CLS", status, value: v.cls.toFixed(3), topPages, recommendations: [
+    remediations.push({ vital: "CLS", status, value: effV.cls.toFixed(3), topPages, recommendations: [
       "Set explicit width/height attributes on images and video elements",
       "Reserve space for dynamic ad slots and embeds with CSS aspect-ratio",
       "Avoid inserting content above existing content (banners, consent modals)",
@@ -9452,10 +9579,10 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
       "Preload web fonts and use font-display:swap with size-adjust fallback",
     ]});
   }
-  if (v.inp > CWV.inp.good) {
-    const status = v.inp > CWV.inp.poor ? "poor" : "needs-improvement";
+  if (effV.inp > CWV.inp.good) {
+    const status = effV.inp > CWV.inp.poor ? "poor" : "needs-improvement";
     const topPages = sortedByInp.slice(0, 3).map(p => String(p.pageName ?? "unknown"));
-    remediations.push({ vital: "INP", status, value: fmt(v.inp), topPages, recommendations: [
+    remediations.push({ vital: "INP", status, value: fmt(effV.inp), topPages, recommendations: [
       "Break up long tasks (>50ms) using requestIdleCallback or scheduler.yield()",
       "Debounce expensive event handlers (scroll, input, resize)",
       "Move heavy computation to Web Workers",
@@ -9463,10 +9590,10 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
       "Defer third-party scripts that block the main thread",
     ]});
   }
-  if (v.ttfb > CWV.ttfb.good) {
-    const status = v.ttfb > CWV.ttfb.poor ? "poor" : "needs-improvement";
+  if (effV.ttfb > CWV.ttfb.good) {
+    const status = effV.ttfb > CWV.ttfb.poor ? "poor" : "needs-improvement";
     const topPages = sortedByTtfb.slice(0, 3).map(p => String(p.pageName ?? "unknown"));
-    remediations.push({ vital: "TTFB", status, value: fmt(v.ttfb), topPages, recommendations: [
+    remediations.push({ vital: "TTFB", status, value: fmt(effV.ttfb), topPages, recommendations: [
       "Enable server-side caching (Redis, Varnish) for frequently accessed pages",
       "Use a CDN to reduce geographic latency",
       "Optimize database queries — add indexes, reduce N+1 queries",
@@ -9482,17 +9609,17 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
       <Flex gap={16} flexWrap="wrap" alignItems="center">
-        <KpiCard label="Performance Health" value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Load Event End" value={fmt(v.load)} color={v.load > 3000 ? RED : v.load > 1500 ? YELLOW : GREEN} rawValue={v.load} prevRawValue={syntheticPrev(v.load, "Load Event End")} sparkline={syntheticSparkline(v.load, 8, "Load Event End")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Failing Vitals" value={`${remediations.length}/4`} color={remediations.length > 2 ? RED : remediations.length > 0 ? YELLOW : GREEN} rawValue={remediations.length} prevRawValue={syntheticPrev(remediations.length, "Failing Vitals")} inverted sparkline={syntheticSparkline(remediations.length, 8, "Failing Vitals")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Performance Health (bucket)" : "Performance Health"} value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Load Event End (bucket)" : "Load Event End"} value={fmt(effV.load)} color={effV.load > 3000 ? RED : effV.load > 1500 ? YELLOW : GREEN} rawValue={effV.load} prevRawValue={syntheticPrev(effV.load, "Load Event End")} sparkline={syntheticSparkline(effV.load, 8, "Load Event End")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Failing Vitals (bucket)" : "Failing Vitals"} value={`${remediations.length}/4`} color={remediations.length > 2 ? RED : remediations.length > 0 ? YELLOW : GREEN} rawValue={remediations.length} prevRawValue={syntheticPrev(remediations.length, "Failing Vitals")} inverted sparkline={syntheticSparkline(remediations.length, 8, "Failing Vitals")} onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       <SectionHeader title="Core Web Vitals" />
       <Flex gap={16} flexWrap="wrap">
-        <CwvCard label="Largest Contentful Paint" value={v.lcp} unit="ms" metric="lcp" onDrillToForecast={onDrillToForecast} />
-        <CwvCard label="Cumulative Layout Shift" value={v.cls} unit="" metric="cls" onDrillToForecast={onDrillToForecast} />
-        <CwvCard label="Interaction to Next Paint" value={v.inp} unit="ms" metric="inp" onDrillToForecast={onDrillToForecast} />
-        <CwvCard label="Time to First Byte" value={v.ttfb} unit="ms" metric="ttfb" onDrillToForecast={onDrillToForecast} />
+        <CwvCard label={tlShared ? "Largest Contentful Paint (bucket)" : "Largest Contentful Paint"} value={effV.lcp} unit="ms" metric="lcp" onDrillToForecast={onDrillToForecast} />
+        <CwvCard label={tlShared ? "Cumulative Layout Shift (bucket)" : "Cumulative Layout Shift"} value={effV.cls} unit="" metric="cls" onDrillToForecast={onDrillToForecast} />
+        <CwvCard label={tlShared ? "Interaction to Next Paint (bucket)" : "Interaction to Next Paint"} value={effV.inp} unit="ms" metric="inp" onDrillToForecast={onDrillToForecast} />
+        <CwvCard label={tlShared ? "Time to First Byte (bucket)" : "Time to First Byte"} value={effV.ttfb} unit="ms" metric="ttfb" onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       {/* CWV Trend Chart */}
