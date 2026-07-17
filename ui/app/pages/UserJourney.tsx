@@ -87,7 +87,40 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.60.0";
+const APP_VERSION_LABEL = "4.60.1";
+
+// Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
+// All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
+const TL_ANIMATED_TABS = new Set<string>(["Funnel Overview", "Navigation Paths", "Maps"]);
+
+// Compact per-tab banner shown at the top of every sub-tab whenever Time-Lapse is on.
+// Distinguishes tabs whose data animates from tabs that continue to show aggregate data.
+function TabTlBanner({ tabId }: { tabId: string }) {
+  const tl = useTimelapse();
+  if (!tl.enabled) return null;
+  const animated = TL_ANIMATED_TABS.has(tabId);
+  const bg = animated ? "rgba(69,137,255,0.10)" : "rgba(128,128,128,0.10)";
+  const border = animated ? "rgba(69,137,255,0.35)" : "rgba(128,128,128,0.25)";
+  const dot = animated ? "#4589FF" : "#B0B8C4";
+  return (
+    <div style={{ margin: "8px 20px 12px 20px", padding: "6px 12px", background: bg, border: `1px solid ${border}`, borderRadius: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 11 }}>
+      <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: dot }} />
+      {animated ? (
+        <>
+          <span style={{ fontWeight: 700, color: "#4589FF" }}>Time-Lapse driving this tab.</span>
+          {tl.currentBucketKey && <span style={{ opacity: 0.75, fontFamily: "monospace" }}>bucket {tl.currentBucketKey}</span>}
+          <span style={{ opacity: 0.5 }}>· {tl.index + 1} / {tl.totalBuckets}</span>
+        </>
+      ) : (
+        <>
+          <span style={{ fontWeight: 700, opacity: 0.75 }}>Time-Lapse aggregate view.</span>
+          <span style={{ opacity: 0.65 }}>This tab shows totals for the selected timeframe. Time-Lapse animation currently applies only to Funnel Overview, Navigation Paths, and Maps.</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 
 
 
@@ -4337,6 +4370,8 @@ export function UserJourney() {
 
   return (
     <div className="uj-container">
+      {/* Sticky top — Header + Global Time-Lapse controls stay pinned while content scrolls behind. */}
+      <div className="uj-sticky-top">
       {/* Header */}
       <div className="uj-header">
         <Flex alignItems="center" gap={16}>
@@ -4510,6 +4545,7 @@ export function UserJourney() {
           );
         })()}
       </div>
+      </div>{/* /uj-sticky-top */}
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
       <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
         <div style={{ padding: "4px 0" }}>
@@ -4927,7 +4963,7 @@ export function UserJourney() {
             case "Tag Allocation": content = <TagAllocationTab monthlyInfraCost={monthlyInfraCost} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
             case "Observability ROI": content = <ObservabilityRoiTab quality={quality} monthlyInfraCost={monthlyInfraCost} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
                   }
-                  return <Tab key={tabId} title={tabId}>{content}</Tab>;
+                  return <Tab key={tabId} title={tabId}><TabTlBanner tabId={tabId} />{content}</Tab>;
                 })}
               </Tabs>
             </Tab>
@@ -8972,93 +9008,29 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         </div>
       )}
 
-      {/* === Funnel Time-Lapse status line (controls live in the global header strip) === */}
-      {funnelTlEnabled && (
-        <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(69,137,255,0.08)", border: "1px solid rgba(69,137,255,0.35)" }}>
-          <Flex alignItems="center" gap={12} flexWrap="wrap">
-            <span style={{ fontSize: 12, fontWeight: 600, color: BLUE }}>⏱ Time-Lapse active</span>
-            <span style={{ fontSize: 11, opacity: 0.75, fontFamily: "monospace" }}>{funnelTlCurrentKey ?? (funnelTlData.isLoading ? "Loading…" : "No data")}</span>
-            <span style={{ fontSize: 11, opacity: 0.55 }}>Bucket: {TL_BUCKET_LABELS[funnelTlBucket]}</span>
-            <span style={{ fontSize: 11, opacity: 0.55 }}>Use the header controls at the top of the page to Play, Pause, or scrub the timeline.</span>
-            {funnelTlData.error && (
-              <span style={{ fontSize: 11, color: ORANGE }}>Time-lapse query error — check console.</span>
-            )}
-          </Flex>
-        </div>
-      )}
-
-      {/* === Funnel Hotness Spike Strip === */}
+      {/* === Funnel Time-Lapse: step-level hot drop-offs pill row (main strip lives in global header) === */}
       {funnelTlEnabled && funnelTlBucketList.length > 0 && (() => {
-        const maxHot = Math.max(0.5, ...funnelTlSpikeStrip);
-        const stripW = 800;
-        const stripH = 42;
-        const barW = stripW / Math.max(1, funnelTlBucketList.length);
-        const cursorX = (Math.min(funnelTlIndex, funnelTlBucketList.length - 1) + 0.5) * barW;
-        const anyHot = funnelTlSpikeStrip.some(v => v >= 1.5);
+        const hotSteps = funnelTlStepHot
+          .map((z, i) => ({ z, i }))
+          .filter(x => x.z >= 1.5)
+          .sort((a, b) => b.z - a.z)
+          .slice(0, 3);
+        if (hotSteps.length === 0) return null;
         return (
-          <div style={{ padding: "10px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)" }}>
-            <Flex alignItems="center" justifyContent="space-between" gap={8} style={{ marginBottom: 6 }}>
-              <Flex alignItems="center" gap={6}>
-                <div style={{ width: 3, height: 12, background: TL_HOT_WARM, borderRadius: 1 }} />
-                <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.75, fontWeight: 700, color: TL_HOT_WARM }}>Hotness spike strip</span>
-                <span style={{ fontSize: 10, opacity: 0.45 }}>drop-offs · entry-traffic Z-score</span>
-              </Flex>
-              <span style={{ fontSize: 10, opacity: 0.45, fontFamily: "monospace" }}>peak z={maxHot.toFixed(1)}{anyHot ? "" : " (calm)"}</span>
-            </Flex>
-            <svg width="100%" height={stripH + 10} viewBox={`0 0 ${stripW} ${stripH + 10}`} preserveAspectRatio="none" style={{ display: "block", cursor: "pointer" }}
-              onClick={(e) => {
-                const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
-                const ratio = (e.clientX - rect.left) / rect.width;
-                const idx = Math.max(0, Math.min(funnelTlBucketList.length - 1, Math.floor(ratio * funnelTlBucketList.length)));
-                setFunnelTlPlaying(false);
-                setFunnelTlIndex(idx);
-              }}
-            >
-              {funnelTlSpikeStrip.map((h, i) => {
-                const bh = Math.max(2, (h / maxHot) * stripH);
-                const color = h >= 2.5 ? TL_HOT_HIGH : h >= 1.5 ? TL_HOT_WARM : h >= 0.75 ? TL_HOT_ELEV : "rgba(69,137,255,0.55)";
-                const isCurrent = i === Math.min(funnelTlIndex, funnelTlBucketList.length - 1);
-                return (
-                  <rect key={i} x={i * barW + 0.3} y={stripH - bh} width={Math.max(1, barW - 0.6)} height={bh} fill={color} opacity={isCurrent ? 1 : 0.8} />
-                );
-              })}
-              <line x1={cursorX} y1={0} x2={cursorX} y2={stripH} stroke="#fff" strokeWidth={1.5} strokeOpacity={0.85} />
-              <polygon points={`${cursorX - 5},${stripH + 2} ${cursorX + 5},${stripH + 2} ${cursorX},${stripH + 8}`} fill="#fff" opacity={0.9} />
-            </svg>
-            <Flex alignItems="center" gap={12} style={{ marginTop: 6, fontSize: 10, opacity: 0.6, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 10, opacity: 0.7 }}>{funnelTlBucketList[0]} → {funnelTlBucketList[funnelTlBucketList.length - 1]}</span>
-              <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: "rgba(69,137,255,0.55)", borderRadius: 2 }} /><span>Normal</span></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_ELEV, borderRadius: 2 }} /><span>Elevated</span></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_WARM, borderRadius: 2 }} /><span>Bad drop-off</span></Flex>
-              <Flex alignItems="center" gap={4}><div style={{ width: 10, height: 10, background: TL_HOT_HIGH, borderRadius: 2 }} /><span>Severe drop-off</span></Flex>
-              <span style={{ marginLeft: "auto" }}>Click a bar to jump to that moment.</span>
-            </Flex>
-            {/* Step-level hot list for current bucket */}
-            {(() => {
-              const hotSteps = funnelTlStepHot
-                .map((z, i) => ({ z, i }))
-                .filter(x => x.z >= 1.5)
-                .sort((a, b) => b.z - a.z)
-                .slice(0, 3);
-              if (hotSteps.length === 0) return null;
+          <div style={{ padding: "6px 12px", background: "rgba(128,128,128,0.06)", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", fontSize: 11 }}>
+            <span style={{ fontWeight: 700, opacity: 0.7, marginRight: 8 }}>Hot drop-offs this bucket:</span>
+            {hotSteps.map((h, k) => {
+              const step = steps[h.i];
+              const prevLabel = h.i > 0 ? steps[h.i - 1].label : "";
+              const color = h.z >= 2.5 ? TL_HOT_HIGH : TL_HOT_WARM;
               return (
-                <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(128,128,128,0.15)", fontSize: 11, opacity: 0.85 }}>
-                  <span style={{ fontWeight: 700, opacity: 0.7, marginRight: 8 }}>Hot drop-offs this bucket:</span>
-                  {hotSteps.map((h, k) => {
-                    const step = steps[h.i];
-                    const prevLabel = h.i > 0 ? steps[h.i - 1].label : "";
-                    const color = h.z >= 2.5 ? TL_HOT_HIGH : TL_HOT_WARM;
-                    return (
-                      <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 12 }}>
-                        <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color }} />
-                        <span style={{ color, fontWeight: 600 }}>{prevLabel} → {step?.label}</span>
-                        <span style={{ opacity: 0.6, fontFamily: "monospace" }}>z={h.z.toFixed(1)}</span>
-                      </span>
-                    );
-                  })}
-                </div>
+                <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 12 }}>
+                  <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color }} />
+                  <span style={{ color, fontWeight: 600 }}>{prevLabel} → {step?.label}</span>
+                  <span style={{ opacity: 0.6, fontFamily: "monospace" }}>z={h.z.toFixed(1)}</span>
+                </span>
               );
-            })()}
+            })}
           </div>
         );
       })()}

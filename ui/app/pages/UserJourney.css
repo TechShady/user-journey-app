@@ -25,6 +25,26 @@
   box-sizing: border-box;
 }
 
+/* Sticky top region — always-visible header + Time-Lapse controls; content scrolls behind. */
+.uj-sticky-top {
+  position: sticky;
+  top: 0;
+  z-index: 500;
+  /* Extend edge-to-edge inside .uj-container's 32px horizontal padding */
+  margin: -24px -32px 12px -32px;
+  padding: 20px 32px 10px 32px;
+  /* Solid backdrop so content underneath does NOT show through as it scrolls. */
+  background: var(--dt-colors-background-base-default, #0f1428);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.22);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(14px) saturate(1.25);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+}
+.uj-sticky-top .uj-header {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+}
+
 /* Header */
 .uj-header {
   display: flex;
