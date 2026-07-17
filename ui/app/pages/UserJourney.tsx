@@ -13219,10 +13219,13 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
         })()
       : (scopedAcrossTiers.length > 0 ? scopedAcrossTiers : backendVisibleByDepth.filter(s => s.depth === 1)))
     : backendVisibleByDepth);
-  const beServices = (strictSessionMode
-    ? tierScopedServices
-    : tierScopedServices.filter(s => serviceReqById(s.id, s.name) > 0))
-    .slice(0, 1000);
+  const beServices = (() => {
+    if (strictSessionMode) return tierScopedServices.slice(0, 1000);
+    const withReq = tierScopedServices.filter(s => serviceReqById(s.id, s.name) > 0);
+    // Fallback: envs that don't populate RUM peer.service.name will strip all services here.
+    // Show the tier-scoped Smartscape topology so the diagram isn't empty.
+    return (withReq.length > 0 ? withReq : tierScopedServices).slice(0, 1000);
+  })();
   const db1All = allBeServices.filter(s => norm(s.name).includes("db1"));
   const db1Shown = beServices.filter(s => norm(s.name).includes("db1"));
   const dbLikeShown = beServices.filter(s => /db|postgres|mysql|maria|oracle|sql|redis/i.test(s.name));
@@ -14419,16 +14422,16 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                   };
                   return (
                     <Flex gap={12} alignItems="stretch" style={{ marginTop: 8, flexWrap: "wrap" }}>
-                      {/* Frontend hotness — left half, aligned under frontend column */}
-                      <div style={{ flex: "1 1 320px", minWidth: 260, padding: "10px 12px", background: "rgba(69,137,255,0.05)", borderRadius: 6, border: "1px solid rgba(69,137,255,0.25)" }}>
+                      {/* Frontend hotness — occupies left ~66% (matches width of frontend funnel + pages columns) */}
+                      <div style={{ flex: "2 1 360px", minWidth: 280, padding: "10px 12px", background: "rgba(69,137,255,0.05)", borderRadius: 6, border: "1px solid rgba(69,137,255,0.25)" }}>
                         <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
                           <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#4589FF" }}>FRONTEND hotness</span>
                           <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
                         </Flex>
                         {renderStrip("Pages", "sessions · load · errors", navTlSpikeStripFE, "#4589FF")}
                       </div>
-                      {/* Backend hotness — right half, aligned under backend column */}
-                      <div style={{ flex: "1 1 320px", minWidth: 260, padding: "10px 12px", background: "rgba(165,110,255,0.05)", borderRadius: 6, border: "1px solid rgba(165,110,255,0.25)" }}>
+                      {/* Backend hotness — right ~33% (matches width of backend services column) */}
+                      <div style={{ flex: "1 1 220px", minWidth: 220, padding: "10px 12px", background: "rgba(165,110,255,0.05)", borderRadius: 6, border: "1px solid rgba(165,110,255,0.25)" }}>
                         <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
                           <span style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, color: "#A56EFF" }}>BACKEND hotness</span>
                           <span style={{ fontSize: 10, opacity: 0.45 }}>{navTlBucketList[0]} → {navTlBucketList[navTlBucketList.length - 1]}</span>
