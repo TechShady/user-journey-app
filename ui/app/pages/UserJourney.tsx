@@ -87,11 +87,14 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.61.0";
+const APP_VERSION_LABEL = "4.62.0";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
-const TL_ANIMATED_TABS = new Set<string>(["Funnel Overview", "Navigation Paths", "Maps", "Trends", "Web Vitals"]);
+const TL_ANIMATED_TABS = new Set<string>([
+  "Funnel Overview", "Navigation Paths", "Maps", "Trends", "Web Vitals",
+  "Perf Budgets", "Anomaly Detection", "Executive Summary", "Session Engagement",
+]);
 
 // Compact per-tab banner shown at the top of every sub-tab whenever Time-Lapse is on.
 // Distinguishes tabs whose data animates from tabs that continue to show aggregate data.
@@ -10647,6 +10650,7 @@ const PERF_BUDGETS = [
 
 function PerfBudgetsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, hourlyData, isLoading, saveState, savedThresholds, onDrillToForecast }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; hourlyData: any; isLoading: boolean; saveState: any; savedThresholds: any; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzePerfBudgets(quality, overallApdex, overallConv), [quality, overallApdex, overallConv]));
+  const tl = useTimelapse();
 
   // User-configurable thresholds (persisted)
   const [thresholds, setThresholds] = useState<Record<string, number>>(() => {
@@ -10686,13 +10690,18 @@ function PerfBudgetsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, 
   const errorRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
   const frustratedPctPrev = qualityPrev.total > 0 ? (qualityPrev.frustrated / qualityPrev.total) * 100 : 0;
 
+  // TL-effective values — animate the budget "actuals" per bucket when TL is on.
+  const tlShared = tl.enabled ? tl.sharedMetrics : null;
+  const totalRatedBucket = tlShared ? (tlShared.satisfied + tlShared.tolerating + tlShared.frustrated) : 0;
+  const effFrustratedPct = tlShared && totalRatedBucket > 0 ? (tlShared.frustrated / totalRatedBucket) * 100 : frustratedPct;
+
   const actuals: Record<string, number> = {
-    "Apdex": overallApdex,
+    "Apdex": tlShared ? tlShared.apdex : overallApdex,
     "Conversion Rate": overallConv,
-    "Avg Duration": quality.avg,
-    "P90 Duration": quality.p90,
-    "Error Rate": errorRate,
-    "Frustrated %": frustratedPct,
+    "Avg Duration": tlShared ? tlShared.avgDurationMs : quality.avg,
+    "P90 Duration": tlShared ? tlShared.p90Ms : quality.p90,
+    "Error Rate": tlShared ? tlShared.errorRate : errorRate,
+    "Frustrated %": effFrustratedPct,
   };
   const prevActuals: Record<string, number> = {
     "Apdex": overallApdexPrev,
@@ -14755,6 +14764,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 // ===========================================================================
 function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev, stepMap, durationDist, isLoading, steps, aov, davisProblemsData, onDrillToForecast }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; stepMap: Map<string, any>; durationDist: any; isLoading: boolean; steps: StepDef[]; aov: number; davisProblemsData?: any; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeAnomalyDetection(quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev), [quality, qualityPrev, overallApdex, overallApdexPrev, funnelCounts, funnelCountsPrev]));
+  const tl = useTimelapse();
   if (isLoading) return <Loading />;
 
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -14765,15 +14775,21 @@ function AnomalyDetectionTab({ quality, qualityPrev, overallApdex, overallApdexP
   const fruPct = quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0;
   const fruPctPrev = qualityPrev.total > 0 ? (qualityPrev.frustrated / qualityPrev.total) * 100 : 0;
 
+  // TL-effective values — animate the metric "current" values so anomaly detection reflects the current bucket
+  // vs the (aggregate) prior-period baseline. When TL is off, these fall through to the aggregate numbers.
+  const tlShared = tl.enabled ? tl.sharedMetrics : null;
+  const totalRatedBucket = tlShared ? (tlShared.satisfied + tlShared.tolerating + tlShared.frustrated) : 0;
+  const effFruPct = tlShared && totalRatedBucket > 0 ? (tlShared.frustrated / totalRatedBucket) * 100 : fruPct;
+
   // Anomaly scoring: deviation from previous period
   const anomalies = [
-    { metric: "Apdex", current: overallApdex, prev: overallApdexPrev, inverted: false, format: (v: number) => v.toFixed(2), threshold: 0.05 },
-    { metric: "Avg Duration", current: quality.avg, prev: qualityPrev.avg, inverted: true, format: fmt, threshold: 0.15 },
-    { metric: "P90 Duration", current: quality.p90, prev: qualityPrev.p90, inverted: true, format: fmt, threshold: 0.2 },
-    { metric: "Error Rate", current: errorRate, prev: errorRatePrev, inverted: true, format: fmtPct, threshold: 0.3 },
+    { metric: tlShared ? "Apdex (bucket)" : "Apdex", current: tlShared ? tlShared.apdex : overallApdex, prev: overallApdexPrev, inverted: false, format: (v: number) => v.toFixed(2), threshold: 0.05 },
+    { metric: tlShared ? "Avg Duration (bucket)" : "Avg Duration", current: tlShared ? tlShared.avgDurationMs : quality.avg, prev: qualityPrev.avg, inverted: true, format: fmt, threshold: 0.15 },
+    { metric: tlShared ? "P90 Duration (bucket)" : "P90 Duration", current: tlShared ? tlShared.p90Ms : quality.p90, prev: qualityPrev.p90, inverted: true, format: fmt, threshold: 0.2 },
+    { metric: tlShared ? "Error Rate (bucket)" : "Error Rate", current: tlShared ? tlShared.errorRate : errorRate, prev: errorRatePrev, inverted: true, format: fmtPct, threshold: 0.3 },
     { metric: "Conversion", current: overallConv, prev: overallConvPrev, inverted: false, format: fmtPct, threshold: 0.1 },
-    { metric: "Sessions", current: quality.sessions, prev: qualityPrev.sessions, inverted: false, format: fmtCount, threshold: 0.2 },
-    { metric: "Frustrated %", current: fruPct, prev: fruPctPrev, inverted: true, format: fmtPct, threshold: 0.25 },
+    { metric: tlShared ? "Sessions (bucket)" : "Sessions", current: tlShared ? tlShared.sessions : quality.sessions, prev: qualityPrev.sessions, inverted: false, format: fmtCount, threshold: 0.2 },
+    { metric: tlShared ? "Frustrated % (bucket)" : "Frustrated %", current: effFruPct, prev: fruPctPrev, inverted: true, format: fmtPct, threshold: 0.25 },
   ].map((a) => {
     const delta = a.prev > 0 ? (a.current - a.prev) / a.prev : 0;
     const deviation = Math.abs(delta);
@@ -15257,6 +15273,7 @@ function ConversionAttributionTab({ data, overallConv, isLoading, aov, funnelCou
 function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps, aov, sparklineRecords, convSparklineRecords, onDrillToForecast }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[]; aov: number; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const [copied, setCopied] = useState(false);
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov]));
+  const tl = useTimelapse();
 
   // Sparkline series for executive KPI cards (must be before early return — Rules of Hooks)
   const execSparkSeries = useMemo(() => {
@@ -15282,14 +15299,23 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
   const errorRatePrev = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
   const fruPct = quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0;
 
-  // Grade calculation
+  // TL-effective KPI values — animate per bucket when TL is on.
+  const tlShared = tl.enabled ? tl.sharedMetrics : null;
+  const effSessions = tlShared ? tlShared.sessions : quality.sessions;
+  const effApdex = tlShared ? tlShared.apdex : overallApdex;
+  const effErrorRate = tlShared ? tlShared.errorRate : errorRate;
+  const effAvgDur = tlShared ? tlShared.avgDurationMs : quality.avg;
+  const effLcp = tlShared && tlShared.lcp != null ? tlShared.lcp : cwvMetrics.lcp;
+  const effCls = tlShared && tlShared.cls != null ? tlShared.cls : cwvMetrics.cls;
+
+  // Grade calculation — uses effective values so the "score" reflects the current bucket during TL playback.
   const gradeMetrics = [
-    { label: "Apdex", score: overallApdex >= 0.85 ? 100 : overallApdex >= 0.7 ? 75 : overallApdex >= 0.5 ? 50 : 25, weight: 25 },
+    { label: "Apdex", score: effApdex >= 0.85 ? 100 : effApdex >= 0.7 ? 75 : effApdex >= 0.5 ? 50 : 25, weight: 25 },
     { label: "Conversion", score: overallConv >= 25 ? 100 : overallConv >= 15 ? 75 : overallConv >= 5 ? 50 : 25, weight: 20 },
-    { label: "Error Rate", score: errorRate <= 1 ? 100 : errorRate <= 3 ? 75 : errorRate <= 5 ? 50 : 25, weight: 20 },
-    { label: "Avg Duration", score: quality.avg <= 1000 ? 100 : quality.avg <= 2000 ? 75 : quality.avg <= 3000 ? 50 : 25, weight: 15 },
-    { label: "CWV LCP", score: cwvMetrics.lcp <= 2500 ? 100 : cwvMetrics.lcp <= 4000 ? 75 : 25, weight: 10 },
-    { label: "CWV CLS", score: cwvMetrics.cls <= 0.1 ? 100 : cwvMetrics.cls <= 0.25 ? 75 : 25, weight: 10 },
+    { label: "Error Rate", score: effErrorRate <= 1 ? 100 : effErrorRate <= 3 ? 75 : effErrorRate <= 5 ? 50 : 25, weight: 20 },
+    { label: "Avg Duration", score: effAvgDur <= 1000 ? 100 : effAvgDur <= 2000 ? 75 : effAvgDur <= 3000 ? 50 : 25, weight: 15 },
+    { label: "CWV LCP", score: effLcp <= 2500 ? 100 : effLcp <= 4000 ? 75 : 25, weight: 10 },
+    { label: "CWV CLS", score: effCls <= 0.1 ? 100 : effCls <= 0.25 ? 75 : 25, weight: 10 },
   ];
   const overallGradeNum = gradeMetrics.reduce((a, m) => a + m.score * m.weight, 0) / gradeMetrics.reduce((a, m) => a + m.weight, 0);
   const letterGrade = overallGradeNum >= 90 ? "A" : overallGradeNum >= 80 ? "B" : overallGradeNum >= 65 ? "C" : overallGradeNum >= 50 ? "D" : "F";
@@ -15517,11 +15543,11 @@ ${bottleneckHtml}
       {/* Key metrics with trends */}
       <SectionHeader title="Key Metrics" />
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Sessions" value={fmtCount(quality.sessions)} color={BLUE} rawValue={quality.sessions} prevRawValue={qualityPrev.sessions} sparkline={execSparkSeries.sessions} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Sessions (bucket)" : "Sessions"} value={fmtCount(effSessions)} color={BLUE} rawValue={effSessions} prevRawValue={qualityPrev.sessions} sparkline={execSparkSeries.sessions} onDrillToForecast={onDrillToForecast} />
         <KpiCard label="Conversion" value={fmtPct(overallConv)} color={statusClr(overallConv)} rawValue={overallConv} prevRawValue={overallConvPrev} sparkline={execSparkSeries.convRate} onDrillToForecast={onDrillToForecast} />
         {aov > 0 && <KpiCard label="Revenue" value={fmtCurrency(currRevenue)} color={currRevenue >= prevRevenue ? GREEN : RED} rawValue={currRevenue} prevRawValue={prevRevenue} sparkline={execSparkSeries.revenue} onDrillToForecast={onDrillToForecast} />}
-        <KpiCard label="Apdex" value={overallApdex.toFixed(2)} color={apdexClr(overallApdex)} rawValue={overallApdex} prevRawValue={overallApdexPrev} sparkline={execSparkSeries.apdex} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Error Rate" value={fmtPct(errorRate)} color={errorRate > 5 ? RED : errorRate > 1 ? YELLOW : GREEN} rawValue={errorRate} prevRawValue={errorRatePrev} inverted={true} sparkline={execSparkSeries.errorRate} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Apdex (bucket)" : "Apdex"} value={effApdex.toFixed(2)} color={apdexClr(effApdex)} rawValue={effApdex} prevRawValue={overallApdexPrev} sparkline={execSparkSeries.apdex} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Error Rate (bucket)" : "Error Rate"} value={fmtPct(effErrorRate)} color={effErrorRate > 5 ? RED : effErrorRate > 1 ? YELLOW : GREEN} rawValue={effErrorRate} prevRawValue={errorRatePrev} inverted={true} sparkline={execSparkSeries.errorRate} onDrillToForecast={onDrillToForecast} />
       </Flex>
 
       {/* Funnel summary */}
@@ -21186,6 +21212,7 @@ function CohortRetentionTab({ retentionData, sessionData, engagementData, isLoad
 // TAB: Session Engagement Score
 // ===========================================================================
 function SessionEngagementTab({ data, isLoading, steps, aov, overallConv, onDrillToForecast }: { data: any; isLoading: boolean; steps: StepDef[]; aov: number; overallConv: number; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
+  const tl = useTimelapse();
   const engStats = useMemo(() => {
     const records = (data?.data?.records ?? []) as any[];
     const sessions = records.map((r: any) => {
@@ -21255,7 +21282,13 @@ function SessionEngagementTab({ data, isLoading, steps, aov, overallConv, onDril
       {aiPanel}
       <SectionHeader title="Session Engagement Score — Quantify user engagement per session" />
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Sessions Analyzed" value={fmtCount(sessions.length)} color={BLUE} rawValue={sessions.length} prevRawValue={syntheticPrev(sessions.length, "Sessions Analyzed")} sparkline={syntheticSparkline(sessions.length, 8, "Sessions Analyzed")} onDrillToForecast={onDrillToForecast} />
+        {(() => {
+          const tlShared = tl.enabled ? tl.sharedMetrics : null;
+          const effSessions = tlShared ? tlShared.sessions : sessions.length;
+          return (
+            <KpiCard label={tlShared ? "Sessions Analyzed (bucket)" : "Sessions Analyzed"} value={fmtCount(effSessions)} color={BLUE} rawValue={effSessions} prevRawValue={syntheticPrev(effSessions, "Sessions Analyzed")} sparkline={syntheticSparkline(effSessions, 8, "Sessions Analyzed")} onDrillToForecast={onDrillToForecast} />
+          );
+        })()}
         <KpiCard label="Avg Score" value={`${avgScore.toFixed(1)}/100`} color={avgScore >= 50 ? GREEN : avgScore >= 25 ? YELLOW : RED} rawValue={avgScore} prevRawValue={syntheticPrev(avgScore, "Avg Score")} sparkline={syntheticSparkline(avgScore, 8, "Avg Score")} onDrillToForecast={onDrillToForecast} />
         <KpiCard label="High Engagement (≥70)" value={`${fmtCount(highEngagement.length)} (${fmtPct(sessions.length > 0 ? (highEngagement.length / sessions.length) * 100 : 0)})`} color={GREEN} sparkline={syntheticSparkline(0, 8, "High Engagement (≥70)")} onDrillToForecast={onDrillToForecast} />
         <KpiCard label="Low Engagement" value={`${fmtCount(lowEngagement.length)} (${fmtPct(sessions.length > 0 ? (lowEngagement.length / sessions.length) * 100 : 0)})`} color={RED} sparkline={syntheticSparkline(0, 8, "Low Engagement")} onDrillToForecast={onDrillToForecast} />
