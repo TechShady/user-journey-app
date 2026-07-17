@@ -87,7 +87,7 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.59.0";
+const APP_VERSION_LABEL = "4.59.1";
 
 
 
@@ -4422,14 +4422,14 @@ export function UserJourney() {
             <>
               <Flex alignItems="center" gap={4}>
                 <span style={{ fontSize: 11, opacity: 0.65 }}>Bucket</span>
-                <select value={tl.bucket} onChange={(e) => tl.setBucket(e.target.value as TlBucket)} style={{ fontSize: 11, background: "rgba(128,128,128,0.08)", color: "inherit", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 4, padding: "3px 6px" }}>
-                  {TL_BUCKETS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+                <select value={tl.bucket} onChange={(e) => tl.setBucket(e.target.value as TlBucket)} style={{ fontSize: 11, background: "#1a1e2e", color: "#e0e0e0", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 4, padding: "3px 6px" }}>
+                  {TL_BUCKETS.map(b => <option key={b.value} value={b.value} style={{ background: "#1a1e2e", color: "#e0e0e0" }}>{b.label}</option>)}
                 </select>
               </Flex>
               <Flex alignItems="center" gap={4}>
                 <span style={{ fontSize: 11, opacity: 0.65 }}>Speed</span>
-                <select value={tl.speedMs} onChange={(e) => tl.setSpeedMs(Number(e.target.value))} style={{ fontSize: 11, background: "rgba(128,128,128,0.08)", color: "inherit", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 4, padding: "3px 6px" }}>
-                  {TL_SPEEDS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                <select value={tl.speedMs} onChange={(e) => tl.setSpeedMs(Number(e.target.value))} style={{ fontSize: 11, background: "#1a1e2e", color: "#e0e0e0", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 4, padding: "3px 6px" }}>
+                  {TL_SPEEDS.map(s => <option key={s.value} value={s.value} style={{ background: "#1a1e2e", color: "#e0e0e0" }}>{s.label}</option>)}
                 </select>
               </Flex>
               <button
