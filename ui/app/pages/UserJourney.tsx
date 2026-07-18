@@ -87,7 +87,7 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.64.0";
+const APP_VERSION_LABEL = "4.65.0";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -4571,6 +4571,22 @@ export function UserJourney() {
               }}
             />
           </div>
+          <label
+            style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}
+            title="Time-Lapse — watch the funnel, Sankey and navigation flows evolve over time. Detect windows with abnormal drop-offs or spikes."
+          >
+            <input
+              type="checkbox"
+              checked={tl.enabled}
+              onChange={(e) => tl.setEnabled(e.target.checked)}
+              style={{ cursor: "pointer" }}
+            />
+            <svg width="14" height="14" viewBox="0 0 16 16" style={{ opacity: tl.enabled ? 0.9 : 0.55 }}>
+              <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+              <path d="M8 4 L8 8 L10.5 9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+            </svg>
+            <Strong style={{ fontSize: 12 }}>Time-Lapse</Strong>
+          </label>
           <Strong style={{ fontSize: 12 }}>Metric-Stream</Strong>
           <Select value={String(refreshIntervalMs)} onChange={(val) => { if (val != null) setRefreshIntervalMs(Number(val)); }}>
             <Select.Trigger style={{ minWidth: 120 }} />
@@ -4600,22 +4616,17 @@ export function UserJourney() {
         </Flex>
       </div>
 
-      {/* Global Time-Lapse strip — controls TL playback for every viz that opts in */}
+      {/* Global Time-Lapse strip — only visible while TL is enabled. The checkbox/label live in the header. */}
+      {tl.enabled && (
       <div style={{ margin: "0 20px 12px 20px", padding: "8px 12px", background: "rgba(69,137,255,0.04)", border: "1px solid rgba(69,137,255,0.20)", borderRadius: 8 }}>
         <Flex alignItems="center" gap={12} flexWrap="wrap">
-          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
-            <input type="checkbox" checked={tl.enabled} onChange={(e) => tl.setEnabled(e.target.checked)} style={{ cursor: "pointer" }} />
-            <svg width="16" height="16" viewBox="0 0 16 16" style={{ opacity: tl.enabled ? 0.85 : 0.5 }}>
+          <Flex alignItems="center" gap={6} style={{ opacity: 0.85 }}>
+            <svg width="14" height="14" viewBox="0 0 16 16">
               <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
               <path d="M8 4 L8 8 L10.5 9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
             </svg>
             <Strong style={{ fontSize: 12 }}>Time-Lapse</Strong>
-          </label>
-          {!tl.enabled && (
-            <Text style={{ fontSize: 11, opacity: 0.6 }}>Watch the funnel, Sankey and navigation flows evolve over time. Detect windows with abnormal drop-offs or spikes.</Text>
-          )}
-          {tl.enabled && (
-            <>
+          </Flex>
               <Flex alignItems="center" gap={4}>
                 <span style={{ fontSize: 11, opacity: 0.65 }}>Bucket</span>
                 <select value={tl.bucket} onChange={(e) => tl.setBucket(e.target.value as TlBucket)} style={{ fontSize: 11, background: "#1a1e2e", color: "#e0e0e0", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 4, padding: "3px 6px" }}>
@@ -4663,8 +4674,6 @@ export function UserJourney() {
               {tl.currentBucketKey && (
                 <span style={{ fontSize: 11, opacity: 0.55, fontFamily: "monospace" }}>{tl.currentBucketKey}</span>
               )}
-            </>
-          )}
         </Flex>
         {/* Shared hotness strip — populated by whichever viz publishes via reportHotness */}
         {tl.enabled && tl.hotness.length > 0 && (() => {
@@ -4706,6 +4715,7 @@ export function UserJourney() {
           );
         })()}
       </div>
+      )}
       </div>{/* /uj-sticky-top */}
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
       <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
