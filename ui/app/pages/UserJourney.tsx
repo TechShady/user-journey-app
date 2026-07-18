@@ -87,7 +87,7 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.65.0";
+const APP_VERSION_LABEL = "4.66.0";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -141,6 +141,139 @@ function TabTlBanner({ tabId }: { tabId: string }) {
         </>
       )}
     </div>
+  );
+}
+
+// Small "?" info button next to the Hotness label. Explains what the Z-score means and how the bar is computed.
+// Portals its popover to document.body so parent overflow:hidden containers don't clip it.
+function HotnessHelpButton({ source }: { source: string }) {
+  const [open, setOpen] = React.useState(false);
+  const btnRef = React.useRef<HTMLButtonElement | null>(null);
+  const [pos, setPos] = React.useState<{ top: number; left: number } | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (btnRef.current && btnRef.current.contains(target)) return;
+      const pop = document.getElementById("uj-hotness-help-popover");
+      if (pop && pop.contains(target)) return;
+      setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onEsc);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onEsc); };
+  }, [open]);
+
+  React.useEffect(() => {
+    if (open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      // Anchor below the button. Popover is 380px wide; clamp so it stays fully on screen.
+      const width = 380;
+      const left = Math.max(8, Math.min(window.innerWidth - width - 8, r.left));
+      setPos({ top: r.bottom + 6, left });
+    }
+  }, [open]);
+
+  const src = source || "signal";
+  const isFunnel = /funnel/i.test(src);
+  const isTraffic = /traffic|global/i.test(src);
+  const isNav = /navigation|flow/i.test(src);
+  const composition = isFunnel
+    ? "max( worst step's conversion-drop Z-score, 0.6 × entry-traffic Z-score )"
+    : isTraffic
+      ? "Z-score of per-bucket global session volume"
+      : isNav
+        ? "max Z-score across frontend + backend spikes in the flow"
+        : "per-bucket anomaly Z-score";
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={(e) => { e.stopPropagation(); setOpen(v => !v); }}
+        title="What does this mean?"
+        style={{
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          width: 14, height: 14, marginLeft: 6, padding: 0, verticalAlign: "middle",
+          background: open ? "rgba(69,137,255,0.25)" : "transparent",
+          border: "1px solid rgba(128,128,128,0.5)", borderRadius: "50%",
+          color: "inherit", cursor: "pointer", fontSize: 9, fontWeight: 700, lineHeight: 1, opacity: 0.85,
+        }}
+      >?</button>
+      {open && pos && createPortal(
+        <div
+          id="uj-hotness-help-popover"
+          style={{
+            position: "fixed", top: pos.top, left: pos.left, width: 380, zIndex: 10000,
+            background: "rgba(20,24,40,0.98)", color: "#e5e9f0",
+            border: "1px solid rgba(69,137,255,0.45)", borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.45)", padding: "12px 14px", fontSize: 12, lineHeight: 1.5,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ fontWeight: 700, fontSize: 12, color: "#4589FF", textTransform: "uppercase", letterSpacing: 0.5 }}>
+              About this signal
+            </span>
+            <button
+              onClick={() => setOpen(false)}
+              style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", fontSize: 14, opacity: 0.7, padding: 0, lineHeight: 1 }}
+              title="Close"
+            >✕</button>
+          </div>
+
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 10, opacity: 0.55, marginBottom: 2, letterSpacing: 0.4, textTransform: "uppercase" }}>Current source</div>
+            <div style={{ fontFamily: "monospace", fontSize: 11, opacity: 0.9 }}>{src}</div>
+          </div>
+
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>What is a Z-score?</div>
+            <div style={{ opacity: 0.85 }}>
+              A Z-score measures how many <b>standard deviations</b> a bucket sits away from the mean of the other buckets in your selected timeframe. It answers: <i>"how unusual is this moment compared to a typical moment?"</i>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 8, padding: "8px 10px", background: "rgba(69,137,255,0.08)", border: "1px solid rgba(69,137,255,0.25)", borderRadius: 6, fontFamily: "monospace", fontSize: 11 }}>
+            Z = |bucket_value − mean| / std_dev
+          </div>
+
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>Color legend</div>
+            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", rowGap: 3, columnGap: 8, alignItems: "center", fontSize: 11 }}>
+              <span style={{ display: "inline-block", width: 10, height: 10, background: "#4589FF", borderRadius: 2 }} />
+              <span>Normal</span>
+              <span style={{ fontFamily: "monospace", opacity: 0.7 }}>Z &lt; 0.75</span>
+              <span style={{ display: "inline-block", width: 10, height: 10, background: TL_HOT_ELEV, borderRadius: 2 }} />
+              <span>Elevated</span>
+              <span style={{ fontFamily: "monospace", opacity: 0.7 }}>0.75 – 1.5</span>
+              <span style={{ display: "inline-block", width: 10, height: 10, background: TL_HOT_WARM, borderRadius: 2 }} />
+              <span>Warm</span>
+              <span style={{ fontFamily: "monospace", opacity: 0.7 }}>1.5 – 2.5</span>
+              <span style={{ display: "inline-block", width: 10, height: 10, background: TL_HOT_HIGH, borderRadius: 2 }} />
+              <span>Spike</span>
+              <span style={{ fontFamily: "monospace", opacity: 0.7 }}>≥ 2.5</span>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>How this bar is computed</div>
+            <div style={{ opacity: 0.85, fontFamily: "monospace", fontSize: 11 }}>{composition}</div>
+            {isFunnel && (
+              <div style={{ opacity: 0.7, marginTop: 4, fontSize: 11 }}>
+                Conversion-drop Z catches UX / backend regressions (users started to bail). Entry-traffic Z catches marketing pushes, bot storms, or upstream outages. Weighting traffic at 0.6 means real conversion pain always outranks a mild traffic bump.
+              </div>
+            )}
+          </div>
+
+          <div style={{ opacity: 0.6, fontSize: 10, borderTop: "1px solid rgba(128,128,128,0.2)", paddingTop: 6 }}>
+            Mean &amp; standard deviation are computed from the buckets in the current timeframe — this is <b>relative</b> anomaly, not a long-term baseline. Click any bar in the strip to jump to that moment.
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   );
 }
 
@@ -4685,7 +4818,10 @@ export function UserJourney() {
           return (
             <div style={{ marginTop: 8, padding: "6px 4px 4px", borderTop: "1px solid rgba(69,137,255,0.15)" }}>
               <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 4 }}>
-                <span style={{ fontSize: 10, opacity: 0.6, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase" }}>Hotness · {tl.hotnessSource || "signal"}</span>
+                <span style={{ fontSize: 10, opacity: 0.6, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase" }}>
+                  Hotness · {tl.hotnessSource || "signal"}
+                  <HotnessHelpButton source={tl.hotnessSource || ""} />
+                </span>
                 <Flex alignItems="center" gap={8}>
                   <span style={{ fontSize: 10, opacity: 0.55 }}><span style={{ display: "inline-block", width: 8, height: 8, background: "#4589FF", borderRadius: 2, marginRight: 4, verticalAlign: "middle" }} />Normal</span>
                   <span style={{ fontSize: 10, opacity: 0.55 }}><span style={{ display: "inline-block", width: 8, height: 8, background: TL_HOT_ELEV, borderRadius: 2, marginRight: 4, verticalAlign: "middle" }} />Elevated</span>
