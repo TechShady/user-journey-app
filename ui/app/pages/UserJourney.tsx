@@ -87,7 +87,7 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.66.0";
+const APP_VERSION_LABEL = "4.67.0";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -4055,6 +4055,13 @@ export function UserJourney() {
     open: openCorrelations,
   }), [metricsRegistryState, registerMetrics, openCorrelations]);
 
+  // Turn off Time-Lapse whenever the user navigates to a different tab.
+  // Prevents stale hotness/bucket data from one tab leaking into another and
+  // ensures "no data" can't happen because a different tab's publisher is gone.
+  useEffect(() => {
+    if (tl.enabled) tl.setEnabled(false);
+  }, [activeSubTabKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Persist tab visibility per user
   const savedState = useUserAppState({ key: TAB_STATE_KEY });
   const savedTabOrder = useUserAppState({ key: TAB_ORDER_STATE_KEY });
@@ -4457,12 +4464,22 @@ export function UserJourney() {
       };
     });
     tl.reportSharedMetrics(parsed);
+    // Publish bucket count from the globally-running shared query so the scrubber
+    // works on every TL-animated tab, not just Funnel/Nav/Maps which have their own publishers.
+    tl.reportBuckets(parsed.length);
     tl.reportLoading("shared-tl-metrics", false);
   }, [tl.enabled, tl.bucketMs, sharedTlMetricsData.data]);
   React.useEffect(() => {
     if (!tl.enabled) return;
     tl.reportLoading("shared-tl-metrics", sharedTlMetricsData.isLoading);
   }, [tl.enabled, sharedTlMetricsData.isLoading]);
+  // Keep currentBucketKey updated as the scrubber index advances, using shared metrics
+  // as the source for tabs (e.g. Executive Summary) that have no per-bucket publisher.
+  React.useEffect(() => {
+    if (!tl.enabled || tl.sharedMetricsAll.length === 0) return;
+    const idx = Math.min(Math.max(tl.index, 0), tl.sharedMetricsAll.length - 1);
+    tl.reportBuckets(tl.sharedMetricsAll.length, tl.sharedMetricsAll[idx].bucket);
+  }, [tl.enabled, tl.index, tl.sharedMetricsAll, tl.reportBuckets]);
 
 
   // Parse funnel
