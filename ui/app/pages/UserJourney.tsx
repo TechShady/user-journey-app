@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
+import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
 import { createPortal } from "react-dom";
 import { useDql, useUserAppState, useSetUserAppState, useAppState, useSetAppState } from "@dynatrace-sdk/react-hooks";
 import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment";
@@ -87,7 +87,7 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.67.0";
+const APP_VERSION_LABEL = "4.69.0";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -359,8 +359,8 @@ const TAB_KEYS = [
   "Revenue Intelligence", "Cohort Retention", "Session Engagement",
   "Third-Party Impact", "Error Clustering",
   "Hyperlyzer",
-  "Cost per Conversion", "Performance Tax", "Idle Capacity", "CDN ROI", "Cost Anomalies",
-  "Right-Sizing", "Cost per Transaction", "Cloud Waste", "Scaling Efficiency", "SLO Cost Trade-offs", "Tag Allocation", "Observability ROI",
+  "Cost per Conversion", "Performance Tax", "Idle Capacity", "CDN ROI",
+  "Cost per Transaction", "SLO Cost Trade-offs",
 ] as const;
 type TabKey = typeof TAB_KEYS[number];
 
@@ -376,7 +376,7 @@ const TAB_GROUPS: TabGroupDef[] = [
   { label: "Intelligence & AI", subTabs: ["Anomaly Detection", "Root Cause Correlation", "Predictive Forecasting", "Change Intelligence", "What-If Analysis"] },
   { label: "Engagement & Revenue", subTabs: ["Segmentation", "Cohort Retention", "Session Engagement", "Revenue Intelligence", "A/B Comparison"] },
   { label: "Errors & Reliability", subTabs: ["Exceptions", "Error Clustering", "SLO Tracker"] },
-  { label: "FinOps", subTabs: ["Cost per Conversion", "Performance Tax", "Idle Capacity", "CDN ROI", "Cost Anomalies", "Right-Sizing", "Cost per Transaction", "Cloud Waste", "Scaling Efficiency", "SLO Cost Trade-offs", "Tag Allocation", "Observability ROI"] },
+  { label: "FinOps", subTabs: ["Cost per Conversion", "Performance Tax", "Idle Capacity", "CDN ROI", "Cost per Transaction", "SLO Cost Trade-offs"] },
 ];
 type ParentTabKey = typeof TAB_GROUPS[number]["label"];
 const PARENT_TAB_KEYS: ParentTabKey[] = TAB_GROUPS.map(g => g.label);
@@ -3680,7 +3680,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>Intelligence &amp; AI</Strong>: Anomaly Detection, Root Cause Correlation, Predictive Forecasting, Change Intelligence, What-If Analysis</Paragraph>
         <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>Engagement &amp; Revenue</Strong>: Segmentation, Cohort Retention, Session Engagement, Revenue Intelligence, A/B Comparison</Paragraph>
         <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>Errors &amp; Reliability</Strong>: Exceptions, Error Clustering, SLO Tracker</Paragraph>
-        <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>FinOps</Strong>: Cost per Conversion, Performance Tax, Idle Capacity, CDN ROI, Cost Anomalies, Right-Sizing, Cost per Transaction, Cloud Waste, Scaling Efficiency, SLO Cost Trade-offs, Tag Allocation, Observability ROI</Paragraph>
+        <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>FinOps</Strong>: Cost per Conversion, Performance Tax, Idle Capacity, CDN ROI, Cost per Transaction, SLO Cost Trade-offs</Paragraph>
         <Paragraph><Strong>Hiding a parent group</Strong> hides all its sub-tabs. Hiding individual sub-tabs within a visible group removes only those sub-tabs. Hiding a tab does not affect data collection, only display.</Paragraph>
         <Paragraph><Strong>Default Frontend Application</Strong>: Searchable dropdown listing all applications with session data in the last 30 days. This serves as the default app for new funnel steps. Each step can be assigned a different app to support cross-app funnels.</Paragraph>
         <Paragraph><Strong>Funnels</Strong>: You can create up to {MAX_FUNNELS} named funnels. Use the header <Strong>Funnel</Strong> dropdown to switch between them. In Settings, funnel tabs let you select, create, rename, and delete funnels. If no funnels exist on first launch, Settings opens automatically.</Paragraph>
@@ -5278,14 +5278,8 @@ export function UserJourney() {
             case "Performance Tax": content = <PerformanceTaxTab funnelCounts={funnelCounts} quality={quality} qualityPrev={qualityPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} steps={steps} aov={aov} monthlyInfraCost={monthlyInfraCost} engineerHourlyRate={engineerHourlyRate} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
             case "Idle Capacity": content = <IdleCapacityTab quality={quality} hostMetricsData={hostMetricsData} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} isLoading={isLoading || hostMetricsData.isLoading} onDrillToForecast={openForecast} />; break;
             case "CDN ROI": content = <CdnRoiTab thirdPartyData={thirdPartyData} quality={quality} cdnMonthlyCost={cdnMonthlyCost} costPerGb={costPerGb} aov={aov} overallConv={overallConv} funnelCounts={funnelCounts} isLoading={thirdPartyData.isLoading} onDrillToForecast={openForecast} />; break;
-            case "Cost Anomalies": content = <CostAnomaliesTab quality={quality} qualityPrev={qualityPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} aov={aov} overallConv={overallConv} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
-            case "Right-Sizing": content = <RightSizingTab quality={quality} hostMetricsData={hostMetricsData} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} isLoading={isLoading || hostMetricsData.isLoading} onDrillToForecast={openForecast} />; break;
             case "Cost per Transaction": content = <CostPerTransactionTab quality={quality} qualityPrev={qualityPrev} funnelCounts={funnelCounts} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} aov={aov} overallConv={overallConv} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
-            case "Cloud Waste": content = <CloudWasteTab hostMetricsData={hostMetricsData} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} isLoading={isLoading || hostMetricsData.isLoading} onDrillToForecast={openForecast} />; break;
-            case "Scaling Efficiency": content = <ScalingEfficiencyTab quality={quality} qualityPrev={qualityPrev} hostMetricsData={hostMetricsData} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} isLoading={isLoading || hostMetricsData.isLoading} onDrillToForecast={openForecast} />; break;
             case "SLO Cost Trade-offs": content = <SloCostTradeoffsTab quality={quality} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
-            case "Tag Allocation": content = <TagAllocationTab monthlyInfraCost={monthlyInfraCost} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
-            case "Observability ROI": content = <ObservabilityRoiTab quality={quality} monthlyInfraCost={monthlyInfraCost} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
                   }
                   return <Tab key={tabId} title={tabId}><TabTlBanner tabId={tabId} />{content}</Tab>;
                 })}
@@ -6217,8 +6211,7 @@ function analyzeGenericTab(tabName: string): AIInsightsData {
     "Cost per Conversion": "Cost per Conversion connects infrastructure spend to user outcomes by calculating the true cost of acquiring each conversion. It answers: How much infrastructure spend does it take to produce one conversion? Which funnel steps are most cost-inefficient? What is our revenue-to-cost ratio? The tab uses your Monthly Infrastructure Cost setting (divided by 30 for daily cost) and allocates spend proportionally across funnel steps by session volume. Key metrics include cost per session, cost per conversion, revenue:cost ratio, and sessions per dollar. The Efficiency Scorecard shows requests-per-dollar, sessions-per-dollar, Apdex-per-dollar, and revenue-per-dollar-spent. Optimization Opportunities flag expensive steps and low-efficiency scenarios with actionable recommendations.",
     "Performance Tax": "Performance Tax quantifies the revenue you're losing due to poor performance — slow pages, frustrated users, and errors. It models three distinct 'taxes': Latency Tax (every 100ms above 1s costs ~1% conversion), Frustration Tax (frustrated users convert at 50% lower rates), and Error Tax (error sessions have ~30% lower conversion). The tab shows total lost conversions, break-even engineering time, and cost-per-millisecond calculations. The ROI Scenarios table models specific improvements (reduce latency, fix errors, eliminate frustration) with projected revenue recovery and engineering investment required. Designed for Engineering Managers justifying performance work, CFOs understanding technical debt cost, and Performance Engineers prioritizing optimizations.",
     "Idle Capacity": "Idle Capacity detects infrastructure waste by analyzing traffic patterns against fixed provisioning costs. It identifies hours where traffic drops below 40% of peak as 'idle' periods where you're paying for unused capacity. Key metrics include monthly idle waste, average utilization, idle hours per day, and peak-to-off-peak ratio. The hourly utilization chart visualizes when infrastructure is underutilized (red bars) vs. well-utilized (green bars). Savings opportunities show estimated autoscaling savings (~35% reduction) and right-sizing savings (~20% reduction). Designed for Platform Engineers implementing autoscaling, FinOps Teams tracking cloud waste, and Infrastructure Managers justifying scaling investments.",
-    "CDN ROI": "CDN ROI models the financial return of Content Delivery Network investment by connecting latency reduction to conversion improvement. It calculates: CDN latency savings (assumes 60% reduction for static assets), resulting conversion rate improvement (~1% per 100ms saved), additional monthly revenue from faster pages, data transfer cost savings (CDN offloads ~70% of origin traffic), and net monthly benefit after CDN costs. The payback period shows how quickly CDN investment pays for itself. The Origin vs CDN comparison shows current latency against projected CDN-served latency. CDN Candidates table identifies high-latency first-party resources that would benefit most from CDN caching, ranked by impact score (latency × volume).",
-    "Cost Anomalies": "Cost Anomalies detects unusual spending patterns and correlates them with traffic, errors, and deployment events. It uses statistical anomaly detection (z-score > 1.5 standard deviations) on a 14-day daily cost trend to identify cost spikes and drops. Key metrics include budget burn rate (are you on track to overspend?), anomaly count, error-driven waste (errors cause retries that increase compute cost without business value), and cost efficiency delta vs. previous period. The Spend vs Experience Matrix shows whether cost changes are justified by experience improvements. The Budget Forecast projects end-of-month spend based on current burn rate. Designed for FinOps Teams monitoring cloud budgets, Engineering Managers correlating spend with incidents, and CFOs tracking infrastructure ROI."
+    "CDN ROI": "CDN ROI models the financial return of Content Delivery Network investment by connecting latency reduction to conversion improvement. It calculates: CDN latency savings (assumes 60% reduction for static assets), resulting conversion rate improvement (~1% per 100ms saved), additional monthly revenue from faster pages, data transfer cost savings (CDN offloads ~70% of origin traffic), and net monthly benefit after CDN costs. The payback period shows how quickly CDN investment pays for itself. The Origin vs CDN comparison shows current latency against projected CDN-served latency. CDN Candidates table identifies high-latency first-party resources that would benefit most from CDN caching, ranked by impact score (latency × volume)."
   };
   const desc = tabDescriptions[tabName];
   if (desc) return { summary: desc, insights: [{ severity: "info", icon: "📊", text: `Review the ${tabName} data above and compare against your organization's KPI targets.` }], recommendations: [{ impact: "low", text: "Establish baseline metrics for this view and set up alerting for deviations beyond 2 standard deviations." }] };
@@ -6418,61 +6411,6 @@ function analyzeCdnRoi(cdnNetBenefit: number, cdnRoi: number, paybackDays: numbe
   }
 
   const summary = `CDN ROI analysis for ${b.label}. Net monthly benefit: $${cdnNetBenefit.toFixed(0)} at ${cdnRoi.toFixed(1)}x ROI (industry target: ${b.cdnRoiTarget}x). CDN saves ${Math.round(cdnLatencySaving)}ms latency → ${convGainFromCdn.toFixed(1)}% conversion gain. Payback: ${paybackDays.toFixed(0)} days. ${b.label} sites ${b.cdnRoiTarget >= 10 ? "typically see very high CDN ROI due to heavy static asset usage" : "see moderate CDN ROI focused on API acceleration and global reach"}.`;
-  return { summary, insights, recommendations: recs };
-}
-
-function analyzeCostAnomalies(actualBurn: number, expectedBurn: number, anomalyCount: number, monthlyErrorWaste: number, costEfficiencyChange: number, dailyCostTrend: number[], monthlyInfraCost: number, industry: IndustryType): AIInsightsData {
-  const b = INDUSTRY_BENCHMARKS[industry];
-  const insights: InsightItem[] = [];
-  const recs: RecommendationItem[] = [];
-
-  // Budget burn rate
-  const burnDelta = actualBurn - expectedBurn;
-  if (burnDelta > 10) {
-    insights.push({ severity: "critical", icon: "🔥", text: `Budget burn rate: ${actualBurn.toFixed(1)}% (expected ${expectedBurn.toFixed(1)}%). Over-burning by ${burnDelta.toFixed(1)}pp — on track to exceed monthly budget by ${(burnDelta * 2).toFixed(0)}%.` });
-    recs.push({ impact: "high", text: `Immediate cost action needed. At current burn rate, you'll exceed budget by ~$${(monthlyInfraCost * burnDelta / 100).toFixed(0)}. For ${b.label.toLowerCase()}, ${b.infraPctRevenueLow <= 5 ? "infrastructure over-spend directly impacts tight margins" : "budget overruns signal scaling issues or resource leaks"}.` });
-  } else if (burnDelta > 5) {
-    insights.push({ severity: "warning", icon: "⚠️", text: `Budget slightly over-tracking: ${actualBurn.toFixed(1)}% vs expected ${expectedBurn.toFixed(1)}%. Monitor closely.` });
-  } else if (burnDelta < -10) {
-    insights.push({ severity: "info", icon: "💡", text: `Budget under-tracking: ${actualBurn.toFixed(1)}% vs expected ${expectedBurn.toFixed(1)}%. Under-spending by ${Math.abs(burnDelta).toFixed(1)}pp — either good efficiency or under-utilization.` });
-  } else {
-    insights.push({ severity: "good", icon: "✅", text: `Budget on track: ${actualBurn.toFixed(1)}% burn vs ${expectedBurn.toFixed(1)}% expected. Healthy spend cadence.` });
-  }
-
-  // Anomaly count
-  if (anomalyCount > 3) {
-    insights.push({ severity: "critical", icon: "🚨", text: `${anomalyCount} cost anomalies detected in the past 14 days. Frequent anomalies indicate systematic instability.` });
-    recs.push({ impact: "high", text: `${anomalyCount} anomalies is excessive. Set up automated cost alerting with ${b.label.toLowerCase()}-appropriate thresholds: alert when daily cost exceeds ${(b.infraPctRevenueHigh * 1.2).toFixed(0)}% of daily revenue.` });
-  } else if (anomalyCount > 0) {
-    insights.push({ severity: "warning", icon: "📊", text: `${anomalyCount} cost anomaly(ies) detected. Investigate correlation with deployments, traffic spikes, or error storms.` });
-  } else {
-    insights.push({ severity: "good", icon: "✅", text: "No cost anomalies detected in the 14-day window. Spend is stable and predictable." });
-  }
-
-  // Error waste
-  if (monthlyErrorWaste > 0) {
-    const errorWastePct = (monthlyErrorWaste / Math.max(1, monthlyInfraCost)) * 100;
-    insights.push({ severity: errorWastePct > 5 ? "critical" : "warning", icon: "🐛", text: `Error-driven waste: $${monthlyErrorWaste.toFixed(0)}/month (${errorWastePct.toFixed(1)}% of spend). Errors trigger retries and wasted compute.` });
-    recs.push({ impact: errorWastePct > 5 ? "high" : "medium", text: `Reduce error waste by fixing top exceptions. ${b.label} target error rate: ≤${b.errorRateTarget}%. Each percentage point of errors wastes ~$${(monthlyInfraCost * 0.01).toFixed(0)}/month in retry overhead.` });
-  }
-
-  // Cost efficiency trend
-  if (costEfficiencyChange > 10) {
-    insights.push({ severity: "warning", icon: "📈", text: `Cost per session increased ${costEfficiencyChange.toFixed(1)}% vs previous period. You're paying more per unit of traffic.` });
-    recs.push({ impact: "medium", text: `Rising cost-per-session without proportional experience improvement signals infrastructure bloat. Review recently added services, unused resources, and over-provisioned instances.` });
-  } else if (costEfficiencyChange < -10) {
-    insights.push({ severity: "good", icon: "📉", text: `Cost per session decreased ${Math.abs(costEfficiencyChange).toFixed(1)}% vs previous period. Efficiency is improving.` });
-  }
-
-  // Spend trend assessment
-  if (dailyCostTrend.length >= 7) {
-    const firstWeek = dailyCostTrend.slice(0, 7).reduce((a, b) => a + b, 0) / 7;
-    const lastWeek = dailyCostTrend.slice(-7).reduce((a, b) => a + b, 0) / 7;
-    const weekTrend = firstWeek > 0 ? ((lastWeek - firstWeek) / firstWeek) * 100 : 0;
-    if (weekTrend > 15) recs.push({ impact: "high", text: `Daily cost trending up ${weekTrend.toFixed(0)}% week-over-week. At this rate, monthly spend will exceed $${(monthlyInfraCost * (1 + weekTrend / 100)).toFixed(0)}. Investigate root cause before it compounds.` });
-  }
-
-  const summary = `Cost Anomalies analysis for ${b.label}. Budget burn: ${actualBurn.toFixed(1)}% (expected ${expectedBurn.toFixed(1)}%). Anomalies detected: ${anomalyCount}. Error waste: $${monthlyErrorWaste.toFixed(0)}/month. Industry context: ${b.label.toLowerCase()} should target infrastructure at ${b.infraPctRevenueLow}–${b.infraPctRevenueHigh}% of revenue with error rate ≤${b.errorRateTarget}%.`;
   return { summary, insights, recommendations: recs };
 }
 
@@ -22736,256 +22674,6 @@ function CdnRoiTab({ thirdPartyData, quality, cdnMonthlyCost, costPerGb, aov, ov
   );
 }
 
-function CostAnomaliesTab({ quality, qualityPrev, funnelCounts, funnelCountsPrev, monthlyInfraCost, computeCostPerHour, aov, overallConv, isLoading, onDrillToForecast }: { quality: any; qualityPrev: any; funnelCounts: number[]; funnelCountsPrev: number[]; monthlyInfraCost: number; computeCostPerHour: number; aov: number; overallConv: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
-  const { industry } = useSettings();
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => {
-    const s = quality.sessions ?? 0; const ps = qualityPrev.sessions ?? 0;
-    const dc = monthlyInfraCost / 30;
-    const cps = s > 0 ? dc / s : 0; const pcps = ps > 0 ? dc / ps : 0;
-    const ceChange = pcps > 0 ? ((cps - pcps) / pcps) * 100 : 0;
-    const daysEl = 15; const expBurn = (daysEl / 30) * 100; const actBurn = 64.3;
-    const dailyC = Array.from({ length: 14 }, (_, i) => { const n = (((i * 7 + 3) % 11) / 11 - 0.5) * dc * 0.15; const sp = (i === 4 || i === 10) ? dc * 0.35 : 0; return dc + n + sp; });
-    const avgDC = dailyC.reduce((a, b) => a + b, 0) / dailyC.length;
-    const std = Math.sqrt(dailyC.reduce((a, c) => a + Math.pow(c - avgDC, 2), 0) / dailyC.length);
-    const anomCt = dailyC.filter(c => Math.abs((c - avgDC) / Math.max(1, std)) > 1.5).length;
-    const errW = (quality.errors ?? 0) > 0 ? ((quality.errors / Math.max(1, quality.total)) * dc * 0.3) * 30 : 0;
-    return analyzeCostAnomalies(actBurn, expBurn, anomCt, errW, ceChange, dailyC, monthlyInfraCost, industry);
-  }, [quality, qualityPrev, monthlyInfraCost, industry]));
-  if (isLoading) return <Loading />;
-
-  const totalSessions = quality.sessions ?? 0;
-  const prevSessions = qualityPrev.sessions ?? 0;
-  const currErrors = quality.errors ?? 0;
-  const prevErrors = qualityPrev.errors ?? 0;
-  const dailyCost = monthlyInfraCost / 30;
-
-  // Detect cost anomalies
-  const sessionsDelta = prevSessions > 0 ? ((totalSessions - prevSessions) / prevSessions) * 100 : 0;
-  const costPerSession = totalSessions > 0 ? dailyCost / totalSessions : 0;
-  const prevCostPerSession = prevSessions > 0 ? dailyCost / prevSessions : 0;
-  const costEfficiencyChange = prevCostPerSession > 0 ? ((costPerSession - prevCostPerSession) / prevCostPerSession) * 100 : 0;
-
-  // Budget burn rate model (assume monthly budget = monthlyInfraCost)
-  const daysElapsed = 15; // mid-month approximation
-  const expectedBurn = (daysElapsed / 30) * 100;
-  const actualBurn = 64.3; // simulated: slightly over
-  const burnRateStatus = actualBurn > expectedBurn * 1.1 ? "over" : actualBurn < expectedBurn * 0.9 ? "under" : "on-track";
-
-  // Anomaly detection: generate simulated daily cost data (deterministic)
-  const dailyCosts = Array.from({ length: 14 }, (_, i) => {
-    const base = dailyCost;
-    const noise = (((i * 7 + 3) % 11) / 11 - 0.5) * dailyCost * 0.15;
-    // Inject anomaly on day 5 and 11
-    const spike = (i === 4 || i === 10) ? dailyCost * (0.3 + (((i * 5 + 2) % 9) / 9) * 0.2) : 0;
-    return base + noise + spike;
-  });
-  const avgDailyCost = dailyCosts.reduce((a, b) => a + b, 0) / dailyCosts.length;
-  const stdDev = Math.sqrt(dailyCosts.reduce((a, c) => a + Math.pow(c - avgDailyCost, 2), 0) / dailyCosts.length);
-
-  // Identify anomaly days (> 2 std deviations)
-  const anomalies = dailyCosts.map((c, i) => ({ day: i + 1, cost: c, zscore: (c - avgDailyCost) / Math.max(1, stdDev) })).filter(a => Math.abs(a.zscore) > 1.5);
-
-  // Correlate anomalies with events
-  const correlations = anomalies.map(a => {
-    const possibleCauses = [];
-    if (a.zscore > 2) possibleCauses.push("Traffic spike (possible bot attack or marketing campaign)");
-    if (a.zscore > 1.5 && currErrors > prevErrors * 1.3) possibleCauses.push("Error storm causing retries and increased compute");
-    if (a.zscore > 1.5) possibleCauses.push("Deployment event triggering auto-scale burst");
-    if (a.zscore < -1.5) possibleCauses.push("Traffic drop (possible outage or maintenance window)");
-    return { ...a, causes: possibleCauses.length > 0 ? possibleCauses : ["Unexplained — investigate infrastructure logs"] };
-  });
-
-  // Waste from errors (errors cause retries, increasing cost without value)
-  const errorWaste = currErrors > 0 ? (currErrors / Math.max(1, quality.total)) * dailyCost * 0.3 : 0;
-  const monthlyErrorWaste = errorWaste * 30;
-
-  // Spend vs Experience quadrant
-  const spendTrend = costEfficiencyChange > 5 ? "increasing" : costEfficiencyChange < -5 ? "decreasing" : "stable";
-  const experienceTrend = (quality.avg ?? 0) < (qualityPrev.avg ?? Infinity) ? "improving" : "degrading";
-
-  const sparkBurn = Array.from({ length: 8 }, (_, i) => actualBurn * (0.85 + (((i * 5 + 3) % 8) / 8) * 0.3));
-  const sparkAnomalies = dailyCosts.slice(0, 8).map(c => Math.abs((c - avgDailyCost) / Math.max(1, stdDev)));
-  const sparkErrorWaste = Array.from({ length: 8 }, (_, i) => monthlyErrorWaste * (0.8 + (((i * 7 + 1) % 9) / 9) * 0.4));
-  const sparkEfficiency = Array.from({ length: 8 }, (_, i) => costEfficiencyChange * (0.9 + (((i * 4 + 2) % 6) / 6) * 0.2));
-
-  return (
-    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
-      {aiPanel}
-      <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Budget Burn Rate" value={fmtPct(actualBurn)} color={burnRateStatus === "over" ? RED : burnRateStatus === "under" ? CYAN : GREEN} rawValue={actualBurn} sparkline={sparkBurn} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Cost Anomalies (14d)" value={String(anomalies.length)} color={anomalies.length > 2 ? RED : anomalies.length > 0 ? ORANGE : GREEN} rawValue={anomalies.length} sparkline={sparkAnomalies} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Error-Driven Waste" value={fmtCurrency(monthlyErrorWaste) + "/mo"} color={monthlyErrorWaste > dailyCost ? RED : ORANGE} rawValue={monthlyErrorWaste} sparkline={sparkErrorWaste} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Cost Efficiency Δ" value={(costEfficiencyChange >= 0 ? "+" : "") + fmtPct(costEfficiencyChange)} color={costEfficiencyChange > 10 ? RED : costEfficiencyChange > 0 ? ORANGE : GREEN} rawValue={costEfficiencyChange} sparkline={sparkEfficiency} inverted onDrillToForecast={onDrillToForecast} />
-      </Flex>
-
-      <SectionHeader title="Daily Cost Trend (14 days)" />
-      <div className="uj-table-tile" style={{ padding: 16 }}>
-        <svg width="100%" height={160} viewBox="0 0 720 160">
-          {dailyCosts.map((cost, i) => {
-            const barW = 720 / 14 - 6;
-            const x = i * (720 / 14) + 3;
-            const maxCost = Math.max(...dailyCosts);
-            const barH = maxCost > 0 ? (cost / maxCost) * 130 : 0;
-            const isAnomaly = Math.abs((cost - avgDailyCost) / Math.max(1, stdDev)) > 1.5;
-            return (
-              <g key={i}>
-                <rect x={x} y={145 - barH} width={barW} height={barH} fill={isAnomaly ? RED : BLUE} fillOpacity={isAnomaly ? 0.8 : 0.5} rx={3}>
-                  <title>Day {i + 1}: {fmtCurrency(cost)}{isAnomaly ? " ⚠️ ANOMALY" : ""}</title>
-                </rect>
-                <text x={x + barW / 2} y={155} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={8}>D{i + 1}</text>
-              </g>
-            );
-          })}
-          <line x1={0} y1={145 - ((avgDailyCost + 2 * stdDev) / Math.max(...dailyCosts)) * 130} x2={720} y2={145 - ((avgDailyCost + 2 * stdDev) / Math.max(...dailyCosts)) * 130} stroke={RED} strokeDasharray="4,4" strokeOpacity={0.6} />
-          <line x1={0} y1={145 - (avgDailyCost / Math.max(...dailyCosts)) * 130} x2={720} y2={145 - (avgDailyCost / Math.max(...dailyCosts)) * 130} stroke={CYAN} strokeDasharray="2,2" strokeOpacity={0.5} />
-        </svg>
-        <Flex justifyContent="center" gap={16} style={{ marginTop: 4 }}>
-          <Text style={{ fontSize: 10, opacity: 0.5 }}><span style={{ color: CYAN }}>—</span> Avg ({fmtCurrency(avgDailyCost)})</Text>
-          <Text style={{ fontSize: 10, opacity: 0.5 }}><span style={{ color: RED }}>—</span> +2σ threshold ({fmtCurrency(avgDailyCost + 2 * stdDev)})</Text>
-        </Flex>
-      </div>
-
-      {correlations.length > 0 && (<>
-        <SectionHeader title="Anomaly Correlation" />
-        <Flex flexDirection="column" gap={8}>
-          {correlations.map((a, i) => (
-            <div key={i} className="uj-table-tile" style={{ padding: 12, borderLeft: `3px solid ${a.zscore > 0 ? RED : CYAN}` }}>
-              <Flex justifyContent="space-between" alignItems="center">
-                <Strong style={{ fontSize: 12, color: a.zscore > 0 ? RED : CYAN }}>Day {a.day} — {fmtCurrency(a.cost)} ({a.zscore > 0 ? "+" : ""}{fmtPct(((a.cost - avgDailyCost) / avgDailyCost) * 100)} vs avg)</Strong>
-                <Text style={{ fontSize: 11, opacity: 0.5 }}>z-score: {a.zscore.toFixed(2)}</Text>
-              </Flex>
-              {a.causes.map((cause, j) => (
-                <Text key={j} style={{ display: "block", fontSize: 12, marginTop: 4, opacity: 0.8 }}>• {cause}</Text>
-              ))}
-            </div>
-          ))}
-        </Flex>
-      </>)}
-
-      <SectionHeader title="Spend vs Experience Matrix" />
-      <div className="uj-table-tile" style={{ padding: 16 }}>
-        <Flex gap={16} flexWrap="wrap">
-          <div style={{ flex: 1, minWidth: 200, padding: 12, borderRadius: 8, background: spendTrend === "increasing" && experienceTrend === "degrading" ? "rgba(194,25,48,0.1)" : spendTrend === "decreasing" && experienceTrend === "improving" ? "rgba(13,156,41,0.1)" : "rgba(128,128,128,0.06)", border: `1px solid ${spendTrend === "increasing" && experienceTrend === "degrading" ? RED : spendTrend === "decreasing" && experienceTrend === "improving" ? GREEN : "rgba(128,128,128,0.2)"}` }}>
-            <Text style={{ fontSize: 12, fontWeight: 700, display: "block", marginBottom: 8 }}>Current State</Text>
-            <Flex gap={12}>
-              <div>
-                <Text style={{ fontSize: 11, opacity: 0.5, display: "block" }}>Cost Trend</Text>
-                <Strong style={{ color: spendTrend === "increasing" ? RED : spendTrend === "decreasing" ? GREEN : YELLOW }}>{spendTrend === "increasing" ? "↑ Rising" : spendTrend === "decreasing" ? "↓ Falling" : "→ Stable"}</Strong>
-              </div>
-              <div>
-                <Text style={{ fontSize: 11, opacity: 0.5, display: "block" }}>Experience Trend</Text>
-                <Strong style={{ color: experienceTrend === "improving" ? GREEN : RED }}>{experienceTrend === "improving" ? "↑ Improving" : "↓ Degrading"}</Strong>
-              </div>
-            </Flex>
-            <Text style={{ display: "block", fontSize: 12, marginTop: 8, opacity: 0.7 }}>
-              {spendTrend === "increasing" && experienceTrend === "degrading" ? "⚠️ Worst case: spending more but experience is getting worse. Investigate waste." : spendTrend === "decreasing" && experienceTrend === "improving" ? "✅ Best case: optimizing costs while improving UX. Keep it up!" : spendTrend === "increasing" && experienceTrend === "improving" ? "Investment is paying off — experience improvements justify the increased spend." : "Cost is stable/decreasing but experience is degrading — technical debt may be accumulating."}
-            </Text>
-          </div>
-        </Flex>
-      </div>
-
-      <SectionHeader title="Budget Forecast" />
-      <div className="uj-table-tile" style={{ padding: 16 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}><colgroup><col style={{ width: "65%" }} /><col style={{ width: "35%" }} /></colgroup><tbody>
-          <tr><td style={{ padding: "4px 0", fontSize: 13 }}>Monthly budget:</td><td style={{ padding: "4px 16px 4px 0", textAlign: "right" }}><Strong>{fmtCurrency(monthlyInfraCost)}</Strong></td></tr>
-          <tr><td style={{ padding: "4px 0", fontSize: 13 }}>Spent to date ({daysElapsed} days):</td><td style={{ padding: "4px 16px 4px 0", textAlign: "right" }}><Strong style={{ color: actualBurn > expectedBurn * 1.1 ? RED : GREEN }}>{fmtCurrency(monthlyInfraCost * actualBurn / 100)}</Strong></td></tr>
-          <tr><td style={{ padding: "4px 0", fontSize: 13 }}>Expected at this point:</td><td style={{ padding: "4px 16px 4px 0", textAlign: "right" }}><Strong>{fmtCurrency(monthlyInfraCost * expectedBurn / 100)}</Strong></td></tr>
-          <tr><td style={{ padding: "4px 0", fontSize: 13 }}>Projected end-of-month:</td><td style={{ padding: "4px 16px 4px 0", textAlign: "right" }}><Strong style={{ color: (actualBurn / Math.max(1, daysElapsed) * 30) > 105 ? RED : GREEN }}>{fmtCurrency(monthlyInfraCost * (actualBurn / Math.max(1, daysElapsed)) * 30 / 100)}</Strong></td></tr>
-          <tr><td style={{ padding: "4px 0", fontSize: 13 }}>Over/Under budget:</td><td style={{ padding: "4px 16px 4px 0", textAlign: "right" }}><Strong style={{ color: actualBurn > expectedBurn ? RED : GREEN }}>{actualBurn > expectedBurn ? "+" : ""}{fmtCurrency(monthlyInfraCost * (actualBurn - expectedBurn) / 100)}</Strong></td></tr>
-        </tbody></table>
-      </div>
-    </Flex>
-  );
-}
-
-
-function RightSizingTab({ quality, hostMetricsData, monthlyInfraCost, computeCostPerHour, isLoading, onDrillToForecast }: { quality: any; hostMetricsData: any; monthlyInfraCost: number; computeCostPerHour: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
-  const { industry } = useSettings();
-  const hosts = useMemo(() => {
-    const hostNames = ['web-frontend-01', 'api-gateway-02', 'db-primary-03', 'cache-redis-04', 'worker-batch-05', 'analytics-etl-06', 'auth-service-07', 'cdn-origin-08'];
-    const tiers = ['m5.xlarge', 'm5.2xlarge', 'c5.xlarge', 'r5.large', 'm5.large', 'c5.2xlarge', 'r5.xlarge', 't3.xlarge'];
-    const costs = [175, 350, 148, 132, 87, 296, 264, 124];
-    return hostNames.map((name, i) => {
-      const avgCpu = 12 + ((i * 17 + 5) % 43);
-      const avgMem = 18 + ((i * 13 + 7) % 55);
-      const peakCpu = avgCpu + 15 + ((i * 11) % 20);
-      const peakMem = avgMem + 10 + ((i * 9) % 15);
-      const tier = tiers[i % tiers.length];
-      const cost = costs[i % costs.length];
-      const recommended = avgCpu < 30 && avgMem < 40 ? tier.replace('xlarge', 'large').replace('2large', 'large') : avgCpu < 50 ? tier : null;
-      const savings = recommended ? cost * 0.45 : 0;
-      return { name, tier, recommended, avgCpu, avgMem, peakCpu: Math.min(99, peakCpu), peakMem: Math.min(99, peakMem), cost, savings, risk: peakCpu > 80 ? 'medium' : 'low' };
-    });
-  }, [hostMetricsData]);
-
-  const totalSavings = hosts.reduce((s, h) => s + h.savings, 0);
-  const overProvisionedCount = hosts.filter(h => h.recommended).length;
-  const avgUtilization = hosts.reduce((s, h) => s + h.avgCpu, 0) / Math.max(1, hosts.length);
-  const totalHostCost = hosts.reduce((s, h) => s + h.cost, 0);
-  const sparkSavings = Array.from({ length: 12 }, (_, i) => totalSavings * (0.7 + ((i * 7 + 3) % 11) / 11 * 0.6));
-  const sparkUtil = Array.from({ length: 12 }, (_, i) => avgUtilization * (0.8 + ((i * 5 + 2) % 9) / 9 * 0.4));
-
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => {
-    return { summary: `${overProvisionedCount} of ${hosts.length} hosts are over-provisioned. Right-sizing could save ${fmtCurrency(totalSavings)}/mo (${(totalSavings / Math.max(1, totalHostCost) * 100).toFixed(0)}% of compute spend). Average CPU utilization is only ${avgUtilization.toFixed(0)}%.`, insights: [], recommendations: [
-      { impact: 'high' as const, text: `Downsize ${overProvisionedCount} instances from current tier to recommended size. Estimated monthly savings: ${fmtCurrency(totalSavings)} with low risk (peak utilization stays under 80%).` },
-      { impact: 'medium' as const, text: 'Implement scheduled scaling for batch workers \u2014 reduce to minimum capacity during off-hours (10pm-6am) for additional 15-20% savings.' },
-      { impact: 'low' as const, text: 'Consider Spot/Preemptible instances for fault-tolerant workloads (workers, ETL). Typical savings: 60-80% vs on-demand.' }
-    ] };
-  }, [hosts, totalSavings, overProvisionedCount, avgUtilization, totalHostCost]));
-
-  if (isLoading) return <Flex justifyContent="center" alignItems="center" style={{ padding: 48 }}><ProgressCircle size="large" /></Flex>;
-
-  return (
-    <Flex flexDirection="column" gap={20}>
-      {aiPanel}
-      <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Monthly Savings Potential" value={fmtCurrency(totalSavings)} color={GREEN} rawValue={totalSavings} sparkline={sparkSavings} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Over-Provisioned Hosts" value={`${overProvisionedCount} / ${hosts.length}`} color={overProvisionedCount > hosts.length * 0.5 ? RED : ORANGE} rawValue={overProvisionedCount} sparkline={sparkUtil} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Avg CPU Utilization" value={`${avgUtilization.toFixed(0)}%`} color={avgUtilization < 30 ? RED : avgUtilization < 50 ? ORANGE : GREEN} rawValue={avgUtilization} sparkline={sparkUtil} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Waste % of Compute" value={fmtPct(totalSavings / Math.max(1, totalHostCost) * 100)} color={RED} rawValue={totalSavings / Math.max(1, totalHostCost) * 100} sparkline={sparkSavings.map(s => s / Math.max(1, totalHostCost) * 100)} inverted onDrillToForecast={onDrillToForecast} />
-      </Flex>
-
-      <SectionHeader title="Right-Sizing Recommendations" />
-      <div className="uj-table-tile">
-        <DataTable sortable resizable fullWidth data={hosts.filter(h => h.recommended).map(h => ({ Host: h.name, 'Current Tier': h.tier, Recommended: h.recommended, 'Avg CPU': h.avgCpu, 'Peak CPU': h.peakCpu, 'Avg Mem': h.avgMem, 'Monthly Savings': h.savings, Risk: h.risk }))} columns={[
-          { id: 'Host', header: 'Host', accessor: 'Host', cell: ({ value }: any) => <Strong>{value}</Strong> },
-          { id: 'Current Tier', header: 'Current', accessor: 'Current Tier' },
-          { id: 'Recommended', header: 'Recommended', accessor: 'Recommended', cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{value}</Strong> },
-          { id: 'Avg CPU', header: 'Avg CPU %', accessor: 'Avg CPU', sortType: 'number' as any, cell: ({ value }: any) => <Text style={{ color: value < 30 ? RED : value < 50 ? ORANGE : GREEN }}>{value}%</Text> },
-          { id: 'Peak CPU', header: 'Peak CPU %', accessor: 'Peak CPU', sortType: 'number' as any, cell: ({ value }: any) => <Text style={{ color: value > 80 ? RED : ORANGE }}>{value}%</Text> },
-          { id: 'Avg Mem', header: 'Avg Mem %', accessor: 'Avg Mem', sortType: 'number' as any, cell: ({ value }: any) => <Text>{value}%</Text> },
-          { id: 'Monthly Savings', header: 'Savings/mo', accessor: 'Monthly Savings', sortType: 'number' as any, cell: ({ value }: any) => <Strong style={{ color: GREEN }}>{fmtCurrency(value)}</Strong> },
-          { id: 'Risk', header: 'Risk', accessor: 'Risk', cell: ({ value }: any) => <Text style={{ color: value === 'low' ? GREEN : ORANGE }}>{value}</Text> },
-        ]} />
-      </div>
-
-      <SectionHeader title="Utilization Distribution" />
-      <Flex gap={16} flexWrap="wrap">
-        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200, textAlign: 'center' }}>
-          <Text style={{ fontSize: 11, opacity: 0.5, display: 'block' }}>Idle (&lt;20% CPU)</Text>
-          <Heading level={3} style={{ color: RED, margin: '4px 0' }}>{hosts.filter(h => h.avgCpu < 20).length} hosts</Heading>
-          <Text style={{ fontSize: 11, opacity: 0.6 }}>Immediate downsize candidates</Text>
-        </div>
-        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200, textAlign: 'center' }}>
-          <Text style={{ fontSize: 11, opacity: 0.5, display: 'block' }}>Under-utilized (20-40%)</Text>
-          <Heading level={3} style={{ color: ORANGE, margin: '4px 0' }}>{hosts.filter(h => h.avgCpu >= 20 && h.avgCpu < 40).length} hosts</Heading>
-          <Text style={{ fontSize: 11, opacity: 0.6 }}>Right-size with monitoring</Text>
-        </div>
-        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200, textAlign: 'center' }}>
-          <Text style={{ fontSize: 11, opacity: 0.5, display: 'block' }}>Optimal (40-70%)</Text>
-          <Heading level={3} style={{ color: GREEN, margin: '4px 0' }}>{hosts.filter(h => h.avgCpu >= 40 && h.avgCpu < 70).length} hosts</Heading>
-          <Text style={{ fontSize: 11, opacity: 0.6 }}>Well-sized for workload</Text>
-        </div>
-        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200, textAlign: 'center' }}>
-          <Text style={{ fontSize: 11, opacity: 0.5, display: 'block' }}>Hot (&gt;70% CPU)</Text>
-          <Heading level={3} style={{ color: PURPLE, margin: '4px 0' }}>{hosts.filter(h => h.avgCpu >= 70).length} hosts</Heading>
-          <Text style={{ fontSize: 11, opacity: 0.6 }}>Consider upsizing</Text>
-        </div>
-      </Flex>
-    </Flex>
-  );
-}
-
 function CostPerTransactionTab({ quality, qualityPrev, funnelCounts, monthlyInfraCost, computeCostPerHour, aov, overallConv, isLoading, onDrillToForecast }: { quality: any; qualityPrev: any; funnelCounts: number[]; monthlyInfraCost: number; computeCostPerHour: number; aov: number; overallConv: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { industry } = useSettings();
   const tl = useTimelapse();
@@ -23067,205 +22755,6 @@ function CostPerTransactionTab({ quality, qualityPrev, funnelCounts, monthlyInfr
   );
 }
 
-function CloudWasteTab({ hostMetricsData, monthlyInfraCost, computeCostPerHour, isLoading, onDrillToForecast }: { hostMetricsData: any; monthlyInfraCost: number; computeCostPerHour: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
-  const { industry } = useSettings();
-  const wasteItems = useMemo(() => [
-    { category: 'Unattached EBS Volumes', count: 12, monthlyCost: monthlyInfraCost * 0.03, severity: 'high' as const, action: 'Delete or snapshot & remove' },
-    { category: 'Idle Load Balancers', count: 3, monthlyCost: monthlyInfraCost * 0.015, severity: 'medium' as const, action: 'Remove or consolidate' },
-    { category: 'Stopped Instances (still billed)', count: 5, monthlyCost: monthlyInfraCost * 0.04, severity: 'high' as const, action: 'Terminate or convert to AMI' },
-    { category: 'Unused Elastic IPs', count: 8, monthlyCost: 29.20, severity: 'low' as const, action: 'Release unused allocations' },
-    { category: 'Over-provisioned RDS', count: 2, monthlyCost: monthlyInfraCost * 0.06, severity: 'high' as const, action: 'Downsize to match actual IOPS/connections' },
-    { category: 'Orphaned Snapshots (>90d)', count: 47, monthlyCost: monthlyInfraCost * 0.02, severity: 'medium' as const, action: 'Delete snapshots older than retention policy' },
-    { category: 'Idle NAT Gateways', count: 2, monthlyCost: monthlyInfraCost * 0.01, severity: 'low' as const, action: 'Consolidate or remove' },
-    { category: 'Unoptimized S3 Lifecycle', count: 4, monthlyCost: monthlyInfraCost * 0.025, severity: 'medium' as const, action: 'Add lifecycle rules for IA/Glacier transition' },
-  ], [monthlyInfraCost]);
-
-  const totalWaste = wasteItems.reduce((s, w) => s + w.monthlyCost, 0);
-  const highSeverity = wasteItems.filter(w => w.severity === 'high');
-  const quickWins = wasteItems.filter(w => w.severity === 'low');
-  const wastePct = (totalWaste / Math.max(1, monthlyInfraCost)) * 100;
-  const sparkWaste = Array.from({ length: 12 }, (_, i) => totalWaste * (0.9 + ((i * 3 + 5) % 7) / 7 * 0.2));
-
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => {
-    return { summary: `Identified ${fmtCurrency(totalWaste)}/mo in cloud waste across ${wasteItems.length} categories (${wastePct.toFixed(1)}% of total spend). ${highSeverity.length} high-severity items account for ${fmtCurrency(highSeverity.reduce((s, w) => s + w.monthlyCost, 0))}/mo.`, insights: [], recommendations: [
-      { impact: 'high' as const, text: `Address ${highSeverity.length} critical waste sources immediately: ${highSeverity.map(h => h.category).join(', ')}. Combined savings: ${fmtCurrency(highSeverity.reduce((s, w) => s + w.monthlyCost, 0))}/mo.` },
-      { impact: 'medium' as const, text: 'Implement automated cleanup policies: auto-delete unattached volumes after 7 days, snapshot retention at 30 days, and alert on idle resources.' },
-      { impact: 'low' as const, text: 'Set up weekly waste reports and assign DRI (directly responsible individual) for each waste category to prevent accumulation.' }
-    ] };
-  }, [totalWaste, wasteItems, wastePct, highSeverity]));
-
-  if (isLoading) return <Flex justifyContent="center" alignItems="center" style={{ padding: 48 }}><ProgressCircle size="large" /></Flex>;
-  return (
-    <Flex flexDirection="column" gap={20}>
-      {aiPanel}
-      <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Total Monthly Waste" value={fmtCurrency(totalWaste)} color={RED} rawValue={totalWaste} sparkline={sparkWaste} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Waste % of Spend" value={fmtPct(wastePct)} color={wastePct > 15 ? RED : ORANGE} rawValue={wastePct} sparkline={sparkWaste.map(w => w / Math.max(1, monthlyInfraCost) * 100)} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Orphaned Resources" value={`${wasteItems.reduce((s, w) => s + w.count, 0)}`} color={ORANGE} rawValue={wasteItems.reduce((s, w) => s + w.count, 0)} sparkline={sparkWaste.map((_, i) => wasteItems.reduce((s, w) => s + w.count, 0) * (0.9 + ((i * 4) % 6) / 6 * 0.2))} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Annual Waste (projected)" value={fmtCurrency(totalWaste * 12)} color={RED} rawValue={totalWaste * 12} sparkline={sparkWaste.map(w => w * 12)} inverted onDrillToForecast={onDrillToForecast} />
-      </Flex>
-      <SectionHeader title="Waste Inventory" />
-      <div className="uj-table-tile">
-        <DataTable sortable resizable fullWidth data={wasteItems.map(w => ({ Category: w.category, Count: w.count, 'Monthly Cost': w.monthlyCost, Severity: w.severity, Action: w.action }))} columns={[
-          { id: 'Category', header: 'Resource Category', accessor: 'Category', cell: ({ value }: any) => <Strong>{value}</Strong> },
-          { id: 'Count', header: 'Count', accessor: 'Count', sortType: 'number' as any },
-          { id: 'Monthly Cost', header: 'Waste/mo', accessor: 'Monthly Cost', sortType: 'number' as any, cell: ({ value }: any) => <Strong style={{ color: RED }}>{fmtCurrency(value)}</Strong> },
-          { id: 'Severity', header: 'Severity', accessor: 'Severity', cell: ({ value }: any) => <Text style={{ color: value === 'high' ? RED : value === 'medium' ? ORANGE : YELLOW }}>{value}</Text> },
-          { id: 'Action', header: 'Recommended Action', accessor: 'Action' },
-        ]} />
-      </div>
-      <SectionHeader title="Waste by Severity" />
-      <Flex gap={16} flexWrap="wrap">
-        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200, textAlign: 'center' }}>
-          <Text style={{ fontSize: 11, opacity: 0.5, display: 'block' }}>High Severity</Text>
-          <Heading level={3} style={{ color: RED, margin: '4px 0' }}>{fmtCurrency(highSeverity.reduce((s, w) => s + w.monthlyCost, 0))}/mo</Heading>
-          <Text style={{ fontSize: 11, opacity: 0.6 }}>{highSeverity.length} categories, {highSeverity.reduce((s, w) => s + w.count, 0)} resources</Text>
-        </div>
-        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200, textAlign: 'center' }}>
-          <Text style={{ fontSize: 11, opacity: 0.5, display: 'block' }}>Medium Severity</Text>
-          <Heading level={3} style={{ color: ORANGE, margin: '4px 0' }}>{fmtCurrency(wasteItems.filter(w => w.severity === 'medium').reduce((s, w) => s + w.monthlyCost, 0))}/mo</Heading>
-          <Text style={{ fontSize: 11, opacity: 0.6 }}>{wasteItems.filter(w => w.severity === 'medium').length} categories</Text>
-        </div>
-        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200, textAlign: 'center' }}>
-          <Text style={{ fontSize: 11, opacity: 0.5, display: 'block' }}>Quick Wins</Text>
-          <Heading level={3} style={{ color: YELLOW, margin: '4px 0' }}>{fmtCurrency(quickWins.reduce((s, w) => s + w.monthlyCost, 0))}/mo</Heading>
-          <Text style={{ fontSize: 11, opacity: 0.6 }}>{quickWins.length} easy fixes</Text>
-        </div>
-      </Flex>
-    </Flex>
-  );
-}
-
-function ScalingEfficiencyTab({ quality, qualityPrev, hostMetricsData, monthlyInfraCost, computeCostPerHour, isLoading, onDrillToForecast }: { quality: any; qualityPrev: any; hostMetricsData: any; monthlyInfraCost: number; computeCostPerHour: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
-  const { industry } = useSettings();
-  const scalingEvents = useMemo(() => {
-    const events: Array<{ hour: number; type: "under-scaled" | "over-scaled"; gap: number; latencyImpact?: number; wasteCost?: number }> = [];
-    for (let h = 0; h < 168; h++) {
-      const hourOfDay = h % 24;
-      const load = hourOfDay >= 9 && hourOfDay <= 17 ? 0.8 : hourOfDay >= 6 && hourOfDay <= 21 ? 0.5 : 0.2;
-      const spike = ((h * 13 + 7) % 37 === 0) ? 0.4 : 0;
-      const totalLoad = Math.min(1, load + spike + ((h * 3 + 5) % 11) / 11 * 0.1);
-      const capacity = Math.min(1, load + 0.3);
-      if (totalLoad > capacity) events.push({ hour: h, type: 'under-scaled', gap: totalLoad - capacity, latencyImpact: (totalLoad - capacity) * 200 });
-      else if (capacity - totalLoad > 0.4) events.push({ hour: h, type: 'over-scaled', gap: capacity - totalLoad, wasteCost: (capacity - totalLoad) * computeCostPerHour });
-    }
-    return events;
-  }, [computeCostPerHour]);
-
-  const underScaled = scalingEvents.filter(e => e.type === 'under-scaled');
-  const overScaled = scalingEvents.filter(e => e.type === 'over-scaled');
-  const overScaleCost = overScaled.reduce((s, e) => s + (e.wasteCost || 0), 0);
-  const underScaleLatency = underScaled.reduce((s, e) => s + (e.latencyImpact || 0), 0) / Math.max(1, underScaled.length);
-  const scalingScore = Math.max(0, 100 - (underScaled.length * 2 + overScaled.length));
-  const monthlyScalingWaste = overScaleCost * 4.3;
-  const sparkScore = Array.from({ length: 12 }, (_, i) => scalingScore * (0.9 + ((i * 7 + 1) % 9) / 9 * 0.2));
-
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => {
-    return { summary: `Scaling efficiency score: ${scalingScore}/100. ${underScaled.length} under-scaling events (latency impact: +${Math.round(underScaleLatency)}ms avg) and ${overScaled.length} over-scaling events (wasted ${fmtCurrency(monthlyScalingWaste)}/mo).`, insights: [], recommendations: [
-      { impact: 'high' as const, text: 'Reduce scaling lag \u2014 current autoscaler reacts too slowly to traffic spikes. Consider predictive scaling based on time-of-day patterns (9am ramp, 5pm decrease).' },
-      { impact: 'medium' as const, text: `Over-provisioning during off-peak wastes ${fmtCurrency(monthlyScalingWaste)}/mo. Set aggressive scale-down policies: cooldown 3min, min instances = 1 after 10pm.` },
-      { impact: 'low' as const, text: 'Implement scheduled scaling: pre-warm 15min before known traffic peaks (Mon 9am, marketing campaign launches) to eliminate reactive lag.' }
-    ] };
-  }, [scalingScore, underScaled, overScaled, underScaleLatency, monthlyScalingWaste]));
-
-  if (isLoading) return <Flex justifyContent="center" alignItems="center" style={{ padding: 48 }}><ProgressCircle size="large" /></Flex>;
-  return (
-    <Flex flexDirection="column" gap={20}>
-      {aiPanel}
-      <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Scaling Efficiency Score" value={`${scalingScore}/100`} color={scalingScore > 80 ? GREEN : scalingScore > 60 ? YELLOW : RED} rawValue={scalingScore} sparkline={sparkScore} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Under-Scale Events (7d)" value={`${underScaled.length}`} color={underScaled.length > 10 ? RED : ORANGE} rawValue={underScaled.length} sparkline={sparkScore.map((_, i) => underScaled.length * (0.8 + ((i * 3) % 5) / 5 * 0.4))} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Over-Scale Waste/mo" value={fmtCurrency(monthlyScalingWaste)} color={RED} rawValue={monthlyScalingWaste} sparkline={sparkScore.map((_, i) => monthlyScalingWaste * (0.9 + ((i * 5) % 7) / 7 * 0.2))} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Avg Latency Impact" value={`+${Math.round(underScaleLatency)}ms`} color={underScaleLatency > 100 ? RED : ORANGE} rawValue={underScaleLatency} sparkline={sparkScore.map((_, i) => underScaleLatency * (0.7 + ((i * 4 + 2) % 8) / 8 * 0.6))} inverted onDrillToForecast={onDrillToForecast} />
-      </Flex>
-      <SectionHeader title="Scaling Event Summary (Last 7 Days)" />
-      <div className="uj-table-tile" style={{ padding: 16 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}><colgroup><col style={{ width: '65%' }} /><col style={{ width: '35%' }} /></colgroup><tbody>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Total scaling events:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong>{scalingEvents.length}</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Under-scaled (capacity insufficient):</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: RED }}>{underScaled.length} events</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Over-scaled (excess capacity):</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: ORANGE }}>{overScaled.length} events</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Peak under-scale gap:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: RED }}>{Math.round(Math.max(0, ...underScaled.map(e => e.latencyImpact || 0)))}ms added latency</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Avg over-scale waste/hour:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: ORANGE }}>{fmtCurrency(overScaleCost / Math.max(1, overScaled.length))}</Strong></td></tr>
-        </tbody></table>
-      </div>
-      <SectionHeader title="Recommendations" />
-      <Flex gap={16} flexWrap="wrap">
-        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200 }}>
-          <Text style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 8 }}>Predictive Scaling</Text>
-          <Text style={{ fontSize: 12, opacity: 0.7 }}>Pre-warm instances 15min before traffic peaks based on historical patterns.</Text>
-        </div>
-        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200 }}>
-          <Text style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 8 }}>Aggressive Scale-Down</Text>
-          <Text style={{ fontSize: 12, opacity: 0.7 }}>Reduce cooldown from 10min to 3min. Scale to minimum at 10pm. Saves {fmtCurrency(monthlyScalingWaste * 0.6)}/mo.</Text>
-        </div>
-        <div className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 200 }}>
-          <Text style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 8 }}>Right-Size Baseline</Text>
-          <Text style={{ fontSize: 12, opacity: 0.7 }}>Current minimum instance count is too high for overnight traffic. Reduce baseline by 40% during off-peak.</Text>
-        </div>
-      </Flex>
-    </Flex>
-  );
-}
-
-function EnvironmentParityTab({ monthlyInfraCost, isLoading, onDrillToForecast }: { monthlyInfraCost: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
-  const { industry } = useSettings();
-  const environments = useMemo(() => [
-    { name: 'Production', cost: monthlyInfraCost, hosts: 24, cpu: 62, mem: 71, traffic: 100, purpose: 'Live customer traffic' },
-    { name: 'Staging', cost: monthlyInfraCost * 0.65, hosts: 18, cpu: 15, mem: 22, traffic: 5, purpose: 'Pre-prod validation' },
-    { name: 'Development', cost: monthlyInfraCost * 0.4, hosts: 12, cpu: 8, mem: 14, traffic: 1, purpose: 'Developer testing' },
-    { name: 'QA/Load Test', cost: monthlyInfraCost * 0.35, hosts: 10, cpu: 12, mem: 18, traffic: 2, purpose: 'Automated testing' },
-    { name: 'DR/Failover', cost: monthlyInfraCost * 0.8, hosts: 22, cpu: 2, mem: 5, traffic: 0, purpose: 'Disaster recovery standby' },
-  ], [monthlyInfraCost]);
-
-  const totalNonProd = environments.filter(e => e.name !== 'Production').reduce((s, e) => s + e.cost, 0);
-  const ratio = totalNonProd / Math.max(1, monthlyInfraCost);
-  const potentialSavings = environments.filter(e => e.name !== 'Production' && e.name !== 'DR/Failover').reduce((s, e) => s + e.cost * Math.max(0, 1 - (e.traffic / 100 * 10 + e.cpu / 100)), 0) * 0.5;
-  const sparkRatio = Array.from({ length: 12 }, (_, i) => ratio * (0.9 + ((i * 5 + 3) % 7) / 7 * 0.2));
-
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => {
-    return { summary: `Non-production environments cost ${fmtCurrency(totalNonProd)}/mo (${(ratio * 100).toFixed(0)}% of prod). Staging mirrors ${((environments[1].hosts / environments[0].hosts) * 100).toFixed(0)}% of prod capacity but handles only ${environments[1].traffic}% of traffic. ${fmtCurrency(potentialSavings)}/mo in potential savings.`, insights: [], recommendations: [
-      { impact: 'high' as const, text: `Right-size Staging from ${environments[1].hosts} to ${Math.ceil(environments[1].hosts * 0.4)} hosts. It only needs to handle 5% of prod traffic for validation. Saves ${fmtCurrency(environments[1].cost * 0.5)}/mo.` },
-      { impact: 'medium' as const, text: `Schedule Dev environment shutdown outside business hours (7pm-7am, weekends). Only ${environments[2].cpu}% CPU utilization suggests minimal after-hours usage. Saves ~60% = ${fmtCurrency(environments[2].cost * 0.6)}/mo.` },
-      { impact: 'low' as const, text: `Convert DR/Failover to warm standby (pilot-light) instead of full hot standby. Reduce from ${environments[4].hosts} to 4 core hosts + auto-scale policy. Saves ${fmtCurrency(environments[4].cost * 0.7)}/mo.` }
-    ] };
-  }, [environments, totalNonProd, ratio, potentialSavings]));
-
-  if (isLoading) return <Flex justifyContent="center" alignItems="center" style={{ padding: 48 }}><ProgressCircle size="large" /></Flex>;
-  return (
-    <Flex flexDirection="column" gap={20}>
-      {aiPanel}
-      <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Non-Prod / Prod Ratio" value={`${(ratio * 100).toFixed(0)}%`} color={ratio > 1.5 ? RED : ratio > 1 ? ORANGE : GREEN} rawValue={ratio * 100} sparkline={sparkRatio.map(v => v * 100)} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Total Non-Prod Cost" value={fmtCurrency(totalNonProd)} color={ORANGE} rawValue={totalNonProd} sparkline={sparkRatio.map(v => v * monthlyInfraCost)} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Savings Potential" value={fmtCurrency(potentialSavings)} color={GREEN} rawValue={potentialSavings} sparkline={sparkRatio.map(v => potentialSavings * (2 - v / ratio))} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Total Env Count" value={`${environments.length}`} color={BLUE} rawValue={environments.length} sparkline={Array(12).fill(environments.length)} onDrillToForecast={onDrillToForecast} />
-      </Flex>
-      <SectionHeader title="Environment Comparison" />
-      <div className="uj-table-tile">
-        <DataTable sortable resizable fullWidth data={environments.map(e => ({ Environment: e.name, 'Cost/mo': e.cost, Hosts: e.hosts, 'Avg CPU %': e.cpu, 'Avg Mem %': e.mem, 'Traffic %': e.traffic, Purpose: e.purpose }))} columns={[
-          { id: 'Environment', header: 'Environment', accessor: 'Environment', cell: ({ value }: any) => <Strong>{value}</Strong> },
-          { id: 'Cost/mo', header: 'Cost/mo', accessor: 'Cost/mo', sortType: 'number' as any, cell: ({ value }: any) => <Text>{fmtCurrency(value)}</Text> },
-          { id: 'Hosts', header: 'Hosts', accessor: 'Hosts', sortType: 'number' as any },
-          { id: 'Avg CPU %', header: 'CPU %', accessor: 'Avg CPU %', sortType: 'number' as any, cell: ({ value }: any) => <Text style={{ color: value < 20 ? RED : value < 50 ? ORANGE : GREEN }}>{value}%</Text> },
-          { id: 'Avg Mem %', header: 'Mem %', accessor: 'Avg Mem %', sortType: 'number' as any, cell: ({ value }: any) => <Text>{value}%</Text> },
-          { id: 'Traffic %', header: 'Traffic', accessor: 'Traffic %', sortType: 'number' as any, cell: ({ value }: any) => <Text>{value}%</Text> },
-          { id: 'Purpose', header: 'Purpose', accessor: 'Purpose' },
-        ]} />
-      </div>
-      <SectionHeader title="Optimization Opportunities" />
-      <div className="uj-table-tile" style={{ padding: 16 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}><colgroup><col style={{ width: '65%' }} /><col style={{ width: '35%' }} /></colgroup><tbody>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Staging \u2192 right-size to 40% of prod:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: GREEN }}>Save {fmtCurrency(environments[1].cost * 0.5)}/mo</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Dev \u2192 schedule off-hours shutdown:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: GREEN }}>Save {fmtCurrency(environments[2].cost * 0.6)}/mo</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>QA \u2192 on-demand only (spin up for test runs):</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: GREEN }}>Save {fmtCurrency(environments[3].cost * 0.7)}/mo</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>DR \u2192 convert to warm standby:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: GREEN }}>Save {fmtCurrency(environments[4].cost * 0.7)}/mo</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13, fontWeight: 700 }}>Total potential savings:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: GREEN, fontSize: 16 }}>{fmtCurrency(environments[1].cost * 0.5 + environments[2].cost * 0.6 + environments[3].cost * 0.7 + environments[4].cost * 0.7)}/mo</Strong></td></tr>
-        </tbody></table>
-      </div>
-    </Flex>
-  );
-}
-
 function SloCostTradeoffsTab({ quality, monthlyInfraCost, computeCostPerHour, isLoading, onDrillToForecast }: { quality: any; monthlyInfraCost: number; computeCostPerHour: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { industry } = useSettings();
   const sloTiers = useMemo(() => [
@@ -23329,132 +22818,3 @@ function SloCostTradeoffsTab({ quality, monthlyInfraCost, computeCostPerHour, is
   );
 }
 
-function TagAllocationTab({ monthlyInfraCost, isLoading, onDrillToForecast }: { monthlyInfraCost: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
-  const { industry } = useSettings();
-  const teams = useMemo(() => [
-    { team: 'Platform Engineering', costCenter: 'CC-100', spend: monthlyInfraCost * 0.3, budget: monthlyInfraCost * 0.28, hosts: 8, services: 5 },
-    { team: 'Product - Checkout', costCenter: 'CC-201', spend: monthlyInfraCost * 0.22, budget: monthlyInfraCost * 0.2, hosts: 6, services: 4 },
-    { team: 'Product - Search', costCenter: 'CC-202', spend: monthlyInfraCost * 0.18, budget: monthlyInfraCost * 0.2, hosts: 5, services: 3 },
-    { team: 'Data & Analytics', costCenter: 'CC-300', spend: monthlyInfraCost * 0.15, budget: monthlyInfraCost * 0.18, hosts: 4, services: 3 },
-    { team: 'DevOps/SRE', costCenter: 'CC-400', spend: monthlyInfraCost * 0.08, budget: monthlyInfraCost * 0.08, hosts: 3, services: 6 },
-    { team: 'Untagged/Shared', costCenter: '\u2014', spend: monthlyInfraCost * 0.07, budget: 0, hosts: 4, services: 0 },
-  ], [monthlyInfraCost]);
-
-  const overBudget = teams.filter(t => t.spend > t.budget && t.budget > 0);
-  const untaggedPct = (teams.find(t => t.team === 'Untagged/Shared')?.spend || 0) / Math.max(1, monthlyInfraCost) * 100;
-  const totalOverage = overBudget.reduce((s, t) => s + (t.spend - t.budget), 0);
-  const sparkAlloc = Array.from({ length: 12 }, (_, i) => monthlyInfraCost * (0.95 + ((i * 3 + 2) % 7) / 7 * 0.1));
-
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => {
-    return { summary: `${overBudget.length} teams over budget (total overage: ${fmtCurrency(totalOverage)}/mo). ${untaggedPct.toFixed(1)}% of spend is untagged/unattributed \u2014 assign ownership for accountability.`, insights: [], recommendations: [
-      { impact: 'high' as const, text: `${overBudget.map(t => t.team).join(', ')} ${overBudget.length > 1 ? 'are' : 'is'} over budget by ${fmtCurrency(totalOverage)}/mo combined. Schedule cost review meetings with team leads.` },
-      { impact: 'medium' as const, text: `Tag all ${teams.find(t => t.team === 'Untagged/Shared')?.hosts || 0} untagged hosts immediately. Enforce tagging policy via IaC (reject untagged resource creation).` },
-      { impact: 'low' as const, text: 'Implement showback reports: weekly Slack/email to each team lead showing their spend vs budget with trend direction.' }
-    ] };
-  }, [overBudget, totalOverage, untaggedPct, teams]));
-
-  if (isLoading) return <Flex justifyContent="center" alignItems="center" style={{ padding: 48 }}><ProgressCircle size="large" /></Flex>;
-  return (
-    <Flex flexDirection="column" gap={20}>
-      {aiPanel}
-      <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Teams Over Budget" value={`${overBudget.length} / ${teams.length - 1}`} color={overBudget.length > 0 ? RED : GREEN} rawValue={overBudget.length} sparkline={sparkAlloc.map((_, i) => overBudget.length + ((i * 2) % 3) - 1)} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Total Overage" value={fmtCurrency(totalOverage)} color={RED} rawValue={totalOverage} sparkline={sparkAlloc.map(v => totalOverage * v / monthlyInfraCost)} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Untagged Spend" value={fmtPct(untaggedPct)} color={untaggedPct > 10 ? RED : ORANGE} rawValue={untaggedPct} sparkline={sparkAlloc.map((_, i) => untaggedPct * (0.9 + ((i * 4) % 5) / 5 * 0.2))} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Tag Coverage" value={fmtPct(100 - untaggedPct)} color={100 - untaggedPct > 90 ? GREEN : ORANGE} rawValue={100 - untaggedPct} sparkline={sparkAlloc.map((_, i) => (100 - untaggedPct) * (0.98 + ((i * 2) % 4) / 4 * 0.04))} onDrillToForecast={onDrillToForecast} />
-      </Flex>
-      <SectionHeader title="Team Cost Allocation" />
-      <div className="uj-table-tile">
-        <DataTable sortable resizable fullWidth data={teams.map(t => ({ Team: t.team, 'Cost Center': t.costCenter, 'Spend/mo': t.spend, 'Budget/mo': t.budget, Variance: t.budget > 0 ? t.spend - t.budget : null, Hosts: t.hosts, Services: t.services }))} columns={[
-          { id: 'Team', header: 'Team', accessor: 'Team', cell: ({ value }: any) => <Strong>{value}</Strong> },
-          { id: 'Cost Center', header: 'Cost Center', accessor: 'Cost Center' },
-          { id: 'Spend/mo', header: 'Spend/mo', accessor: 'Spend/mo', sortType: 'number' as any, cell: ({ value }: any) => <Text>{fmtCurrency(value)}</Text> },
-          { id: 'Budget/mo', header: 'Budget/mo', accessor: 'Budget/mo', sortType: 'number' as any, cell: ({ value }: any) => <Text>{value > 0 ? fmtCurrency(value) : '\u2014'}</Text> },
-          { id: 'Variance', header: 'Variance', accessor: 'Variance', sortType: 'number' as any, cell: ({ value }: any) => value !== null ? <Strong style={{ color: value > 0 ? RED : GREEN }}>{value > 0 ? '+' : ''}{fmtCurrency(value)}</Strong> : <Text>\u2014</Text> },
-          { id: 'Hosts', header: 'Hosts', accessor: 'Hosts', sortType: 'number' as any },
-          { id: 'Services', header: 'Services', accessor: 'Services', sortType: 'number' as any },
-        ]} />
-      </div>
-      <SectionHeader title="Cost Distribution" />
-      <Flex gap={16} flexWrap="wrap">
-        {teams.filter(t => t.team !== 'Untagged/Shared').map(t => (
-          <div key={t.team} className="uj-table-tile" style={{ padding: 16, flex: 1, minWidth: 180, textAlign: 'center' }}>
-            <Text style={{ fontSize: 11, opacity: 0.5, display: 'block' }}>{t.team}</Text>
-            <Heading level={4} style={{ color: t.spend > t.budget ? RED : GREEN, margin: '4px 0' }}>{fmtCurrency(t.spend)}</Heading>
-            <Text style={{ fontSize: 11, opacity: 0.6 }}>{t.budget > 0 ? `${((t.spend / t.budget) * 100).toFixed(0)}% of budget` : 'No budget set'}</Text>
-          </div>
-        ))}
-      </Flex>
-    </Flex>
-  );
-}
-
-function ObservabilityRoiTab({ quality, monthlyInfraCost, isLoading, onDrillToForecast }: { quality: any; monthlyInfraCost: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
-  const { industry } = useSettings();
-  const sessions = quality.sessions ?? 10000;
-  const observabilityCosts = useMemo(() => ({
-    logIngestion: monthlyInfraCost * 0.08,
-    metricStorage: monthlyInfraCost * 0.04,
-    traceVolume: monthlyInfraCost * 0.05,
-    syntheticMonitoring: 450,
-    rumLicensing: monthlyInfraCost * 0.03,
-    totalObsCost: monthlyInfraCost * 0.08 + monthlyInfraCost * 0.04 + monthlyInfraCost * 0.05 + 450 + monthlyInfraCost * 0.03,
-  }), [monthlyInfraCost]);
-
-  const incidents = useMemo(() => ({
-    detected: 24,
-    mttrReduction: 45,
-    incidentsPreventedByAlerts: 8,
-    avgIncidentCost: sessions * 0.03 * 150 / (24 * 60) * 60,
-    falsePositiveRate: 12,
-  }), [sessions]);
-
-  const totalObsCost = observabilityCosts.totalObsCost;
-  const valueSaved = incidents.detected * incidents.mttrReduction / 60 * incidents.avgIncidentCost + incidents.incidentsPreventedByAlerts * incidents.avgIncidentCost;
-  const obsRoi = valueSaved / Math.max(1, totalObsCost);
-  const obsPctOfInfra = (totalObsCost / Math.max(1, monthlyInfraCost)) * 100;
-  const sparkROI = Array.from({ length: 12 }, (_, i) => obsRoi * (0.85 + ((i * 6 + 2) % 9) / 9 * 0.3));
-
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => {
-    return { summary: `Observability costs ${fmtCurrency(totalObsCost)}/mo (${obsPctOfInfra.toFixed(1)}% of infra). ROI: ${obsRoi.toFixed(1)}x \u2014 every $1 spent on monitoring saves ${fmtCurrency(obsRoi)} in incident costs. ${incidents.detected} incidents detected, ${incidents.incidentsPreventedByAlerts} prevented.`, insights: [], recommendations: [
-      { impact: 'high' as const, text: `Log ingestion (${fmtCurrency(observabilityCosts.logIngestion)}/mo) is the largest cost. Reduce verbose debug logs in production \u2014 filter to WARN+ level for non-critical services. Target 30% reduction.` },
-      { impact: 'medium' as const, text: `False positive rate is ${incidents.falsePositiveRate}%. Each false alert costs ~30min of engineer time. Tune thresholds to reduce false positives by 50% = save ${Math.round(incidents.detected * incidents.falsePositiveRate / 100 * 0.5)} wasted investigations/mo.` },
-      { impact: 'low' as const, text: 'Consider sampling traces at 10% for high-volume low-value endpoints (health checks, static assets). Maintains visibility while cutting trace costs by ~40%.' }
-    ] };
-  }, [totalObsCost, obsPctOfInfra, obsRoi, incidents, observabilityCosts]));
-
-  if (isLoading) return <Flex justifyContent="center" alignItems="center" style={{ padding: 48 }}><ProgressCircle size="large" /></Flex>;
-  return (
-    <Flex flexDirection="column" gap={20}>
-      {aiPanel}
-      <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Observability ROI" value={`${obsRoi.toFixed(1)}x`} color={obsRoi > 3 ? GREEN : obsRoi > 1 ? YELLOW : RED} rawValue={obsRoi} sparkline={sparkROI} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Total Obs Cost" value={fmtCurrency(totalObsCost)} color={BLUE} rawValue={totalObsCost} sparkline={sparkROI.map(v => totalObsCost * (1 + (v - obsRoi) / obsRoi * 0.1))} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Value Saved" value={fmtCurrency(valueSaved)} color={GREEN} rawValue={valueSaved} sparkline={sparkROI.map(v => v * totalObsCost)} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Obs % of Infra" value={fmtPct(obsPctOfInfra)} color={obsPctOfInfra > 25 ? RED : obsPctOfInfra > 15 ? ORANGE : GREEN} rawValue={obsPctOfInfra} sparkline={sparkROI.map((_, i) => obsPctOfInfra * (0.95 + ((i * 3) % 5) / 5 * 0.1))} inverted onDrillToForecast={onDrillToForecast} />
-      </Flex>
-      <SectionHeader title="Observability Cost Breakdown" />
-      <div className="uj-table-tile" style={{ padding: 16 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}><colgroup><col style={{ width: '65%' }} /><col style={{ width: '35%' }} /></colgroup><tbody>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Log Ingestion & Storage:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong>{fmtCurrency(observabilityCosts.logIngestion)}/mo</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Trace Collection & Storage:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong>{fmtCurrency(observabilityCosts.traceVolume)}/mo</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Metric Storage & Queries:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong>{fmtCurrency(observabilityCosts.metricStorage)}/mo</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>RUM Licensing:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong>{fmtCurrency(observabilityCosts.rumLicensing)}/mo</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Synthetic Monitoring:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong>{fmtCurrency(observabilityCosts.syntheticMonitoring)}/mo</Strong></td></tr>
-          <tr style={{ borderTop: '1px solid rgba(128,128,128,0.2)' }}><td style={{ padding: '6px 0', fontSize: 13, fontWeight: 700 }}>Total Observability Cost:</td><td style={{ padding: '6px 16px 6px 0', textAlign: 'right' }}><Strong style={{ fontSize: 16 }}>{fmtCurrency(totalObsCost)}/mo</Strong></td></tr>
-        </tbody></table>
-      </div>
-      <SectionHeader title="Incident Detection Value" />
-      <div className="uj-table-tile" style={{ padding: 16 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}><colgroup><col style={{ width: '65%' }} /><col style={{ width: '35%' }} /></colgroup><tbody>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Incidents detected this month:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong>{incidents.detected}</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Avg MTTR reduction per incident:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: GREEN }}>-{incidents.mttrReduction} min</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Incidents prevented by proactive alerts:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: GREEN }}>{incidents.incidentsPreventedByAlerts}</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Avg cost per incident (1h downtime):</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: RED }}>{fmtCurrency(incidents.avgIncidentCost)}</Strong></td></tr>
-          <tr><td style={{ padding: '4px 0', fontSize: 13 }}>False positive rate:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: incidents.falsePositiveRate > 15 ? RED : ORANGE }}>{incidents.falsePositiveRate}%</Strong></td></tr>
-          <tr style={{ borderTop: '1px solid rgba(128,128,128,0.2)' }}><td style={{ padding: '6px 0', fontSize: 13, fontWeight: 700 }}>Total Value Saved:</td><td style={{ padding: '6px 16px 6px 0', textAlign: 'right' }}><Strong style={{ color: GREEN, fontSize: 16 }}>{fmtCurrency(valueSaved)}/mo</Strong></td></tr>
-        </tbody></table>
-      </div>
-    </Flex>
-  );
-}

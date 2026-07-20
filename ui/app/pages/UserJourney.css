@@ -32,7 +32,7 @@
      this covers any padding-top on Strato Page.Main / scroll ancestor so no content sliver ever
      shows above the header. Extra padding-top compensates so visible content stays at the same height. */
   top: -40px;
-  z-index: 500;
+  z-index: 10; /* low enough that Strato's portaled dropdown panels (z-index ~100+) appear above */
   /* Extend edge-to-edge inside .uj-container's 32px horizontal padding */
   margin: -64px -32px 12px -32px;
   padding: 60px 32px 10px 32px;
