@@ -48,7 +48,7 @@ const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "heatmap", label: "Transition Heatmap" },
 ];
 const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
-type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying" | "uhaul";
+type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying" | "uhaul" | "eyeExam" | "spectacles";
 const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "classic", label: "Classic Funnel" },
   { value: "horizontal", label: "Horizontal Bar" },
@@ -65,6 +65,8 @@ const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "stadium", label: "\uD83C\uDFDF Stadium" },
   { value: "homebuying", label: "\uD83C\uDFE0 Homebuying" },
   { value: "uhaul", label: "\uD83D\uDE9A Truck Rental" },
+  { value: "eyeExam", label: "\uD83D\uDC41 Eye Exam Room" },
+  { value: "spectacles", label: "\uD83D\uDC53 Spectacle Frames" },
 ];
 const DEFAULT_FUNNEL_STYLE: FunnelStyle = "classic";
 const FUNNEL_STYLE_STATE_KEY = "uj-funnel-style";
@@ -87,7 +89,7 @@ const ORANGE = "#FF832B";
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.69.0";
+const APP_VERSION_LABEL = "4.76.2";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -729,41 +731,51 @@ const ForecastContext = React.createContext<ForecastOpener | null>(null);
 const ForecastProvider = ForecastContext.Provider;
 
 function KpiSparkline({ data, color = "#4589FF" }: { data: number[]; color?: string }) {
-  const W = 88, H = 28;
+  const VW = 200, H = 34;
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
-  // Drop last bucket (incomplete/current period)
   const trimmed = data.length > 2 ? data.slice(0, -1) : data;
   const valid = trimmed.filter((v) => v != null && !isNaN(v) && isFinite(v));
   if (valid.length < 2) return null;
-  const min = Math.min(...valid);
-  const max = Math.max(...valid);
+  // Interpolate to 30 data points for visual density
+  const TARGET = 30;
+  const interp: number[] = valid.length >= TARGET ? valid : Array.from({ length: TARGET }, (_, i) => {
+    const t = i / (TARGET - 1);
+    const srcIdx = t * (valid.length - 1);
+    const lo = Math.floor(srcIdx);
+    const hi = Math.min(lo + 1, valid.length - 1);
+    return valid[lo] * (1 - (srcIdx - lo)) + valid[hi] * (srcIdx - lo);
+  });
+  const min = Math.min(...interp);
+  const max = Math.max(...interp);
   const range = max - min || 1;
-  const points = valid.map((v, i) => ({
-    x: (i / (valid.length - 1)) * W,
+  const points = interp.map((v, i) => ({
+    x: (i / (interp.length - 1)) * VW,
     y: H - ((v - min) / range) * (H - 4) - 2,
     value: v,
   }));
   const pts = points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-  const fillPts = `0,${H} ${pts} ${W},${H}`;
+  const fillPts = `0,${H} ${pts} ${VW},${H}`;
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const idx = Math.round((x / W) * (valid.length - 1));
-    setHoverIdx(Math.max(0, Math.min(valid.length - 1, idx)));
+    const x = ((e.clientX - rect.left) / rect.width) * VW;
+    const idx = Math.round((x / VW) * (interp.length - 1));
+    setHoverIdx(Math.max(0, Math.min(interp.length - 1, idx)));
   };
 
+  const hoverPct = hoverIdx !== null ? (points[hoverIdx].x / VW) * 100 : 0;
+
   return (
-    <div style={{ position: "relative", display: "inline-block" }}>
+    <div style={{ position: "relative", width: "100%" }}>
       <svg
-        width={W}
-        height={H}
-        style={{ display: "block", marginTop: 6, opacity: 0.85, cursor: "crosshair" }}
+        viewBox={`0 0 ${VW} ${H}`}
+        preserveAspectRatio="none"
+        style={{ display: "block", width: "100%", height: H, marginTop: 4, opacity: 0.85, cursor: "crosshair" }}
         aria-hidden
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setHoverIdx(null)}
       >
-        <polygon points={fillPts} fill={color} fillOpacity={0.1} />
+        <polygon points={fillPts} fill={color} fillOpacity={0.12} />
         <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
         <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r={2.5} fill={color} />
         {hoverIdx !== null && points[hoverIdx] && (
@@ -774,26 +786,114 @@ function KpiSparkline({ data, color = "#4589FF" }: { data: number[]; color?: str
         )}
       </svg>
       {hoverIdx !== null && points[hoverIdx] && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: H + 8,
-            left: Math.min(Math.max(points[hoverIdx].x - 30, 0), W - 60),
-            background: "rgba(0,0,0,0.85)",
-            color: "#fff",
-            fontSize: 10,
-            fontWeight: 600,
-            padding: "3px 6px",
-            borderRadius: 4,
-            whiteSpace: "nowrap",
-            pointerEvents: "none",
-            zIndex: 10,
-          }}
-        >
+        <div style={{ position: "absolute", bottom: H + 6, left: `${Math.max(5, Math.min(hoverPct, 75))}%`, background: "rgba(0,0,0,0.85)", color: "#fff", fontSize: 10, fontWeight: 600, padding: "3px 6px", borderRadius: 4, whiteSpace: "nowrap", pointerEvents: "none", zIndex: 10, transform: "translateX(-50%)" }}>
           {points[hoverIdx].value >= 1000 ? `${(points[hoverIdx].value / 1000).toFixed(1)}k` : points[hoverIdx].value.toFixed(points[hoverIdx].value % 1 === 0 ? 0 : 1)}
         </div>
       )}
     </div>
+  );
+}
+
+// Inline analysis panels launched from KPI card dropdown
+function KpiPanelOverlay({ label, rawValue, sparkline, color, panel, onClose, effectiveHigherIsBetter }: { label: string; rawValue?: number; sparkline?: number[]; color?: string; panel: "impact" | "anomaly" | "attribution"; onClose: () => void; effectiveHigherIsBetter: boolean }) {
+  const valid = (sparkline ?? []).filter((v) => isFinite(v) && v != null);
+  const mean = valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : 0;
+  const std = valid.length > 1 ? Math.sqrt(valid.reduce((a, v) => a + (v - mean) ** 2, 0) / valid.length) : 0;
+  const curr = rawValue ?? 0;
+  const deviation = std > 0 ? (curr - mean) / std : 0;
+  const pMin = valid.length ? Math.min(...valid) : 0;
+  const pMax = valid.length ? Math.max(...valid) : 0;
+  const lastFew = valid.slice(-4);
+  const recentTrend = lastFew.length >= 2 ? (lastFew[lastFew.length - 1] - lastFew[0]) / (lastFew[0] || 1) * 100 : 0;
+  const trendLabel = Math.abs(recentTrend) < 3 ? "Stable" : recentTrend > 0 ? (effectiveHigherIsBetter ? "Improving ↑" : "Worsening ↑") : (effectiveHigherIsBetter ? "Declining ↓" : "Improving ↓");
+  const cv = mean > 0 ? std / Math.abs(mean) : 0;
+  const stabilityLabel = cv < 0.05 ? "Very stable" : cv < 0.15 ? "Stable" : cv < 0.3 ? "Moderate variability" : "High variability";
+  const anomalyStatus = Math.abs(deviation) < 1 ? { label: "Normal", color: "#0D9C29" } : Math.abs(deviation) < 2 ? { label: "Slightly elevated", color: "#FFC800" } : { label: "Anomalous", color: "#E00000" };
+  const fmt = (v: number) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(1)}k` : v >= 10 ? v.toFixed(0) : v.toFixed(2);
+
+  const titles: Record<string, string> = { impact: "👥 Impact Analysis", anomaly: "🔍 Anomaly Detection", attribution: "📋 Change Attribution" };
+  return createPortal(
+    <div style={{ position: "fixed", inset: 0, zIndex: 99998, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: "rgba(20,24,46,0.98)", border: `1px solid ${color ?? "#4589FF"}40`, borderRadius: 12, padding: "24px 28px", maxWidth: 480, width: "90vw", boxShadow: "0 8px 40px rgba(0,0,0,0.5)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 4 }}>{titles[panel]}</div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>{label}</div>
+          </div>
+          <button onClick={onClose} style={{ background: "rgba(128,128,128,0.2)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, color: "#fff", padding: "4px 10px", cursor: "pointer", fontSize: 13 }}>✕</button>
+        </div>
+
+        {panel === "impact" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {[
+              { label: "Current value", value: fmt(curr), col: color ?? "#4589FF" },
+              { label: "Peak (period)", value: fmt(pMax), col: "#0D9C29" },
+              { label: "Trough (period)", value: fmt(pMin), col: "#E00000" },
+              { label: "Mean (period)", value: fmt(mean), col: "rgba(255,255,255,0.7)" },
+              { label: "Recent trend", value: trendLabel, col: recentTrend > 0 && effectiveHigherIsBetter ? "#0D9C29" : recentTrend < 0 && !effectiveHigherIsBetter ? "#0D9C29" : Math.abs(recentTrend) < 3 ? "rgba(255,255,255,0.6)" : "#E00000" },
+              { label: "Data stability", value: stabilityLabel, col: "rgba(255,255,255,0.6)" },
+            ].map((r, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>{r.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: r.col }}>{r.value}</span>
+              </div>
+            ))}
+            <div style={{ marginTop: 6, padding: "10px 12px", background: "rgba(69,137,255,0.06)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.6 }}>
+              {effectiveHigherIsBetter ? `Higher ${label} positively impacts user outcomes and revenue.` : `Lower ${label} indicates a better user experience.`} Current value is {Math.abs(deviation) < 0.5 ? "within" : deviation > 0 ? "above" : "below"} the period mean.
+            </div>
+          </div>
+        )}
+
+        {panel === "anomaly" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+              <div style={{ textAlign: "center", padding: "12px 20px", borderRadius: 10, background: `${anomalyStatus.color}18`, border: `1px solid ${anomalyStatus.color}40` }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: anomalyStatus.color }}>{anomalyStatus.label}</div>
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>{Math.abs(deviation).toFixed(2)}σ from mean</div>
+              </div>
+            </div>
+            {[
+              { label: "Current value", value: fmt(curr), col: color ?? "#4589FF" },
+              { label: "Historical mean", value: fmt(mean), col: "rgba(255,255,255,0.7)" },
+              { label: "Std deviation (±1σ)", value: `±${fmt(std)}`, col: "rgba(255,255,255,0.6)" },
+              { label: "Normal range", value: `${fmt(Math.max(0, mean - std))} – ${fmt(mean + std)}`, col: "#0D9C29" },
+              { label: "Deviation", value: `${deviation >= 0 ? "+" : ""}${deviation.toFixed(2)}σ`, col: anomalyStatus.color },
+            ].map((r, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>{r.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: r.col }}>{r.value}</span>
+              </div>
+            ))}
+            <div style={{ marginTop: 4, padding: "10px 12px", background: "rgba(69,137,255,0.06)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.6 }}>
+              {Math.abs(deviation) < 1 ? `${label} is behaving normally for this timeframe. No action needed.` : Math.abs(deviation) < 2 ? `${label} shows slight deviation. Monitor for continued movement.` : `${label} is significantly outside the normal range. Investigate potential causes.`}
+            </div>
+          </div>
+        )}
+
+        {panel === "attribution" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ padding: "10px 12px", background: "rgba(255,200,0,0.06)", border: "1px solid rgba(255,200,0,0.2)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.65)", lineHeight: 1.6 }}>
+              Automated change detection requires deployment event data from Dynatrace. This analysis provides statistical context for manual correlation.
+            </div>
+            {[
+              { label: "Period stability", value: stabilityLabel, col: cv < 0.1 ? "#0D9C29" : cv < 0.25 ? "#FFC800" : "#E00000" },
+              { label: "Recent trend", value: trendLabel, col: "rgba(255,255,255,0.7)" },
+              { label: "Trend magnitude", value: `${recentTrend >= 0 ? "+" : ""}${recentTrend.toFixed(1)}%`, col: Math.abs(recentTrend) < 5 ? "rgba(255,255,255,0.5)" : "#FFC800" },
+              { label: "Value range (period)", value: `${fmt(pMin)} – ${fmt(pMax)}`, col: "rgba(255,255,255,0.6)" },
+            ].map((r, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>{r.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: r.col }}>{r.value}</span>
+              </div>
+            ))}
+            <div style={{ marginTop: 4, padding: "10px 12px", background: "rgba(69,137,255,0.06)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.6 }}>
+              To correlate with deployments: use the <strong style={{ color: "rgba(255,255,255,0.8)" }}>Change Intelligence</strong> tab or check Dynatrace Davis AI for automated root cause analysis.
+            </div>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -856,18 +956,20 @@ function useEffectiveTL(baseSessions: number | undefined = undefined) {
 function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, inverted = false, sparkline, onDrillToForecast, customContent, isLoading, style }: KpiCardProps) {
   const forecastOpener = useContext(ForecastContext);
   const correlationsCtx = useContext(CorrelationsContext);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activePanel, setActivePanel] = useState<"impact" | "anomaly" | "attribution" | null>(null);
   const hasSpark = sparkline && sparkline.length >= 2;
-  const handleClick = hasSpark
-    ? (onDrillToForecast ? () => onDrillToForecast(label, sparkline!, color) : (forecastOpener ? () => forecastOpener(label, sparkline!, color) : undefined))
-    : undefined;
 
-  // Related metrics button handler
-  const handleRelated = hasSpark && correlationsCtx ? (e: React.MouseEvent) => {
-    e.stopPropagation();
-    correlationsCtx.open({ label, sparkline: sparkline!, color, inverted: !(higherIsBetter ?? !inverted) });
-  } : undefined;
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (cardRef.current && !cardRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
-  // Delta calculation
   const delta = useMemo<number | null>(() => {
     if (rawValue == null || prevRawValue == null) return null;
     if (prevRawValue === 0) return rawValue === 0 ? 0 : 100;
@@ -880,22 +982,36 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
   const trendColor = delta === null ? undefined : delta === 0 ? undefined : trendGood ? GREEN : RED;
   const arrow = delta === null ? "" : delta === 0 ? "—" : trendUp ? "↑" : "↓";
 
+  // Progress bar: only for threshold-colored metrics; tick position mirrors the value color
+  const THRESHOLD_COLORS = new Set([GREEN, RED, YELLOW]);
+  const showProgressBar = hasSpark && !customContent && rawValue != null && THRESHOLD_COLORS.has(color ?? "");
+  let progressPct = 50;
+  if (showProgressBar) {
+    if (color === GREEN) progressPct = effectiveHigherIsBetter ? 85 : 15;
+    else if (color === RED) progressPct = effectiveHigherIsBetter ? 15 : 85;
+    // YELLOW stays at 50
+  }
+
+  const doForecast = () => {
+    setMenuOpen(false);
+    if (hasSpark) {
+      if (onDrillToForecast) onDrillToForecast(label, sparkline!, color);
+      else if (forecastOpener) forecastOpener(label, sparkline!, color);
+    }
+  };
+  const doRelated = () => {
+    setMenuOpen(false);
+    if (correlationsCtx && hasSpark) correlationsCtx.open({ label, sparkline: sparkline!, color, inverted: !effectiveHigherIsBetter });
+  };
+
   return (
     <div
-      className={`uj-kpi-card-enhanced${handleClick ? " clickable" : ""}`}
-      style={{ cursor: handleClick ? "pointer" : undefined, ...style }}
-      title={handleClick ? `${label} — click for forecast` : label}
-      onClick={handleClick}
+      ref={cardRef}
+      className={`uj-kpi-card-enhanced${hasSpark ? " clickable" : ""}`}
+      style={{ cursor: hasSpark ? "pointer" : undefined, ...style }}
+      title={hasSpark ? `${label} — click for options` : label}
+      onClick={(e) => { if (hasSpark) { e.stopPropagation(); setMenuOpen(prev => !prev); } }}
     >
-      {handleRelated && (
-        <button
-          className="kpi-related-btn"
-          onClick={handleRelated}
-          title="Show related metrics with high correlation"
-        >
-          ⟷
-        </button>
-      )}
       <Text style={{ fontSize: 11, opacity: 0.7, display: "block" }}>{label}</Text>
       {isLoading ? (
         <div style={{ marginTop: 8, display: "flex", justifyContent: "center" }}>
@@ -907,22 +1023,37 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 5, marginTop: 4 }}>
               <Heading level={3} style={{ margin: 0, color }}>{value}</Heading>
               {delta !== null && (
-                <span
-                  style={{ fontSize: 11, fontWeight: 700, color: trendColor, whiteSpace: "nowrap", lineHeight: 1 }}
-                  title={`vs previous period: ${trendUp ? "+" : ""}${delta.toFixed(1)}%`}
-                >
+                <span style={{ fontSize: 11, fontWeight: 700, color: trendColor, whiteSpace: "nowrap", lineHeight: 1 }} title={`vs previous period: ${trendUp ? "+" : ""}${delta.toFixed(1)}%`}>
                   {arrow}&thinsp;{Math.abs(delta).toFixed(1)}%
                 </span>
               )}
             </div>
           )}
           {hasSpark && (
-            <div style={{ display: "flex", justifyContent: "center" }}>
+            <div style={{ width: "100%", marginTop: 2 }}>
               <KpiSparkline data={sparkline!} color={color ?? "#4589FF"} />
+            </div>
+          )}
+          {showProgressBar && (
+            <div style={{ marginTop: 6, position: "relative", height: 4, borderRadius: 2, overflow: "visible",
+              background: effectiveHigherIsBetter ? "linear-gradient(to right, #b01010, #c08010, #0D9C29)" : "linear-gradient(to right, #0D9C29, #c08010, #b01010)"
+            }}>
+              <div style={{ position: "absolute", top: -3, width: 2, height: 10, background: "#fff", borderRadius: 1, left: `${progressPct}%`, transform: "translateX(-50%)", boxShadow: "0 0 4px rgba(0,0,0,0.7)", opacity: 0.9 }} />
             </div>
           )}
         </>
       )}
+      {menuOpen && hasSpark && (
+        <div className="kpi-action-menu" onClick={(e) => e.stopPropagation()}>
+          <button className="kpi-action-btn" onClick={doForecast}>📈 Forecast</button>
+          <button className="kpi-action-btn" onClick={doRelated}>⟷ Related Metrics</button>
+          <div className="kpi-action-sep" />
+          <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("impact"); }}>👥 Impact</button>
+          <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("anomaly"); }}>🔍 Anomaly</button>
+          <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("attribution"); }}>📋 Change Attribution</button>
+        </div>
+      )}
+      {activePanel && <KpiPanelOverlay label={label} rawValue={rawValue} sparkline={sparkline} color={color} panel={activePanel} onClose={() => setActivePanel(null)} effectiveHigherIsBetter={effectiveHigherIsBetter} />}
     </div>
   );
 }
@@ -4016,6 +4147,8 @@ export function UserJourney() {
   const [globalSettingsExpanded, setGlobalSettingsExpanded] = useState(true);
   const [userSettingsExpanded, setUserSettingsExpanded] = useState(true);
   const [activeSubTabKey, setActiveSubTabKey] = useState<TabKey | null>(null);
+  const [tlDiagPanel, setTlDiagPanel] = useState<{ pos: { x: number; y: number } } | null>(null);
+  const tlDiagDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const closeAiInsights = React.useCallback(() => setAiOpen(false), []);
   const aiContextValue = React.useMemo(() => ({ open: aiOpen, close: closeAiInsights, activeSubTab: activeSubTabKey }), [aiOpen, closeAiInsights, activeSubTabKey]);
@@ -4481,6 +4614,40 @@ export function UserJourney() {
     tl.reportBuckets(tl.sharedMetricsAll.length, tl.sharedMetricsAll[idx].bucket);
   }, [tl.enabled, tl.index, tl.sharedMetricsAll, tl.reportBuckets]);
 
+  // Per-metric baselines for the hotness diagnosis panel — mean+std for each KPI across all buckets
+  const tlSharedBaselines = React.useMemo(() => {
+    const rows = tl.sharedMetricsAll;
+    if (rows.length < 2) return null;
+    const stat = (vals: number[]) => {
+      if (vals.length === 0) return { mean: 0, std: 1 };
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const std = Math.max(Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length), 0.001);
+      return { mean, std };
+    };
+    return {
+      sessions: stat(rows.map(r => r.sessions)),
+      errorRate: stat(rows.map(r => r.errorRate)),
+      avgDurationMs: stat(rows.map(r => r.avgDurationMs)),
+      apdex: stat(rows.map(r => r.apdex)),
+      lcp: stat(rows.filter(r => r.lcp != null).map(r => r.lcp!)),
+    };
+  }, [tl.sharedMetricsAll]);
+
+  const startTlDiagDrag = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!tlDiagPanel) return;
+    tlDiagDragRef.current = { startX: e.clientX, startY: e.clientY, origX: tlDiagPanel.pos.x, origY: tlDiagPanel.pos.y };
+    const onMove = (me: MouseEvent) => {
+      if (!tlDiagDragRef.current) return;
+      setTlDiagPanel({ pos: { x: tlDiagDragRef.current.origX + me.clientX - tlDiagDragRef.current.startX, y: tlDiagDragRef.current.origY + me.clientY - tlDiagDragRef.current.startY } });
+    };
+    const onUp = () => { tlDiagDragRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [tlDiagPanel]);
+
+  // Close the diag panel when Time-Lapse is turned off
+  useEffect(() => { if (!tl.enabled) setTlDiagPanel(null); }, [tl.enabled]);
 
   // Parse funnel
   const parseFunnel = (result: any) => {
@@ -4856,20 +5023,98 @@ export function UserJourney() {
                   return (
                     <div
                       key={i}
-                      onClick={() => { tl.setPlaying(false); tl.setIndex(i); }}
-                      title={`bucket ${i + 1} · z=${v.toFixed(2)}`}
+                      onClick={() => { tl.setPlaying(false); tl.setIndex(i); setTlDiagPanel(prev => ({ pos: prev?.pos ?? { x: 48, y: 260 } })); }}
+                      title={`bucket ${i + 1} · z=${v.toFixed(2)} · click to diagnose`}
                       style={{ flex: 1, height: h, background: color, opacity, borderRadius: 1, transition: "opacity 0.15s", outline: i === cursorIdx ? "1px solid rgba(255,255,255,0.85)" : "none" }}
                     />
                   );
                 })}
               </div>
-              <div style={{ fontSize: 10, opacity: 0.4, marginTop: 2, textAlign: "right" }}>Click a bar to jump to that moment</div>
+              <div style={{ fontSize: 10, opacity: 0.4, marginTop: 2, textAlign: "right" }}>Click a bar to seek &amp; diagnose · drag panel to move</div>
             </div>
           );
         })()}
       </div>
       )}
       </div>{/* /uj-sticky-top */}
+
+      {/* Hotness diagnosis panel — portaled to body so z-index is unconstrained */}
+      {tlDiagPanel && tlSharedBaselines && tl.sharedMetricsAll.length > 0 && createPortal((() => {
+        const idx = Math.min(Math.max(tl.index, 0), tl.sharedMetricsAll.length - 1);
+        const row = tl.sharedMetricsAll[idx];
+        if (!row) return null;
+        // positive badnessZ = worse than mean
+        const bZ = (val: number, base: { mean: number; std: number }, lowerIsBetter: boolean) => {
+          const raw = (val - base.mean) / base.std;
+          return lowerIsBetter ? -raw : raw;
+        };
+        const metrics = [
+          { label: "Sessions",     value: fmtCount(row.sessions),              z: (row.sessions - tlSharedBaselines.sessions.mean) / tlSharedBaselines.sessions.std, neutral: true,  desc: "traffic volume vs avg" },
+          { label: "Error Rate",   value: fmtPct(row.errorRate),               z: bZ(row.errorRate, tlSharedBaselines.errorRate, false),                              neutral: false, desc: "errors vs avg — ↑ bad" },
+          { label: "Avg Duration", value: `${Math.round(row.avgDurationMs)}ms`, z: bZ(row.avgDurationMs, tlSharedBaselines.avgDurationMs, false),                    neutral: false, desc: "load time vs avg — ↑ bad" },
+          { label: "Apdex",        value: row.apdex.toFixed(3),                z: bZ(row.apdex, tlSharedBaselines.apdex, true),                                     neutral: false, desc: "experience vs avg — ↑ bad" },
+          ...(row.lcp != null && tlSharedBaselines.lcp.mean > 0 ? [{ label: "LCP", value: `${Math.round(row.lcp)}ms`, z: bZ(row.lcp, tlSharedBaselines.lcp, false), neutral: false, desc: "paint time vs avg — ↑ bad" }] : []),
+        ];
+        const hotZ = tl.hotness[idx] ?? 0;
+        const hotColor = hotZ >= 2.5 ? TL_HOT_HIGH : hotZ >= 1.5 ? TL_HOT_WARM : hotZ >= 0.75 ? TL_HOT_ELEV : "#4589FF";
+        const mColor = (m: typeof metrics[0]) => {
+          if (m.neutral) return Math.abs(m.z) >= 1.5 ? TL_HOT_WARM : "#4589FF";
+          if (m.z <= 0) return GREEN;
+          return m.z >= 2.5 ? TL_HOT_HIGH : m.z >= 1.5 ? TL_HOT_WARM : m.z >= 0.75 ? TL_HOT_ELEV : GREEN;
+        };
+        const bad = metrics.filter(m => !m.neutral && m.z >= 0.75).sort((a, b) => b.z - a.z);
+        const sessM = metrics[0];
+        let driver = "";
+        if (bad.length === 0 && Math.abs(sessM.z) < 0.75) driver = "Within normal range";
+        else if (Math.abs(sessM.z) >= 1.5 && (bad.length === 0 || Math.abs(sessM.z) > bad[0].z)) driver = sessM.z > 0 ? "Traffic surge" : "Traffic drop";
+        else if (bad[0]?.label === "Error Rate") driver = "Error storm";
+        else if (bad[0]?.label === "Avg Duration" || bad[0]?.label === "LCP") driver = "Performance regression";
+        else if (bad[0]?.label === "Apdex") driver = "Experience degradation";
+        else if (bad[0]) driver = `${bad[0].label} anomaly`;
+        const driverColor = driver === "Within normal range" ? GREEN : bad[0]?.z >= 2.5 ? TL_HOT_HIGH : bad[0]?.z >= 1.5 ? TL_HOT_WARM : TL_HOT_ELEV;
+
+        return (
+          <div style={{ position: "fixed", left: tlDiagPanel.pos.x, top: tlDiagPanel.pos.y, width: 290, background: "var(--dt-colors-background-base-default,#0f1428)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,0.55)", zIndex: 600, userSelect: "none", fontSize: 12 }}>
+            {/* drag handle */}
+            <div onMouseDown={startTlDiagDrag} style={{ padding: "7px 10px", borderBottom: "1px solid rgba(128,128,128,0.2)", cursor: "grab", display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(128,128,128,0.07)", borderRadius: "8px 8px 0 0" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, opacity: 0.85 }}>Bucket {idx + 1} · Why is this hot?</span>
+              <button onClick={() => setTlDiagPanel(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", opacity: 0.5, fontSize: 15, padding: "0 2px", lineHeight: 1 }}>✕</button>
+            </div>
+            {/* bucket + hotness badge */}
+            <div style={{ padding: "7px 10px", borderBottom: "1px solid rgba(128,128,128,0.12)" }}>
+              <div style={{ fontSize: 10, opacity: 0.45, marginBottom: 3, fontFamily: "monospace" }}>{row.bucket}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: hotColor }}>Hotness Z = {hotZ.toFixed(2)}</span>
+                {driver && <span style={{ fontSize: 10, fontWeight: 600, color: driverColor, background: `${driverColor}18`, border: `1px solid ${driverColor}40`, borderRadius: 4, padding: "1px 6px" }}>{driver}</span>}
+              </div>
+            </div>
+            {/* per-metric rows */}
+            <div style={{ padding: "6px 0 4px" }}>
+              {metrics.map(m => {
+                const col = mColor(m);
+                const barW = Math.min(100, Math.abs(m.z) / 3 * 100);
+                return (
+                  <div key={m.label} style={{ padding: "3px 10px 5px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.8 }}>{m.label}</span>
+                      <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                        <span style={{ fontSize: 11, fontFamily: "monospace", opacity: 0.6 }}>{m.value}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: col, fontFamily: "monospace", minWidth: 54, textAlign: "right" }}>{m.z >= 0 ? "+" : ""}{m.z.toFixed(2)}z</span>
+                      </div>
+                    </div>
+                    <div style={{ height: 3, background: "rgba(128,128,128,0.12)", borderRadius: 2 }}>
+                      <div style={{ height: "100%", width: `${barW}%`, background: col, borderRadius: 2, transition: "width 0.2s" }} />
+                    </div>
+                    <div style={{ fontSize: 9, opacity: 0.35, marginTop: 1 }}>{m.desc}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ padding: "5px 10px", borderTop: "1px solid rgba(128,128,128,0.12)", fontSize: 9, opacity: 0.35 }}>Drag header · panel tracks current bucket</div>
+          </div>
+        );
+      })(), document.body)}
+
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
       <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
         <div style={{ padding: "4px 0" }}>
@@ -8829,6 +9074,276 @@ function UHaulFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: num
 }
 
 // ===========================================================================
+// SKIN: Eye Exam Room
+// ===========================================================================
+function EyeExamFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const N = steps.length;
+  const totalPatients = steps[0]?.count ?? 0;
+  const converted = steps[N - 1]?.count ?? 0;
+  const overallConv = totalPatients > 0 ? (converted / totalPatients) * 100 : 0;
+  const revenue = converted * aov;
+  const dropOff = totalPatients - converted;
+  const CHART_ROWS = ['E','F P','T O Z','L P E D','P E C F D','E D F C Z P','F E L O P Z D','D E F P O T E C','L E F O D P C T','F D P L T C E O'];
+  const stepColor = (conv: number, idx: number): string => idx === 0 ? '#4589FF' : conv >= 70 ? '#0D9C29' : conv >= 40 ? '#FFC800' : '#E00000';
+  const acuityLabel = (conv: number, idx: number): string => { if (idx === 0) return 'BASELINE'; if (conv >= 90) return '20/20'; if (conv >= 75) return '20/30'; if (conv >= 60) return '20/40'; if (conv >= 45) return '20/60'; return '20/200'; };
+  const maxFS = 50, minFS = 11;
+  const chartRows = steps.map((step, i) => ({ step, i, letters: CHART_ROWS[Math.min(i, CHART_ROWS.length - 1)], fontSize: maxFS - (i / Math.max(N - 1, 1)) * (maxFS - minFS), color: stepColor(step.convFromPrev, i) }));
+  const BW = 310, BH = 380, BX = (680 - BW) / 2, BY = 46;
+  let yOff = BY + 38;
+  const rowPositions: number[] = chartRows.map(r => { const y = yOff + r.fontSize; yOff += r.fontSize + 9; return y; });
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '270px 1fr 290px', gap: 14, background: '#04060a', color: '#e8f0ff', padding: 16, fontFamily: '"Inter",system-ui,sans-serif', borderRadius: 12, boxSizing: 'border-box', minHeight: 520 }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 3, textTransform: 'uppercase', color: '#4589FF', marginBottom: 16, paddingBottom: 9, borderBottom: '1px solid rgba(69,137,255,0.2)' }}>Vision Journey</div>
+        {steps.map((step, i) => {
+          const col = stepColor(step.convFromPrev, i);
+          return (
+            <div key={i} style={{ paddingBottom: 12, marginBottom: 12, borderBottom: i < N - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2.5, color: '#3d6a9e', marginBottom: 3 }}>ROW {i + 1} · {acuityLabel(step.convFromPrev, i)}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#c8d8f8', marginBottom: 5, lineHeight: 1.3 }}>{step.label}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 19, fontWeight: 700, color: '#ffffff' }}>{fmtCount(step.count)}</span>
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.32)' }}>patients</span>
+                {i > 0 && <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: col, background: `${col}1e`, padding: '2px 8px', borderRadius: 9, border: `1px solid ${col}40` }}>{fmtPct(step.convFromPrev)}</span>}
+              </div>
+              {i > 0 && <div style={{ height: 3, borderRadius: 2, marginTop: 6, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.min(step.convFromPrev, 100)}%`, background: col, borderRadius: 2 }} /></div>}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <svg viewBox="0 0 680 480" style={{ width: '100%', height: 'auto', display: 'block' }}>
+          <defs>
+            <radialGradient id="ec-room" cx="50%" cy="50%" r="70%"><stop offset="0%" stopColor="#080c14" /><stop offset="100%" stopColor="#020305" /></radialGradient>
+            <radialGradient id="ec-light" cx="50%" cy="0%" r="70%"><stop offset="0%" stopColor="rgba(200,220,255,0.14)" /><stop offset="100%" stopColor="rgba(0,0,0,0)" /></radialGradient>
+            <linearGradient id="ec-board" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f0ebd6" /><stop offset="100%" stopColor="#e5dfc6" /></linearGradient>
+            <filter id="ec-blur"><feGaussianBlur stdDeviation="14" /></filter>
+            <filter id="ec-soft"><feGaussianBlur stdDeviation="5" /></filter>
+          </defs>
+          <rect width="680" height="480" fill="url(#ec-room)" rx={10} />
+          <rect width="680" height="480" fill="url(#ec-light)" rx={10} />
+          <ellipse cx={340} cy={18} rx={130} ry={65} fill="rgba(210,225,255,0.09)" filter="url(#ec-blur)" />
+          <rect x={316} y={0} width={48} height={16} rx={4} fill="#18253e" stroke="#263d5e" strokeWidth={1} />
+          <rect x={322} y={12} width={36} height={5} rx={2} fill="#c8dcff" opacity={0.7} />
+          <line x1={340} y1={17} x2={340} y2={BY} stroke="#18253e" strokeWidth={2} />
+          <rect x={BX + 10} y={BY + 10} width={BW} height={BH} rx={6} fill="rgba(0,0,0,0.45)" filter="url(#ec-soft)" />
+          <rect x={BX} y={BY} width={BW} height={BH} rx={6} fill="url(#ec-board)" />
+          <rect x={BX + 2} y={BY + 2} width={BW - 4} height={BH - 4} rx={5} fill="none" stroke="rgba(190,180,150,0.35)" strokeWidth={1} />
+          <text x={340} y={BY + 20} textAnchor="middle" fontSize={9} fontWeight={700} fill="#8a7a58" letterSpacing={2.5} fontFamily="'Courier New',monospace">VISION ASSESSMENT CHART</text>
+          <line x1={BX + 18} y1={BY + 28} x2={BX + BW - 18} y2={BY + 28} stroke="rgba(140,120,88,0.28)" strokeWidth={0.8} />
+          {chartRows.map((r, ri) => (
+            <g key={ri}>
+              <text x={340} y={rowPositions[ri]} textAnchor="middle" fontSize={r.fontSize} fontWeight={800} fill={r.i === 0 ? '#1a3a6a' : r.color} fontFamily="'Courier New',monospace" letterSpacing={r.fontSize * 0.2} opacity={0.92}>{r.letters}</text>
+              <text x={BX + BW - 10} y={rowPositions[ri] - r.fontSize * 0.28} textAnchor="end" fontSize={7.5} fill="#8a7a58" fontFamily="'Courier New',monospace">{acuityLabel(r.step.convFromPrev, r.i)}</text>
+              {r.i > 0 && <text x={BX + 10} y={rowPositions[ri] - r.fontSize * 0.28} textAnchor="start" fontSize={7.5} fill={r.color} fontFamily="'Courier New',monospace" fontWeight={700}>{fmtPct(r.step.convFromPrev)}</text>}
+            </g>
+          ))}
+          {rowPositions.length > 0 && (
+            <g>
+              <circle cx={BX - 16} cy={rowPositions[rowPositions.length - 1] - 6} r={4.5} fill="#cc1818" />
+              <line x1={BX - 16} x2={BX} y1={rowPositions[rowPositions.length - 1] - 6} y2={rowPositions[rowPositions.length - 1] - 6} stroke="#cc1818" strokeWidth={1.5} />
+            </g>
+          )}
+          <rect x={0} y={446} width={680} height={34} fill="#050a10" />
+          <line x1={0} y1={446} x2={680} y2={446} stroke="#0c1828" strokeWidth={1.5} />
+          <rect x={240} y={430} width={200} height={18} rx={4} fill="#0a1020" stroke="#162030" strokeWidth={1} />
+          <text x={340} y={443} textAnchor="middle" fontSize={10} fill="rgba(100,140,200,0.55)" fontFamily="'Courier New',monospace" letterSpacing={2}>{(funnelName ?? 'VISION FUNNEL').toUpperCase().slice(0, 28)}</text>
+        </svg>
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 3, textTransform: 'uppercase', color: '#4589FF', marginBottom: 14, paddingBottom: 9, borderBottom: '1px solid rgba(69,137,255,0.2)' }}>Clinic Metrics</div>
+        {[
+          { icon: '👁', label: 'TOTAL PATIENTS', value: fmtCount(totalPatients), sub: 'entered the journey' },
+          { icon: '✅', label: 'CONVERTED', value: fmtCount(converted), sub: 'completed journey' },
+          { icon: '🔬', label: 'OVERALL CONV', value: fmtPct(overallConv), sub: 'visual acuity rate' },
+          { icon: '💰', label: 'REVENUE', value: fmtCurrency(revenue), sub: `${fmtCurrency(aov)} avg per patient` },
+          { icon: '🚪', label: 'DROP-OFF', value: fmtCount(dropOff), sub: 'left before completing' },
+        ].map((m, mi) => (
+          <div key={mi} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', marginBottom: 8 }}>
+            <span style={{ fontSize: 22, lineHeight: 1 }}>{m.icon}</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 11, letterSpacing: 1.5, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 1 }}>{m.label}</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#e4efff', lineHeight: 1.15 }}>{m.value}</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', marginTop: 1 }}>{m.sub}</div>
+            </div>
+          </div>
+        ))}
+        {N > 1 && (
+          <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: '#3d6a9e', marginBottom: 10, textTransform: 'uppercase' }}>Step Conversion</div>
+            {steps.slice(1).map((step, i) => {
+              const col = stepColor(step.convFromPrev, i + 1);
+              return (
+                <div key={i} style={{ marginBottom: 9 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                    <span style={{ fontSize: 11, color: 'rgba(196,216,255,0.5)', maxWidth: '65%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{step.label}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: col }}>{fmtPct(step.convFromPrev)}</span>
+                  </div>
+                  <div style={{ height: 3, borderRadius: 2, overflow: 'hidden', background: 'rgba(255,255,255,0.07)' }}><div style={{ height: '100%', width: `${Math.min(step.convFromPrev, 100)}%`, background: col, borderRadius: 2 }} /></div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// SKIN: Spectacle Frames
+// ===========================================================================
+function SpectaclesFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const N = steps.length;
+  const totalUsers = steps[0]?.count ?? 0;
+  const converted = steps[N - 1]?.count ?? 0;
+  const overallConv = totalUsers > 0 ? (converted / totalUsers) * 100 : 0;
+  const revenue = converted * aov;
+  const stepColor = (conv: number, idx: number): string => idx === 0 ? '#4589FF' : conv >= 70 ? '#0D9C29' : conv >= 40 ? '#FFC800' : '#E00000';
+  const splitIdx = Math.ceil(N / 2);
+  const leftSteps = steps.slice(0, splitIdx);
+  const rightSteps = steps.slice(splitIdx);
+  const LCX = 188, RCX = 492, CY = 210, LRX = 148, LRY = 112, RRX = 148, RRY = 112;
+  const lConv = leftSteps.length > 0 ? leftSteps[leftSteps.length - 1].overallConv : 100;
+  const rConv = rightSteps.length > 0 ? rightSteps[rightSteps.length - 1].overallConv : overallConv;
+  const fillYL = CY + LRY - (LRY * 2) * Math.min(Math.max(lConv, 0), 100) / 100;
+  const fillYR = CY + RRY - (RRY * 2) * Math.min(Math.max(rConv, 0), 100) / 100;
+  const convCol = (c: number) => c >= 70 ? '#0D9C29' : c >= 40 ? '#FFC800' : '#E00000';
+  const LENS_ITEMS = 3;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr 270px', gap: 14, background: '#08090e', color: '#e8f0ff', padding: 16, fontFamily: '"Inter",system-ui,sans-serif', borderRadius: 12, boxSizing: 'border-box', minHeight: 520 }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 3, textTransform: 'uppercase', color: '#7090d0', marginBottom: 16, paddingBottom: 9, borderBottom: '1px solid rgba(100,140,220,0.2)' }}>Vision Journey</div>
+        {steps.map((step, i) => {
+          const col = stepColor(step.convFromPrev, i);
+          const lensLabel = i < splitIdx ? 'LEFT LENS' : 'RIGHT LENS';
+          return (
+            <div key={i} style={{ paddingBottom: 10, marginBottom: 10, borderBottom: i < N - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, color: '#3a5078', marginBottom: 2 }}>{lensLabel} · STEP {i + 1}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#c0d4f0', marginBottom: 4, lineHeight: 1.3 }}>{step.label}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 17, fontWeight: 700, color: '#ffffff' }}>{fmtCount(step.count)}</span>
+                {i > 0 && <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: col, background: `${col}1e`, padding: '2px 7px', borderRadius: 9, border: `1px solid ${col}38` }}>{fmtPct(step.convFromPrev)}</span>}
+              </div>
+              {i > 0 && <div style={{ height: 3, borderRadius: 2, marginTop: 5, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.min(step.convFromPrev, 100)}%`, background: col, borderRadius: 2 }} /></div>}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <svg viewBox="0 0 680 420" style={{ width: '100%', height: 'auto', display: 'block' }}>
+          <defs>
+            <radialGradient id="sp-bg" cx="50%" cy="40%" r="75%"><stop offset="0%" stopColor="#0d1120" /><stop offset="100%" stopColor="#050609" /></radialGradient>
+            <radialGradient id="sp-ll" cx="38%" cy="32%" r="65%"><stop offset="0%" stopColor="rgba(140,190,255,0.22)" /><stop offset="100%" stopColor="rgba(60,100,200,0.06)" /></radialGradient>
+            <radialGradient id="sp-rl" cx="62%" cy="32%" r="65%"><stop offset="0%" stopColor="rgba(140,190,255,0.22)" /><stop offset="100%" stopColor="rgba(60,100,200,0.06)" /></radialGradient>
+            <linearGradient id="sp-frame" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor="#6a7498" /><stop offset="100%" stopColor="#2e3458" /></linearGradient>
+            <filter id="sp-glow"><feGaussianBlur stdDeviation="9" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+            <filter id="sp-shadow"><feGaussianBlur stdDeviation="16" /></filter>
+            <clipPath id="sp-cl"><ellipse cx={LCX} cy={CY} rx={LRX - 5} ry={LRY - 5} /></clipPath>
+            <clipPath id="sp-cr"><ellipse cx={RCX} cy={CY} rx={RRX - 5} ry={RRY - 5} /></clipPath>
+          </defs>
+          <rect width="680" height="420" fill="url(#sp-bg)" rx={10} />
+          <ellipse cx={340} cy={430} rx={260} ry={24} fill="rgba(0,0,0,0.55)" filter="url(#sp-shadow)" />
+          <ellipse cx={LCX} cy={CY} rx={LRX + 22} ry={LRY + 15} fill="rgba(80,130,220,0.07)" filter="url(#sp-glow)" />
+          <ellipse cx={RCX} cy={CY} rx={RRX + 22} ry={RRY + 15} fill="rgba(80,130,220,0.07)" filter="url(#sp-glow)" />
+          <path d={`M${LCX - LRX + 2},${CY - 22} C${LCX - LRX - 38},${CY - 24} ${LCX - LRX - 78},${CY - 18} ${LCX - LRX - 116},${CY + 8}`} fill="none" stroke="url(#sp-frame)" strokeWidth={11} strokeLinecap="round" />
+          <path d={`M${LCX - LRX + 2},${CY - 22} C${LCX - LRX - 38},${CY - 24} ${LCX - LRX - 78},${CY - 18} ${LCX - LRX - 116},${CY + 8}`} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={6} strokeLinecap="round" />
+          <path d={`M${RCX + RRX - 2},${CY - 22} C${RCX + RRX + 38},${CY - 24} ${RCX + RRX + 78},${CY - 18} ${RCX + RRX + 116},${CY + 8}`} fill="none" stroke="url(#sp-frame)" strokeWidth={11} strokeLinecap="round" />
+          <path d={`M${RCX + RRX - 2},${CY - 22} C${RCX + RRX + 38},${CY - 24} ${RCX + RRX + 78},${CY - 18} ${RCX + RRX + 116},${CY + 8}`} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={6} strokeLinecap="round" />
+          <g clipPath="url(#sp-cl)">
+            <rect x={LCX - LRX} y={fillYL} width={LRX * 2} height={CY + LRY - fillYL} fill={`${convCol(lConv)}35`} />
+            <line x1={LCX - LRX + 4} x2={LCX + LRX - 4} y1={fillYL} y2={fillYL} stroke={convCol(lConv)} strokeWidth={1.5} strokeOpacity={0.6} />
+          </g>
+          <g clipPath="url(#sp-cr)">
+            <rect x={RCX - RRX} y={fillYR} width={RRX * 2} height={CY + RRY - fillYR} fill={`${convCol(rConv)}35`} />
+            <line x1={RCX - RRX + 4} x2={RCX + RRX - 4} y1={fillYR} y2={fillYR} stroke={convCol(rConv)} strokeWidth={1.5} strokeOpacity={0.6} />
+          </g>
+          <ellipse cx={LCX} cy={CY} rx={LRX} ry={LRY} fill="url(#sp-ll)" stroke="url(#sp-frame)" strokeWidth={9} />
+          <ellipse cx={LCX} cy={CY} rx={LRX - 5} ry={LRY - 5} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+          <ellipse cx={LCX - 38} cy={CY - 42} rx={42} ry={23} fill="rgba(255,255,255,0.06)" transform={`rotate(-14 ${LCX - 38} ${CY - 42})`} />
+          <ellipse cx={RCX} cy={CY} rx={RRX} ry={RRY} fill="url(#sp-rl)" stroke="url(#sp-frame)" strokeWidth={9} />
+          <ellipse cx={RCX} cy={CY} rx={RRX - 5} ry={RRY - 5} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+          <ellipse cx={RCX - 38} cy={CY - 42} rx={42} ry={23} fill="rgba(255,255,255,0.06)" transform={`rotate(-14 ${RCX - 38} ${CY - 42})`} />
+          <path d={`M${LCX + LRX - 3},${CY - 20} Q${340},${CY - 38} ${RCX - RRX + 3},${CY - 20}`} fill="none" stroke="url(#sp-frame)" strokeWidth={9} strokeLinecap="round" />
+          <path d={`M${LCX + LRX - 3},${CY - 20} Q${340},${CY - 38} ${RCX - RRX + 3},${CY - 20}`} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={5} strokeLinecap="round" />
+          <circle cx={316} cy={CY - 11} r={4.5} fill="#38425e" stroke="#58628e" strokeWidth={1} />
+          <circle cx={364} cy={CY - 11} r={4.5} fill="#38425e" stroke="#58628e" strokeWidth={1} />
+          <text x={LCX} y={CY - LRY + 22} textAnchor="middle" fontSize={9} fill="rgba(160,200,255,0.5)" fontWeight={700} letterSpacing={1.5} fontFamily="'Courier New',monospace">ENTRY</text>
+          {leftSteps.slice(0, LENS_ITEMS).map((step, si) => {
+            const rowH = Math.min(42, (LRY * 1.6) / Math.min(leftSteps.length, LENS_ITEMS));
+            const baseY = CY - LRY + 36 + si * rowH;
+            return (
+              <g key={si}>
+                <text x={LCX} y={baseY + 12} textAnchor="middle" fontSize={14} fill="#d0e4ff" fontWeight={700}>{fmtCount(step.count)}</text>
+                <text x={LCX} y={baseY + 26} textAnchor="middle" fontSize={8.5} fill="rgba(150,180,230,0.6)" fontFamily="'Courier New',monospace">{step.label.length > 20 ? step.label.substring(0, 18) + '…' : step.label}</text>
+                {si > 0 && <text x={LCX} y={baseY + 37} textAnchor="middle" fontSize={9} fill={stepColor(step.convFromPrev, si)} fontWeight={700}>{fmtPct(step.convFromPrev)}</text>}
+              </g>
+            );
+          })}
+          <text x={RCX} y={CY - RRY + 22} textAnchor="middle" fontSize={9} fill="rgba(160,200,255,0.5)" fontWeight={700} letterSpacing={1.5} fontFamily="'Courier New',monospace">COMPLETION</text>
+          {rightSteps.length > 0 ? rightSteps.slice(0, LENS_ITEMS).map((step, si) => {
+            const rowH = Math.min(42, (RRY * 1.6) / Math.min(rightSteps.length, LENS_ITEMS));
+            const baseY = CY - RRY + 36 + si * rowH;
+            return (
+              <g key={si}>
+                <text x={RCX} y={baseY + 12} textAnchor="middle" fontSize={14} fill="#d0e4ff" fontWeight={700}>{fmtCount(step.count)}</text>
+                <text x={RCX} y={baseY + 26} textAnchor="middle" fontSize={8.5} fill="rgba(150,180,230,0.6)" fontFamily="'Courier New',monospace">{step.label.length > 20 ? step.label.substring(0, 18) + '…' : step.label}</text>
+                {<text x={RCX} y={baseY + 37} textAnchor="middle" fontSize={9} fill={stepColor(step.convFromPrev, si + splitIdx)} fontWeight={700}>{fmtPct(step.convFromPrev)}</text>}
+              </g>
+            );
+          }) : (
+            <g>
+              <text x={RCX} y={CY + 10} textAnchor="middle" fontSize={28} fill={convCol(overallConv)} fontWeight={800}>{fmtPct(overallConv)}</text>
+              <text x={RCX} y={CY + 28} textAnchor="middle" fontSize={9} fill="rgba(160,200,255,0.5)" fontFamily="'Courier New',monospace">OVERALL CONV</text>
+            </g>
+          )}
+          <text x={340} y={CY + LRY + 26} textAnchor="middle" fontSize={10} fill="rgba(160,190,255,0.5)" letterSpacing={2} fontFamily="'Courier New',monospace">OVERALL CONVERSION</text>
+          <text x={340} y={CY + LRY + 50} textAnchor="middle" fontSize={24} fill={convCol(overallConv)} fontWeight={800}>{fmtPct(overallConv)}</text>
+          <path d={`M310,${CY + LRY + 65} L${340},${CY + LRY + 84} L${370},${CY + LRY + 65}`} fill="none" stroke="#282e48" strokeWidth={3} />
+          <rect x={282} y={CY + LRY + 82} width={116} height={7} rx={3.5} fill="#1e2438" />
+        </svg>
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 3, textTransform: 'uppercase', color: '#7090d0', marginBottom: 14, paddingBottom: 9, borderBottom: '1px solid rgba(100,140,220,0.2)' }}>Frame Metrics</div>
+        {[
+          { icon: '👓', label: 'TOTAL VISITORS', value: fmtCount(totalUsers), sub: 'entered the journey' },
+          { icon: '✅', label: 'CONVERTED', value: fmtCount(converted), sub: 'completed journey' },
+          { icon: '🔭', label: 'OVERALL CONV', value: fmtPct(overallConv), sub: 'end-to-end rate' },
+          { icon: '💰', label: 'REVENUE', value: fmtCurrency(revenue), sub: `${fmtCurrency(aov)} avg order` },
+          { icon: '🚪', label: 'DROP-OFF', value: fmtCount(totalUsers - converted), sub: 'left before completing' },
+        ].map((m, mi) => (
+          <div key={mi} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', marginBottom: 8 }}>
+            <span style={{ fontSize: 22, lineHeight: 1 }}>{m.icon}</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 11, letterSpacing: 1.5, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 1 }}>{m.label}</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#e4efff', lineHeight: 1.15 }}>{m.value}</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', marginTop: 1 }}>{m.sub}</div>
+            </div>
+          </div>
+        ))}
+        {N > 1 && (
+          <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: '#4a6a9a', marginBottom: 10, textTransform: 'uppercase' }}>Step Conversion</div>
+            {steps.slice(1).map((step, i) => {
+              const col = stepColor(step.convFromPrev, i + 1);
+              return (
+                <div key={i} style={{ marginBottom: 9 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                    <span style={{ fontSize: 11, color: 'rgba(196,216,255,0.5)', maxWidth: '65%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{step.label}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: col }}>{fmtPct(step.convFromPrev)}</span>
+                  </div>
+                  <div style={{ height: 3, borderRadius: 2, overflow: 'hidden', background: 'rgba(255,255,255,0.07)' }}><div style={{ height: '100%', width: `${Math.min(step.convFromPrev, 100)}%`, background: col, borderRadius: 2 }} /></div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
 function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast, funnelName, timeframeDays, frontend }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnelName?: string; timeframeDays: number; frontend: string; }) {
@@ -9276,7 +9791,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           </button>
         </Flex>
       </Flex>
-      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && funnelStyle !== "mri" && funnelStyle !== "autoFinance" && funnelStyle !== "rocketLaunch" && funnelStyle !== "airport" && funnelStyle !== "retail" && funnelStyle !== "cyber" && funnelStyle !== "stadium" && funnelStyle !== "homebuying" && (
+      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && funnelStyle !== "mri" && funnelStyle !== "autoFinance" && funnelStyle !== "rocketLaunch" && funnelStyle !== "airport" && funnelStyle !== "retail" && funnelStyle !== "cyber" && funnelStyle !== "stadium" && funnelStyle !== "homebuying" && funnelStyle !== "eyeExam" && funnelStyle !== "spectacles" && (
         <div style={{ textAlign: "center", padding: "6px 0 2px" }}>
           <Heading level={3} style={{ fontWeight: 700, margin: 0 }}>{funnelName}</Heading>
         </div>
@@ -9325,6 +9840,8 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         {funnelStyle === "stadium" && <StadiumFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "homebuying" && <HomebuyingFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "uhaul" && <UHaulFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "eyeExam" && <EyeExamFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "spectacles" && <SpectaclesFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
@@ -12641,6 +13158,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [timelineViewMode, setTimelineViewMode] = useState<"summary" | "chronological">("summary");
   const [compareSessionA, setCompareSessionA] = useState<string>("");
   const [compareSessionB, setCompareSessionB] = useState<string>("");
+  const [rollupPopover, setRollupPopover] = useState<{ layer: number; x: number; y: number } | null>(null);
+  const [rollupSelected, setRollupSelected] = useState<Record<number, string>>({});
   const navigationApps = useMemo(() => uniqueApps(steps, frontend), [steps, frontend]);
   const navAppFilterOverride = navAppFilter === "__all__" ? undefined : navAppFilter;
   const navUserFilter = selectedUserTag === "__all_users__" ? undefined : selectedUserTag;
@@ -13965,25 +14484,46 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             }
             for (const [, arr] of layerPages) arr.sort((a, b) => b.volume - a.volume);
 
-            // Show ALL pages (no per-layer limit)
+            // Per-column cap: funnel step always on top, top 4 non-funnel by volume, 6th slot = rollup picker
+            const MAX_NON_FUNNEL = 4;
+            const funnelPageNames = new Set<string>();
+            for (const page of allPages) {
+              if (steps.some(s => s.identifiers.some(id => identifierMatchesLabel(id, page)))) funnelPageNames.add(page);
+            }
+            const rollupByLayer = new Map<number, { name: string; volume: number }[]>();
+            const layerDisplayPages = new Map<number, { name: string; volume: number }[]>();
+            for (const [layer, arr] of layerPages) {
+              const funnelInLayer = arr.filter(p => funnelPageNames.has(p.name));
+              const nonFunnelInLayer = arr.filter(p => !funnelPageNames.has(p.name));
+              const topNonFunnel = nonFunnelInLayer.slice(0, MAX_NON_FUNNEL);
+              const rolledUp = nonFunnelInLayer.slice(MAX_NON_FUNNEL);
+              const display: { name: string; volume: number }[] = [...funnelInLayer, ...topNonFunnel];
+              if (rolledUp.length > 0) {
+                rollupByLayer.set(layer, rolledUp);
+                const selName = rollupSelected[layer];
+                const selPage = selName ? rolledUp.find(p => p.name === selName) : null;
+                display.push(selPage ? selPage : { name: `__rollup__:${layer}`, volume: 0 });
+              }
+              layerDisplayPages.set(layer, display);
+            }
             const visiblePages = new Set<string>();
-            for (const [, arr] of layerPages) arr.forEach(p => visiblePages.add(p.name));
+            for (const [, arr] of layerDisplayPages) arr.forEach(p => { if (!p.name.startsWith("__rollup__")) visiblePages.add(p.name); });
 
             // Layout constants
             const nodeW = 220, nodeH = 52, funnelNodeH = 74, padX = 60, padY = 24;
-            const layers = Array.from(layerPages.keys()).sort((a, b) => a - b);
+            const layers = Array.from(layerDisplayPages.keys()).sort((a, b) => a - b);
             const numLayers = layers.length || 1;
             const colWidth = nodeW + 140; // generous horizontal spacing between columns
             const W = padX * 2 + numLayers * colWidth;
-            // Funnel pages get a taller box (3 rows: step label + page name + count)
-            const getPageNodeH = (pageName: string): number => steps.some(s => s.identifiers.some(id => identifierMatchesLabel(id, pageName))) ? funnelNodeH : nodeH;
-            const maxLayerH = Math.max(...Array.from(layerPages.values()).map(arr => arr.reduce((a, p) => a + getPageNodeH(p.name) + padY, 0) - padY), nodeH);
+            // Funnel pages get a taller box; rollup node uses standard height
+            const getPageNodeH = (pageName: string): number => pageName.startsWith("__rollup__") ? nodeH : steps.some(s => s.identifiers.some(id => identifierMatchesLabel(id, pageName))) ? funnelNodeH : nodeH;
+            const maxLayerH = Math.max(...Array.from(layerDisplayPages.values()).map(arr => arr.reduce((a, p) => a + getPageNodeH(p.name) + padY, 0) - padY), nodeH);
             const H = Math.max(450, maxLayerH + 100);
 
             // Compute node positions
             const nodePos = new Map<string, { x: number; y: number; h: number; vol: number }>();
             layers.forEach((layer, li) => {
-              const arr = layerPages.get(layer) ?? [];
+              const arr = layerDisplayPages.get(layer) ?? [];
               const totalH = arr.reduce((a, p) => a + getPageNodeH(p.name), 0) + Math.max(0, arr.length - 1) * padY;
               const startY = (H - totalH) / 2;
               let yOff = startY;
@@ -13993,6 +14533,12 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                 yOff += ph + padY;
               });
             });
+
+            // Reverse map: real page name → layer (pages currently filling a rollup slot)
+            const rollupSelectedByPage = new Map<string, number>();
+            for (const [layerStr, pName] of Object.entries(rollupSelected)) {
+              if (pName) rollupSelectedByPage.set(pName, parseInt(layerStr, 10));
+            }
 
             // Apply manual drag overrides
             for (const [nodeName, mp] of manualNodePos) {
@@ -14358,7 +14904,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                   }}
                   onMouseUp={() => { setDraggingNode(null); setDragStart(null); setDraggingDivider(false); setDividerDragStart(null); }}
                   onMouseLeave={() => { setDraggingNode(null); setDragStart(null); setDraggingDivider(false); setDividerDragStart(null); }}
-                  onClick={(e) => { if (wasDragging) { setWasDragging(false); return; } setSelectedFlow(null); setActiveTooltip(null); }}
+                  onClick={(e) => { if (wasDragging) { setWasDragging(false); return; } setSelectedFlow(null); setActiveTooltip(null); setRollupPopover(null); }}
                 >
                   {/* Section divider */}
                   {showBackend && beServices.length > 0 && (
@@ -14493,13 +15039,31 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                   })}
 
                   {/* Frontend Nodes */}
-                  {Array.from(nodePos.entries()).map(([name, pos]) => {
+                  {Array.from(nodePos.entries()).map(([name, pos], ni) => {
+                    // ── Rollup indicator node ──
+                    if (name.startsWith("__rollup__")) {
+                      const layer = parseInt(name.split(":")[1], 10);
+                      const rolledUp = rollupByLayer.get(layer) ?? [];
+                      const isOpen = rollupPopover?.layer === layer;
+                      return (
+                        <g key={name} style={{ cursor: "pointer" }}
+                          onClick={(e) => { e.stopPropagation(); setRollupPopover(isOpen ? null : { layer, x: e.clientX, y: e.clientY }); }}
+                        >
+                          <rect x={pos.x} y={pos.y} width={nodeW} height={nodeH} rx={6}
+                            fill={isOpen ? "rgba(69,137,255,0.12)" : "rgba(255,255,255,0.04)"}
+                            stroke="rgba(255,255,255,0.3)" strokeWidth={1.5} strokeDasharray="5 3" />
+                          <text x={pos.x + nodeW / 2} y={pos.y + 16} textAnchor="middle" fontSize={11} fill="rgba(255,255,255,0.55)" fontWeight={600}>{rolledUp.length} more page{rolledUp.length !== 1 ? "s" : ""}</text>
+                          <text x={pos.x + nodeW / 2} y={pos.y + 36} textAnchor="middle" fontSize={10} fill="rgba(69,137,255,0.8)">{isOpen ? "▲ close picker" : "▼ select to expand"}</text>
+                        </g>
+                      );
+                    }
+
                     const isFunnel = steps.some(s => s.identifiers.some(id => identifierMatchesLabel(id, name)));
                     const nodeType = inferPageNodeType(name, isFunnel, entryPages, exitPages);
                     const meta = FLOW_NODE_META[nodeType];
                     const conv = convMap.get(name);
                     const reqCount = displayCountsByPage.get(name) ?? 0;
-                    const shortName = name.length > 32 ? name.substring(0, 30) + "…" : name;
+                    const shortName = name.length > 26 ? name.substring(0, 24) + "…" : name;
                     const isHighlightedNode = !hasFocus || highlightedNodes.has(name);
                     const nodeOpacity = hasFocus ? (isHighlightedNode ? 1 : 0.12) : focusedPageName ? (pageFocusSet.has(name) ? 1 : 0.1) : focusedSvcId ? (svcFocusIncludesFrontend ? (svcFocusPageSet.has(name) ? 1 : 0.12) : 0.12) : 1;
                     const isActive = activeTooltip === `page:${name}`;
@@ -14507,12 +15071,14 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const hotColor = navTlEnabled ? pageTl.color : null;
                     const showLoadRing = navTlEnabled && pageTl.ring > 1;
                     const isHotHigh = hotColor === TL_HOT_HIGH;
+                    const clipId = `fnc${ni}`;
                     return (
                       <g key={name}
                         style={{ opacity: nodeOpacity, transition: draggingNode === name ? "none" : "opacity 0.2s", cursor: draggingNode === name ? "grabbing" : "grab" }}
                         onMouseDown={(e) => { e.stopPropagation(); setDraggingNode(name); setDragStart({ mx: e.clientX, my: e.clientY, nx: pos.x, ny: pos.y }); setWasDragging(false); }}
                         onClick={(e) => { e.stopPropagation(); if (!wasDragging) setActiveTooltip(prev => prev === `page:${name}` ? null : `page:${name}`); }}
                       >
+                        <defs><clipPath id={clipId}><rect x={pos.x + 8} y={pos.y - 2} width={nodeW - 16} height={pos.h + 4} /></clipPath></defs>
                         {/* TL halo — additive overlay, keeps tier color intact */}
                         {hotColor && (
                           <rect x={pos.x - 6} y={pos.y - 6} width={nodeW + 12} height={pos.h + 12} rx={10}
@@ -14540,14 +15106,25 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           const fsiText = fsi >= 0 ? `\u2605 Step ${fsi + 1}: ${fsiLabel}` : "";
                           return fsiText ? <text x={pos.x + 10} y={pos.y + 14} fontSize={9} fill={meta.color} fontWeight={700} opacity={0.9} style={{ dominantBaseline: "middle" } as any}>{fsiText.length > 34 ? fsiText.substring(0, 32) + "\u2026" : fsiText}</text> : null;
                         })()}
-                        <text x={pos.x + 10} y={isFunnel ? pos.y + 34 : pos.y + 18} fontSize={12} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
+                        <text x={pos.x + 10} y={isFunnel ? pos.y + 34 : pos.y + 18} fontSize={12} fill={meta.color} fontWeight={700} clipPath={`url(#${clipId})`} style={{ dominantBaseline: "middle" } as any}>
                           {shortName}
                         </text>
-                        <text x={pos.x + 10} y={isFunnel ? pos.y + 56 : pos.y + 38} fontSize={10} fill="rgba(255,255,255,0.75)" opacity={0.9}>
+                        <text x={pos.x + 10} y={isFunnel ? pos.y + 56 : pos.y + 38} fontSize={10} fill="rgba(255,255,255,0.75)" clipPath={`url(#${clipId})`} opacity={0.9}>
                           {navTlEnabled && pageTl.data
                             ? `${fmtCount(pageTl.data.sessions)} sess · ${(pageTl.data.actions > 0 ? (pageTl.data.errors / pageTl.data.actions) * 100 : 0).toFixed(1)}% err`
                             : `${nodeCountLabel} ${fmtCount(reqCount)}${conv !== undefined && conv < 100 ? ` · Conv ${fmtPct(conv)}` : ""}`}
                         </text>
+                        {/* Swap badge — shown when this node is filling a rollup slot */}
+                        {rollupSelectedByPage.has(name) && (() => {
+                          const rLayer = rollupSelectedByPage.get(name)!;
+                          const isPickerOpen = rollupPopover?.layer === rLayer;
+                          return (
+                            <g onClick={(e) => { e.stopPropagation(); setRollupPopover(isPickerOpen ? null : { layer: rLayer, x: e.clientX, y: e.clientY }); }} style={{ cursor: "pointer" }}>
+                              <rect x={pos.x + nodeW - 28} y={pos.y + 3} width={24} height={15} rx={4} fill={isPickerOpen ? "rgba(69,137,255,0.95)" : "rgba(69,137,255,0.7)"} />
+                              <text x={pos.x + nodeW - 16} y={pos.y + 13} textAnchor="middle" fontSize={9} fill="#fff" fontWeight={700}>⇄</text>
+                            </g>
+                          );
+                        })()}
                       </g>
                     );
                   })}
@@ -14725,8 +15302,53 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                   })()}
                 </svg>
 
-                {/* === Time-Lapse Spike Strips (Frontend + Backend) === */}
-                {navTlEnabled && navTlBucketList.length > 0 && (() => {
+                {/* Rollup page picker popover */}
+                {rollupPopover && (() => {
+                  const { layer, x, y } = rollupPopover;
+                  const rolledUp = rollupByLayer.get(layer) ?? [];
+                  if (rolledUp.length === 0) return null;
+                  const selName = rollupSelected[layer];
+                  const popMaxH = Math.min(rolledUp.length * 34 + 70, 340);
+                  const popTop = Math.max(8, Math.min(y + 8, window.innerHeight - popMaxH - 8));
+                  const popLeft = Math.min(x + 12, window.innerWidth - 448);
+                  return createPortal(
+                    <div style={{ position: "fixed", left: popLeft, top: popTop, width: 440, background: "var(--dt-colors-background-base-default,#0f1428)", border: "1px solid rgba(128,128,128,0.35)", borderRadius: 8, boxShadow: "0 8px 28px rgba(0,0,0,0.55)", zIndex: 700, fontSize: 12, overflow: "hidden" }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div style={{ padding: "7px 10px", borderBottom: "1px solid rgba(128,128,128,0.2)", fontSize: 11, fontWeight: 700, opacity: 0.75 }}>
+                        {rolledUp.length} rolled-up page{rolledUp.length !== 1 ? "s" : ""} — select to expand
+                      </div>
+                      <div style={{ maxHeight: 280, overflowY: "auto" }}>
+                        {rolledUp.map(p => {
+                          const isSelected = p.name === selName;
+                          return (
+                            <div key={p.name}
+                              style={{ padding: "6px 10px", cursor: "pointer", background: isSelected ? "rgba(69,137,255,0.15)" : "transparent", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}
+                              onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.06)"; }}
+                              onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+                              onClick={() => { setRollupSelected(prev => ({ ...prev, [layer]: p.name })); setRollupPopover(null); }}
+                            >
+                              <span style={{ fontSize: 11, color: isSelected ? "#4589FF" : "rgba(255,255,255,0.8)", fontWeight: isSelected ? 700 : 400, wordBreak: "break-all", lineHeight: 1.35 }}>{p.name}</span>
+                              <span style={{ fontSize: 10, opacity: 0.5, fontFamily: "monospace", flexShrink: 0, marginLeft: 8 }}>{fmtCount(p.volume)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {selName && (
+                        <div style={{ padding: "5px 10px", borderTop: "1px solid rgba(128,128,128,0.15)" }}>
+                          <button onClick={() => { setRollupSelected(prev => { const n = { ...prev }; delete n[layer]; return n; }); setRollupPopover(null); }}
+                            style={{ fontSize: 10, opacity: 0.5, background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0 }}>
+                            ✕ Clear selection
+                          </button>
+                        </div>
+                      )}
+                    </div>,
+                    document.body
+                  );
+                })()}
+
+                {/* === Time-Lapse Spike Strips removed — hotness is shown in the global header strip === */}
+                {false && navTlEnabled && navTlBucketList.length > 0 && (() => {
                   const stripW = 800;
                   const stripH = 42;
                   const barW = stripW / Math.max(1, navTlBucketList.length);
@@ -17510,10 +18132,12 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
         <KpiCard label="Funnel Completion" value={fmtPct(pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0)} color={pathAnalysis.totalPaths > 0 && (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) < 0.3 ? RED : GREEN} rawValue={pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0} prevRawValue={syntheticPrev((pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0), "Funnel Completion")} sparkline={syntheticSparkline(pathAnalysis.funnelCompletions, 8, "Funnel Completion")} onDrillToForecast={onDrillToForecast} />
         <KpiCard label="Funnel Exits" value={fmtCount(pathAnalysis.funnelExits)} color={RED} rawValue={pathAnalysis.funnelExits} prevRawValue={syntheticPrev(pathAnalysis.funnelExits, "Funnel Exits")} sparkline={syntheticSparkline(pathAnalysis.funnelExits, 8, "Funnel Exits")} onDrillToForecast={onDrillToForecast} />
       </Flex>
-      <Flex gap={12} alignItems="center" style={{ padding: "4px 0" }}>
+      <Flex gap={12} alignItems="center" style={{ padding: "4px 0", flexWrap: "wrap" }}>
         <Flex gap={4} alignItems="center"><span style={{ width: 12, height: 12, borderRadius: 2, background: "#FFD700", display: "inline-block", border: "1px dashed rgba(255,215,0,0.6)" }} /><Text style={{ fontSize: 11, opacity: 0.6 }}>Funnel Page</Text></Flex>
-        <Flex gap={4} alignItems="center"><span style={{ width: 12, height: 12, borderRadius: 2, background: BLUE, display: "inline-block" }} /><Text style={{ fontSize: 11, opacity: 0.6 }}>Non-Funnel</Text></Flex>
         <Flex gap={4} alignItems="center"><span style={{ width: 12, height: 12, borderRadius: 2, background: RED, display: "inline-block" }} /><Text style={{ fontSize: 11, opacity: 0.6 }}>Exit Point</Text></Flex>
+        {Array.from({ length: maxDepth + 1 }, (_, d) => (
+          <Flex key={d} gap={4} alignItems="center"><span style={{ width: 12, height: 12, borderRadius: 2, background: SANKEY_COLORS[d % SANKEY_COLORS.length], display: "inline-block" }} /><Text style={{ fontSize: 11, opacity: 0.6 }}>Page {d + 1}</Text></Flex>
+        ))}
       </Flex>
     </>
   );
@@ -17598,7 +18222,10 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
       {hasFocus && focusNode && (
         <div style={{ marginTop: 12, padding: "12px 16px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: `3px solid ${SANKEY_COLORS[focusNode.depth % SANKEY_COLORS.length]}` }}>
           <Flex alignItems="center" gap={8} style={{ marginBottom: 8 }}>
-            <Strong style={{ fontSize: 13 }}>{focusNode.label}</Strong>
+            {appEntityId
+              ? <a href={vitalsUrl(appEntityId, focusNode.label)} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, fontWeight: 700, color: "inherit", textDecoration: "none", borderBottom: "1px dashed rgba(255,255,255,0.35)", cursor: "pointer" }} onMouseEnter={(e) => (e.currentTarget.style.borderBottomColor = "rgba(69,137,255,0.8)")} onMouseLeave={(e) => (e.currentTarget.style.borderBottomColor = "rgba(255,255,255,0.35)")} title={`Open in Vitals: ${focusNode.label}`}>{focusNode.label}</a>
+              : <Strong style={{ fontSize: 13 }}>{focusNode.label}</Strong>
+            }
             <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtCount(focusSessions)} sessions</Text>
             <button onClick={() => setFocusNodeId(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 12 }}>Clear</button>
           </Flex>
@@ -22150,10 +22777,14 @@ function CostPerConversionTab({ funnelCounts, funnelCountsPrev, quality, quality
   const tl = useTimelapse();
   if (isLoading) return <Loading />;
 
+  const b = INDUSTRY_BENCHMARKS[industry];
   const totalSessions = quality.sessions ?? 0;
   const prevSessions = qualityPrev.sessions ?? 0;
-  const conversions = funnelCounts[funnelCounts.length - 1] ?? 0;
-  const prevConversions = funnelCountsPrev[funnelCountsPrev.length - 1] ?? 0;
+  const rawConversions = funnelCounts[funnelCounts.length - 1] ?? 0;
+  const usingEstimatedConv = rawConversions === 0 && totalSessions > 0;
+  const conversions = usingEstimatedConv ? Math.round(totalSessions * b.convRateTarget / 100) : rawConversions;
+  const prevRawConversions = funnelCountsPrev[funnelCountsPrev.length - 1] ?? 0;
+  const prevConversions = prevRawConversions === 0 && prevSessions > 0 ? Math.round(prevSessions * b.convRateTarget / 100) : prevRawConversions;
 
   // Cost metrics
   const dailyInfraCost = monthlyInfraCost / 30;
@@ -22198,6 +22829,11 @@ function CostPerConversionTab({ funnelCounts, funnelCountsPrev, quality, quality
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
+      {usingEstimatedConv && (
+        <div style={{ padding: "8px 14px", background: "rgba(255,200,0,0.08)", border: "1px solid rgba(255,200,0,0.3)", borderRadius: 8, fontSize: 12, color: YELLOW }}>
+          Funnel conversion data unavailable — conversions estimated at the {b.label} industry benchmark of {b.convRateTarget}% ({fmtCount(conversions)} est. from {fmtCount(totalSessions)} sessions). Configure your funnel steps for actuals.
+        </div>
+      )}
       <Flex gap={16} flexWrap="wrap">
         <KpiCard label={tlShared ? "Cost per Conversion (bucket)" : "Cost per Conversion"} value={fmtCurrency(effCostPerConversion)} color={RED} rawValue={effCostPerConversion} prevRawValue={prevCostPerConversion || undefined} sparkline={sparkCpc} inverted onDrillToForecast={onDrillToForecast} />
         <KpiCard label={tlShared ? "Cost per Session (bucket)" : "Cost per Session"} value={fmtCurrency(effCostPerSession)} color={ORANGE} rawValue={effCostPerSession} prevRawValue={prevCostPerSession || undefined} sparkline={sparkCps} inverted onDrillToForecast={onDrillToForecast} />
@@ -22289,26 +22925,29 @@ function PerformanceTaxTab({ funnelCounts, quality, qualityPrev, overallConv, ov
   const tl = useTimelapse();
   if (isLoading) return <Loading />;
 
+  const b = INDUSTRY_BENCHMARKS[industry];
   const totalSessions = quality.sessions ?? 0;
   const avgDuration = quality.avg ?? 0;
   const errRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
   const fruPct = quality.total > 0 ? (quality.frustrated / quality.total) * 100 : 0;
-  const topFunnelSessions = funnelCounts[0] ?? totalSessions;
+  const topFunnelSessions = funnelCounts[0] > 0 ? funnelCounts[0] : totalSessions;
+  const usingEstimatedConv = overallConv === 0 && totalSessions > 0;
+  const effectiveConv = usingEstimatedConv ? b.convRateTarget : overallConv;
 
   // Performance Tax Model: each 100ms of latency above 1000ms costs ~1% conversion
   const excessLatencyMs = Math.max(0, avgDuration - 1000);
   const latencyPenaltyPct = Math.min(30, excessLatencyMs / 100);
-  const lostConversionsFromLatency = Math.round(topFunnelSessions * (overallConv / 100) * (latencyPenaltyPct / 100));
+  const lostConversionsFromLatency = Math.round(topFunnelSessions * (effectiveConv / 100) * (latencyPenaltyPct / 100));
   const latencyRevLoss = lostConversionsFromLatency * aov;
 
   // Frustration Tax: frustrated users convert at 50% lower rate
   const frustratedSessions = Math.round(totalSessions * (fruPct / 100));
-  const lostConversionsFromFrustration = Math.round(frustratedSessions * (overallConv / 100) * 0.5);
+  const lostConversionsFromFrustration = Math.round(frustratedSessions * (effectiveConv / 100) * 0.5);
   const frustrationRevLoss = lostConversionsFromFrustration * aov;
 
   // Error Tax: each error session has ~30% lower conversion probability
   const errorSessions = Math.round(totalSessions * (errRate / 100));
-  const lostConversionsFromErrors = Math.round(errorSessions * (overallConv / 100) * 0.3);
+  const lostConversionsFromErrors = Math.round(errorSessions * (effectiveConv / 100) * 0.3);
   const errorRevLoss = lostConversionsFromErrors * aov;
 
   const totalPerfTax = latencyRevLoss + frustrationRevLoss + errorRevLoss;
@@ -22340,13 +22979,13 @@ function PerformanceTaxTab({ funnelCounts, quality, qualityPrev, overallConv, ov
   const effTopFunnel = tlShared ? topFunnelSessions * sessionsRatio : topFunnelSessions;
   const effExcMs = Math.max(0, effAvgDur - 1000);
   const effLatPct = Math.min(30, effExcMs / 100);
-  const effLostLat = Math.round(effTopFunnel * (overallConv / 100) * (effLatPct / 100));
+  const effLostLat = Math.round(effTopFunnel * (effectiveConv / 100) * (effLatPct / 100));
   const effLatencyRevLoss = effLostLat * aov;
   const effFruSes = Math.round(effTotalSessions * (effFruPct / 100));
-  const effLostFru = Math.round(effFruSes * (overallConv / 100) * 0.5);
+  const effLostFru = Math.round(effFruSes * (effectiveConv / 100) * 0.5);
   const effFrustrationRevLoss = effLostFru * aov;
   const effErrSes = Math.round(effTotalSessions * (effErrRate / 100));
-  const effLostErr = Math.round(effErrSes * (overallConv / 100) * 0.3);
+  const effLostErr = Math.round(effErrSes * (effectiveConv / 100) * 0.3);
   const effErrorRevLoss = effLostErr * aov;
   const effTotalPerfTax = effLatencyRevLoss + effFrustrationRevLoss + effErrorRevLoss;
   const effTotalLostConversions = effLostLat + effLostFru + effLostErr;
@@ -22356,6 +22995,11 @@ function PerformanceTaxTab({ funnelCounts, quality, qualityPrev, overallConv, ov
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
+      {usingEstimatedConv && (
+        <div style={{ padding: "8px 14px", background: "rgba(255,200,0,0.08)", border: "1px solid rgba(255,200,0,0.3)", borderRadius: 8, fontSize: 12, color: YELLOW }}>
+          Funnel conversion rate unavailable — performance tax estimated using the {b.label} benchmark of {b.convRateTarget}% conversion rate. Configure your funnel steps for actuals.
+        </div>
+      )}
       <Flex gap={16} flexWrap="wrap">
         <KpiCard label={tlShared ? "Total Performance Tax (bucket)" : "Total Performance Tax"} value={fmtCurrency(effTotalPerfTax)} color={RED} rawValue={effTotalPerfTax} sparkline={sparkTax} inverted onDrillToForecast={onDrillToForecast} />
         <KpiCard label={tlShared ? "Lost Conversions (bucket)" : "Lost Conversions"} value={fmtCount(effTotalLostConversions)} color={ORANGE} rawValue={effTotalLostConversions} sparkline={sparkLostConv} inverted onDrillToForecast={onDrillToForecast} />
