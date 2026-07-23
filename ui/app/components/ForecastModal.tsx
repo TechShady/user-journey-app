@@ -478,7 +478,7 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
   const plotH = H - MARGIN.top - MARGIN.bottom;
 
   const yMin = Math.min(0, ...allValues.filter(isFinite));
-  const yMax = Math.max(...allValues.filter(isFinite)) * 1.1 || 1;
+  const yMax = Math.max(...[...historicalData, ...forecastData].filter(isFinite)) * 1.1 || 1;
   const yRange = yMax - yMin || 1;
 
   const xScale = (i: number) => MARGIN.left + (totalPoints > 1 ? (i / (totalPoints - 1)) * plotW : 0);
