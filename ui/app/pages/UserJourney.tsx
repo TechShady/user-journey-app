@@ -4271,21 +4271,32 @@ export function UserJourney() {
         if (lbl === "Conversions") return records.map((r: any) => Number(r.converted_sessions ?? 0));
         return records.map((r: any) => Number(r.converted_sessions ?? 0) * aov);
       }
-      const isVitals = ["LCP", "CLS", "INP", "TTFB", "Load Event End"].includes(lbl);
+      const isVitals = ["LCP", "CLS", "INP", "TTFB", "Load Event End",
+        "Largest Contentful Paint", "Largest Contentful Paint (bucket)",
+        "Cumulative Layout Shift", "Cumulative Layout Shift (bucket)",
+        "Interaction to Next Paint", "Interaction to Next Paint (bucket)",
+        "Time to First Byte", "Time to First Byte (bucket)",
+        "Load Event End (bucket)"].includes(lbl);
       if (isVitals) {
         const records = await runDqlQuery(forecastRequeryVitalsQuery(analyzeDays, datapointMinutes, frontend));
         switch (lbl) {
-          case "LCP": return records.map((r: any) => Number(r.lcp_val ?? 0)).filter(v => v > 0);
-          case "CLS": return records.map((r: any) => Number(r.cls_val ?? 0));
-          case "INP": return records.map((r: any) => Number(r.inp_val ?? 0)).filter(v => v > 0);
-          case "TTFB": return records.map((r: any) => Number(r.ttfb_val ?? 0)).filter(v => v > 0);
-          case "Load Event End": return records.map((r: any) => Number(r.load_val ?? 0)).filter(v => v > 0);
+          case "LCP": case "Largest Contentful Paint": case "Largest Contentful Paint (bucket)":
+            return records.map((r: any) => Number(r.lcp_val ?? 0)).filter(v => v > 0);
+          case "CLS": case "Cumulative Layout Shift": case "Cumulative Layout Shift (bucket)":
+            return records.map((r: any) => Number(r.cls_val ?? 0));
+          case "INP": case "Interaction to Next Paint": case "Interaction to Next Paint (bucket)":
+            return records.map((r: any) => Number(r.inp_val ?? 0)).filter(v => v > 0);
+          case "TTFB": case "Time to First Byte": case "Time to First Byte (bucket)":
+            return records.map((r: any) => Number(r.ttfb_val ?? 0)).filter(v => v > 0);
+          case "Load Event End": case "Load Event End (bucket)":
+            return records.map((r: any) => Number(r.load_val ?? 0)).filter(v => v > 0);
           default: return [];
         }
       }
       const records = await runDqlQuery(forecastRequerySparklineQuery(analyzeDays, datapointMinutes, frontend, steps));
       switch (lbl) {
-        case "Sessions": return records.map((r: any) => Number(r.sessions ?? 0));
+        case "Sessions": case "Total Sessions":
+          return records.map((r: any) => Number(r.sessions ?? 0));
         case "Total Actions": return records.map((r: any) => Number(r.total ?? 0));
         case "Avg Duration": return records.map((r: any) => Number(r.avg_dur ?? 0));
         case "P50 Duration": return records.map((r: any) => Number(r.p50_dur ?? 0));
