@@ -645,7 +645,7 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
             {historicalData.map((v, i) => (
               <circle key={`h-${i}`} cx={xScale(i)} cy={yScale(v)} r={historicalData.length > 60 ? 1.5 : 3} fill={color} opacity={0.8} />
             ))}
-            {connectionPath && <path d={connectionPath} fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="4,3" opacity={0.6} />}
+            {connectionPath && <path d={connectionPath} fill="none" stroke={color} strokeWidth={1.5} opacity={0.6} />}
             {forecastPath && <path d={forecastPath} fill="none" stroke={color} strokeWidth={2} strokeDasharray="6,4" opacity={0.8} />}
             {forecastData.map((v, i) => (
               <circle key={`f-${i}`} cx={xScale(historicalData.length + i)} cy={yScale(v)} r={forecastData.length > 60 ? 1.5 : 3} fill={color} opacity={0.5} />
