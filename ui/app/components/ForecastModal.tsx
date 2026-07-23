@@ -444,7 +444,7 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
     const duration = activeToMs - activeFromMs;
     const bucketMs = duration / historicalData.length;
     const forecastMs = appliedForecastDays * 24 * 3600 * 1000;
-    const forecastBuckets = Math.max(1, Math.round(forecastMs / bucketMs));
+    const forecastBuckets = Math.max(2, Math.round(forecastMs / bucketMs));
     switch (method) {
       case "linear": return linearForecast(historicalData, forecastBuckets);
       case "holt-winters": return holtWintersForecast(historicalData, forecastBuckets);
