@@ -539,7 +539,11 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
   const hoverTs = hoverIdx !== null ? activeFromMs + hoverIdx * bucketMs : null;
   const isForecastPoint = hoverIdx !== null && hoverIdx >= historicalData.length;
 
-  const nowX = historicalData.length > 0 ? xScale(historicalData.length - 1) : null;
+  // "Now" is at the boundary between history and forecast — index historicalData.length,
+  // which maps to activeToMs via: activeFromMs + length * bucketMs = activeToMs.
+  const nowX = historicalData.length > 0 && forecastData.length > 0
+    ? xScale(historicalData.length)
+    : historicalData.length > 0 ? xScale(historicalData.length - 1) : null;
 
   return (
     <div

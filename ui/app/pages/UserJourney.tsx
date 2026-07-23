@@ -1492,6 +1492,27 @@ ${iAnyLines}
 | sort slot asc`;
 }
 
+function forecastRequeryVitalsQuery(analyzeDays: number, datapointMinutes: number, frontend: string): string {
+  return `fetch user.events, from: now() - ${analyzeDays}d
+| filter frontend.name == "${frontend}"
+| filter characteristics.has_page_summary == true
+| fieldsAdd
+    lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
+    cls_val = toDouble(web_vitals.cumulative_layout_shift),
+    inp_ms = toDouble(web_vitals.interaction_to_next_paint) / 1000000.0,
+    ttfb_ms = toDouble(web_vitals.time_to_first_byte) / 1000000.0,
+    load_ms = toDouble(performance.load_event_end) / 1000000.0
+| fieldsAdd slot = bin(start_time, ${binStr(datapointMinutes)})
+| summarize
+    lcp_val = avg(lcp_ms),
+    cls_val = avg(cls_val),
+    inp_val = avg(inp_ms),
+    ttfb_val = avg(ttfb_ms),
+    load_val = avg(load_ms),
+    by: {slot}
+| sort slot asc`;
+}
+
 async function runDqlQuery(query: string): Promise<any[]> {
   const start = await queryExecutionClient.queryExecute({ body: { query, requestTimeoutMilliseconds: 60000, maxResultRecords: 10000 } });
   if (start.state === "SUCCEEDED") return (start.result?.records ?? []) as any[];
@@ -4249,6 +4270,18 @@ export function UserJourney() {
         if (lbl === "Conversion Rate") return records.map((r: any) => Number(r.conv_rate ?? 0));
         if (lbl === "Conversions") return records.map((r: any) => Number(r.converted_sessions ?? 0));
         return records.map((r: any) => Number(r.converted_sessions ?? 0) * aov);
+      }
+      const isVitals = ["LCP", "CLS", "INP", "TTFB", "Load Event End"].includes(lbl);
+      if (isVitals) {
+        const records = await runDqlQuery(forecastRequeryVitalsQuery(analyzeDays, datapointMinutes, frontend));
+        switch (lbl) {
+          case "LCP": return records.map((r: any) => Number(r.lcp_val ?? 0)).filter(v => v > 0);
+          case "CLS": return records.map((r: any) => Number(r.cls_val ?? 0));
+          case "INP": return records.map((r: any) => Number(r.inp_val ?? 0)).filter(v => v > 0);
+          case "TTFB": return records.map((r: any) => Number(r.ttfb_val ?? 0)).filter(v => v > 0);
+          case "Load Event End": return records.map((r: any) => Number(r.load_val ?? 0)).filter(v => v > 0);
+          default: return [];
+        }
       }
       const records = await runDqlQuery(forecastRequerySparklineQuery(analyzeDays, datapointMinutes, frontend, steps));
       switch (lbl) {
