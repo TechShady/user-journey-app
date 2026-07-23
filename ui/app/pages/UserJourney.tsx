@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
 import { createPortal } from "react-dom";
 import { useDql, useUserAppState, useSetUserAppState, useAppState, useSetAppState } from "@dynatrace-sdk/react-hooks";
 import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment";
+import { queryExecutionClient } from "@dynatrace-sdk/client-query";
 import { Flex } from "@dynatrace/strato-components/layouts";
 import { Heading, Text, Strong, Paragraph, Link } from "@dynatrace/strato-components/typography";
 import { Tabs, Tab } from "@dynatrace/strato-components-preview/navigation";
@@ -1438,6 +1439,71 @@ ${iAnyLines}
     by: {slot_day}
 | fieldsAdd conv_rate = if(total_sessions > 0, toDouble(converted_sessions) / toDouble(total_sessions) * 100.0, else: 0.0)
 | sort slot_day asc`;
+}
+
+// ─── Forecast modal requery helpers ───
+
+function binStr(datapointMinutes: number): string {
+  if (datapointMinutes >= 1440) return "1d";
+  if (datapointMinutes >= 60) return `${datapointMinutes}m`;
+  return `${datapointMinutes}m`;
+}
+
+function forecastRequerySparklineQuery(analyzeDays: number, datapointMinutes: number, frontend: string, steps: StepDef[]): string {
+  return `fetch user.events, from: now() - ${analyzeDays}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| fieldsAdd slot = bin(start_time, ${binStr(datapointMinutes)})
+| summarize
+    total = count(),
+    sessions = countDistinct(dt.rum.session.id),
+    avg_dur = avg(dur_ms),
+    p50_dur = percentile(dur_ms, 50),
+    p90_dur = percentile(dur_ms, 90),
+    errors = countIf(characteristics.has_error == true),
+    satisfied = countIf(dur_ms <= ${APDEX_T}.0),
+    tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
+    frustrated = countIf(dur_ms > ${APDEX_4T}.0),
+    by: {slot}
+| sort slot asc`;
+}
+
+function forecastRequeryConvQuery(analyzeDays: number, datapointMinutes: number, frontend: string, steps: StepDef[]): string {
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const convertedConds = steps.map((_, i) => `reached_step${i + 1} == true`).join(" and ");
+  return `fetch user.events, from: now() - ${analyzeDays}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd slot = bin(start_time, ${binStr(datapointMinutes)})
+| summarize
+    steps = collectDistinct(step_tag),
+    by: {dt.rum.session.id, slot}
+| fieldsAdd
+${iAnyLines}
+| fieldsAdd converted = if(${convertedConds}, true, else: false)
+| summarize
+    total_sessions = count(),
+    converted_sessions = countIf(converted == true),
+    by: {slot}
+| fieldsAdd conv_rate = if(total_sessions > 0, toDouble(converted_sessions) / toDouble(total_sessions) * 100.0, else: 0.0)
+| sort slot asc`;
+}
+
+async function runDqlQuery(query: string): Promise<any[]> {
+  const start = await queryExecutionClient.queryExecute({ body: { query, requestTimeoutMilliseconds: 60000, maxResultRecords: 10000 } });
+  if (start.state === "SUCCEEDED") return (start.result?.records ?? []) as any[];
+  const token = start.requestToken;
+  if (!token) throw new Error("No query token");
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const poll = await queryExecutionClient.queryPoll({ requestToken: token });
+    if (poll.state === "SUCCEEDED") return (poll.result?.records ?? []) as any[];
+    if (poll.state === "FAILED" || poll.state === "CANCELLED") throw new Error(`Query ${poll.state}`);
+  }
+  throw new Error("Query timed out");
 }
 
 function sessionQualityQuery(days: number, frontend: string, steps: StepDef[], prev = false, nonce = 0): string {
@@ -4173,6 +4239,35 @@ export function UserJourney() {
     if (sparkline && sparkline.length > 1) setForecastModal({ label, sparkline, color });
   }, []);
 
+  const getForecastRequeryData = React.useCallback(async (analyzeDays: number, datapointMinutes: number): Promise<number[]> => {
+    if (!forecastModal) return [];
+    const lbl = forecastModal.label;
+    const isConv = ["Conversion Rate", "Conversions", "Revenue"].includes(lbl);
+    try {
+      if (isConv) {
+        const records = await runDqlQuery(forecastRequeryConvQuery(analyzeDays, datapointMinutes, frontend, steps));
+        if (lbl === "Conversion Rate") return records.map((r: any) => Number(r.conv_rate ?? 0));
+        if (lbl === "Conversions") return records.map((r: any) => Number(r.converted_sessions ?? 0));
+        return records.map((r: any) => Number(r.converted_sessions ?? 0) * aov);
+      }
+      const records = await runDqlQuery(forecastRequerySparklineQuery(analyzeDays, datapointMinutes, frontend, steps));
+      switch (lbl) {
+        case "Sessions": return records.map((r: any) => Number(r.sessions ?? 0));
+        case "Total Actions": return records.map((r: any) => Number(r.total ?? 0));
+        case "Avg Duration": return records.map((r: any) => Number(r.avg_dur ?? 0));
+        case "P50 Duration": return records.map((r: any) => Number(r.p50_dur ?? 0));
+        case "P90 Duration": return records.map((r: any) => Number(r.p90_dur ?? 0));
+        case "Errors": return records.map((r: any) => Number(r.errors ?? 0));
+        case "Error Rate": return records.map((r: any) => { const t = Number(r.total ?? 0); return t > 0 ? Number(r.errors ?? 0) / t * 100 : 0; });
+        case "Apdex": return records.map((r: any) => calcApdex(Number(r.satisfied ?? 0), Number(r.tolerating ?? 0), Number(r.total ?? 0)));
+        case "Frustrated": return records.map((r: any) => Number(r.frustrated ?? 0));
+        default: return [];
+      }
+    } catch {
+      return [];
+    }
+  }, [forecastModal, frontend, steps, aov]);
+
   // Correlations panel state
   const [correlationsTarget, setCorrelationsTarget] = useState<MetricEntry | null>(null);
   const [metricsRegistryState, setMetricsRegistryState] = useState<MetricEntry[]>([]);
@@ -5546,6 +5641,7 @@ export function UserJourney() {
           fromMs={Date.now() - timeframeDays * 86400000}
           toMs={Date.now()}
           onClose={() => setForecastModal(null)}
+          getRequeryData={getForecastRequeryData}
         />
       )}
 
