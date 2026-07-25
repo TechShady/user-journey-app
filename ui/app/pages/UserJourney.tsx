@@ -4234,6 +4234,7 @@ export function UserJourney() {
   const [globalSettingsExpanded, setGlobalSettingsExpanded] = useState(true);
   const [userSettingsExpanded, setUserSettingsExpanded] = useState(true);
   const [activeSubTabKey, setActiveSubTabKey] = useState<TabKey | null>(null);
+  const [visitedTabs, setVisitedTabs] = useState<Set<TabKey>>(new Set<TabKey>(["Funnel Overview"]));
   const [tlDiagPanel, setTlDiagPanel] = useState<{ pos: { x: number; y: number } } | null>(null);
   const tlDiagDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
@@ -4333,6 +4334,12 @@ export function UserJourney() {
   useEffect(() => {
     if (tl.enabled) tl.setEnabled(false);
   }, [activeSubTabKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Track which tabs have been visited so queries are only enabled for tabs the user has opened.
+  useEffect(() => {
+    if (activeSubTabKey) {
+      setVisitedTabs(prev => prev.has(activeSubTabKey) ? prev : new Set([...prev, activeSubTabKey]));
+    }
+  }, [activeSubTabKey]);
 
   // Persist tab visibility per user
   const savedState = useUserAppState({ key: TAB_STATE_KEY });
@@ -4547,53 +4554,58 @@ export function UserJourney() {
   setQueryAnchorMs(timeframeAnchor);
   setCurrentTimeframeDays(timeframeDays);
   const refetchOpts = refreshIntervalMs > 0 ? { refetchInterval: refreshIntervalMs } : undefined;
-  const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, false) }, refetchOpts);
-  const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const stepMetricsPrev = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps, 1, true) }, refetchOpts);
+  // Returns options for a query that should only run after the user has visited one of the given tabs.
+  const lazyOpts = (tabs: TabKey[]) => {
+    const enabled = tabs.some(t => visitedTabs.has(t) || t === activeSubTabKey);
+    return enabled ? refetchOpts : { ...refetchOpts, enabled: false };
+  };
+  const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, false) }, lazyOpts(["Funnel Overview"]));
+  const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps) }, lazyOpts(["Funnel Overview"]));
+  const stepMetricsPrev = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps, 1, true) }, lazyOpts(["Step Details"]));
   const hasMultiPageSteps = steps.some(s => s.identifiers.length > 1);
   const pageMetrics = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, refetchOpts);
   const pageMetricsPrev = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps, 1, true) : "fetch user.events | limit 0" }, refetchOpts);
   const pageSparklineData = useDql({ query: hasMultiPageSteps ? pageSparklineQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, refetchOpts);
-  const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const deviceData = useDql({ query: deviceQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const browserData = useDql({ query: browserQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const geoData = useDql({ query: geoQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const errorData = useDql({ query: errorQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const qualityData = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, false) }, refetchOpts);
+  const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend, steps) }, lazyOpts(["Web Vitals", "Executive Summary", "SLO Tracker"]));
+  const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays, frontend, steps) }, lazyOpts(["Web Vitals", "Step Details"]));
+  const deviceData = useDql({ query: deviceQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
+  const browserData = useDql({ query: browserQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
+  const geoData = useDql({ query: geoQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
+  const errorData = useDql({ query: errorQuery(timeframeDays, frontend, steps) }, lazyOpts(["Errors & Drop-offs"]));
+  const qualityData = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, false) }, lazyOpts(["Funnel Overview"]));
 
   // Previous period queries (for Trends + Funnel Compare)
-  const funnelResultPrev = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, true) }, refetchOpts);
-  const qualityDataPrev = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, true) }, refetchOpts);
-  const sparklineData = useDql({ query: trendsSparklineQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const convSparklineData = useDql({ query: trendsConvSparklineQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const stepSparklineData = useDql({ query: stepSparklineQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const funnelResultPrev = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, true) }, lazyOpts(["Funnel Overview"]));
+  const qualityDataPrev = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, true) }, lazyOpts(["Funnel Overview"]));
+  const sparklineData = useDql({ query: trendsSparklineQuery(timeframeDays, frontend, steps) }, lazyOpts(["Funnel Overview"]));
+  const convSparklineData = useDql({ query: trendsConvSparklineQuery(timeframeDays, frontend, steps) }, lazyOpts(["Funnel Overview"]));
+  const stepSparklineData = useDql({ query: stepSparklineQuery(timeframeDays, frontend, steps) }, lazyOpts(["Step Details"]));
 
   // Today's hourly funnel data for predictive EOD model
-  const todayFunnelData = useDql({ query: todayFunnelHourlyQuery(frontend, steps) }, refetchOpts);
+  const todayFunnelData = useDql({ query: todayFunnelHourlyQuery(frontend, steps) }, lazyOpts(["Funnel Overview"]));
 
   // NEW: Worst Sessions + Exceptions
-  const worstSessionsData = useDql({ query: worstSessionsQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const jsErrorsData = useDql({ query: jsErrorsQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const jsErrorsPrevData = useDql({ query: jsErrorsQuery(timeframeDays, frontend, steps, true) }, refetchOpts);
+  const worstSessionsData = useDql({ query: worstSessionsQuery(timeframeDays, frontend, steps) }, lazyOpts(["Worst Sessions"]));
+  const jsErrorsData = useDql({ query: jsErrorsQuery(timeframeDays, frontend, steps) }, lazyOpts(["Exceptions", "Errors & Drop-offs"]));
+  const jsErrorsPrevData = useDql({ query: jsErrorsQuery(timeframeDays, frontend, steps, true) }, lazyOpts(["Exceptions"]));
 
   // NEW: Rage/Dead Clicks
-  const clickIssuesData = useDql({ query: clickIssuesQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const clickIssuesData = useDql({ query: clickIssuesQuery(timeframeDays, frontend, steps) }, lazyOpts(["Click Issues"]));
 
   // NEW: Geo Performance, Navigation Paths, Hourly Distribution
-  const geoPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const navigationPathsData = useDql({ query: navigationPathsQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const sankeyData = useDql({ query: sankeyQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const sankeyCwvData = useDql({ query: sankeyCwvPerPageQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const sankeyErrorData = useDql({ query: sankeyErrorsPerPageQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const sankeyPathsData = useDql({ query: sankeyExtendedPathsQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const sankeyDurationData = useDql({ query: sankeyPageDurationQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const sankeyPrevPaths = useDql({ query: sankeyPrevPathsQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const geoPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays, frontend, steps) }, lazyOpts(["Geo Heatmap", "Maps"]));
+  const navigationPathsData = useDql({ query: navigationPathsQuery(timeframeDays, frontend, steps) }, lazyOpts(["Navigation Paths"]));
+  const sankeyData = useDql({ query: sankeyQuery(timeframeDays, frontend, steps) }, lazyOpts(["Sankey"]));
+  const sankeyCwvData = useDql({ query: sankeyCwvPerPageQuery(timeframeDays, frontend, steps) }, lazyOpts(["Sankey"]));
+  const sankeyErrorData = useDql({ query: sankeyErrorsPerPageQuery(timeframeDays, frontend, steps) }, lazyOpts(["Sankey"]));
+  const sankeyPathsData = useDql({ query: sankeyExtendedPathsQuery(timeframeDays, frontend, steps) }, lazyOpts(["Sankey"]));
+  const sankeyDurationData = useDql({ query: sankeyPageDurationQuery(timeframeDays, frontend, steps) }, lazyOpts(["Sankey"]));
+  const sankeyPrevPaths = useDql({ query: sankeyPrevPathsQuery(timeframeDays, frontend, steps) }, lazyOpts(["Sankey"]));
   const funnelDrillFrontend = useMemo(() => {
     const stepApp = steps.find((s) => (s.app ?? "").trim() !== "")?.app;
     return stepApp || frontend;
   }, [steps, frontend]);
-  const appEntityData = useDql({ query: appEntityQuery(funnelDrillFrontend) });
+  const appEntityData = useDql({ query: appEntityQuery(funnelDrillFrontend) }, lazyOpts(["Funnel Overview"]));
   const appEntityId = (appEntityData.data?.records?.[0] as any)?.['id'] ?? '';
   const settingsAppsData = useDql({ query: showSettings ? availableAppsQuery() : "fetch user.events | limit 0" });
   const stepsApps = useMemo(() => uniqueApps(steps, frontend), [steps, frontend]);
@@ -4613,84 +4625,84 @@ export function UserJourney() {
     return map;
   }, [settingsPagesData.data]);
   const availablePages: string[] = useMemo(() => Object.values(pagesByApp).flat(), [pagesByApp]);
-  const hourlyDistributionData = useDql({ query: hourlyDistributionQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const hourlyDistributionData = useDql({ query: hourlyDistributionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Perf Budgets"]));
 
   // NEW: Conversion Attribution, Duration Distribution
-  const conversionAttributionData = useDql({ query: conversionAttributionQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const durationDistributionData = useDql({ query: sessionDurationDistributionQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const conversionAttributionData = useDql({ query: conversionAttributionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Conversion Attribution"]));
+  const durationDistributionData = useDql({ query: sessionDurationDistributionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Anomaly Detection"]));
 
   // NEW: Root Cause Correlation
-  const rootCauseCorrelationData = useDql({ query: rootCauseCorrelationQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const rootCauseStepDropData = useDql({ query: rootCauseStepDropQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const rootCauseCorrelationData = useDql({ query: rootCauseCorrelationQuery(timeframeDays, frontend, steps) }, lazyOpts(["Root Cause Correlation"]));
+  const rootCauseStepDropData = useDql({ query: rootCauseStepDropQuery(timeframeDays, frontend, steps) }, lazyOpts(["Root Cause Correlation", "Errors & Drop-offs"]));
 
   // NEW: Predictive Forecasting
-  const forecastTrendData = useDql({ query: forecastTrendQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const forecastApdexTrendData = useDql({ query: forecastApdexTrendQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const forecastVitalsTrendData = useDql({ query: forecastVitalsTrendQuery(timeframeDays, frontend) }, refetchOpts);
+  const forecastTrendData = useDql({ query: forecastTrendQuery(timeframeDays, frontend, steps) }, lazyOpts(["Predictive Forecasting"]));
+  const forecastApdexTrendData = useDql({ query: forecastApdexTrendQuery(timeframeDays, frontend, steps) }, lazyOpts(["Predictive Forecasting"]));
+  const forecastVitalsTrendData = useDql({ query: forecastVitalsTrendQuery(timeframeDays, frontend) }, lazyOpts(["Predictive Forecasting"]));
 
   // NEW: Resource Waterfall
-  const resourceWaterfallData = useDql({ query: resourceWaterfallQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const resourceByStepData = useDql({ query: resourceByStepQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const resourceSessionDrillData = useDql({ query: resourceSessionDrillQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const resourceWaterfallData = useDql({ query: resourceWaterfallQuery(timeframeDays, frontend, steps) }, lazyOpts(["Resource Waterfall"]));
+  const resourceByStepData = useDql({ query: resourceByStepQuery(timeframeDays, frontend, steps) }, lazyOpts(["Resource Waterfall"]));
+  const resourceSessionDrillData = useDql({ query: resourceSessionDrillQuery(timeframeDays, frontend, steps) }, lazyOpts(["Resource Waterfall"]));
 
   // NEW: Change Intelligence
-  const deploymentEventsData = useDql({ query: deploymentEventsQuery(timeframeDays) }, refetchOpts);
-  const changeImpactData = useDql({ query: changeImpactQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const deploymentEventsData = useDql({ query: deploymentEventsQuery(timeframeDays) }, lazyOpts(["Change Intelligence", "Error Clustering"]));
+  const changeImpactData = useDql({ query: changeImpactQuery(timeframeDays, frontend, steps) }, lazyOpts(["Change Intelligence"]));
 
   // NEW: SLO Tracker
-  const sloApdexTrendData = useDql({ query: sloApdexTrendQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const sloCwvTrendData = useDql({ query: sloCwvTrendQuery(timeframeDays, frontend) }, refetchOpts);
+  const sloApdexTrendData = useDql({ query: sloApdexTrendQuery(timeframeDays, frontend, steps) }, lazyOpts(["SLO Tracker"]));
+  const sloCwvTrendData = useDql({ query: sloCwvTrendQuery(timeframeDays, frontend) }, lazyOpts(["SLO Tracker", "Web Vitals"]));
 
   // NEW: Session Replay Spotlight
-  const sessionReplayData = useDql({ query: sessionReplayQuery(timeframeDays, frontend) }, refetchOpts);
+  const sessionReplayData = useDql({ query: sessionReplayQuery(timeframeDays, frontend) }, lazyOpts(["Session Replay Spotlight"]));
 
   // NEW: A/B Comparison (state-driven segments)
   const [abDimension, setAbDimension] = useState<"device" | "browser" | "country" | "custom">("device");
   const [abSegA, setAbSegA] = useState('device.type == "desktop"');
   const [abSegB, setAbSegB] = useState('device.type == "mobile"');
-  const abSegAData = useDql({ query: abSegmentQuery(timeframeDays, frontend, steps, abSegA) }, refetchOpts);
-  const abSegBData = useDql({ query: abSegmentQuery(timeframeDays, frontend, steps, abSegB) }, refetchOpts);
-  const abSegACwv = useDql({ query: abSegmentCwvQuery(timeframeDays, frontend, abSegA) }, refetchOpts);
-  const abSegBCwv = useDql({ query: abSegmentCwvQuery(timeframeDays, frontend, abSegB) }, refetchOpts);
+  const abSegAData = useDql({ query: abSegmentQuery(timeframeDays, frontend, steps, abSegA) }, lazyOpts(["A/B Comparison"]));
+  const abSegBData = useDql({ query: abSegmentQuery(timeframeDays, frontend, steps, abSegB) }, lazyOpts(["A/B Comparison"]));
+  const abSegACwv = useDql({ query: abSegmentCwvQuery(timeframeDays, frontend, abSegA) }, lazyOpts(["A/B Comparison"]));
+  const abSegBCwv = useDql({ query: abSegmentCwvQuery(timeframeDays, frontend, abSegB) }, lazyOpts(["A/B Comparison"]));
 
   // NEW: Cohort Retention
-  const cohortRetentionData = useDql({ query: cohortRetentionQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const cohortSessionData = useDql({ query: cohortSessionCountQuery(timeframeDays, frontend) }, refetchOpts);
+  const cohortRetentionData = useDql({ query: cohortRetentionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Cohort Retention"]));
+  const cohortSessionData = useDql({ query: cohortSessionCountQuery(timeframeDays, frontend) }, lazyOpts(["Cohort Retention"]));
 
   // NEW: Session Engagement Score
-  const sessionEngagementData = useDql({ query: sessionEngagementQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const sessionEngagementData = useDql({ query: sessionEngagementQuery(timeframeDays, frontend, steps) }, lazyOpts(["Session Engagement", "Cohort Retention"]));
 
   // NEW: Funnel Velocity (Sankey sub-tab)
-  const funnelVelocityData = useDql({ query: funnelVelocityQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const funnelVelocityData = useDql({ query: funnelVelocityQuery(timeframeDays, frontend, steps) }, lazyOpts(["Sankey"]));
 
   // NEW: Third-Party Impact
-  const thirdPartyData = useDql({ query: thirdPartyImpactQuery(timeframeDays, frontend) }, refetchOpts);
-  const thirdPartyCwvData = useDql({ query: thirdPartyCwvCorrelationQuery(timeframeDays, frontend) }, refetchOpts);
+  const thirdPartyData = useDql({ query: thirdPartyImpactQuery(timeframeDays, frontend) }, lazyOpts(["Third-Party Impact", "CDN ROI"]));
+  const thirdPartyCwvData = useDql({ query: thirdPartyCwvCorrelationQuery(timeframeDays, frontend) }, lazyOpts(["Third-Party Impact"]));
 
   // NEW: Error Clustering
-  const errorClusterData = useDql({ query: errorClusteringQuery(timeframeDays, frontend) }, refetchOpts);
-  const errorTrendData = useDql({ query: errorTrendQuery(timeframeDays, frontend) }, refetchOpts);
+  const errorClusterData = useDql({ query: errorClusteringQuery(timeframeDays, frontend) }, lazyOpts(["Error Clustering"]));
+  const errorTrendData = useDql({ query: errorTrendQuery(timeframeDays, frontend) }, lazyOpts(["Error Clustering"]));
 
   // NEW: Enhanced tab queries
-  const geoNetworkData = useDql({ query: geoNetworkQuery(timeframeDays, frontend) }, refetchOpts);
-  const geoConversionData = useDql({ query: geoConversionQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const geoPriorPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays, frontend, steps, true) }, refetchOpts);
-  const geoFunnelBounceData = useDql({ query: geoFunnelBounceQuery(timeframeDays, frontend, steps) }, refetchOpts);
+  const geoNetworkData = useDql({ query: geoNetworkQuery(timeframeDays, frontend) }, lazyOpts(["Geo Heatmap"]));
+  const geoConversionData = useDql({ query: geoConversionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Geo Heatmap", "Maps"]));
+  const geoPriorPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays, frontend, steps, true) }, lazyOpts(["Maps"]));
+  const geoFunnelBounceData = useDql({ query: geoFunnelBounceQuery(timeframeDays, frontend, steps) }, lazyOpts(["Maps"]));
   // Maps time-lapse now uses the global TimelapseContext bucket. Only fires when TL is on to save quota.
   const mapTimelapseData = useDql({ query: tl.enabled ? mapTimelapseQuery(timeframeDays, frontend, steps, tl.bucket) : "fetch user.events | limit 0" }, refetchOpts);
   // Shared per-bucket KPI metrics — one query drives per-bucket values for every animatable tab's KPI cards
   // (Overall Apdex, Error Rate, Avg Duration, Satisfied/Tolerating/Frustrated, Web Vitals, etc.). Only fires when TL is on.
   const sharedTlMetricsData = useDql({ query: tl.enabled ? sharedTimelapseMetricsQuery(timeframeDays, frontend, steps, tl.bucket) : "fetch user.events | limit 0" }, refetchOpts);
-  const osVersionData = useDql({ query: osVersionQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const navPathConvData = useDql({ query: navPathConversionQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const clickReplayData = useDql({ query: clickIssuesReplayQuery(timeframeDays, frontend) }, refetchOpts);
-  const davisProblemsData = useDql({ query: davisProblemsQuery(timeframeDays, frontend) }, refetchOpts);
-  const backendServicesData = useDql({ query: backendServicesQuery(timeframeDays, frontend) }, refetchOpts);
-  const serviceToServiceData = useDql({ query: serviceToServiceQuery(timeframeDays, frontend) }, refetchOpts);
-  const backendProblemsData = useDql({ query: backendProblemsQuery(timeframeDays) }, refetchOpts);
-  const featureFlagData = useDql({ query: featureFlagEventsQuery(timeframeDays) }, refetchOpts);
-  const utmAttributionData = useDql({ query: utmAttributionQuery(timeframeDays, frontend, steps) }, refetchOpts);
-  const hostMetricsData = useDql({ query: hostMetricsQuery(timeframeDays) }, refetchOpts);
+  const osVersionData = useDql({ query: osVersionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
+  const navPathConvData = useDql({ query: navPathConversionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Navigation Paths"]));
+  const clickReplayData = useDql({ query: clickIssuesReplayQuery(timeframeDays, frontend) }, lazyOpts(["Click Issues"]));
+  const davisProblemsData = useDql({ query: davisProblemsQuery(timeframeDays, frontend) }, lazyOpts(["Anomaly Detection"]));
+  const backendServicesData = useDql({ query: backendServicesQuery(timeframeDays, frontend) }, lazyOpts(["Navigation Paths", "Root Cause Correlation"]));
+  const serviceToServiceData = useDql({ query: serviceToServiceQuery(timeframeDays, frontend) }, lazyOpts(["Navigation Paths", "Root Cause Correlation"]));
+  const backendProblemsData = useDql({ query: backendProblemsQuery(timeframeDays) }, lazyOpts(["Root Cause Correlation"]));
+  const featureFlagData = useDql({ query: featureFlagEventsQuery(timeframeDays) }, lazyOpts(["Change Intelligence"]));
+  const utmAttributionData = useDql({ query: utmAttributionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Conversion Attribution"]));
+  const hostMetricsData = useDql({ query: hostMetricsQuery(timeframeDays) }, lazyOpts(["What-If Analysis", "Idle Capacity"]));
 
   // ===== Publish shared per-bucket TL metrics =====
   // Parses the shared TL query output and publishes to TimelapseContext so every tab's KPI cards
