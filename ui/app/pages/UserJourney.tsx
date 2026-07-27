@@ -3966,13 +3966,16 @@ function funnelDiscoveryQuery(apps: string[], filter?: string, exclude?: string)
     : `in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
   const f = filter?.trim().toLowerCase() ?? "";
   const x = exclude?.trim().toLowerCase() ?? "";
-  // Track page visit order within sessions per app — sort by timestamp to preserve navigation sequence
+  // Deduplicate per (session, view) first to get each view's first-seen timestamp, then collect in visit order.
+  // Without this, each page visit generates many events (actions, errors, requests) all with the same view.name,
+  // so pages[0..4] would all be the same view and the candidate would be filtered out after client-side dedup.
   const lines = [
     `fetch user.events, from: now()-7d`,
     `| filter ${appFilter}`,
     `| filter isNotNull(view.name) and view.name != ""`,
-    `| sort timestamp asc`,
-    `| summarize pages = collectArray(view.name), app = first(frontend.name), by: {dt.rum.session.id}`,
+    `| summarize firstSeen = min(timestamp), app = first(frontend.name), by: {dt.rum.session.id, view.name}`,
+    `| sort firstSeen asc`,
+    `| summarize pages = collectArray(view.name), app = first(app), by: {dt.rum.session.id}`,
     `| fieldsAdd pageCount = arraySize(pages)`,
     `| filter pageCount >= 3`,
     `| fieldsAdd step1 = pages[0], step2 = pages[1], step3 = pages[2], step4 = if(pageCount >= 4, pages[3], else:""), step5 = if(pageCount >= 5, pages[4], else:"")`,
@@ -4156,7 +4159,7 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
       </Flex>
       {runDiscovery && discoveryData.isLoading && <ProgressBar style={{ width: "100%", marginBottom: 8 }} />}
       {runDiscovery && !discoveryData.isLoading && candidates.length === 0 && (
-        <Paragraph style={{ opacity: 0.5, fontSize: 12 }}>No funnel candidates found. Try selecting different applications or ensure they have session data.</Paragraph>
+        <Paragraph style={{ opacity: 0.5, fontSize: 12 }}>No funnel candidates found. If user sessions span multiple frontends, try selecting all of them together — journeys that cross app boundaries need all apps selected to produce enough distinct views per session.</Paragraph>
       )}
       {filteredGroups.slice(0, discoveryLimit).map(({ key, repIdx, otherIdxs }, groupPos) => {
         const isExpanded = expandedGroups.has(key);
