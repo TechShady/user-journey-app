@@ -183,13 +183,16 @@ function HotnessHelpButton({ source }: { source: string }) {
   const isFunnel = /funnel/i.test(src);
   const isTraffic = /traffic|global/i.test(src);
   const isNav = /navigation|flow/i.test(src);
+  const isShared = /shared|active\s*problems/i.test(src);
   const composition = isFunnel
     ? "max( worst step's conversion-drop Z-score, 0.6 × entry-traffic Z-score )"
     : isTraffic
       ? "Z-score of per-bucket global session volume"
       : isNav
         ? "max Z-score across frontend + backend spikes in the flow"
-        : "per-bucket anomaly Z-score";
+        : isShared
+          ? "max( error-rate Z, avg-duration Z, apdex-degradation Z, LCP Z, active-problems Z )"
+          : "per-bucket anomaly Z-score";
 
   return (
     <>
@@ -397,9 +400,16 @@ const TAB_STATE_KEY = "uj-tab-visibility";
 const TAB_ORDER_STATE_KEY = "uj-tab-order";
 const BUDGET_THRESHOLDS_STATE_KEY = "uj-budget-thresholds";
 const SLO_TARGETS_STATE_KEY = "uj-slo-targets";
+const HOTNESS_MODE_STATE_KEY = "uj-hotness-mode";
 // Keys whose values are shared across ALL users of this app. Every other saveState call is per-user.
 const GLOBAL_STATE_KEYS = new Set<string>([BUDGET_THRESHOLDS_STATE_KEY, SLO_TARGETS_STATE_KEY]);
 const DEFAULT_TAB_ORDER: TabKey[] = [...TAB_KEYS];
+
+type HotnessMode = "shared" | "tab-specific";
+const HOTNESS_MODE_OPTIONS: { value: HotnessMode; label: string }[] = [
+  { value: "shared", label: "Shared (recommended)" },
+  { value: "tab-specific", label: "Tab-specific" },
+];
 
 const CWV = {
   lcp: { good: 2500, poor: 4000 },
@@ -1203,6 +1213,23 @@ function sharedTimelapseMetricsQuery(days: number, frontend: string, steps: Step
     by: {bucket, bucket_ts}
 | sort bucket asc
 | limit 5000`;
+}
+
+// Active Davis problems for Time-Lapse diagnostics.
+// Kept as raw problem intervals so UI can compute per-bucket overlap and render links.
+function sharedTimelapseProblemsQuery(days: number): string {
+  const period = periodClause(days);
+  return `fetch dt.davis.problems, ${period}
+| filter isNotNull(event.id)
+| fields
+    problem_id = event.id,
+    display_id,
+    title = coalesce(event.name, title, display_id, "Problem"),
+    status = event.status,
+    start = event.start,
+    end = event.end
+| sort start desc
+| limit 500`;
 }
 
 function stepMetricsQuery(days: number, frontend: string, steps: StepDef[], nonce = 0, prev = false): string {
@@ -3600,7 +3627,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
             <Paragraph><Strong>Global Time-Lapse — one control drives every visualization</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Header strip</Strong>: A new Time-Lapse strip lives directly below the page title. Enable it once and every viz that supports playback (Funnel, Navigation Flow, and — coming soon — Sankey and Maps) animates in sync.</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Shared bucket + speed</Strong>: Choose 1 min / 5 min / 10 min / 30 min / 1 hour buckets and 0.5x / 1x / 2x / 4x playback speed once — all opt-in visualizations follow.</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Per-viz hotness stays local</Strong>: Each tab still shows its own hotness strip / Z-score badges tied to its own metrics — but the play cursor and scrubber are shared.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Hotness Mode preference</Strong>: Choose <Strong>Shared</Strong> (default, one canonical hotness formula everywhere) or <Strong>Tab-specific</Strong> (legacy per-tab formulas) in User Preferences.</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Reduced duplication</Strong>: Removed the per-tab Time-Lapse control bars from the Funnel and Navigation Flow tabs; the header strip is now the single source of truth.</Paragraph>
           </div>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
@@ -3839,8 +3866,8 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
           <Paragraph style={{ fontSize: 13 }}>• <Strong>Bucket size</Strong> — 1 min, 5 min, 10 min, 30 min, or 1 hour. Smaller buckets show finer detail but load more data.</Paragraph>
           <Paragraph style={{ fontSize: 13 }}>• <Strong>Speed</Strong> — 0.5x / 1x / 2x / 4x controls how fast the play cursor advances.</Paragraph>
           <Paragraph style={{ fontSize: 13 }}>• <Strong>▶ Play / ⏸ Pause / ↺ Restart / scrubber</Strong> — advance the shared cursor across all visualizations at once.</Paragraph>
-          <Paragraph style={{ fontSize: 13 }}>• <Strong>Per-viz hotness stays local</Strong> — each tab renders its own hotness strip and Z-score badges tied to its own metrics. Only the play cursor and bucket size are shared.</Paragraph>
-          <Paragraph style={{ fontSize: 13 }}>• <Strong>Filter isolation</Strong> — the Navigation Flow hotness intentionally ignores session/user filters so the fleet-wide spike pattern is always visible.</Paragraph>
+          <Paragraph style={{ fontSize: 13 }}>• <Strong>Hotness Mode</Strong> — set in User Preferences. <Strong>Shared</Strong> (default) uses one consistent formula across tabs and includes active Davis problems in bucket scoring. <Strong>Tab-specific</Strong> restores per-tab local formulas.</Paragraph>
+          <Paragraph style={{ fontSize: 13 }}>• <Strong>AI Assist context</Strong> — bucket diagnosis now shows active problem overlap and links to Gen3 problem cards for faster incident correlation.</Paragraph>
         </div>
         <Paragraph style={{ fontSize: 12, opacity: 0.7 }}>Z-score thresholds used across visualizations: <Strong>≥ 0.75</Strong> elevated (yellow), <Strong>≥ 1.5</Strong> warm (pink), <Strong>≥ 2.5</Strong> spike (red, pulsing).</Paragraph>
       </HelpSection>
@@ -3907,6 +3934,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Funnel Steps — Pages / Identifiers</Strong>: Each identifier is a searchable dropdown showing all distinct page names seen for the step's assigned app in the last 7 days. Current saved values (including wildcard patterns such as <code>/home*</code>) appear as valid options even if they are not in the fetched list. Use the search filter to narrow long lists. Both dropdowns load only when Settings is open.</Paragraph>
         <Paragraph><Strong>Average Order Value</Strong>: Set in Settings to enable revenue metrics across What-If Analysis, Revenue Intelligence, Errors &amp; Drop-offs, Conversion Attribution, Map, Root Cause Correlation, Trends, Executive Summary, Anomaly Detection, and Change Intelligence tabs. This value represents the average revenue per conversion (final funnel step completion). Set to 0 to hide revenue metrics.</Paragraph>
         <Paragraph><Strong>AI Insights</Strong>: The AI Insights panel is sub-tab aware and <Strong>industry-aware</Strong> — it shows analysis specific to the currently active sub-tab, automatically enriched with benchmarks for your selected industry. Toggle AI Insights in the header and navigate between sub-tabs to get contextual recommendations tailored to E-Commerce, SaaS, Media, Financial Services, Travel, Healthcare, or Gaming verticals.</Paragraph>
+        <Paragraph><Strong>AI Assist + Hotness</Strong>: In Shared hotness mode, AI bucket diagnosis includes active Davis problem overlap and links to Gen3 problem cards, so unusual timeline buckets can be correlated with real incidents instantly. Switch to Tab-specific mode when you want each tab's local anomaly signal instead.</Paragraph>
         <Paragraph><Strong>Industry</Strong>: Select your industry vertical in Settings to calibrate all AI Insights benchmarks. Each industry has specific targets for conversion rate, Apdex, error rate, latency, CDN ROI, idle capacity utilization, cost per conversion, and more. The analysis engine compares your actual metrics against these industry-specific thresholds to surface relevant insights.</Paragraph>
       </HelpSection>
       <HelpSection title="Apdex Score">
@@ -4248,6 +4276,7 @@ export function UserJourney() {
   const [funnelStyle, setFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState<number>(0);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number>(Date.now());
+  const [hotnessMode, setHotnessMode] = useState<HotnessMode>("shared");
 
   // Auto-open settings when no funnels exist (first launch)
   const noFunnelsRef = useRef(false);
@@ -4353,6 +4382,7 @@ export function UserJourney() {
   const savedSankeyStyle = useUserAppState({ key: SANKEY_STYLE_STATE_KEY });
   const savedFunnelStyle = useUserAppState({ key: FUNNEL_STYLE_STATE_KEY });
   const savedMapView = useUserAppState({ key: MAP_VIEW_STATE_KEY });
+  const savedHotnessMode = useUserAppState({ key: HOTNESS_MODE_STATE_KEY });
   // Perf-budget thresholds and SLO targets are now shared with every user of this app.
   // Fall back to any pre-migration per-user value so nothing is lost.
   const savedBudgetThresholdsGlobal = useAppState({ key: BUDGET_THRESHOLDS_STATE_KEY });
@@ -4471,6 +4501,13 @@ export function UserJourney() {
       if (MAP_VIEW_OPTIONS.some(o => o.value === val)) setMapViewDefault(val as MapViewSetting);
     }
   }, [savedMapView.data?.value]);
+
+  useEffect(() => {
+    if (savedHotnessMode.data?.value) {
+      const val = savedHotnessMode.data.value as string;
+      if (HOTNESS_MODE_OPTIONS.some((o) => o.value === val)) setHotnessMode(val as HotnessMode);
+    }
+  }, [savedHotnessMode.data?.value]);
 
   // Fix: Mac browsers block target="_blank" inside sandboxed iframes.
   // Intercept all such clicks and use window.open() as a direct user gesture.
@@ -4696,6 +4733,8 @@ export function UserJourney() {
   // Shared per-bucket KPI metrics — one query drives per-bucket values for every animatable tab's KPI cards
   // (Overall Apdex, Error Rate, Avg Duration, Satisfied/Tolerating/Frustrated, Web Vitals, etc.). Only fires when TL is on.
   const sharedTlMetricsData = useDql({ query: tl.enabled ? sharedTimelapseMetricsQuery(timeframeDays, frontend, steps, tl.bucket) : "fetch user.events | limit 0" }, refetchOpts);
+  // Shared Davis problem intervals for TL correlation (active problem overlap per bucket).
+  const sharedTlProblemsData = useDql({ query: tl.enabled ? sharedTimelapseProblemsQuery(timeframeDays) : "fetch dt.davis.problems | limit 0" }, refetchOpts);
   const osVersionData = useDql({ query: osVersionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
   const navPathConvData = useDql({ query: navPathConversionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Navigation Paths"]));
   const clickReplayData = useDql({ query: clickIssuesReplayQuery(timeframeDays, frontend) }, lazyOpts(["Click Issues"]));
@@ -4760,6 +4799,11 @@ export function UserJourney() {
     if (!tl.enabled) return;
     tl.reportLoading("shared-tl-metrics", sharedTlMetricsData.isLoading);
   }, [tl.enabled, sharedTlMetricsData.isLoading]);
+  React.useEffect(() => {
+    if (!tl.enabled) return;
+    tl.reportLoading("shared-tl-problems", sharedTlProblemsData.isLoading);
+    return () => tl.reportLoading("shared-tl-problems", false);
+  }, [tl.enabled, sharedTlProblemsData.isLoading]);
   // Keep currentBucketKey updated as the scrubber index advances, using shared metrics
   // as the source for tabs (e.g. Executive Summary) that have no per-bucket publisher.
   React.useEffect(() => {
@@ -4767,6 +4811,40 @@ export function UserJourney() {
     const idx = Math.min(Math.max(tl.index, 0), tl.sharedMetricsAll.length - 1);
     tl.reportBuckets(tl.sharedMetricsAll.length, tl.sharedMetricsAll[idx].bucket);
   }, [tl.enabled, tl.index, tl.sharedMetricsAll, tl.reportBuckets]);
+
+  const sharedTlProblems = React.useMemo(() => {
+    const rows = (sharedTlProblemsData.data?.records ?? []) as any[];
+    return rows
+      .map((r) => {
+        const problemId = String(r.problem_id ?? "").trim();
+        const displayId = String(r.display_id ?? "").trim();
+        const title = String((r.title ?? displayId ?? problemId ?? "Problem")).trim() || problemId || "Problem";
+        const startMs = Number(new Date(r.start).getTime());
+        const rawEnd = r.end;
+        const endMs = rawEnd == null ? null : Number(new Date(rawEnd).getTime());
+        if (!problemId || !Number.isFinite(startMs)) return null;
+        return {
+          problemId,
+          displayId,
+          title,
+          startMs,
+          endMs: Number.isFinite(endMs as number) ? (endMs as number) : null,
+          status: String(r.status ?? ""),
+        };
+      })
+      .filter((p): p is { problemId: string; displayId: string; title: string; startMs: number; endMs: number | null; status: string } => p !== null);
+  }, [sharedTlProblemsData.data]);
+
+  const tlProblemsByBucket = React.useMemo(() => {
+    return tl.sharedMetricsAll.map((bucket) => {
+      const fromMs = Number(bucket.fromMs ?? 0);
+      const toMs = Number(bucket.toMs ?? 0);
+      return sharedTlProblems.filter((p) => {
+        const pEnd = p.endMs ?? Number.POSITIVE_INFINITY;
+        return p.startMs < toMs && pEnd > fromMs;
+      });
+    });
+  }, [tl.sharedMetricsAll, sharedTlProblems]);
 
   // Per-metric baselines for the hotness diagnosis panel — mean+std for each KPI across all buckets
   const tlSharedBaselines = React.useMemo(() => {
@@ -4784,8 +4862,29 @@ export function UserJourney() {
       avgDurationMs: stat(rows.map(r => r.avgDurationMs)),
       apdex: stat(rows.map(r => r.apdex)),
       lcp: stat(rows.filter(r => r.lcp != null).map(r => r.lcp!)),
+      activeProblems: stat(tlProblemsByBucket.map((arr) => arr.length)),
     };
-  }, [tl.sharedMetricsAll]);
+  }, [tl.sharedMetricsAll, tlProblemsByBucket]);
+
+  // Canonical hotness for all tabs: shared KPI degradation + active problem pressure.
+  // This keeps the hotness strip consistent everywhere while still reflecting operational impact.
+  const tlSharedHotness = React.useMemo(() => {
+    if (!tlSharedBaselines || tl.sharedMetricsAll.length === 0) return [] as number[];
+    return tl.sharedMetricsAll.map((row, i) => {
+      const errZ = (row.errorRate - tlSharedBaselines.errorRate.mean) / tlSharedBaselines.errorRate.std;
+      const durZ = (row.avgDurationMs - tlSharedBaselines.avgDurationMs.mean) / tlSharedBaselines.avgDurationMs.std;
+      const apdexBadZ = (tlSharedBaselines.apdex.mean - row.apdex) / tlSharedBaselines.apdex.std;
+      const lcpBadZ = row.lcp == null ? 0 : (row.lcp - tlSharedBaselines.lcp.mean) / tlSharedBaselines.lcp.std;
+      const activeProblemCount = tlProblemsByBucket[i]?.length ?? 0;
+      const problemZ = (activeProblemCount - tlSharedBaselines.activeProblems.mean) / tlSharedBaselines.activeProblems.std;
+      return Math.max(0, errZ, durZ, apdexBadZ, lcpBadZ, problemZ);
+    });
+  }, [tlSharedBaselines, tl.sharedMetricsAll, tlProblemsByBucket]);
+
+  React.useEffect(() => {
+    if (!tl.enabled || hotnessMode !== "shared" || tlSharedHotness.length === 0) return;
+    tl.reportHotness(tlSharedHotness, "Shared KPIs + active problems Z-score");
+  }, [tl.enabled, hotnessMode, tlSharedHotness, tl]);
 
   const startTlDiagDrag = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -5202,12 +5301,15 @@ export function UserJourney() {
           const raw = (val - base.mean) / base.std;
           return lowerIsBetter ? -raw : raw;
         };
+        const bucketProblems = tlProblemsByBucket[idx] ?? [];
+        const activeProblemCount = bucketProblems.length;
         const metrics = [
           { label: "Sessions",     value: fmtCount(row.sessions),              z: (row.sessions - tlSharedBaselines.sessions.mean) / tlSharedBaselines.sessions.std, neutral: true,  desc: "traffic volume vs avg" },
           { label: "Error Rate",   value: fmtPct(row.errorRate),               z: bZ(row.errorRate, tlSharedBaselines.errorRate, false),                              neutral: false, desc: "errors vs avg — ↑ bad" },
           { label: "Avg Duration", value: `${Math.round(row.avgDurationMs)}ms`, z: bZ(row.avgDurationMs, tlSharedBaselines.avgDurationMs, false),                    neutral: false, desc: "load time vs avg — ↑ bad" },
           { label: "Apdex",        value: row.apdex.toFixed(3),                z: bZ(row.apdex, tlSharedBaselines.apdex, true),                                     neutral: false, desc: "experience vs avg — ↑ bad" },
           ...(row.lcp != null && tlSharedBaselines.lcp.mean > 0 ? [{ label: "LCP", value: `${Math.round(row.lcp)}ms`, z: bZ(row.lcp, tlSharedBaselines.lcp, false), neutral: false, desc: "paint time vs avg — ↑ bad" }] : []),
+          { label: "Active Problems", value: String(activeProblemCount), z: bZ(activeProblemCount, tlSharedBaselines.activeProblems, false), neutral: false, desc: "open Davis problems overlapping this bucket" },
         ];
         const hotZ = tl.hotness[idx] ?? 0;
         const hotColor = hotZ >= 2.5 ? TL_HOT_HIGH : hotZ >= 1.5 ? TL_HOT_WARM : hotZ >= 0.75 ? TL_HOT_ELEV : "#4589FF";
@@ -5264,6 +5366,34 @@ export function UserJourney() {
                 );
               })}
             </div>
+            {activeProblemCount > 0 && (
+              <div style={{ padding: "6px 10px 8px", borderTop: "1px solid rgba(128,128,128,0.12)" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.7, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                  Active problems in this bucket
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 120, overflowY: "auto" }}>
+                  {bucketProblems.slice(0, 8).map((p) => {
+                    const label = p.displayId ? `${p.displayId} · ${p.title}` : p.title;
+                    const url = `${ENV_URL}/ui/apps/dynatrace.davis.problems/problem/${encodeURIComponent(p.problemId)}`;
+                    return (
+                      <a
+                        key={p.problemId}
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: 10, color: "#7FB1FF", textDecoration: "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                        title={label}
+                      >
+                        {label}
+                      </a>
+                    );
+                  })}
+                  {activeProblemCount > 8 && (
+                    <div style={{ fontSize: 9, opacity: 0.45 }}>+{activeProblemCount - 8} more</div>
+                  )}
+                </div>
+              </div>
+            )}
             <div style={{ padding: "5px 10px", borderTop: "1px solid rgba(128,128,128,0.12)", fontSize: 9, opacity: 0.35 }}>Drag header · panel tracks current bucket</div>
           </div>
         );
@@ -5564,6 +5694,17 @@ export function UserJourney() {
             </Select>
           </div>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
+          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Hotness Mode</Paragraph>
+          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Choose how Time-Lapse hotness is computed. Shared keeps one consistent formula across tabs; Tab-specific restores per-tab local formulas.</Paragraph>
+          <div style={{ marginBottom: 20 }}>
+            <Select value={hotnessMode} onChange={(val) => { if (val) { setHotnessMode(val as HotnessMode); saveState({ key: HOTNESS_MODE_STATE_KEY, body: { value: val as string } }); } }}>
+              <Select.Trigger style={{ minWidth: 260 }} />
+              <Select.Content>
+                {HOTNESS_MODE_OPTIONS.map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
+              </Select.Content>
+            </Select>
+          </div>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Tab Groups & Sub-Tab Visibility</Paragraph>
           <Paragraph style={{ marginBottom: 12, opacity: 0.6, fontSize: 12 }}>Drag to reorder parent tab groups and sub-tabs. Toggle visibility at both levels. Changes are saved per user and persist across sessions.</Paragraph>
           {parentTabOrder.map((parent, pIdx) => {
@@ -5642,7 +5783,7 @@ export function UserJourney() {
                 {subTabs.map(tabId => {
                   let content: React.ReactNode = null;
                   switch (tabId) {
-            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} timeframeDays={timeframeDays} frontend={frontend} />; break;
+            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} timeframeDays={timeframeDays} frontend={frontend} hotnessMode={hotnessMode} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} />; break;
@@ -5651,8 +5792,8 @@ export function UserJourney() {
             case "Click Issues": content = <ClickIssuesTab data={clickIssuesData} replayData={clickReplayData} isLoading={clickIssuesData.isLoading} frontend={frontend} onDrillToForecast={openForecast} />; break;
             case "Perf Budgets": content = <PerfBudgetsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading || qualityDataPrev.isLoading} saveState={saveState} savedThresholds={savedBudgetThresholds} onDrillToForecast={openForecast} />; break;
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} networkData={geoNetworkData} conversionData={geoConversionData} onDrillToForecast={openForecast} />; break;
-            case "Maps": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} timelapseData={mapTimelapseData} conversionData={geoConversionData} funnelBounceData={geoFunnelBounceData} onDrillToForecast={openForecast} priorData={geoPriorPerformanceData} />; break;
-            case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} navPathConvData={navPathConvData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} backendServicesData={backendServicesData} serviceToServiceData={serviceToServiceData} frontend={funnelDrillFrontend} timeframeDays={timeframeDays} onDrillToForecast={openForecast} />; break;
+            case "Maps": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} timelapseData={mapTimelapseData} conversionData={geoConversionData} funnelBounceData={geoFunnelBounceData} onDrillToForecast={openForecast} priorData={geoPriorPerformanceData} hotnessMode={hotnessMode} />; break;
+            case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} navPathConvData={navPathConvData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} backendServicesData={backendServicesData} serviceToServiceData={serviceToServiceData} frontend={funnelDrillFrontend} timeframeDays={timeframeDays} onDrillToForecast={openForecast} hotnessMode={hotnessMode} />; break;
             case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} onDrillToForecast={openForecast} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov}  davisProblemsData={davisProblemsData} onDrillToForecast={openForecast} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} steps={steps} />; break;
@@ -9501,7 +9642,7 @@ function SpectaclesFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
-function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast, funnelName, timeframeDays, frontend }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnelName?: string; timeframeDays: number; frontend: string; }) {
+function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast, funnelName, timeframeDays, frontend, hotnessMode }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnelName?: string; timeframeDays: number; frontend: string; hotnessMode: HotnessMode; }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap]));
   // Ticker to keep "last refreshed X ago" text updating
   const [, setTick] = React.useState(0);
@@ -9511,6 +9652,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     return () => clearInterval(id);
   }, [refreshIntervalMs]);
   const [funnelSubTab, setFunnelSubTab] = React.useState<"funnel"|"predictive"|"steps"|"pages">("funnel");
+  const [overviewSummaryExpanded, setOverviewSummaryExpanded] = React.useState(false);
   const [stepDrillPicker, setStepDrillPicker] = React.useState<{
     stepIndex: number;
     stepLabel: string;
@@ -9609,11 +9751,11 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     });
   }, [funnelTlBucketList, funnelTlBuckets, funnelTlBaselines, steps]);
 
-  // Publish hotness + loading state to the global TL header so the shared strip renders on every tab.
   React.useEffect(() => {
-    if (!funnelTlEnabled) return;
+    if (!funnelTlEnabled || hotnessMode !== "tab-specific") return;
     tl.reportHotness(funnelTlSpikeStrip, "Funnel drop-offs · entry-traffic Z-score");
-  }, [funnelTlEnabled, funnelTlSpikeStrip, tl]);
+  }, [funnelTlEnabled, hotnessMode, funnelTlSpikeStrip, tl]);
+
   React.useEffect(() => {
     if (!funnelTlEnabled) return;
     tl.reportLoading("funnel", !!funnelTlData.isLoading);
@@ -9823,91 +9965,125 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         </Flex>
       )}
 
-      {/* KPI row */}
-      <Flex gap={16} flexWrap="wrap">
-        <KpiCard
-          label={funnelTlEnabled ? "Total Sessions (bucket)" : "Total Sessions"}
-          value={fmtCount(activeFunnelCounts[0])}
-          color={BLUE}
-          rawValue={activeFunnelCounts[0]}
-          prevRawValue={funnelCountsPrev[0] ?? null}
-          sparkline={sparkSeries.sessions}
-          onDrillToForecast={onDrillToForecast}
-        />
-        <KpiCard
-          label={funnelTlEnabled ? "Conversions (bucket)" : "Conversions"}
-          value={fmtCount(activeFunnelCounts[activeFunnelCounts.length - 1])}
-          color={GREEN}
-          rawValue={activeFunnelCounts[activeFunnelCounts.length - 1]}
-          prevRawValue={funnelCountsPrev[funnelCountsPrev.length - 1] ?? null}
-          sparkline={sparkSeries.conversions}
-          onDrillToForecast={onDrillToForecast}
-        />
-        <KpiCard
-          label={funnelTlEnabled ? "Conversion Rate (bucket)" : "Conversion Rate"}
-          value={fmtPct(activeOverallConv)}
-          color={statusClr(activeOverallConv)}
-          rawValue={activeOverallConv}
-          prevRawValue={overallConvPrev}
-          sparkline={sparkSeries.convRate}
-          onDrillToForecast={onDrillToForecast}
-        />
-        <KpiCard
-          label={funnelTlEnabled ? "Overall Apdex (bucket)" : "Overall Apdex"}
-          value={effApdex.toFixed(2)}
-          color={apdexClr(effApdex)}
-          rawValue={effApdex}
-          prevRawValue={overallApdexPrev}
-          sparkline={sparkSeries.apdex}
-          onDrillToForecast={onDrillToForecast}
-          customContent={<ApdexGauge score={effApdex} size={72} />}
-        />
-        <KpiCard
-          label={funnelTlEnabled ? "Error Rate (bucket)" : "Error Rate"}
-          value={fmtPct(effErrorRate)}
-          color={effErrorRate > 5 ? RED : effErrorRate > 1 ? YELLOW : GREEN}
-          rawValue={effErrorRate}
-          prevRawValue={errorRatePrev}
-          inverted={true}
-          sparkline={sparkSeries.errorRate}
-          onDrillToForecast={onDrillToForecast}
-        />
-        <KpiCard
-          label={funnelTlEnabled ? "Avg Duration (bucket)" : "Avg Duration"}
-          value={fmt(effAvgDur)}
-          color={effAvgDur > 3000 ? RED : effAvgDur > 1000 ? YELLOW : GREEN}
-          rawValue={effAvgDur}
-          prevRawValue={qualityPrev.avg}
-          inverted={true}
-          sparkline={sparkSeries.avgDur}
-          onDrillToForecast={onDrillToForecast}
-        />
-      </Flex>
+      <div className="uj-table-tile" style={{ padding: 0, overflow: "hidden" }}>
+        <button
+          type="button"
+          onClick={() => setOverviewSummaryExpanded((v) => !v)}
+          style={{
+            width: "100%",
+            border: "none",
+            background: "rgba(69,137,255,0.08)",
+            color: "inherit",
+            cursor: "pointer",
+            padding: "10px 14px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            textAlign: "left",
+          }}
+          aria-expanded={overviewSummaryExpanded}
+          aria-label="Toggle Funnel Summary section"
+        >
+          <Flex alignItems="center" gap={8}>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>📊</span>
+            <Text style={{ fontSize: 13, fontWeight: 700 }}>Funnel Summary</Text>
+            <Text style={{ fontSize: 11, opacity: 0.55 }}>
+              sessions, conversion, apdex, errors and satisfaction mix
+            </Text>
+          </Flex>
+          <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{overviewSummaryExpanded ? "▾" : "▸"}</span>
+        </button>
 
-      {/* Apdex satisfaction breakdown */}
-      <div className="uj-table-tile" style={{ padding: 16 }}>
-        <Flex gap={24} alignItems="center" flexWrap="wrap">
-          <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 13, opacity: 0.5 }}>Satisfied{funnelTlEnabled ? " (bucket)" : ""}</Text>
-            <Heading level={4} style={{ color: GREEN, margin: "4px 0" }}>{fmtCount(effSatisfied)}</Heading>
-            <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_T / 1000}s</Text>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 13, opacity: 0.5 }}>Tolerating{funnelTlEnabled ? " (bucket)" : ""}</Text>
-            <Heading level={4} style={{ color: YELLOW, margin: "4px 0" }}>{fmtCount(effTolerating)}</Heading>
-            <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_4T / 1000}s</Text>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <Text style={{ fontSize: 13, opacity: 0.5 }}>Frustrated{funnelTlEnabled ? " (bucket)" : ""}</Text>
-            <Heading level={4} style={{ color: RED, margin: "4px 0" }}>{fmtCount(effFrustrated)}</Heading>
-            <Text style={{ fontSize: 12, opacity: 0.4 }}>&gt; {APDEX_4T / 1000}s</Text>
-          </div>
-          <div style={{ flex: 1, height: 10, borderRadius: 5, overflow: "hidden", display: "flex", minWidth: 200 }}>
-            <div style={{ width: `${effTotalRated > 0 ? (effSatisfied / effTotalRated) * 100 : 0}%`, background: GREEN, height: "100%" }} />
-            <div style={{ width: `${effTotalRated > 0 ? (effTolerating / effTotalRated) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
-            <div style={{ width: `${effTotalRated > 0 ? (effFrustrated / effTotalRated) * 100 : 0}%`, background: RED, height: "100%" }} />
-          </div>
-        </Flex>
+        {overviewSummaryExpanded && (
+          <Flex flexDirection="column" gap={16} style={{ padding: 16 }}>
+            {/* KPI row */}
+            <Flex gap={16} flexWrap="wrap">
+              <KpiCard
+                label={funnelTlEnabled ? "Total Sessions (bucket)" : "Total Sessions"}
+                value={fmtCount(activeFunnelCounts[0])}
+                color={BLUE}
+                rawValue={activeFunnelCounts[0]}
+                prevRawValue={funnelCountsPrev[0] ?? null}
+                sparkline={sparkSeries.sessions}
+                onDrillToForecast={onDrillToForecast}
+              />
+              <KpiCard
+                label={funnelTlEnabled ? "Conversions (bucket)" : "Conversions"}
+                value={fmtCount(activeFunnelCounts[activeFunnelCounts.length - 1])}
+                color={GREEN}
+                rawValue={activeFunnelCounts[activeFunnelCounts.length - 1]}
+                prevRawValue={funnelCountsPrev[funnelCountsPrev.length - 1] ?? null}
+                sparkline={sparkSeries.conversions}
+                onDrillToForecast={onDrillToForecast}
+              />
+              <KpiCard
+                label={funnelTlEnabled ? "Conversion Rate (bucket)" : "Conversion Rate"}
+                value={fmtPct(activeOverallConv)}
+                color={statusClr(activeOverallConv)}
+                rawValue={activeOverallConv}
+                prevRawValue={overallConvPrev}
+                sparkline={sparkSeries.convRate}
+                onDrillToForecast={onDrillToForecast}
+              />
+              <KpiCard
+                label={funnelTlEnabled ? "Overall Apdex (bucket)" : "Overall Apdex"}
+                value={effApdex.toFixed(2)}
+                color={apdexClr(effApdex)}
+                rawValue={effApdex}
+                prevRawValue={overallApdexPrev}
+                sparkline={sparkSeries.apdex}
+                onDrillToForecast={onDrillToForecast}
+                customContent={<ApdexGauge score={effApdex} size={72} />}
+              />
+              <KpiCard
+                label={funnelTlEnabled ? "Error Rate (bucket)" : "Error Rate"}
+                value={fmtPct(effErrorRate)}
+                color={effErrorRate > 5 ? RED : effErrorRate > 1 ? YELLOW : GREEN}
+                rawValue={effErrorRate}
+                prevRawValue={errorRatePrev}
+                inverted={true}
+                sparkline={sparkSeries.errorRate}
+                onDrillToForecast={onDrillToForecast}
+              />
+              <KpiCard
+                label={funnelTlEnabled ? "Avg Duration (bucket)" : "Avg Duration"}
+                value={fmt(effAvgDur)}
+                color={effAvgDur > 3000 ? RED : effAvgDur > 1000 ? YELLOW : GREEN}
+                rawValue={effAvgDur}
+                prevRawValue={qualityPrev.avg}
+                inverted={true}
+                sparkline={sparkSeries.avgDur}
+                onDrillToForecast={onDrillToForecast}
+              />
+            </Flex>
+
+            {/* Apdex satisfaction breakdown */}
+            <div>
+              <Flex gap={24} alignItems="center" flexWrap="wrap">
+                <div style={{ textAlign: "center" }}>
+                  <Text style={{ fontSize: 13, opacity: 0.5 }}>Satisfied{funnelTlEnabled ? " (bucket)" : ""}</Text>
+                  <Heading level={4} style={{ color: GREEN, margin: "4px 0" }}>{fmtCount(effSatisfied)}</Heading>
+                  <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_T / 1000}s</Text>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <Text style={{ fontSize: 13, opacity: 0.5 }}>Tolerating{funnelTlEnabled ? " (bucket)" : ""}</Text>
+                  <Heading level={4} style={{ color: YELLOW, margin: "4px 0" }}>{fmtCount(effTolerating)}</Heading>
+                  <Text style={{ fontSize: 12, opacity: 0.4 }}>≤ {APDEX_4T / 1000}s</Text>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <Text style={{ fontSize: 13, opacity: 0.5 }}>Frustrated{funnelTlEnabled ? " (bucket)" : ""}</Text>
+                  <Heading level={4} style={{ color: RED, margin: "4px 0" }}>{fmtCount(effFrustrated)}</Heading>
+                  <Text style={{ fontSize: 12, opacity: 0.4 }}>&gt; {APDEX_4T / 1000}s</Text>
+                </div>
+                <div style={{ flex: 1, height: 10, borderRadius: 5, overflow: "hidden", display: "flex", minWidth: 200 }}>
+                  <div style={{ width: `${effTotalRated > 0 ? (effSatisfied / effTotalRated) * 100 : 0}%`, background: GREEN, height: "100%" }} />
+                  <div style={{ width: `${effTotalRated > 0 ? (effTolerating / effTotalRated) * 100 : 0}%`, background: YELLOW, height: "100%" }} />
+                  <div style={{ width: `${effTotalRated > 0 ? (effFrustrated / effTotalRated) * 100 : 0}%`, background: RED, height: "100%" }} />
+                </div>
+              </Flex>
+            </div>
+          </Flex>
+        )}
       </div>
 
       {/* Funnel Overview sub-tab bar — pill style matching Sankey */}
@@ -12082,7 +12258,7 @@ const TL_BUCKET_LABELS: Record<TlBucket, string> = { "1m": "1 min", "5m": "5 min
 const TL_BUCKET_MS: Record<TlBucket, number> = { "1m": 60000, "5m": 300000, "10m": 600000, "30m": 1800000, "1h": 3600000 };
 type MapView = "world" | "us" | "globe";
 
-function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0, overallConv = 0, timelapseData, conversionData, funnelBounceData, onDrillToForecast, priorData }: { data: any; isLoading: boolean; frontend: string; defaultView?: MapView; aov?: number; overallConv?: number; timelapseData?: any; conversionData?: any; funnelBounceData?: any; onDrillToForecast?: (label: string, sparkline: number[], color?: string) => void; priorData?: any }) {
+function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0, overallConv = 0, timelapseData, conversionData, funnelBounceData, onDrillToForecast, priorData, hotnessMode = "shared" }: { data: any; isLoading: boolean; frontend: string; defaultView?: MapView; aov?: number; overallConv?: number; timelapseData?: any; conversionData?: any; funnelBounceData?: any; onDrillToForecast?: (label: string, sparkline: number[], color?: string) => void; priorData?: any; hotnessMode?: HotnessMode }) {
   const tl = useTimelapse();
   const [metric, setMetric] = useState<MapMetric>("sessions");
   const [mapView, setMapView] = useState<MapView>(defaultView);
@@ -12197,11 +12373,10 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
     tl.reportLoading("maps", !!tlLoading);
     return () => tl.reportLoading("maps", false);
   }, [tl.enabled, tlLoading, tl]);
-  // Publish hotness — per-bucket Z-score of aggregate session traffic vs the map's own mean.
   React.useEffect(() => {
-    if (!tl.enabled || mapsTlDerived.hot.length === 0) return;
+    if (!tl.enabled || hotnessMode !== "tab-specific" || mapsTlDerived.hot.length === 0) return;
     tl.reportHotness(mapsTlDerived.hot, "Global traffic volume Z-score");
-  }, [tl.enabled, mapsTlDerived.hot, tl]);
+  }, [tl.enabled, hotnessMode, mapsTlDerived.hot, tl]);
 
   if (isLoading) return <Loading />;
 
@@ -13282,7 +13457,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
 // ===========================================================================
 // TAB: Navigation Paths — NEW
 // ===========================================================================
-function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvData, backendServicesData, serviceToServiceData, frontend, timeframeDays, onDrillToForecast }: { data: any; isLoading: boolean; appEntityId: string; steps: StepDef[]; navPathConvData?: any; backendServicesData?: any; serviceToServiceData?: any; frontend: string; timeframeDays: number; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
+function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvData, backendServicesData, serviceToServiceData, frontend, timeframeDays, onDrillToForecast, hotnessMode = "shared" }: { data: any; isLoading: boolean; appEntityId: string; steps: StepDef[]; navPathConvData?: any; backendServicesData?: any; serviceToServiceData?: any; frontend: string; timeframeDays: number; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; hotnessMode?: HotnessMode }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeNavigationPaths(data, [], steps), [data, steps]));
   const savedNavSession = useUserAppState({ key: NAV_FILTER_SESSION_STATE_KEY });
   const savedNavPreset = useUserAppState({ key: NAV_FILTER_PRESET_STATE_KEY });
@@ -13604,11 +13779,11 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     return navTlBucketList.map((_, i) => (navTlSpikeStripFE[i] + navTlSpikeStripBE[i]) / 2);
   }, [navTlBucketList, navTlSpikeStripFE, navTlSpikeStripBE]);
 
-  // Publish hotness + loading state to the global TL header so the shared strip renders on every tab.
   React.useEffect(() => {
-    if (!navTlEnabled) return;
+    if (!navTlEnabled || hotnessMode !== "tab-specific") return;
     tl.reportHotness(navTlSpikeStrip, "Navigation flow · FE+BE spike Z-score");
-  }, [navTlEnabled, navTlSpikeStrip, tl]);
+  }, [navTlEnabled, hotnessMode, navTlSpikeStrip, tl]);
+
   React.useEffect(() => {
     if (!navTlEnabled) return;
     const loading = !!(navFlowTimelapsePagesData?.isLoading || navFlowTimelapseEdgesData?.isLoading);

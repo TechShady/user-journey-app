@@ -3,24 +3,63 @@
   "environmentUrl": "https://guu84124.apps.dynatrace.com",
   "app": {
     "name": "User Journey & Experience",
-    "version": "4.76.9",
+    "version": "4.76.13",
     "description": "Not an official Dynatrace app. https://github.com/TechShady/user-journey-app.",
     "id": "my.user.journey.app",
     "icon": "./assets/icon.png",
     "scopes": [
-      { "name": "storage:events:read", "comment": "read user events" },
-      { "name": "storage:fieldsets:read", "comment": "read user tags" },
-      { "name": "storage:user.events:read", "comment": "read RUM user events" },
-      { "name": "storage:user.sessions:read", "comment": "read RUM sessions" },
-      { "name": "storage:metrics:read", "comment": "read metrics" },
-      { "name": "storage:entities:read", "comment": "read entity data" },
-      { "name": "storage:system:read", "comment": "read system data" },
-      { "name": "storage:buckets:read", "comment": "read storage buckets" },
-      { "name": "storage:spans:read", "comment": "read distributed traces (spans) for backend TL" },
-      { "name": "state:user-app-states:read", "comment": "read user tab settings" },
-      { "name": "state:user-app-states:write", "comment": "save user tab settings" },
-      { "name": "state:app-states:read", "comment": "read global (shared) app settings" },
-      { "name": "state:app-states:write", "comment": "save global (shared) app settings" }
+      {
+        "name": "storage:events:read",
+        "comment": "read user events"
+      },
+      {
+        "name": "storage:fieldsets:read",
+        "comment": "read user tags"
+      },
+      {
+        "name": "storage:user.events:read",
+        "comment": "read RUM user events"
+      },
+      {
+        "name": "storage:user.sessions:read",
+        "comment": "read RUM sessions"
+      },
+      {
+        "name": "storage:metrics:read",
+        "comment": "read metrics"
+      },
+      {
+        "name": "storage:entities:read",
+        "comment": "read entity data"
+      },
+      {
+        "name": "storage:system:read",
+        "comment": "read system data"
+      },
+      {
+        "name": "storage:buckets:read",
+        "comment": "read storage buckets"
+      },
+      {
+        "name": "storage:spans:read",
+        "comment": "read distributed traces (spans) for backend TL"
+      },
+      {
+        "name": "state:user-app-states:read",
+        "comment": "read user tab settings"
+      },
+      {
+        "name": "state:user-app-states:write",
+        "comment": "save user tab settings"
+      },
+      {
+        "name": "state:app-states:read",
+        "comment": "read global (shared) app settings"
+      },
+      {
+        "name": "state:app-states:write",
+        "comment": "save global (shared) app settings"
+      }
     ],
     "functionSandbox": {}
   }
