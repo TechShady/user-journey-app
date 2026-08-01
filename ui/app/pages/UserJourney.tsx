@@ -4846,6 +4846,16 @@ export function UserJourney() {
     });
   }, [tl.sharedMetricsAll, sharedTlProblems]);
 
+  // Problems opened in each bucket (start timestamp falls inside the bucket).
+  // Used by the diagnosis popup list so users can review what actually started in that slice.
+  const tlProblemsOpenedByBucket = React.useMemo(() => {
+    return tl.sharedMetricsAll.map((bucket) => {
+      const fromMs = Number(bucket.fromMs ?? 0);
+      const toMs = Number(bucket.toMs ?? 0);
+      return sharedTlProblems.filter((p) => p.startMs >= fromMs && p.startMs < toMs);
+    });
+  }, [tl.sharedMetricsAll, sharedTlProblems]);
+
   // Per-metric baselines for the hotness diagnosis panel — mean+std for each KPI across all buckets
   const tlSharedBaselines = React.useMemo(() => {
     const rows = tl.sharedMetricsAll;
@@ -4862,9 +4872,9 @@ export function UserJourney() {
       avgDurationMs: stat(rows.map(r => r.avgDurationMs)),
       apdex: stat(rows.map(r => r.apdex)),
       lcp: stat(rows.filter(r => r.lcp != null).map(r => r.lcp!)),
-      activeProblems: stat(tlProblemsByBucket.map((arr) => arr.length)),
+      openedProblems: stat(tlProblemsOpenedByBucket.map((arr) => arr.length)),
     };
-  }, [tl.sharedMetricsAll, tlProblemsByBucket]);
+  }, [tl.sharedMetricsAll, tlProblemsOpenedByBucket]);
 
   // Canonical hotness for all tabs: shared KPI degradation + active problem pressure.
   // This keeps the hotness strip consistent everywhere while still reflecting operational impact.
@@ -4875,15 +4885,15 @@ export function UserJourney() {
       const durZ = (row.avgDurationMs - tlSharedBaselines.avgDurationMs.mean) / tlSharedBaselines.avgDurationMs.std;
       const apdexBadZ = (tlSharedBaselines.apdex.mean - row.apdex) / tlSharedBaselines.apdex.std;
       const lcpBadZ = row.lcp == null ? 0 : (row.lcp - tlSharedBaselines.lcp.mean) / tlSharedBaselines.lcp.std;
-      const activeProblemCount = tlProblemsByBucket[i]?.length ?? 0;
-      const problemZ = (activeProblemCount - tlSharedBaselines.activeProblems.mean) / tlSharedBaselines.activeProblems.std;
+      const openedProblemCount = tlProblemsOpenedByBucket[i]?.length ?? 0;
+      const problemZ = (openedProblemCount - tlSharedBaselines.openedProblems.mean) / tlSharedBaselines.openedProblems.std;
       return Math.max(0, errZ, durZ, apdexBadZ, lcpBadZ, problemZ);
     });
-  }, [tlSharedBaselines, tl.sharedMetricsAll, tlProblemsByBucket]);
+  }, [tlSharedBaselines, tl.sharedMetricsAll, tlProblemsOpenedByBucket]);
 
   React.useEffect(() => {
     if (!tl.enabled || hotnessMode !== "shared" || tlSharedHotness.length === 0) return;
-    tl.reportHotness(tlSharedHotness, "Shared KPIs + active problems Z-score");
+    tl.reportHotness(tlSharedHotness, "Shared KPIs + opened problems Z-score");
   }, [tl.enabled, hotnessMode, tlSharedHotness, tl]);
 
   const startTlDiagDrag = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -5301,15 +5311,15 @@ export function UserJourney() {
           const raw = (val - base.mean) / base.std;
           return lowerIsBetter ? -raw : raw;
         };
-        const bucketProblems = tlProblemsByBucket[idx] ?? [];
-        const activeProblemCount = bucketProblems.length;
+        const openedProblemCount = (tlProblemsOpenedByBucket[idx] ?? []).length;
+        const bucketOpenedProblems = tlProblemsOpenedByBucket[idx] ?? [];
         const metrics = [
           { label: "Sessions",     value: fmtCount(row.sessions),              z: (row.sessions - tlSharedBaselines.sessions.mean) / tlSharedBaselines.sessions.std, neutral: true,  desc: "traffic volume vs avg" },
           { label: "Error Rate",   value: fmtPct(row.errorRate),               z: bZ(row.errorRate, tlSharedBaselines.errorRate, false),                              neutral: false, desc: "errors vs avg — ↑ bad" },
           { label: "Avg Duration", value: `${Math.round(row.avgDurationMs)}ms`, z: bZ(row.avgDurationMs, tlSharedBaselines.avgDurationMs, false),                    neutral: false, desc: "load time vs avg — ↑ bad" },
           { label: "Apdex",        value: row.apdex.toFixed(3),                z: bZ(row.apdex, tlSharedBaselines.apdex, true),                                     neutral: false, desc: "experience vs avg — ↑ bad" },
           ...(row.lcp != null && tlSharedBaselines.lcp.mean > 0 ? [{ label: "LCP", value: `${Math.round(row.lcp)}ms`, z: bZ(row.lcp, tlSharedBaselines.lcp, false), neutral: false, desc: "paint time vs avg — ↑ bad" }] : []),
-          { label: "Active Problems", value: String(activeProblemCount), z: bZ(activeProblemCount, tlSharedBaselines.activeProblems, false), neutral: false, desc: "open Davis problems overlapping this bucket" },
+          { label: "Problems Opened", value: String(openedProblemCount), z: bZ(openedProblemCount, tlSharedBaselines.openedProblems, false), neutral: false, desc: "Davis problems that started in this bucket" },
         ];
         const hotZ = tl.hotness[idx] ?? 0;
         const hotColor = hotZ >= 2.5 ? TL_HOT_HIGH : hotZ >= 1.5 ? TL_HOT_WARM : hotZ >= 0.75 ? TL_HOT_ELEV : "#4589FF";
@@ -5366,13 +5376,13 @@ export function UserJourney() {
                 );
               })}
             </div>
-            {activeProblemCount > 0 && (
+            {bucketOpenedProblems.length > 0 && (
               <div style={{ padding: "6px 10px 8px", borderTop: "1px solid rgba(128,128,128,0.12)" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.7, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                  Active problems in this bucket
+                  Problems opened in this bucket
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 120, overflowY: "auto" }}>
-                  {bucketProblems.slice(0, 8).map((p) => {
+                <div style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 220, overflowY: "auto", overflowX: "auto", paddingRight: 4 }}>
+                  {bucketOpenedProblems.map((p) => {
                     const label = p.displayId ? `${p.displayId} · ${p.title}` : p.title;
                     const url = `${ENV_URL}/ui/apps/dynatrace.davis.problems/problem/${encodeURIComponent(p.problemId)}`;
                     return (
@@ -5381,16 +5391,13 @@ export function UserJourney() {
                         href={url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{ fontSize: 10, color: "#7FB1FF", textDecoration: "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                        style={{ fontSize: 10, color: "#7FB1FF", textDecoration: "none", whiteSpace: "nowrap", minWidth: "max-content" }}
                         title={label}
                       >
                         {label}
                       </a>
                     );
                   })}
-                  {activeProblemCount > 8 && (
-                    <div style={{ fontSize: 9, opacity: 0.45 }}>+{activeProblemCount - 8} more</div>
-                  )}
                 </div>
               </div>
             )}
