@@ -21,7 +21,7 @@
 
 ## Overview
 
-The User Journey & Experience App is a 36-tab frontend observability suite built as a Dynatrace Platform App, organized into 8 parent tab groups with nested sub-tabs. It provides comprehensive Real User Monitoring (RUM) analysis including funnel tracking, Web Vitals, geographic heatmaps, predictive forecasting, automated anomaly detection, and multidimensional radial performance exploration — all powered by DQL (Dynatrace Query Language).
+The User Journey & Experience App is a 37-tab frontend observability suite built as a Dynatrace Platform App, organized into 8 parent tab groups with nested sub-tabs. It provides comprehensive Real User Monitoring (RUM) analysis including funnel tracking, weekly funnel change intelligence, Web Vitals, geographic heatmaps, predictive forecasting, automated anomaly detection, and multidimensional radial performance exploration — all powered by DQL (Dynatrace Query Language).
 
 **Architecture**: Single-page React app using Strato Design System components, `@dynatrace-sdk/react-hooks` (`useDql`) for data fetching, and SVG-based custom visualizations. All queries are parameterized by funnel step definitions (each with its own app assignment), a default frontend application, and timeframe. Funnels can span multiple apps — step-scoped queries use `in(frontend.name, {"app1", "app2"})` when the funnel references more than one application.
 
@@ -29,11 +29,11 @@ The User Journey & Experience App is a 36-tab frontend observability suite built
 
 ## Tab Group Structure
 
-The 36 sub-tabs are organized into **8 parent tab groups** with nested Strato `<Tabs>` navigation:
+The 37 sub-tabs are organized into **8 parent tab groups** with nested Strato `<Tabs>` navigation:
 
 | # | Parent Tab Group | Sub-Tabs |
 |---|---|---|
-| 1 | **Funnel & Conversion** | Funnel Overview, Step Details, Trends, Conversion Attribution, Errors & Drop-offs |
+| 1 | **Funnel & Conversion** | Funnel Overview, Funnel Analysis, Step Details, Trends, Conversion Attribution, Errors & Drop-offs |
 | 2 | **Executive Summary** | Executive Summary (standalone) |
 | 3 | **User Experience** | Web Vitals, Worst Sessions, Click Issues, Perf Budgets, Resource Waterfall, Third-Party Impact, Hyperlyzer |
 | 4 | **Navigation & Flows** | Navigation Paths, Sankey, Geo Heatmap, Maps, Session Replay Spotlight |
@@ -205,6 +205,33 @@ fetch user.events, from: now() - {timeframe}
 | fieldsAdd satisfaction = if(dur_ms <= 3000, "satisfied", else: if(dur_ms <= 12000, "tolerating", else: "frustrated"))
 | summarize total_actions = count(), total_sessions = countDistinctExact(dt.rum.session.id), avg_duration = avg(dur_ms), p50_duration = percentile(dur_ms, 50), p90_duration = percentile(dur_ms, 90), error_count = countIf(characteristics.has_error), satisfied = countIf(satisfaction == "satisfied"), tolerating = countIf(satisfaction == "tolerating"), frustrated = countIf(satisfaction == "frustrated")
 ```
+
+---
+
+### 1b. Funnel Analysis
+
+**Purpose**: Discover real-world funnel patterns and compare weekly drift (current 7d vs previous 7d) to prioritize which journeys should be promoted, repaired, or monitored.
+
+**Key Features**:
+- App scope controls: `all`, `single`, or `multiple` frontend applications with explicit Apply workflow
+- Top-N candidate detection (1-20) from discovered sequential paths (min 3 steps)
+- Rank movement and classification: new, mutated, or changed
+- Confidence gating based on entry/session volume (`high`, `medium`, `low`)
+- Step-level diff summary (`added`, `removed`, `rewired`) via `describeStepDiff`
+- Business impact estimates: expected conversions, conversion delta count, and revenue delta when AOV > 0
+- Daily pattern trend tail from `funnelAnalysisDailyPatternQuery`
+- Priority recommendation buckets: `Critical`, `This Week`, `Monitor`
+- Scope drift diagnostics to detect app concentration bias in all-app runs
+- Watchlist state persistence (`FUNNEL_ANALYSIS_WATCH_STATE_KEY`) and watch-only filtering
+- Drill workflow buttons into Funnel and Traffic context plus score explainability panel
+- AI Assist tab-specific narration of high-impact movers, confidence risk, and immediate actions
+
+**Core data flow**:
+1. Discovery query builds current and previous period candidate funnel signatures.
+2. Entry query derives per-entry-page denominator for conversion baseline.
+3. Comparison model computes conversion/session deltas, rank deltas, structural drift, confidence, and weighted impact.
+4. Optional daily pattern query enriches rows with trend snippets.
+5. UI renders prioritized cards with drill actions and watchlist persistence.
 
 ---
 
@@ -1484,6 +1511,7 @@ All revenue calculations are client-side — no additional DQL queries needed be
 
 | Date | Version | Changes |
 |------|---------|---------||
+| 2026-08-02 | 4.76.15 | **Funnel Analysis — Weekly Change Intelligence + AI Prioritization**: Added new `Funnel Analysis` sub-tab under Funnel & Conversion with scope controls (single/multiple/all apps), top-N discovery, current-vs-previous 7d comparison, rank deltas, confidence labels, new/mutated classification, step-diff diagnostics, conversion/session impact metrics, optional revenue impact when AOV is set, watchlist persistence/filtering, explain-score breakdown, and drill actions into Funnel/Traffic workflows. Added daily pattern trend enrichment, scope-drift diagnostics, and prioritized recommendation buckets (`Critical`, `This Week`, `Monitor`). AI Assist now provides tab-specific Funnel Analysis narratives focused on high-impact movers and confidence-aware next actions. |
 | 2026-08-01 | 4.76.13 | **Time-Lapse Hotness Mode Preference + Problem-Aware AI Correlation**: Added user preference for hotness behavior with two modes: `Shared` (default) and `Tab-specific`. Shared mode now publishes one canonical hotness strip across tabs using shared KPI degradation plus active Davis problem overlap. Tab-specific mode restores per-tab hotness publishers (Funnel, Navigation Paths, Maps). Time-slice diagnosis now includes active problem count and direct Gen3 problem links. Help content, AI Assist guidance, and DESIGN.md updated to document mode behavior and incident correlation workflow. |
 | 2026-07-12 | 4.59.0 | **Global Time-Lapse — Shared Playback Across Every Viz**: New `TimelapseContext` provider wraps the entire app and owns all Time-Lapse state (`enabled`, `bucket`, `speedMs`, `playing`, `index`, `totalBuckets`, `currentBucketKey`). A single header strip immediately below the app title renders the shared checkbox, bucket dropdown (1m / 5m / 10m / 30m / 1h), speed dropdown (0.5x / 1x / 2x / 4x), ▶ Play / ⏸ Pause / ↺ Restart controls, scrubber, and status readout. Play cursor now lives in the provider's `setInterval`. Migrated `FunnelOverviewTab` and `NavigationPathsTab` to consume context instead of holding local TL state — both now render only a compact "Time-Lapse active — use header controls" status line while enabled. Each viz still publishes its own bucket list to the provider via `tl.reportBuckets(total, key)`. Per-viz hotness (Z-score badges, spike strips) stays local. Nav-flow hotness intentionally ignores session/user filters so the fleet-wide spike pattern is always visible. Help panel and DESIGN.md updated. |
 | 2026-06-11 | 4.53.5 | **AI Insights — Industry-Aware Analysis Engine**: All 30+ AI analysis functions now automatically enriched with industry-specific benchmarks via `enrichWithIndustryContext()` in the `useAIInsights` hook. New Industry setting (8 verticals: E-Commerce, SaaS, Media, Financial Services, Travel, Healthcare, Gaming, General) in SettingsContext with `INDUSTRY_BENCHMARKS` containing 22 per-industry metrics. New `IndustryBenchmark` interface. 9 data-driven analysis functions replace `analyzeGenericTab` calls: `analyzeCostPerConversion`, `analyzePerformanceTax`, `analyzeIdleCapacity`, `analyzeCdnRoi`, `analyzeCostAnomalies`, `analyzeWhatIf`, `analyzeRevenueIntelligence`, `analyzeSessionReplaySpotlight`, `analyzeABComparison`. Enrichment function detects metric keywords in existing insights and appends contextual industry comparisons (conversion rate, Apdex, error rate, latency, LCP, CLS, third-party, mobile share). Help panel and DESIGN.md updated. |

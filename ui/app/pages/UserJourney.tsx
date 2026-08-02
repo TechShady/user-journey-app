@@ -355,7 +355,7 @@ const TRAFFIC_MULTIPLIERS = [0, 1, 2, 3, 4, 5, 10, 20, 30, 40, 50, 60, 70, 80, 9
 const APDEX_4T = 12000;
 
 const TAB_KEYS = [
-  "Funnel Overview", "Trends", "Web Vitals", "Step Details", "Worst Sessions",
+  "Funnel Overview", "Funnel Analysis", "Trends", "Web Vitals", "Step Details", "Worst Sessions",
   "Exceptions", "Click Issues", "Perf Budgets",
   "Geo Heatmap", "Maps", "Navigation Paths", "Sankey", "Anomaly Detection",
   "Conversion Attribution", "Executive Summary", "Segmentation",
@@ -375,7 +375,7 @@ type TabKey = typeof TAB_KEYS[number];
 // ---------------------------------------------------------------------------
 type TabGroupDef = { label: string; subTabs: TabKey[] };
 const TAB_GROUPS: TabGroupDef[] = [
-  { label: "Funnel & Conversion", subTabs: ["Funnel Overview", "Step Details", "Trends", "Conversion Attribution", "Errors & Drop-offs"] },
+  { label: "Funnel & Conversion", subTabs: ["Funnel Overview", "Funnel Analysis", "Step Details", "Trends", "Conversion Attribution", "Errors & Drop-offs"] },
   { label: "Executive Summary", subTabs: ["Executive Summary"] },
   { label: "User Experience", subTabs: ["Web Vitals", "Worst Sessions", "Click Issues", "Perf Budgets", "Resource Waterfall", "Third-Party Impact", "Hyperlyzer"] },
   { label: "Navigation & Flows", subTabs: ["Navigation Paths", "Sankey", "Geo Heatmap", "Maps", "Session Replay Spotlight"] },
@@ -401,6 +401,7 @@ const TAB_ORDER_STATE_KEY = "uj-tab-order";
 const BUDGET_THRESHOLDS_STATE_KEY = "uj-budget-thresholds";
 const SLO_TARGETS_STATE_KEY = "uj-slo-targets";
 const HOTNESS_MODE_STATE_KEY = "uj-hotness-mode";
+const FUNNEL_ANALYSIS_WATCH_STATE_KEY = "uj-funnel-analysis-watchlist";
 // Keys whose values are shared across ALL users of this app. Every other saveState call is per-user.
 const GLOBAL_STATE_KEYS = new Set<string>([BUDGET_THRESHOLDS_STATE_KEY, SLO_TARGETS_STATE_KEY]);
 const DEFAULT_TAB_ORDER: TabKey[] = [...TAB_KEYS];
@@ -3623,6 +3624,15 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(255,131,43,0.7)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>August 2, 2026</Paragraph>
+            <Paragraph><Strong>Funnel Analysis — Weekly Change Intelligence Command Center</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>New Funnel Analysis sub-tab</Strong>: Added under Funnel &amp; Conversion with app scope controls (single, multiple, all), top-N discovery (1-20), and one-click Apply.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Week-over-week comparison</Strong>: Automatically compares current 7 days vs previous 7 days with rank movement, confidence labels, and new vs. mutated funnel classification.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Structural + business impact diagnostics</Strong>: Step-diff summaries, conversion and session deltas, expected vs actual conversions, and revenue impact when AOV is configured.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Operational workflow</Strong>: Watchlist toggle, prioritized recommendations (Critical / This Week / Monitor), scope-drift diagnostics, drill actions to Funnel/Traffic tabs, and Explain Score breakdown per row.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>AI Assist for Funnel Analysis</Strong>: AI panel now narrates top movers, risk confidence, scope concentration, and immediate next actions from the active Funnel Analysis run.</Paragraph>
+          </div>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(255,131,43,0.7)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>July 12, 2026</Paragraph>
             <Paragraph><Strong>Global Time-Lapse — one control drives every visualization</Strong></Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Header strip</Strong>: A new Time-Lapse strip lives directly below the page title. Enable it once and every viz that supports playback (Funnel, Navigation Flow, and — coming soon — Sankey and Maps) animates in sync.</Paragraph>
@@ -3881,6 +3891,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       </HelpSection>
       <HelpSection title="Tabs">
         <Paragraph><Strong>Funnel Overview</Strong>: Enhanced KPI bar with 6 metric cards — each shows value, inline sparkline (time-bucketed trend shape), comparison arrow (▲/▼ % vs previous period), and click-to-forecast popup (opens Forecast Modal with 6 model choices: Holt-Winters, Triple Exp., Prophet, ARIMA, SARIMA, Linear Regression). Metrics: sessions, conversions, conversion rate, Apdex, error rate, avg duration. Error rate and duration use inverted logic (lower = green). Organized into 4 sub-tabs: <Strong>Conversion Funnel</Strong> — Apdex satisfaction breakdown tile, 5 chart styles (<Strong>Classic</Strong> tapered SVG, <Strong>Horizontal Bar</Strong> waterfall, <Strong>Stacked Cohort</Strong> Marimekko, <Strong>Elapsed-Time Curve</Strong> survival curve, <Strong>Comparison Split</Strong> mirror funnel), and a Compare toggle that overlays the previous period as dashed outlines. Default style configurable via Settings. <Strong>Predictive Model</Strong> — appears once ≥2 hourly data points exist for today; fits a linear regression on this-morning's hourly conversion rates and projects the end-of-day rate, hourly velocity, confidence score, and hours remaining on a sparkline with a dashed projection line. <Strong>Step Analysis</Strong> — sortable table of every funnel step with sessions, avg/P90 duration, Apdex, conversion %, abandons, and errors. <Strong>Per-Page Breakdown</Strong> — per-page metrics for steps that span multiple page identifiers; shows sessions, Apdex, avg/P90, errors, and a satisfaction mini-bar per page.</Paragraph>
+        <Paragraph><Strong>Funnel Analysis</Strong>: Discovers top real-world funnel patterns in the selected app scope and compares current 7 days against previous 7 days. Highlights rank movement, confidence level, new vs. mutated paths, and structural step changes. Each row includes conversion/session deltas, projected conversion impact, optional revenue impact (AOV), daily trend tail, drill buttons to Funnel and Traffic workflows, watchlist tagging, and an Explain Score panel that decomposes impact weighting (conversion, volume, structure, newness). Recommendations are grouped into Critical, This Week, and Monitor.</Paragraph>
         <Paragraph><Strong>Trends</Strong>: Period-over-period comparison of all key metrics across 11 cards (Sessions, Total Actions, Conversion Rate, Apdex, Avg/P50/P90 Duration, Error Rate, Errors, Frustrated, and optionally Revenue when AOV is set). Each card shows: current value with color-coded delta arrow, a <Strong>daily sparkline</Strong> tracing the metric's shape across the current period, and an inline <Strong>anomaly badge</Strong> — <Strong>⚠ Anomaly</Strong> (current value exceeds 2 std dev of daily variance — statistically unusual), <Strong>↑ Notable</Strong> (1.2–2 std dev — worth watching), or <Strong>∿ Normal</Strong> (&lt;1.2 std dev — within expected noise). Inverted logic applies for duration/errors (lower = better). Use anomaly badges to distinguish real regressions from day-to-day noise. The AI Insights panel at the top narrates the most critical changes and recommends next steps.</Paragraph>
         <Paragraph><Strong>Web Vitals</Strong>: Core Web Vitals gauges (LCP, CLS, INP, TTFB), CWV trend line showing improvement/degradation over time, automated remediation recommendations per failing vital (top offending pages + actionable fixes), page-level breakdown, and performance health score.</Paragraph>
         <Paragraph><Strong>Step Details</Strong>: Per-step deep dive with Apdex gauges, satisfaction breakdown bars, and duration percentiles (P50/P90/P99). For multi-page steps: a <Strong>Page Drop-off Contributors</Strong> funnel shows which pages within each step have the highest traffic volume vs. drop-off — bars are color-coded by Apdex (green/amber/red) and sorted by event count, with a percentage drop indicator showing how each page compares to the top contributor. A <Strong>Compare Pages</Strong> button reveals per-page metrics with the first page as the primary baseline — delta indicators show how each additional page performs relative to it. Each per-page breakdown now includes <Strong>Core Web Vitals (LCP, CLS, INP)</Strong> color-coded against Google thresholds for instant performance assessment.</Paragraph>
@@ -3918,7 +3929,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
       <HelpSection title="Tab Settings">
         <Paragraph>Click the <Strong>gear icon</Strong> (⚙) next to the help button to open Settings. Tabs are organized into <Strong>8 parent tab groups</Strong>, each containing related sub-tabs. Both parent groups and individual sub-tabs can be toggled on/off and reordered via drag-and-drop. Settings are saved per user via Dynatrace App State — they persist across sessions and browser refreshes.</Paragraph>
         <Paragraph><Strong>Tab Groups</Strong>:</Paragraph>
-        <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>Funnel &amp; Conversion</Strong>: Funnel Overview, Step Details, Trends, Conversion Attribution, Errors &amp; Drop-offs</Paragraph>
+        <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>Funnel &amp; Conversion</Strong>: Funnel Overview, Funnel Analysis, Step Details, Trends, Conversion Attribution, Errors &amp; Drop-offs</Paragraph>
         <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>Executive Summary</Strong>: Executive Summary (standalone parent tab)</Paragraph>
         <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>User Experience</Strong>: Web Vitals, Worst Sessions, Click Issues, Perf Budgets, Resource Waterfall, Third-Party Impact, Hyperlyzer</Paragraph>
         <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>Navigation &amp; Flows</Strong>: Navigation Paths, Sankey, Geo Heatmap, Maps, Session Replay Spotlight</Paragraph>
@@ -3933,7 +3944,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph><Strong>Funnel Steps — Per-Step Application</Strong>: Each funnel step has its own Application selector. When adding a new step, it inherits the previous step's app. Change a step's app to build funnels that span multiple applications (e.g. marketing site → checkout app). The Pages/Identifiers dropdown shows pages specific to that step's selected app. Queries automatically use <code>in(frontend.name, {"{"}app1", "app2{"}"})</code> when the funnel spans multiple apps.</Paragraph>
         <Paragraph><Strong>Funnel Steps — Pages / Identifiers</Strong>: Each identifier is a searchable dropdown showing all distinct page names seen for the step's assigned app in the last 7 days. Current saved values (including wildcard patterns such as <code>/home*</code>) appear as valid options even if they are not in the fetched list. Use the search filter to narrow long lists. Both dropdowns load only when Settings is open.</Paragraph>
         <Paragraph><Strong>Average Order Value</Strong>: Set in Settings to enable revenue metrics across What-If Analysis, Revenue Intelligence, Errors &amp; Drop-offs, Conversion Attribution, Map, Root Cause Correlation, Trends, Executive Summary, Anomaly Detection, and Change Intelligence tabs. This value represents the average revenue per conversion (final funnel step completion). Set to 0 to hide revenue metrics.</Paragraph>
-        <Paragraph><Strong>AI Insights</Strong>: The AI Insights panel is sub-tab aware and <Strong>industry-aware</Strong> — it shows analysis specific to the currently active sub-tab, automatically enriched with benchmarks for your selected industry. Toggle AI Insights in the header and navigate between sub-tabs to get contextual recommendations tailored to E-Commerce, SaaS, Media, Financial Services, Travel, Healthcare, or Gaming verticals.</Paragraph>
+        <Paragraph><Strong>AI Insights</Strong>: The AI Insights panel is sub-tab aware and <Strong>industry-aware</Strong> — it shows analysis specific to the currently active sub-tab, automatically enriched with benchmarks for your selected industry. Funnel Analysis now includes AI narration for high-impact movers, confidence risk, app-scope concentration, and prioritized actions. Toggle AI Insights in the header and navigate between sub-tabs to get contextual recommendations tailored to E-Commerce, SaaS, Media, Financial Services, Travel, Healthcare, or Gaming verticals.</Paragraph>
         <Paragraph><Strong>AI Assist + Hotness</Strong>: In Shared hotness mode, AI bucket diagnosis includes active Davis problem overlap and links to Gen3 problem cards, so unusual timeline buckets can be correlated with real incidents instantly. Switch to Tab-specific mode when you want each tab's local anomaly signal instead.</Paragraph>
         <Paragraph><Strong>Industry</Strong>: Select your industry vertical in Settings to calibrate all AI Insights benchmarks. Each industry has specific targets for conversion rate, Apdex, error rate, latency, CDN ROI, idle capacity utilization, cost per conversion, and more. The analysis engine compares your actual metrics against these industry-specific thresholds to surface relevant insights.</Paragraph>
       </HelpSection>
@@ -3974,6 +3985,7 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph>• Click any KPI card to open the <Strong>Forecast Modal</Strong> — switch between 6 statistical models (Holt-Winters, ARIMA, SARIMA, Prophet, Triple Exp., Linear) to compare projections. The modal shows historical data + 7-day forecast with confidence band, all without leaving the current tab.</Paragraph>
         <Paragraph>• Hover over any KPI card and click the <Strong>⟷ button</Strong> (top-left) to open the <Strong>Related Metrics</Strong> panel — see which other metrics are statistically correlated with the one you're investigating, ranked by strength with direction and narrative explanations.</Paragraph>
         <Paragraph>• The <Strong>Predictive Model</Strong> sub-tab is most reliable after 6+ hours of today's data. Early-morning projections have wide confidence intervals — check again at midday for a stable EOD forecast.</Paragraph>
+        <Paragraph>• Use <Strong>Funnel Analysis</Strong> weekly: start in all-app scope to find movers, switch to single-app scope when scope drift exceeds 75%, add critical rows to Watchlist, then use Drill to Funnel/Traffic for root-cause follow-through.</Paragraph>
         <Paragraph>• The <Strong>Step Analysis</Strong> sub-tab's sortable table is the fastest way to find which funnel step has the worst Apdex or highest abandon count — sort by "Conv %" ascending or "Abandons" descending.</Paragraph>
         <Paragraph>• <Strong>Hyperlyzer</Strong> lets you visually compare performance across OS, geo, browser, and user action dimensions simultaneously — click slices to stack filters and isolate problem segments (e.g. "Chrome + Germany + /checkout" to find a geo-specific performance issue).</Paragraph>
       </HelpSection>
@@ -4013,6 +4025,721 @@ function funnelDiscoveryQuery(apps: string[], filter?: string, exclude?: string)
   if (x) lines.push(`| filter not(contains(lower(step1), "${x}") or contains(lower(step2), "${x}") or contains(lower(step3), "${x}") or contains(lower(step4), "${x}") or contains(lower(step5), "${x}"))`);
   lines.push(`| sort sessions desc`, `| limit 100`);
   return lines.join("\n");
+}
+
+function funnelAnalysisDiscoveryQuery(apps: string[], prev = false): string {
+  const period = periodClause(7, prev);
+  const appFilter = apps.length === 0
+    ? ""
+    : apps.length === 1
+      ? `| filter frontend.name == "${apps[0]}"`
+      : `| filter in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
+  return [
+    `fetch user.events, ${period}`,
+    appFilter,
+    `| filter isNotNull(view.name) and view.name != ""`,
+    `| summarize firstSeen = min(timestamp), app = first(frontend.name), by: {dt.rum.session.id, view.name}`,
+    `| sort firstSeen asc`,
+    `| summarize pages = collectArray(view.name), app = first(app), by: {dt.rum.session.id}`,
+    `| fieldsAdd pageCount = arraySize(pages)`,
+    `| filter pageCount >= 3`,
+    `| fieldsAdd step1 = pages[0], step2 = pages[1], step3 = pages[2], step4 = if(pageCount >= 4, pages[3], else:""), step5 = if(pageCount >= 5, pages[4], else:"")`,
+    `| summarize sessions = count(), by: {app, step1, step2, step3, step4, step5}`,
+    `| sort sessions desc`,
+    `| limit 300`,
+  ].filter(Boolean).join("\n");
+}
+
+function funnelAnalysisEntryQuery(apps: string[], prev = false): string {
+  const period = periodClause(7, prev);
+  const appFilter = apps.length === 0
+    ? ""
+    : apps.length === 1
+      ? `| filter frontend.name == "${apps[0]}"`
+      : `| filter in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
+  return [
+    `fetch user.events, ${period}`,
+    appFilter,
+    `| filter isNotNull(view.name) and view.name != ""`,
+    `| summarize firstSeen = min(timestamp), app = first(frontend.name), by: {dt.rum.session.id, view.name}`,
+    `| sort firstSeen asc`,
+    `| summarize pages = collectArray(view.name), app = first(app), by: {dt.rum.session.id}`,
+    `| fieldsAdd pageCount = arraySize(pages)`,
+    `| filter pageCount >= 1`,
+    `| fieldsAdd step1 = pages[0]`,
+    `| summarize entry_sessions = count(), by: {app, step1}`,
+    `| sort entry_sessions desc`,
+    `| limit 1000`,
+  ].filter(Boolean).join("\n");
+}
+
+function funnelAnalysisDailyPatternQuery(apps: string[]): string {
+  const appFilter = apps.length === 0
+    ? ""
+    : apps.length === 1
+      ? `| filter frontend.name == "${apps[0]}"`
+      : `| filter in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
+  return [
+    `fetch user.events, from: now()-14d`,
+    appFilter,
+    `| filter isNotNull(view.name) and view.name != ""`,
+    `| summarize firstSeen = min(timestamp), app = first(frontend.name), by: {dt.rum.session.id, view.name}`,
+    `| sort firstSeen asc`,
+    `| summarize pages = collectArray(view.name), app = first(app), session_start = min(firstSeen), by: {dt.rum.session.id}`,
+    `| fieldsAdd pageCount = arraySize(pages)`,
+    `| filter pageCount >= 3`,
+    `| fieldsAdd day = bin(session_start, 1d)`,
+    `| fieldsAdd step1 = pages[0], step2 = pages[1], step3 = pages[2], step4 = if(pageCount >= 4, pages[3], else:""), step5 = if(pageCount >= 5, pages[4], else:"")`,
+    `| summarize sessions = count(), by: {day, app, step1, step2, step3, step4, step5}`,
+    `| sort day asc`,
+    `| limit 5000`,
+  ].filter(Boolean).join("\n");
+}
+
+function describeStepDiff(currentSteps: string[], prevSteps: string[] | undefined): { type: "none" | "insert" | "remove" | "replace"; at: number; from?: string; to?: string } {
+  if (!prevSteps || prevSteps.length === 0) return { type: "insert", at: 1, to: currentSteps[0] };
+  const maxLen = Math.max(currentSteps.length, prevSteps.length);
+  for (let i = 0; i < maxLen; i++) {
+    const c = currentSteps[i];
+    const p = prevSteps[i];
+    if (c === p) continue;
+    if (c && !p) return { type: "insert", at: i + 1, to: c };
+    if (!c && p) return { type: "remove", at: i + 1, from: p };
+    return { type: "replace", at: i + 1, from: p, to: c };
+  }
+  return { type: "none", at: 0 };
+}
+
+type DiscoveredFunnelCandidate = {
+  app: string;
+  steps: string[];
+  sessions: number;
+  signature: string;
+};
+
+function normalizeDiscoveredFunnels(records: any[], fallbackApp: string): DiscoveredFunnelCandidate[] {
+  const out: DiscoveredFunnelCandidate[] = [];
+  const seen = new Set<string>();
+  for (const rec of records) {
+    const sessions = Number(rec.sessions ?? 0);
+    if (sessions <= 0) continue;
+    const app = String(rec.app ?? fallbackApp ?? "").trim();
+    const rawPath: string[] = [];
+    for (let i = 1; i <= 5; i++) {
+      const p = String(rec[`step${i}`] ?? "").trim();
+      if (p) rawPath.push(p);
+    }
+    const visited = new Set<string>();
+    const deduped = rawPath.filter((p) => {
+      if (visited.has(p)) return false;
+      visited.add(p);
+      return true;
+    });
+    if (deduped.length < 3) continue;
+    const signature = `${app}::${deduped.join("=>")}`;
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    out.push({ app, steps: deduped, sessions, signature });
+  }
+  out.sort((a, b) => b.sessions - a.sessions);
+  return out;
+}
+
+function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelIndex, aov, onJumpToTab }: {
+  frontend: string;
+  funnels: FunnelDef[];
+  saveFunnels: (v: FunnelDef[]) => void;
+  saveActiveFunnelIndex: (v: number) => void;
+  aov: number;
+  onJumpToTab: (tab: TabKey) => void;
+}) {
+  const [scope, setScope] = useState<"all" | "single" | "multiple">("all");
+  const [singleApp, setSingleApp] = useState(frontend);
+  const [multiApps, setMultiApps] = useState<string[]>(frontend ? [frontend] : []);
+  const [topN, setTopN] = useState(10);
+  const [applied, setApplied] = useState<{ apps: string[]; topN: number; scope: "all" | "single" | "multiple" } | null>(null);
+  const [appliedSignatures, setAppliedSignatures] = useState<Set<string>>(new Set());
+  const [showWatchOnly, setShowWatchOnly] = useState(false);
+  const [expandedScore, setExpandedScore] = useState<Set<string>>(new Set());
+
+  const watchState = useUserAppState({ key: FUNNEL_ANALYSIS_WATCH_STATE_KEY });
+  const { execute: saveWatchState } = useSetUserAppState();
+  const [watchSignatures, setWatchSignatures] = useState<Set<string>>(new Set());
+
+  const appsData = useDql({ query: availableAppsQuery() });
+  const discoveredApps = useMemo(() => {
+    const fromData = ((appsData.data?.records ?? []) as any[])
+      .map((r) => String(r["frontend.name"] ?? "").trim())
+      .filter(Boolean);
+    const merged = new Set<string>(fromData);
+    if (frontend) merged.add(frontend);
+    return Array.from(merged).sort();
+  }, [appsData.data, frontend]);
+
+  useEffect(() => {
+    if (!singleApp && discoveredApps.length > 0) setSingleApp(discoveredApps[0]);
+    if (multiApps.length === 0 && frontend) setMultiApps([frontend]);
+  }, [discoveredApps, singleApp, multiApps.length, frontend]);
+
+  useEffect(() => {
+    try {
+      const raw = (watchState.data?.value as string | undefined) ?? "";
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as string[];
+      if (!Array.isArray(parsed)) return;
+      setWatchSignatures(new Set(parsed));
+    } catch {
+      // ignore malformed stored state
+    }
+  }, [watchState.data]);
+
+  const draftApps = useMemo(() => {
+    if (scope === "all") return [] as string[];
+    if (scope === "single") return singleApp ? [singleApp] : [];
+    return Array.from(new Set(multiApps.filter(Boolean)));
+  }, [scope, singleApp, multiApps]);
+
+  const applyDisabled = scope !== "all" && draftApps.length === 0;
+
+  const currentQuery = applied ? funnelAnalysisDiscoveryQuery(applied.apps, false) : "fetch user.events | limit 0";
+  const prevQuery = applied ? funnelAnalysisDiscoveryQuery(applied.apps, true) : "fetch user.events | limit 0";
+  const currentEntriesQuery = applied ? funnelAnalysisEntryQuery(applied.apps, false) : "fetch user.events | limit 0";
+  const prevEntriesQuery = applied ? funnelAnalysisEntryQuery(applied.apps, true) : "fetch user.events | limit 0";
+  const dailyPatternQuery = applied ? funnelAnalysisDailyPatternQuery(applied.apps) : "fetch user.events | limit 0";
+
+  const currentData = useDql({ query: currentQuery });
+  const prevData = useDql({ query: prevQuery });
+  const currentEntriesData = useDql({ query: currentEntriesQuery });
+  const prevEntriesData = useDql({ query: prevEntriesQuery });
+  const dailyPatternData = useDql({ query: dailyPatternQuery });
+
+  const currentCandidates = useMemo(() => normalizeDiscoveredFunnels((currentData.data?.records ?? []) as any[], frontend), [currentData.data, frontend]);
+  const prevCandidates = useMemo(() => normalizeDiscoveredFunnels((prevData.data?.records ?? []) as any[], frontend), [prevData.data, frontend]);
+
+  const currentEntryMap = useMemo(() => {
+    const m = new Map<string, number>();
+    ((currentEntriesData.data?.records ?? []) as any[]).forEach((r) => {
+      const app = String(r.app ?? "").trim();
+      const step1 = String(r.step1 ?? "").trim();
+      if (!app || !step1) return;
+      m.set(`${app}::${step1}`, Number(r.entry_sessions ?? 0));
+    });
+    return m;
+  }, [currentEntriesData.data]);
+
+  const prevEntryMap = useMemo(() => {
+    const m = new Map<string, number>();
+    ((prevEntriesData.data?.records ?? []) as any[]).forEach((r) => {
+      const app = String(r.app ?? "").trim();
+      const step1 = String(r.step1 ?? "").trim();
+      if (!app || !step1) return;
+      m.set(`${app}::${step1}`, Number(r.entry_sessions ?? 0));
+    });
+    return m;
+  }, [prevEntriesData.data]);
+
+  const prevBySignature = useMemo(() => {
+    const m = new Map<string, DiscoveredFunnelCandidate>();
+    prevCandidates.forEach((c) => m.set(c.signature, c));
+    return m;
+  }, [prevCandidates]);
+
+  const builtFunnelMatches = useMemo(() => {
+    const exact = new Map<string, string>();
+    const pagesOnly = new Map<string, string>();
+    funnels.forEach((f) => {
+      const ids = f.steps.map((s) => String(s.identifiers?.[0] ?? "").trim()).filter(Boolean);
+      if (ids.length < 3) return;
+      const apps = f.steps.map((s) => String(s.app ?? frontend).trim());
+      if (apps.every((a) => a === apps[0])) {
+        exact.set(`${apps[0]}::${ids.join("=>")}`, f.name);
+      }
+      pagesOnly.set(ids.join("=>"), f.name);
+    });
+    return { exact, pagesOnly };
+  }, [funnels, frontend]);
+
+  const currentRankBySignature = useMemo(() => {
+    const m = new Map<string, number>();
+    currentCandidates.forEach((c, idx) => m.set(c.signature, idx + 1));
+    return m;
+  }, [currentCandidates]);
+
+  const prevRankBySignature = useMemo(() => {
+    const m = new Map<string, number>();
+    prevCandidates.forEach((c, idx) => m.set(c.signature, idx + 1));
+    return m;
+  }, [prevCandidates]);
+
+  const dailySeriesBySignature = useMemo(() => {
+    const rows = (dailyPatternData.data?.records ?? []) as any[];
+    const m = new Map<string, Map<string, number>>();
+    rows.forEach((r) => {
+      const app = String(r.app ?? "").trim();
+      const steps: string[] = [];
+      for (let i = 1; i <= 5; i++) {
+        const p = String(r[`step${i}`] ?? "").trim();
+        if (p) steps.push(p);
+      }
+      if (steps.length < 3 || !app) return;
+      const signature = `${app}::${steps.join("=>")}`;
+      const day = String(r.day ?? "");
+      if (!day) return;
+      if (!m.has(signature)) m.set(signature, new Map<string, number>());
+      m.get(signature)!.set(day, Number(r.sessions ?? 0));
+    });
+    return m;
+  }, [dailyPatternData.data]);
+
+  const topRows = useMemo(() => {
+    const list = currentCandidates.slice(0, Math.max(1, Math.min(20, applied?.topN ?? topN))).map((c) => {
+      const prev = prevBySignature.get(c.signature);
+      const prevClosest = prev ?? prevCandidates
+        .filter((p) => p.app === c.app && p.steps[0] === c.steps[0] && p.steps[p.steps.length - 1] === c.steps[c.steps.length - 1])
+        .sort((a, b) => b.sessions - a.sessions)[0];
+      const step1 = c.steps[0] ?? "";
+      const currEntry = currentEntryMap.get(`${c.app}::${step1}`) ?? 0;
+      const prevEntry = prev ? (prevEntryMap.get(`${prev.app}::${prev.steps[0] ?? ""}`) ?? 0) : 0;
+      const currConv = currEntry > 0 ? (c.sessions / currEntry) * 100 : 0;
+      const prevConv = prev && prevEntry > 0 ? (prev.sessions / prevEntry) * 100 : 0;
+      const deltaSessions = prev ? c.sessions - prev.sessions : c.sessions;
+      const deltaSessionsPct = prev && prev.sessions > 0 ? (deltaSessions / prev.sessions) * 100 : null;
+      const deltaConv = prev ? (currConv - prevConv) : null;
+      const exactBuiltName = builtFunnelMatches.exact.get(c.signature);
+      const pageBuiltName = builtFunnelMatches.pagesOnly.get(c.steps.join("=>"));
+      const isNew = !prev;
+      const isMutated = !prev && !!prevClosest;
+      const stepCountDelta = prevClosest ? (c.steps.length - prevClosest.steps.length) : null;
+      const absStepShift = Math.abs(stepCountDelta ?? 0);
+      const stepShiftSeverity = absStepShift >= 3 ? "major" : absStepShift === 2 ? "high" : absStepShift === 1 ? "moderate" : "stable";
+      const stepDiff = describeStepDiff(c.steps, prevClosest?.steps);
+      const stepDiffSummary = stepDiff.type === "none"
+        ? "No structural change"
+        : stepDiff.type === "insert"
+          ? `Inserted step ${stepDiff.at}: ${stepDiff.to ?? "(unknown)"}`
+          : stepDiff.type === "remove"
+            ? `Removed step ${stepDiff.at}: ${stepDiff.from ?? "(unknown)"}`
+            : `Step ${stepDiff.at} changed: ${(stepDiff.from ?? "(unknown)")} -> ${(stepDiff.to ?? "(unknown)")}`;
+      const currentRank = currentRankBySignature.get(c.signature) ?? 999;
+      const previousRank = prevRankBySignature.get(c.signature) ?? null;
+      const rankDelta = previousRank == null ? null : previousRank - currentRank;
+
+      const convWeight = Math.min(70, Math.abs(deltaConv ?? 0) * 8);
+      const volumeWeight = Math.min(25, Math.abs(deltaSessionsPct ?? 0) * 0.9);
+      const structureWeight = Math.min(25, absStepShift * 8);
+      const newnessWeight = isNew ? 30 : 0;
+      const impact = newnessWeight + convWeight + volumeWeight + structureWeight;
+
+      const confidence = currEntry >= 300 && c.sessions >= 120 ? "high"
+        : currEntry >= 120 && c.sessions >= 40 ? "medium"
+          : "low";
+
+      const expectedConversions = prev ? (currEntry * (prevConv / 100)) : null;
+      const conversionDeltaCount = expectedConversions == null ? null : (c.sessions - expectedConversions);
+      const revenueDelta = conversionDeltaCount == null || aov <= 0 ? null : (conversionDeltaCount * aov);
+
+      const seriesMap = dailySeriesBySignature.get(c.signature) ?? new Map<string, number>();
+      const sortedDays = Array.from(seriesMap.keys()).sort();
+      const miniTrend = sortedDays.slice(-7).map((d) => Number(seriesMap.get(d) ?? 0));
+
+      return {
+        ...c,
+        prev,
+        prevClosest,
+        currConv,
+        prevConv,
+        deltaSessions,
+        deltaSessionsPct,
+        deltaConv,
+        isNew,
+        isMutated,
+        stepCountDelta,
+        stepShiftSeverity,
+        stepDiff,
+        stepDiffSummary,
+        currentRank,
+        previousRank,
+        rankDelta,
+        confidence,
+        expectedConversions,
+        conversionDeltaCount,
+        revenueDelta,
+        miniTrend,
+        exactBuiltName,
+        pageBuiltName,
+        impact,
+        scoreParts: { convWeight, volumeWeight, structureWeight, newnessWeight },
+      };
+    });
+    return showWatchOnly ? list.filter((r) => watchSignatures.has(r.signature)) : list;
+  }, [
+    currentCandidates, applied, topN, prevBySignature, currentEntryMap, prevEntryMap, builtFunnelMatches,
+    prevCandidates, currentRankBySignature, prevRankBySignature, showWatchOnly, watchSignatures, dailySeriesBySignature, aov,
+  ]);
+
+  const movers = useMemo(() => [...topRows].sort((a, b) => b.impact - a.impact).slice(0, 6), [topRows]);
+
+  const recommendations = useMemo(() => {
+    const critical: string[] = [];
+    const thisWeek: string[] = [];
+    const monitor: string[] = [];
+    const confidentRows = topRows.filter((r) => r.confidence !== "low");
+    const newCount = topRows.filter((r) => r.isNew).length;
+    const mutatedCount = topRows.filter((r) => r.isMutated).length;
+    const declines = confidentRows.filter((r) => (r.deltaConv ?? 0) <= -1.5 || ((r.deltaSessionsPct ?? 0) <= -15 && (r.deltaConv ?? 0) < 0));
+    const gains = confidentRows.filter((r) => (r.deltaConv ?? 0) >= 1.5 || ((r.deltaSessionsPct ?? 0) >= 15 && (r.deltaConv ?? 0) > 0));
+    const structural = confidentRows.filter((r) => r.stepShiftSeverity === "major" || r.stepShiftSeverity === "high");
+
+    if (declines.length > 0) {
+      const worst = [...declines].sort((a, b) => (a.deltaConv ?? 0) - (b.deltaConv ?? 0))[0];
+      critical.push(`Conversion deterioration in ${declines.length} funnel(s). Start with ${worst.steps[0]} -> ${worst.steps[worst.steps.length - 1]} (${fmtPct(worst.deltaConv ?? 0)} delta).`);
+    }
+    if (structural.length > 0) {
+      const biggest = [...structural].sort((a, b) => Math.abs(b.stepCountDelta ?? 0) - Math.abs(a.stepCountDelta ?? 0))[0];
+      const shift = biggest.stepCountDelta ?? 0;
+      thisWeek.push(`Structural shifts in ${structural.length} funnel(s). Largest step shift: ${shift >= 0 ? "+" : ""}${shift} on ${biggest.steps[0]} -> ${biggest.steps[biggest.steps.length - 1]}.`);
+    }
+    if (gains.length > 0) {
+      const best = [...gains].sort((a, b) => (b.deltaConv ?? 0) - (a.deltaConv ?? 0))[0];
+      thisWeek.push(`Positive momentum in ${gains.length} funnel(s). Reuse improvements seen in ${best.steps[0]} -> ${best.steps[best.steps.length - 1]}.`);
+    }
+    if (newCount > 0) monitor.push(`${newCount} brand-new funnel pattern(s) appeared in the last 7 days.`);
+    if (mutatedCount > 0) monitor.push(`${mutatedCount} mutated journey pattern(s) detected with changed middle steps.`);
+    if (topRows.some((r) => r.confidence === "low")) monitor.push("Some alerts are low-confidence due to small volume; validate with longer windows or broader app scope.");
+    if (critical.length + thisWeek.length + monitor.length === 0 && applied) monitor.push("No major movement detected. Keep this tab pinned for week-over-week drift monitoring.");
+
+    return { critical, thisWeek, monitor };
+  }, [topRows, applied]);
+
+  const runApply = () => {
+    if (applyDisabled) return;
+    setApplied({ apps: draftApps, topN: Math.max(1, Math.min(20, topN)), scope });
+  };
+
+  const toggleWatch = (signature: string) => {
+    setWatchSignatures((prev) => {
+      const next = new Set(prev);
+      if (next.has(signature)) next.delete(signature);
+      else next.add(signature);
+      saveWatchState({ key: FUNNEL_ANALYSIS_WATCH_STATE_KEY, body: { value: JSON.stringify(Array.from(next)) } });
+      return next;
+    });
+  };
+
+  const applyAsManagedFunnel = (row: { signature: string; app: string; steps: string[] }) => {
+    if (funnels.length >= MAX_FUNNELS) return;
+    const nextName = `Discovered ${row.steps[0]?.split("/").filter(Boolean).pop() || "Funnel"} ${funnels.length + 1}`;
+    const newFunnel: FunnelDef = {
+      name: nextName,
+      steps: row.steps.map((p, i) => ({
+        label: p.split("/").filter(Boolean).pop() || `Step ${i + 1}`,
+        identifiers: [p],
+        type: "view",
+        app: row.app,
+      })),
+    };
+    const next = [...funnels, newFunnel];
+    saveFunnels(next);
+    saveActiveFunnelIndex(next.length - 1);
+    setAppliedSignatures((prev) => new Set([...prev, row.signature]));
+  };
+
+  const builtFunnelIndexBySignature = useMemo(() => {
+    const m = new Map<string, number>();
+    funnels.forEach((f, idx) => {
+      const ids = f.steps.map((s) => String(s.identifiers?.[0] ?? "").trim()).filter(Boolean);
+      const apps = f.steps.map((s) => String(s.app ?? frontend).trim());
+      if (ids.length >= 3 && apps.every((a) => a === apps[0])) m.set(`${apps[0]}::${ids.join("=>")}`, idx);
+    });
+    return m;
+  }, [funnels, frontend]);
+
+  const jumpToTabForRow = (row: { signature: string; app: string; steps: string[] }, tab: TabKey) => {
+    const idx = builtFunnelIndexBySignature.get(row.signature);
+    if (idx != null) {
+      saveActiveFunnelIndex(idx);
+      onJumpToTab(tab);
+      return;
+    }
+    applyAsManagedFunnel(row);
+    onJumpToTab(tab);
+  };
+
+  const appScopeDrift = useMemo(() => {
+    const byApp = new Map<string, number>();
+    topRows.forEach((r) => byApp.set(r.app, (byApp.get(r.app) ?? 0) + r.sessions));
+    const entries = Array.from(byApp.entries()).sort((a, b) => b[1] - a[1]);
+    const total = entries.reduce((a, [, v]) => a + v, 0);
+    const topShare = total > 0 && entries.length > 0 ? (entries[0][1] / total) * 100 : 0;
+    return { entries, total, topShare };
+  }, [topRows]);
+
+  const loading = currentData.isLoading || prevData.isLoading || currentEntriesData.isLoading || prevEntriesData.isLoading || dailyPatternData.isLoading;
+
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => {
+    const critical = recommendations.critical.length;
+    const thisWeek = recommendations.thisWeek.length;
+    const monitor = recommendations.monitor.length;
+    const highImpact = topRows.filter((r) => r.impact >= 70).length;
+    const lowConfidence = topRows.filter((r) => r.confidence === "low").length;
+    const summary = `Funnel Analysis found ${topRows.length} candidate funnels with ${highImpact} high-impact movers. Priority focus: ${critical} critical signals, ${thisWeek} this-week actions, and ${monitor} monitor items.`;
+    const insights: InsightItem[] = [];
+    const recommendationsOut: RecommendationItem[] = [];
+    if (appScopeDrift.entries.length > 0) {
+      insights.push({ severity: appScopeDrift.topShare >= 75 ? "warning" : "info", icon: "🧭", text: `${appScopeDrift.entries[0][0]} contributes ${fmtPct(appScopeDrift.topShare)} of analyzed funnel sessions in this scope.` });
+    }
+    if (topRows.some((r) => r.isMutated)) {
+      insights.push({ severity: "warning", icon: "🧬", text: `${topRows.filter((r) => r.isMutated).length} mutated journey pattern(s) were detected compared with the previous week.` });
+    }
+    if (topRows.some((r) => (r.rankDelta ?? 0) >= 3)) {
+      const best = [...topRows].sort((a, b) => (b.rankDelta ?? -999) - (a.rankDelta ?? -999))[0];
+      insights.push({ severity: "good", icon: "📈", text: `${best.steps[0]} -> ${best.steps[best.steps.length - 1]} climbed ${best.rankDelta} rank positions.` });
+    }
+    if (lowConfidence > 0) {
+      insights.push({ severity: "info", icon: "🧪", text: `${lowConfidence} funnel(s) are low confidence due to low volume; confirm over a longer window before major action.` });
+    }
+    recommendations.critical.forEach((t) => recommendationsOut.push({ impact: "high", text: t }));
+    recommendations.thisWeek.forEach((t) => recommendationsOut.push({ impact: "medium", text: t }));
+    recommendations.monitor.forEach((t) => recommendationsOut.push({ impact: "low", text: t }));
+    return { summary, insights, recommendations: recommendationsOut };
+  }, [recommendations, topRows, appScopeDrift]), "Funnel Analysis");
+
+  return (
+    <div style={{ padding: 6 }}>
+      <SectionHeader title="Funnel Analysis" />
+      {aiPanel}
+      <div style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 12, marginBottom: 12, background: "rgba(128,128,128,0.04)" }}>
+        <Paragraph style={{ marginBottom: 8, fontSize: 12, opacity: 0.75 }}>
+          Discover top user funnels for the last 7 days, compare with the previous 7 days, detect new/changed patterns, and identify which journeys should be formalized as managed funnels.
+        </Paragraph>
+        <Flex gap={8} alignItems="flex-end" flexWrap="wrap">
+          <div style={{ minWidth: 220 }}>
+            <Text style={{ fontSize: 12, opacity: 0.65, display: "block", marginBottom: 4 }}>App Scope</Text>
+            <Select value={scope} onChange={(v) => setScope((v as any) ?? "all")}>
+              <option value="all">All apps</option>
+              <option value="single">Single app</option>
+              <option value="multiple">Multiple apps</option>
+            </Select>
+          </div>
+          {scope === "single" && (
+            <div style={{ minWidth: 260 }}>
+              <Text style={{ fontSize: 12, opacity: 0.65, display: "block", marginBottom: 4 }}>Application</Text>
+              <Select value={singleApp} onChange={(v) => setSingleApp(String(v ?? ""))}>
+                {discoveredApps.map((a) => <option key={a} value={a}>{a}</option>)}
+              </Select>
+            </div>
+          )}
+          {scope === "multiple" && (
+            <div style={{ minWidth: 340 }}>
+              <Text style={{ fontSize: 12, opacity: 0.65, display: "block", marginBottom: 4 }}>Applications (multi-select)</Text>
+              <select
+                multiple
+                value={multiApps}
+                onChange={(e) => setMultiApps(Array.from(e.currentTarget.selectedOptions).map((o) => o.value))}
+                style={{ width: "100%", height: 86, padding: 6, borderRadius: 6, border: "1px solid rgba(128,128,128,0.3)", background: "rgba(128,128,128,0.05)", color: "inherit", fontSize: 12 }}
+              >
+                {discoveredApps.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+          )}
+          <div style={{ minWidth: 160 }}>
+            <Text style={{ fontSize: 12, opacity: 0.65, display: "block", marginBottom: 4 }}>Number of funnels</Text>
+            <Select value={String(topN)} onChange={(v) => setTopN(Math.max(1, Math.min(20, Number(v ?? 10))))}>
+              {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => <option key={n} value={String(n)}>{n}</option>)}
+            </Select>
+          </div>
+          <Button variant="emphasized" onClick={runApply} disabled={applyDisabled || appsData.isLoading}>Apply</Button>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.8 }}>
+            <input type="checkbox" checked={showWatchOnly} onChange={(e) => setShowWatchOnly(e.target.checked)} />
+            Watchlist only
+          </label>
+        </Flex>
+      </div>
+
+      {!applied && (
+        <Paragraph style={{ fontSize: 12, opacity: 0.6 }}>Pick app scope and funnel count, then click Apply to generate a weekly funnel change analysis.</Paragraph>
+      )}
+
+      {applied && loading && <ProgressBar style={{ width: "100%", marginBottom: 10 }} />}
+
+      {applied && !loading && (
+        <>
+          <Flex gap={8} flexWrap="wrap" style={{ marginBottom: 12 }}>
+            <div style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 150 }}>
+              <Text style={{ fontSize: 11, opacity: 0.6 }}>Analyzed Funnels</Text>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{topRows.length}</div>
+            </div>
+            <div style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 150 }}>
+              <Text style={{ fontSize: 11, opacity: 0.6 }}>New vs Previous 7d</Text>
+              <div style={{ fontSize: 20, fontWeight: 700, color: BLUE }}>{topRows.filter((r) => r.isNew).length}</div>
+            </div>
+            <div style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 150 }}>
+              <Text style={{ fontSize: 11, opacity: 0.6 }}>Declining Funnels</Text>
+              <div style={{ fontSize: 20, fontWeight: 700, color: RED }}>{topRows.filter((r) => (r.deltaConv ?? 0) <= -1.5 || ((r.deltaSessionsPct ?? 0) <= -15 && (r.deltaConv ?? 0) < 0)).length}</div>
+            </div>
+            <div style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 150 }}>
+              <Text style={{ fontSize: 11, opacity: 0.6 }}>Improving Funnels</Text>
+              <div style={{ fontSize: 20, fontWeight: 700, color: GREEN }}>{topRows.filter((r) => (r.deltaConv ?? 0) >= 1.5 || ((r.deltaSessionsPct ?? 0) >= 15 && (r.deltaConv ?? 0) > 0)).length}</div>
+            </div>
+            <div style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 150 }}>
+              <Text style={{ fontSize: 11, opacity: 0.6 }}>Structural Shifts</Text>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#FF832B" }}>{topRows.filter((r) => r.stepShiftSeverity === "major" || r.stepShiftSeverity === "high").length}</div>
+            </div>
+          </Flex>
+
+          <div style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, fontWeight: 700, display: "block", marginBottom: 8 }}>Most changed funnels</Text>
+            {movers.length === 0 ? (
+              <Paragraph style={{ fontSize: 12, opacity: 0.6 }}>No funnel patterns available for comparison.</Paragraph>
+            ) : movers.map((m, i) => (
+              <div key={`${m.signature}-mover`} style={{ fontSize: 12, marginBottom: 6, display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <span>{`${i + 1}. ${m.app} | ${m.steps[0]} to ${m.steps[m.steps.length - 1]}`}</span>
+                <span style={{ opacity: 0.75 }}>Impact {m.impact.toFixed(1)}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, fontWeight: 700, display: "block", marginBottom: 8 }}>Priority Recommendations</Text>
+            <Text style={{ fontSize: 11, opacity: 0.7, display: "block", marginBottom: 4 }}>Critical</Text>
+            {recommendations.critical.length === 0 && <Paragraph style={{ margin: "0 0 6px 0", fontSize: 12, opacity: 0.6 }}>No critical items this run.</Paragraph>}
+            {recommendations.critical.map((r, i) => (
+              <Paragraph key={`c-${i}`} style={{ margin: "0 0 6px 0", fontSize: 12, color: RED }}>- {r}</Paragraph>
+            ))}
+            <Text style={{ fontSize: 11, opacity: 0.7, display: "block", marginBottom: 4, marginTop: 6 }}>This Week</Text>
+            {recommendations.thisWeek.length === 0 && <Paragraph style={{ margin: "0 0 6px 0", fontSize: 12, opacity: 0.6 }}>No medium-priority follow-up items.</Paragraph>}
+            {recommendations.thisWeek.map((r, i) => (
+              <Paragraph key={`w-${i}`} style={{ margin: "0 0 6px 0", fontSize: 12, color: "#FF832B" }}>- {r}</Paragraph>
+            ))}
+            <Text style={{ fontSize: 11, opacity: 0.7, display: "block", marginBottom: 4, marginTop: 6 }}>Monitor</Text>
+            {recommendations.monitor.length === 0 && <Paragraph style={{ margin: "0 0 6px 0", fontSize: 12, opacity: 0.6 }}>No watch items.</Paragraph>}
+            {recommendations.monitor.map((r, i) => (
+              <Paragraph key={`m-${i}`} style={{ margin: "0 0 6px 0", fontSize: 12 }}>- {r}</Paragraph>
+            ))}
+          </div>
+
+          <div style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 10, marginBottom: 12, background: "rgba(128,128,128,0.03)" }}>
+            <Text style={{ fontSize: 12, fontWeight: 700, display: "block", marginBottom: 8 }}>Scope Drift Diagnostics</Text>
+            {appScopeDrift.entries.length === 0 ? (
+              <Paragraph style={{ margin: 0, fontSize: 12, opacity: 0.6 }}>No app distribution available for this selection.</Paragraph>
+            ) : (
+              <>
+                <Paragraph style={{ margin: "0 0 6px 0", fontSize: 12 }}>
+                  Top app share: <b>{fmtPct(appScopeDrift.topShare)}</b> ({appScopeDrift.entries[0][0]}).
+                  {appScopeDrift.topShare >= 75 ? " Consider narrowing to single-app mode for cleaner trend attribution." : " Distribution is balanced enough for cross-app comparison."}
+                </Paragraph>
+                {appScopeDrift.entries.slice(0, 5).map(([app, sess]) => (
+                  <div key={`drift-${app}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+                    <span>{app}</span>
+                    <span>{fmtCount(sess)} sessions ({appScopeDrift.total > 0 ? fmtPct((sess / appScopeDrift.total) * 100) : "0%"})</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+
+          <div style={{ display: "grid", gap: 10 }}>
+            {topRows.map((r, idx) => {
+              const canApply = !r.exactBuiltName && !r.pageBuiltName && funnels.length < MAX_FUNNELS && !appliedSignatures.has(r.signature);
+              const trendColor = r.isNew ? BLUE : (r.deltaConv ?? 0) >= 2 || (r.deltaSessionsPct ?? 0) >= 10 ? GREEN : (r.deltaConv ?? 0) <= -2 || (r.deltaSessionsPct ?? 0) <= -10 ? RED : "rgba(128,128,128,0.8)";
+              const rankText = r.rankDelta == null ? "new" : r.rankDelta > 0 ? `+${r.rankDelta}` : `${r.rankDelta}`;
+              const confColor = r.confidence === "high" ? GREEN : r.confidence === "medium" ? "#FF832B" : "rgba(128,128,128,0.9)";
+              const trendSnippet = r.miniTrend.length >= 2
+                ? `${r.miniTrend[r.miniTrend.length - 2]} -> ${r.miniTrend[r.miniTrend.length - 1]}`
+                : "n/a";
+              const scoreOpen = expandedScore.has(r.signature);
+              return (
+                <div key={r.signature} style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 10, background: "rgba(128,128,128,0.03)" }}>
+                  <Flex alignItems="center" justifyContent="space-between" gap={8} style={{ marginBottom: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: 700 }}>#{idx + 1} {r.app} - {r.steps.length} steps</Text>
+                    <Flex alignItems="center" gap={6}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#8A3FFC", background: "rgba(138,63,252,0.14)", border: "1px solid rgba(138,63,252,0.35)", borderRadius: 4, padding: "1px 6px" }}>
+                        Rank {rankText}
+                      </span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: confColor, background: "rgba(128,128,128,0.12)", border: "1px solid rgba(128,128,128,0.35)", borderRadius: 4, padding: "1px 6px", textTransform: "uppercase" }}>
+                        {r.confidence}
+                      </span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#FF832B", background: "rgba(255,131,43,0.14)", border: "1px solid rgba(255,131,43,0.35)", borderRadius: 4, padding: "1px 6px", textTransform: "uppercase" }}>{r.stepShiftSeverity}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: trendColor }}>{r.isNew ? "NEW" : r.isMutated ? "MUTATED" : "CHANGED"}</span>
+                      <button
+                        onClick={() => toggleWatch(r.signature)}
+                        style={{ padding: "2px 7px", borderRadius: 4, border: `1px solid ${watchSignatures.has(r.signature) ? "#FF832B" : "rgba(128,128,128,0.35)"}`, background: watchSignatures.has(r.signature) ? "rgba(255,131,43,0.15)" : "rgba(128,128,128,0.08)", color: watchSignatures.has(r.signature) ? "#FF832B" : "inherit", fontSize: 10, fontWeight: 700, cursor: "pointer" }}
+                      >
+                        {watchSignatures.has(r.signature) ? "Watching" : "Watch"}
+                      </button>
+                    </Flex>
+                  </Flex>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
+                    {r.steps.map((s, i) => (
+                      <span key={`${r.signature}-${i}`} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 4, background: "rgba(69,137,255,0.1)", color: BLUE }}>{s}</span>
+                    ))}
+                  </div>
+                  <Flex gap={12} flexWrap="wrap" alignItems="center" style={{ marginBottom: 8, fontSize: 12 }}>
+                    <span>Sessions: <Strong>{fmtCount(r.sessions)}</Strong>{r.prev ? ` (prev ${fmtCount(r.prev.sessions)}, ${r.deltaSessions >= 0 ? "+" : ""}${fmtCount(r.deltaSessions)})` : " (new)"}</span>
+                    <span>Conversion: <Strong>{fmtPct(r.currConv)}</Strong>{r.prev ? ` (prev ${fmtPct(r.prevConv)}, ${(r.deltaConv ?? 0) >= 0 ? "+" : ""}${fmtPct(r.deltaConv ?? 0)})` : ""}</span>
+                    <span>Step count: <Strong>{r.steps.length}</Strong>{r.stepCountDelta == null ? "" : ` (${r.stepCountDelta >= 0 ? "+" : ""}${r.stepCountDelta} vs prev comparable)`}</span>
+                    <span>7d tail trend: <Strong>{trendSnippet}</Strong></span>
+                  </Flex>
+                  <div style={{ fontSize: 11, marginBottom: 8, opacity: 0.9 }}>
+                    Structural diff: {r.stepDiffSummary}
+                  </div>
+                  <Flex gap={12} flexWrap="wrap" style={{ marginBottom: 8, fontSize: 12 }}>
+                    <span>Expected conversions: <Strong>{r.expectedConversions == null ? "n/a" : fmtCount(r.expectedConversions)}</Strong></span>
+                    <span>Conversion impact: <Strong style={{ color: (r.conversionDeltaCount ?? 0) >= 0 ? GREEN : RED }}>{r.conversionDeltaCount == null ? "n/a" : `${(r.conversionDeltaCount >= 0 ? "+" : "")}${fmtCount(r.conversionDeltaCount)}`}</Strong></span>
+                    <span>Revenue impact: <Strong style={{ color: (r.revenueDelta ?? 0) >= 0 ? GREEN : RED }}>{r.revenueDelta == null ? "n/a" : `${r.revenueDelta >= 0 ? "+" : ""}${fmtCurrency(r.revenueDelta)}`}</Strong></span>
+                    <span>Impact score: <Strong>{r.impact.toFixed(1)}</Strong></span>
+                  </Flex>
+                  <Flex gap={8} flexWrap="wrap" style={{ marginBottom: 8 }}>
+                    <button onClick={() => jumpToTabForRow(r, "Funnel Overview")}
+                      style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid rgba(69,137,255,0.45)", background: "rgba(69,137,255,0.12)", color: BLUE, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                      Drill to Funnel
+                    </button>
+                    <button onClick={() => jumpToTabForRow(r, "Navigation Paths")}
+                      style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid rgba(69,137,255,0.35)", background: "rgba(69,137,255,0.08)", color: BLUE, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                      Drill to Navigation
+                    </button>
+                    <button
+                      onClick={() => setExpandedScore((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(r.signature)) next.delete(r.signature);
+                        else next.add(r.signature);
+                        return next;
+                      })}
+                      style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid rgba(128,128,128,0.35)", background: "rgba(128,128,128,0.08)", color: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      {scoreOpen ? "Hide Score" : "Explain Score"}
+                    </button>
+                  </Flex>
+                  {scoreOpen && (
+                    <div style={{ border: "1px dashed rgba(128,128,128,0.4)", borderRadius: 6, padding: 8, marginBottom: 8, fontSize: 11 }}>
+                      <div>Conversion weight: {r.scoreParts.convWeight.toFixed(1)}</div>
+                      <div>Volume weight: {r.scoreParts.volumeWeight.toFixed(1)}</div>
+                      <div>Structure weight: {r.scoreParts.structureWeight.toFixed(1)}</div>
+                      <div>Newness weight: {r.scoreParts.newnessWeight.toFixed(1)}</div>
+                      <div style={{ marginTop: 4, fontWeight: 700 }}>Total: {r.impact.toFixed(1)}</div>
+                    </div>
+                  )}
+                  <Flex alignItems="center" justifyContent="space-between" gap={8}>
+                    <span style={{ fontSize: 11, opacity: 0.75 }}>
+                      {r.exactBuiltName ? `Built funnel: ${r.exactBuiltName}` : r.pageBuiltName ? `Similar funnel exists: ${r.pageBuiltName}` : "No matching managed funnel (can apply)"}
+                    </span>
+                    {canApply && (
+                      <button onClick={() => applyAsManagedFunnel(r)} style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${BLUE}55`, background: `${BLUE}22`, color: BLUE, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                        Apply
+                      </button>
+                    )}
+                    {!canApply && appliedSignatures.has(r.signature) && (
+                      <span style={{ fontSize: 11, color: GREEN, fontWeight: 700 }}>Applied</span>
+                    )}
+                  </Flex>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 /** Discovers common page sequences and proposes funnel candidates. */
@@ -4261,6 +4988,8 @@ export function UserJourney() {
   const [subTabOrder, setSubTabOrder] = useState<Record<ParentTabKey, TabKey[]>>(DEFAULT_SUB_TAB_ORDER);
   const [draggedParentIdx, setDraggedParentIdx] = useState<number | null>(null);
   const [draggedSubIdx, setDraggedSubIdx] = useState<number | null>(null);
+  const [draggedStepIdx, setDraggedStepIdx] = useState<number | null>(null);
+  const [stepDropIdx, setStepDropIdx] = useState<number | null>(null);
   const [settingsExpandedGroup, setSettingsExpandedGroup] = useState<ParentTabKey | null>(null);
   const [globalSettingsExpanded, setGlobalSettingsExpanded] = useState(true);
   const [userSettingsExpanded, setUserSettingsExpanded] = useState(true);
@@ -4585,6 +5314,14 @@ export function UserJourney() {
   const saveTabOrder = (order: TabKey[]) => {
     setTabOrder(order);
     saveState({ key: TAB_ORDER_STATE_KEY, body: { value: JSON.stringify(order) } });
+  };
+
+  const moveFunnelStep = (fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= steps.length || toIdx >= steps.length) return;
+    const next = [...steps];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    saveSteps(next);
   };
 
   // Current period queries
@@ -5486,10 +6223,50 @@ export function UserJourney() {
                 )}
               </Flex>
               <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Steps (min {MIN_STEPS}, max {MAX_STEPS}). Funnels can span multiple apps. Wildcards: <Strong>/home*</Strong>, <Strong>*home</Strong>, <Strong>*home*</Strong>.</Paragraph>
+              <Paragraph style={{ marginBottom: 8, opacity: 0.7, fontSize: 12 }}>Drag a step by its handle and drop it on another step to reorder the funnel (for example, move step 4 to step 1).</Paragraph>
               {steps.map((step, i) => (
-                <div key={i} style={{ marginBottom: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
+                <div
+                  key={i}
+                  onDragOver={(e) => {
+                    if (draggedStepIdx === null) return;
+                    e.preventDefault();
+                    if (stepDropIdx !== i) setStepDropIdx(i);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (draggedStepIdx !== null) moveFunnelStep(draggedStepIdx, i);
+                    setDraggedStepIdx(null);
+                    setStepDropIdx(null);
+                  }}
+                  style={{
+                    marginBottom: 12,
+                    padding: "10px 12px",
+                    background: "rgba(255,255,255,0.03)",
+                    borderRadius: 8,
+                    border: stepDropIdx === i && draggedStepIdx !== null ? "1px solid rgba(69,137,255,0.7)" : "1px solid rgba(255,255,255,0.06)",
+                    boxShadow: stepDropIdx === i && draggedStepIdx !== null ? "0 0 0 2px rgba(69,137,255,0.18)" : undefined,
+                  }}
+                >
                   <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
-                    <Text style={{ fontSize: 12, fontWeight: 700, color: BLUE }}>Step {i + 1}</Text>
+                    <Flex alignItems="center" gap={6}>
+                      <Text style={{ fontSize: 12, fontWeight: 700, color: BLUE }}>Step {i + 1}</Text>
+                      <button
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "move";
+                          setDraggedStepIdx(i);
+                          setStepDropIdx(i);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedStepIdx(null);
+                          setStepDropIdx(null);
+                        }}
+                        style={{ background: "none", border: "1px dashed rgba(69,137,255,0.35)", borderRadius: 4, color: BLUE, cursor: "grab", fontSize: 11, padding: "1px 6px" }}
+                        title="Drag to reorder step"
+                      >
+                        Drag
+                      </button>
+                    </Flex>
                     {steps.length > MIN_STEPS && (
                       <button onClick={() => { const next = steps.filter((_, j) => j !== i); saveSteps(next); }} style={{ background: "none", border: "none", color: RED, cursor: "pointer", fontSize: 12, padding: "2px 6px" }}>✕ Remove</button>
                     )}
@@ -5791,6 +6568,7 @@ export function UserJourney() {
                   let content: React.ReactNode = null;
                   switch (tabId) {
             case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} timeframeDays={timeframeDays} frontend={frontend} hotnessMode={hotnessMode} />; break;
+            case "Funnel Analysis": content = <FunnelAnalysisTab frontend={frontend} funnels={funnels} saveFunnels={saveFunnels} saveActiveFunnelIndex={saveActiveFunnelIndex} aov={aov} onJumpToTab={(t) => setActiveSubTabKey(t)} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} />; break;
