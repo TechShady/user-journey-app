@@ -4145,6 +4145,69 @@ function normalizeDiscoveredFunnels(records: any[], fallbackApp: string): Discov
   return out;
 }
 
+function buildSyntheticTemplateFromFunnel(funnel: FunnelDef, fallbackFrontend: string): string {
+  const steps = funnel.steps
+    .map((s, idx) => ({
+      idx,
+      label: (s.label || `Step ${idx + 1}`).trim(),
+      app: String(s.app ?? fallbackFrontend ?? "").trim(),
+      type: s.type,
+      ids: (s.identifiers ?? []).map((id) => String(id ?? "").trim()).filter(Boolean),
+    }))
+    .filter((s) => s.ids.length > 0);
+
+  const actions = steps.map((s) => {
+    const firstId = s.ids[0];
+    if (s.type === "request") {
+      return [
+        `    {`,
+        `      name: "${s.label}",`,
+        `      type: "api",`,
+        `      method: "GET",`,
+        `      url: "${firstId}",`,
+        `      validate: [{ type: "statusCode", expected: 200 }]`,
+        `    }`,
+      ].join("\n");
+    }
+    return [
+      `    {`,
+      `      name: "${s.label}",`,
+      `      type: "navigate",`,
+      `      path: "${firstId}",`,
+      `      app: "${s.app}",`,
+      `      validate: [{ type: "urlContains", value: "${firstId}" }]`,
+      `    }`,
+    ].join("\n");
+  }).join(",\n");
+
+  return [
+    `// Synthetic journey template generated from funnel: ${funnel.name}`,
+    `// Fill in baseUrl and selectors, then create a Browser monitor in Dynatrace Synthetic.`,
+    `{`,
+    `  name: "UJ - ${funnel.name}",`,
+    `  frequencyMinutes: 5,`,
+    `  monitorType: "browser",`,
+    `  locations: ["GEOLOCATION-DEFAULT"],`,
+    `  retryOnError: true,`,
+    `  journey: {`,
+    `    baseUrl: "https://your-app.example.com",`,
+    `    steps: [`,
+    actions,
+    `    ]`,
+    `  },`,
+    `  assertions: [`,
+    `    { type: "durationMs", operator: "<", value: 30000 },`,
+    `    { type: "availability", operator: ">=", value: 99.9 }`,
+    `  ],`,
+    `  notes: [`,
+    `    "If a path is relative, it resolves against baseUrl.",`,
+    `    "Replace wildcard-like paths with stable page routes/selectors.",`,
+    `    "Use test credentials and sandbox payment data for checkout flows."`,
+    `  ]`,
+    `}`,
+  ].join("\n");
+}
+
 function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelIndex, aov, onJumpToTab }: {
   frontend: string;
   funnels: FunnelDef[];
@@ -4516,16 +4579,24 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
           <div style={{ minWidth: 220 }}>
             <Text style={{ fontSize: 12, opacity: 0.65, display: "block", marginBottom: 4 }}>App Scope</Text>
             <Select value={scope} onChange={(v) => setScope((v as any) ?? "all")}>
-              <option value="all">All apps</option>
-              <option value="single">Single app</option>
-              <option value="multiple">Multiple apps</option>
+              <Select.Trigger />
+              <Select.Content>
+                <Select.Option value="all">All apps</Select.Option>
+                <Select.Option value="single">Single app</Select.Option>
+                <Select.Option value="multiple">Multiple apps</Select.Option>
+              </Select.Content>
             </Select>
           </div>
           {scope === "single" && (
             <div style={{ minWidth: 260 }}>
               <Text style={{ fontSize: 12, opacity: 0.65, display: "block", marginBottom: 4 }}>Application</Text>
               <Select value={singleApp} onChange={(v) => setSingleApp(String(v ?? ""))}>
-                {discoveredApps.map((a) => <option key={a} value={a}>{a}</option>)}
+                <Select.Trigger />
+                <Select.Content>
+                  <Select.Filter />
+                  {discoveredApps.map((a) => <Select.Option key={a} value={a}>{a}</Select.Option>)}
+                  {discoveredApps.length === 0 && <Select.Option value="" disabled>No applications found</Select.Option>}
+                </Select.Content>
               </Select>
             </div>
           )}
@@ -4545,7 +4616,10 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
           <div style={{ minWidth: 160 }}>
             <Text style={{ fontSize: 12, opacity: 0.65, display: "block", marginBottom: 4 }}>Number of funnels</Text>
             <Select value={String(topN)} onChange={(v) => setTopN(Math.max(1, Math.min(20, Number(v ?? 10))))}>
-              {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => <option key={n} value={String(n)}>{n}</option>)}
+              <Select.Trigger />
+              <Select.Content>
+                {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => <Select.Option key={n} value={String(n)}>{n}</Select.Option>)}
+              </Select.Content>
             </Select>
           </div>
           <Button variant="emphasized" onClick={runApply} disabled={applyDisabled || appsData.isLoading}>Apply</Button>
@@ -4553,6 +4627,7 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
             <input type="checkbox" checked={showWatchOnly} onChange={(e) => setShowWatchOnly(e.target.checked)} />
             Watchlist only
           </label>
+          <Text style={{ fontSize: 11, opacity: 0.65 }}>Watchlist = starred funnels you want to monitor every week.</Text>
         </Flex>
       </div>
 
@@ -4978,6 +5053,10 @@ export function UserJourney() {
   const [timeframeAnchor, setTimeframeAnchor] = useState<number | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showSyntheticTemplate, setShowSyntheticTemplate] = useState(false);
+  const [syntheticTemplate, setSyntheticTemplate] = useState("");
+  const [syntheticTemplateTitle, setSyntheticTemplateTitle] = useState("");
+  const [syntheticCopyStatus, setSyntheticCopyStatus] = useState("");
   const [compareMode, setCompareMode] = useState(false);
   const [tabVisibility, setTabVisibility] = useState<Record<TabKey, boolean>>(DEFAULT_TAB_VISIBILITY);
   const [tabOrder, setTabOrder] = useState<TabKey[]>([...DEFAULT_TAB_ORDER]);
@@ -5314,6 +5393,33 @@ export function UserJourney() {
   const saveTabOrder = (order: TabKey[]) => {
     setTabOrder(order);
     saveState({ key: TAB_ORDER_STATE_KEY, body: { value: JSON.stringify(order) } });
+  };
+
+  const openSyntheticTemplateForActiveFunnel = () => {
+    const active = funnels[activeFunnelIndex];
+    if (!active) return;
+    setSyntheticTemplateTitle(active.name || "Active Funnel");
+    setSyntheticTemplate(buildSyntheticTemplateFromFunnel(active, frontend));
+    setSyntheticCopyStatus("");
+    setShowSyntheticTemplate(true);
+  };
+
+  const copySyntheticTemplate = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(syntheticTemplate);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = syntheticTemplate;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      setSyntheticCopyStatus("Copied");
+    } catch {
+      setSyntheticCopyStatus("Copy failed");
+    }
   };
 
   const moveFunnelStep = (fromIdx: number, toIdx: number) => {
@@ -6218,6 +6324,7 @@ export function UserJourney() {
                 <div style={{ flex: 1 }}>
                   <TextInput value={funnels[activeFunnelIndex].name} onChange={(val) => { const next = [...funnels]; next[activeFunnelIndex] = { ...next[activeFunnelIndex], name: val ?? "" }; saveFunnels(next); }} placeholder="Funnel name" />
                 </div>
+                <button onClick={openSyntheticTemplateForActiveFunnel} style={{ background: "none", border: "1px solid rgba(69,137,255,0.45)", borderRadius: 4, color: BLUE, cursor: "pointer", fontSize: 11, padding: "4px 8px" }}>Create Synthetic Template</button>
                 {funnels.length > 1 && (
                   <button onClick={() => { if (confirm(`Delete "${funnels[activeFunnelIndex].name}"?`)) { const next = funnels.filter((_, j) => j !== activeFunnelIndex); saveFunnels(next); saveActiveFunnelIndex(Math.max(0, activeFunnelIndex - 1)); } }} style={{ background: "none", border: "1px solid rgba(193,25,48,0.4)", borderRadius: 4, color: RED, cursor: "pointer", fontSize: 11, padding: "4px 8px" }}>Delete Funnel</button>
                 )}
@@ -6550,6 +6657,29 @@ export function UserJourney() {
               </div>
             )}
           </div>
+        </div>
+      </Sheet>
+      <Sheet
+        title={`Synthetic Template — ${syntheticTemplateTitle || "Funnel"}`}
+        show={showSyntheticTemplate}
+        onDismiss={() => setShowSyntheticTemplate(false)}
+        actions={(
+          <Flex gap={8} alignItems="center">
+            <Button variant="emphasized" onClick={copySyntheticTemplate}>Copy</Button>
+            <Button onClick={() => setShowSyntheticTemplate(false)}>Close</Button>
+          </Flex>
+        )}
+      >
+        <div style={{ padding: "6px 0" }}>
+          <Paragraph style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
+            Generated from the active funnel. Replace baseUrl, selectors, and credentials before creating the Dynatrace Synthetic monitor.
+          </Paragraph>
+          <textarea
+            value={syntheticTemplate}
+            readOnly
+            style={{ width: "100%", minHeight: 360, borderRadius: 8, border: "1px solid rgba(128,128,128,0.35)", background: "rgba(128,128,128,0.05)", color: "inherit", fontFamily: "Consolas, monospace", fontSize: 12, padding: 10 }}
+          />
+          {syntheticCopyStatus && <Text style={{ fontSize: 11, opacity: 0.75, marginTop: 6, display: "block" }}>{syntheticCopyStatus}</Text>}
         </div>
       </Sheet>
 
