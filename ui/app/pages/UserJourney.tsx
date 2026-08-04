@@ -92,7 +92,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.21";
+const APP_VERSION_LABEL = "4.76.22";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1930,7 +1930,7 @@ function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepD
     requests = count(),
     errors = countIf(coalesce(toString(span.status_code), "UNSET") == "ERROR"),
     avg_dur = avg(dur_ms),
-    by: {bucket, service_name = service.name}
+    by: {bucket, service_id = dt.entity.service, service_name = service.name}
 | filter requests >= 1
 | sort bucket asc
 | limit 40000`;
@@ -1969,7 +1969,7 @@ function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepD
     requests = count(),
     errors = countIf(coalesce(toString(span.status_code), "UNSET") == "ERROR"),
     avg_dur = avg(dur_ms),
-    by: {bucket, service_name = service.name}
+    by: {bucket, service_id = dt.entity.service, service_name = service.name}
 | filter requests >= 1
 | sort bucket asc
 | limit 40000`;
@@ -14617,19 +14617,36 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     const rows = (navFlowTimelapseEdgesData?.data?.records ?? []) as any[];
     rows.forEach((r) => {
       const b = String(r.bucket ?? "");
-      const svc = String(r.service_name ?? "").toLowerCase().trim();
-      if (!b || !svc) return;
+      const svcName = String(r.service_name ?? "").toLowerCase().trim();
+      const svcId = String(r.service_id ?? "").trim();
+      if (!b || (!svcName && !svcId)) return;
       let inner = buckets.get(b);
       if (!inner) { inner = new Map(); buckets.set(b, inner); }
-      const cur = inner.get(svc) ?? { requests: 0, errors: 0, avgDur: 0 };
       const requests = Number(r.requests ?? 0);
+      const errors = Number(r.errors ?? 0);
       const dur = Number(r.avg_dur ?? 0);
+      // Primary key = entity id (preferred) so iteration/baseline stats count each service once.
+      const primary = svcId || svcName;
+      const cur = inner.get(primary) ?? { requests: 0, errors: 0, avgDur: 0 };
       cur.avgDur = cur.requests + requests > 0 ? (cur.avgDur * cur.requests + dur * requests) / (cur.requests + requests) : dur;
       cur.requests += requests;
-      cur.errors += Number(r.errors ?? 0);
-      inner.set(svc, cur);
+      cur.errors += errors;
+      inner.set(primary, cur);
     });
     return buckets;
+  }, [navFlowTimelapseEdgesData?.data?.records]);
+
+  // Alias map: lowercased service.name → primary key (entity id or name) so lookups from the
+  // render (which sometimes only knows the display name) can resolve to the correct bucket entry.
+  const navTlEdgeNameAlias = React.useMemo(() => {
+    const alias = new Map<string, string>();
+    const rows = (navFlowTimelapseEdgesData?.data?.records ?? []) as any[];
+    rows.forEach((r) => {
+      const svcName = String(r.service_name ?? "").toLowerCase().trim();
+      const svcId = String(r.service_id ?? "").trim();
+      if (svcName) alias.set(svcName, svcId || svcName);
+    });
+    return alias;
   }, [navFlowTimelapseEdgesData?.data?.records]);
 
   const navTlBucketList = React.useMemo(() => {
@@ -16106,10 +16123,11 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               else if (loadZ >= 2) color = TL_HOT_ELEV;
               return { color, z: Math.max(badZ, loadZ), ring, data: m };
             };
-            const tlEdgeOverride = (fromName: string, toName: string): { color: string | null; width: number | null; z: number; data: { requests: number; errors: number; avgDur: number } | null } => {
+            const tlEdgeOverride = (fromName: string, toName: string, toId?: string): { color: string | null; width: number | null; z: number; data: { requests: number; errors: number; avgDur: number } | null } => {
               if (!tlEdgeMap || !navTlEnabled) return { color: null, width: null, z: 0, data: null };
-              // Spans-based per-service data: key by the destination service (server-span service.name).
-              const key = toName.toLowerCase().trim();
+              // Prefer entity id (unique, matches spans' dt.entity.service), fall back to name alias.
+              const nameKey = toName.toLowerCase().trim();
+              const key = (toId && tlEdgeMap.has(toId)) ? toId : (navTlEdgeNameAlias.get(nameKey) ?? nameKey);
               const m = tlEdgeMap.get(key);
               const base = navTlEdgeBaseline.get(key);
               if (!m) return { color: null, width: null, z: 0, data: null };
@@ -16126,10 +16144,12 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               else if (reqZ >= 2) color = TL_HOT_ELEV;
               return { color, width, z: Math.max(badZ, reqZ), data: m };
             };
-            const tlServiceOverride = (serviceName: string): { color: string | null; z: number; ring: number; data: { req: number; err: number; avgDur: number } | null; status: "idle" | "ok" | "elev" | "warm" | "high"; statusColor: string; reason: string } => {
+            const tlServiceOverride = (serviceName: string, serviceId?: string): { color: string | null; z: number; ring: number; data: { req: number; err: number; avgDur: number } | null; status: "idle" | "ok" | "elev" | "warm" | "high"; statusColor: string; reason: string } => {
               if (!tlEdgeMap || !navTlEnabled) return { color: null, z: 0, ring: 0, data: null, status: "idle", statusColor: TL_IDLE_GRAY, reason: "" };
               const nrm = serviceName.toLowerCase().trim();
-              const m = tlEdgeMap.get(nrm);
+              // Prefer entity id — spans-based data is keyed by dt.entity.service.
+              const key = (serviceId && tlEdgeMap.has(serviceId)) ? serviceId : (navTlEdgeNameAlias.get(nrm) ?? nrm);
+              const m = tlEdgeMap.get(key);
               if (!m || m.requests === 0) {
                 // Service exists in the topology but had no traffic this bucket — mark as idle so users
                 // can see the service WAS evaluated (vs. "not evaluated at all").
@@ -16137,7 +16157,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               }
               const data = { req: m.requests, err: m.errors, avgDur: m.avgDur };
               const errRate = (m.errors / m.requests) * 100;
-              const base = navTlServiceBaseline.get(nrm);
+              const base = navTlServiceBaseline.get(key);
               // Compute Z-scores when baseline exists, otherwise treat as zero-deviation.
               const errZ = base ? (errRate - base.errRateStat.mean) / base.errRateStat.std : 0;
               const durZ = base ? (m.avgDur - base.durStat.mean) / base.durStat.std : 0;
@@ -16312,7 +16332,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const beEdgeFocused = !!focusedSvcId && svcFocusSet.has(edge.src) && svcFocusSet.has(edge.tgt);
                     const pageSvcEdgeFocused = pageSvcFocusSet.has(edge.src) && pageSvcFocusSet.has(edge.tgt);
                     const edgeReq = reqForPair(edge.srcName, edge.tgtName);
-                    const tlOv = tlEdgeOverride(edge.srcName, edge.tgtName);
+                    const tlOv = tlEdgeOverride(edge.srcName, edge.tgtName, edge.tgt);
                     // Base edge styling — always applied so the diagram structure stays legible
                     const baseOp = focusedSvcId ? (beEdgeFocused ? 0.75 : 0.05) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcEdgeFocused ? 0.75 : 0.05) : 0.07) : 0.22;
                     const baseW = beEdgeFocused || pageSvcEdgeFocused ? 2.5 : Math.max(1.5, Math.min(6, 1.2 + edgeReq / 120));
@@ -16482,7 +16502,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const svcReq = serviceReqById(svc.id, svc.name);
                     const isSessionContextOnly = strictSessionMode && svcReq <= 0 && !strictDirectServiceIds.has(svcId);
                     const isActive = activeTooltip === `svc:${svcId}`;
-                    const svcTl = tlServiceOverride(svc.name);
+                    const svcTl = tlServiceOverride(svc.name, svc.id);
                     const hotColor = navTlEnabled ? svcTl.color : null;
                     const showSvcRing = navTlEnabled && svcTl.ring > 1;
                     const isHotHigh = hotColor === TL_HOT_HIGH;
