@@ -4208,6 +4208,83 @@ function buildSyntheticTemplateFromFunnel(funnel: FunnelDef, fallbackFrontend: s
   ].join("\n");
 }
 
+function syntheticEnvironmentApiBase(): string {
+  const base = (ENV_URL || "https://guu84124.apps.dynatrace.com").trim().replace(/\/+$/, "");
+  return base.replace(".apps.dynatrace.com", ".live.dynatrace.com");
+}
+
+function absoluteSyntheticStepUrl(baseUrl: string, path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  const cleanedBase = baseUrl.replace(/\/+$/, "");
+  const cleanedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${cleanedBase}${cleanedPath}`;
+}
+
+function buildSyntheticMonitorPayload(args: {
+  funnel: FunnelDef;
+  fallbackFrontend: string;
+  monitorName: string;
+  baseUrl: string;
+  frequencyMin: number;
+  locationIds: string[];
+}) {
+  const { funnel, fallbackFrontend, monitorName, baseUrl, frequencyMin, locationIds } = args;
+  const events = funnel.steps
+    .map((s, idx) => {
+      const firstId = String(s.identifiers?.[0] ?? "").trim();
+      if (!firstId) return null;
+      const targetUrl = absoluteSyntheticStepUrl(baseUrl, firstId);
+      return {
+        type: "navigate",
+        description: `${idx + 1}. ${s.label || `Step ${idx + 1}`}`,
+        url: targetUrl,
+        wait: { waitFor: "page_complete" },
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    enabled: true,
+    frequencyMin,
+    type: "BROWSER",
+    name: monitorName,
+    locations: locationIds,
+    manuallyAssignedApps: [],
+    tags: [
+      { context: "CONTEXTLESS", key: "user-journey-app", source: "USER" },
+      { context: "CONTEXTLESS", key: `funnel:${funnel.name}`, source: "USER" },
+    ],
+    anomalyDetection: {
+      outageHandling: {
+        globalOutage: true,
+        globalOutagePolicy: { consecutiveRuns: 3 },
+        localOutage: true,
+        localOutagePolicy: { affectedLocations: 1, consecutiveRuns: 3 },
+        retryOnError: true,
+      },
+      loadingTimeThresholds: {
+        enabled: true,
+        thresholds: [{ type: "TOTAL", valueMs: 30000 }],
+      },
+    },
+    keyPerformanceMetrics: {
+      loadActionKpm: "VISUALLY_COMPLETE",
+      xhrActionKpm: "VISUALLY_COMPLETE",
+    },
+    script: {
+      type: "clickpath",
+      version: "1.0",
+      configuration: {
+        device: {
+          deviceName: "Desktop",
+          orientation: "landscape",
+        },
+      },
+      events,
+    },
+  };
+}
+
 function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelIndex, aov, onJumpToTab }: {
   frontend: string;
   funnels: FunnelDef[];
@@ -4224,6 +4301,9 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
   const [appliedSignatures, setAppliedSignatures] = useState<Set<string>>(new Set());
   const [showWatchOnly, setShowWatchOnly] = useState(false);
   const [expandedScore, setExpandedScore] = useState<Set<string>>(new Set());
+  const [pendingCreateRow, setPendingCreateRow] = useState<{ signature: string; app: string; steps: string[] } | null>(null);
+  const [pendingCreateName, setPendingCreateName] = useState("");
+  const [pendingJumpTab, setPendingJumpTab] = useState<TabKey | null>(null);
 
   const watchState = useUserAppState({ key: FUNNEL_ANALYSIS_WATCH_STATE_KEY });
   const { execute: saveWatchState } = useSetUserAppState();
@@ -4489,9 +4569,11 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
     });
   };
 
-  const applyAsManagedFunnel = (row: { signature: string; app: string; steps: string[] }) => {
+  const defaultFunnelNameForRow = (row: { steps: string[] }) => `Discovered ${row.steps[0]?.split("/").filter(Boolean).pop() || "Funnel"}`;
+
+  const applyAsManagedFunnel = (row: { signature: string; app: string; steps: string[] }, explicitName?: string) => {
     if (funnels.length >= MAX_FUNNELS) return;
-    const nextName = `Discovered ${row.steps[0]?.split("/").filter(Boolean).pop() || "Funnel"} ${funnels.length + 1}`;
+    const nextName = (explicitName ?? defaultFunnelNameForRow(row)).trim();
     const newFunnel: FunnelDef = {
       name: nextName,
       steps: row.steps.map((p, i) => ({
@@ -4505,6 +4587,23 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
     saveFunnels(next);
     saveActiveFunnelIndex(next.length - 1);
     setAppliedSignatures((prev) => new Set([...prev, row.signature]));
+  };
+
+  const openCreateManagedFunnelPrompt = (row: { signature: string; app: string; steps: string[] }, tab?: TabKey) => {
+    setPendingCreateRow(row);
+    setPendingCreateName(defaultFunnelNameForRow(row));
+    setPendingJumpTab(tab ?? null);
+  };
+
+  const confirmCreateManagedFunnel = () => {
+    if (!pendingCreateRow) return;
+    const trimmed = pendingCreateName.trim();
+    if (!trimmed) return;
+    applyAsManagedFunnel(pendingCreateRow, trimmed);
+    if (pendingJumpTab) onJumpToTab(pendingJumpTab);
+    setPendingCreateRow(null);
+    setPendingCreateName("");
+    setPendingJumpTab(null);
   };
 
   const builtFunnelIndexBySignature = useMemo(() => {
@@ -4524,8 +4623,7 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
       onJumpToTab(tab);
       return;
     }
-    applyAsManagedFunnel(row);
-    onJumpToTab(tab);
+    openCreateManagedFunnelPrompt(row, tab);
   };
 
   const appScopeDrift = useMemo(() => {
@@ -4571,13 +4669,13 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
     <div style={{ padding: 6 }}>
       <SectionHeader title="Funnel Analysis" />
       {aiPanel}
-      <div style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 12, marginBottom: 12, background: "rgba(128,128,128,0.04)" }}>
-        <Paragraph style={{ marginBottom: 8, fontSize: 12, opacity: 0.75 }}>
+      <div style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 14, marginBottom: 14, background: "rgba(128,128,128,0.04)" }}>
+        <Paragraph style={{ marginBottom: 10, fontSize: 13, opacity: 0.82, lineHeight: 1.45 }}>
           Discover top user funnels for the last 7 days, compare with the previous 7 days, detect new/changed patterns, and identify which journeys should be formalized as managed funnels.
         </Paragraph>
         <Flex gap={8} alignItems="flex-end" flexWrap="wrap">
           <div style={{ minWidth: 220 }}>
-            <Text style={{ fontSize: 12, opacity: 0.65, display: "block", marginBottom: 4 }}>App Scope</Text>
+            <Text style={{ fontSize: 13, opacity: 0.72, display: "block", marginBottom: 4 }}>App Scope</Text>
             <Select value={scope} onChange={(v) => setScope((v as any) ?? "all")}>
               <Select.Trigger />
               <Select.Content>
@@ -4589,7 +4687,7 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
           </div>
           {scope === "single" && (
             <div style={{ minWidth: 260 }}>
-              <Text style={{ fontSize: 12, opacity: 0.65, display: "block", marginBottom: 4 }}>Application</Text>
+              <Text style={{ fontSize: 13, opacity: 0.72, display: "block", marginBottom: 4 }}>Application</Text>
               <Select value={singleApp} onChange={(v) => setSingleApp(String(v ?? ""))}>
                 <Select.Trigger />
                 <Select.Content>
@@ -4602,19 +4700,19 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
           )}
           {scope === "multiple" && (
             <div style={{ minWidth: 340 }}>
-              <Text style={{ fontSize: 12, opacity: 0.65, display: "block", marginBottom: 4 }}>Applications (multi-select)</Text>
+              <Text style={{ fontSize: 13, opacity: 0.72, display: "block", marginBottom: 4 }}>Applications (multi-select)</Text>
               <select
                 multiple
                 value={multiApps}
                 onChange={(e) => setMultiApps(Array.from(e.currentTarget.selectedOptions).map((o) => o.value))}
-                style={{ width: "100%", height: 86, padding: 6, borderRadius: 6, border: "1px solid rgba(128,128,128,0.3)", background: "rgba(128,128,128,0.05)", color: "inherit", fontSize: 12 }}
+                style={{ width: "100%", height: 96, padding: 8, borderRadius: 6, border: "1px solid rgba(128,128,128,0.3)", background: "rgba(128,128,128,0.05)", color: "inherit", fontSize: 13 }}
               >
                 {discoveredApps.map((a) => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
           )}
           <div style={{ minWidth: 160 }}>
-            <Text style={{ fontSize: 12, opacity: 0.65, display: "block", marginBottom: 4 }}>Number of funnels</Text>
+            <Text style={{ fontSize: 13, opacity: 0.72, display: "block", marginBottom: 4 }}>Number of funnels</Text>
             <Select value={String(topN)} onChange={(v) => setTopN(Math.max(1, Math.min(20, Number(v ?? 10))))}>
               <Select.Trigger />
               <Select.Content>
@@ -4623,53 +4721,67 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
             </Select>
           </div>
           <Button variant="emphasized" onClick={runApply} disabled={applyDisabled || appsData.isLoading}>Apply</Button>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.8 }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, opacity: 0.88 }}>
             <input type="checkbox" checked={showWatchOnly} onChange={(e) => setShowWatchOnly(e.target.checked)} />
             Watchlist only
           </label>
-          <Text style={{ fontSize: 11, opacity: 0.65 }}>Watchlist = starred funnels you want to monitor every week.</Text>
+          <Text style={{ fontSize: 12, opacity: 0.72 }}>Watchlist = a short list of funnels you have manually marked as important, so you can quickly isolate and re-check them each week without scanning the full discovered list again.</Text>
         </Flex>
       </div>
 
       {!applied && (
-        <Paragraph style={{ fontSize: 12, opacity: 0.6 }}>Pick app scope and funnel count, then click Apply to generate a weekly funnel change analysis.</Paragraph>
+        <Paragraph style={{ fontSize: 13, opacity: 0.68 }}>Pick app scope and funnel count, then click Apply to generate a weekly funnel change analysis.</Paragraph>
       )}
 
       {applied && loading && <ProgressBar style={{ width: "100%", marginBottom: 10 }} />}
 
       {applied && !loading && (
         <>
-          <Flex gap={8} flexWrap="wrap" style={{ marginBottom: 12 }}>
-            <div style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 150 }}>
-              <Text style={{ fontSize: 11, opacity: 0.6 }}>Analyzed Funnels</Text>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>{topRows.length}</div>
+          <Flex gap={12} flexWrap="wrap" style={{ marginBottom: 14 }}>
+            <div style={{ padding: "10px 12px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 160 }}>
+              <Text style={{ fontSize: 12, opacity: 0.68 }}>Analyzed Funnels</Text>
+              <div style={{ fontSize: 24, fontWeight: 700 }}>{topRows.length}</div>
             </div>
-            <div style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 150 }}>
-              <Text style={{ fontSize: 11, opacity: 0.6 }}>New vs Previous 7d</Text>
-              <div style={{ fontSize: 20, fontWeight: 700, color: BLUE }}>{topRows.filter((r) => r.isNew).length}</div>
+            <div style={{ padding: "10px 12px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 160 }}>
+              <Text style={{ fontSize: 12, opacity: 0.68 }}>New vs Previous 7d</Text>
+              <div style={{ fontSize: 24, fontWeight: 700, color: BLUE }}>{topRows.filter((r) => r.isNew).length}</div>
             </div>
-            <div style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 150 }}>
-              <Text style={{ fontSize: 11, opacity: 0.6 }}>Declining Funnels</Text>
-              <div style={{ fontSize: 20, fontWeight: 700, color: RED }}>{topRows.filter((r) => (r.deltaConv ?? 0) <= -1.5 || ((r.deltaSessionsPct ?? 0) <= -15 && (r.deltaConv ?? 0) < 0)).length}</div>
+            <div style={{ padding: "10px 12px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 160 }}>
+              <Text style={{ fontSize: 12, opacity: 0.68 }}>Declining Funnels</Text>
+              <div style={{ fontSize: 24, fontWeight: 700, color: RED }}>{topRows.filter((r) => (r.deltaConv ?? 0) <= -1.5 || ((r.deltaSessionsPct ?? 0) <= -15 && (r.deltaConv ?? 0) < 0)).length}</div>
             </div>
-            <div style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 150 }}>
-              <Text style={{ fontSize: 11, opacity: 0.6 }}>Improving Funnels</Text>
-              <div style={{ fontSize: 20, fontWeight: 700, color: GREEN }}>{topRows.filter((r) => (r.deltaConv ?? 0) >= 1.5 || ((r.deltaSessionsPct ?? 0) >= 15 && (r.deltaConv ?? 0) > 0)).length}</div>
+            <div style={{ padding: "10px 12px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 160 }}>
+              <Text style={{ fontSize: 12, opacity: 0.68 }}>Improving Funnels</Text>
+              <div style={{ fontSize: 24, fontWeight: 700, color: GREEN }}>{topRows.filter((r) => (r.deltaConv ?? 0) >= 1.5 || ((r.deltaSessionsPct ?? 0) >= 15 && (r.deltaConv ?? 0) > 0)).length}</div>
             </div>
-            <div style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 150 }}>
-              <Text style={{ fontSize: 11, opacity: 0.6 }}>Structural Shifts</Text>
-              <div style={{ fontSize: 20, fontWeight: 700, color: "#FF832B" }}>{topRows.filter((r) => r.stepShiftSeverity === "major" || r.stepShiftSeverity === "high").length}</div>
+            <div style={{ padding: "10px 12px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.2)", background: "rgba(128,128,128,0.05)", minWidth: 160 }}>
+              <Text style={{ fontSize: 12, opacity: 0.68 }}>Structural Shifts</Text>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "#FF832B" }}>{topRows.filter((r) => r.stepShiftSeverity === "major" || r.stepShiftSeverity === "high").length}</div>
             </div>
           </Flex>
 
-          <div style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
-            <Text style={{ fontSize: 12, fontWeight: 700, display: "block", marginBottom: 8 }}>Most changed funnels</Text>
+          <div style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 14, marginBottom: 14 }}>
+            <Text style={{ fontSize: 14, fontWeight: 700, display: "block", marginBottom: 8 }}>Most changed funnels</Text>
+            <Paragraph style={{ fontSize: 13, lineHeight: 1.5, opacity: 0.82, margin: "0 0 10px 0" }}>
+              This list ranks the discovered funnels with the strongest week-over-week movement. The <Strong>Impact</Strong> score is a blended measure that gives the most weight to conversion-rate change, then volume change, then structural path change such as added or removed steps. A higher score means that the journey is changing in a way that is more likely to matter to the business, either because many users are involved, conversion moved sharply, or the route users take is materially different from last week.
+            </Paragraph>
+            <Paragraph style={{ fontSize: 13, lineHeight: 1.5, opacity: 0.76, margin: "0 0 10px 0" }}>
+              Use this panel to decide where to investigate first. The top rows are not automatically "bad"; they are the places where user behavior changed the most. A high-impact funnel could represent a regression, a successful optimization, a new journey emerging, or a tracking change that needs validation.
+            </Paragraph>
             {movers.length === 0 ? (
-              <Paragraph style={{ fontSize: 12, opacity: 0.6 }}>No funnel patterns available for comparison.</Paragraph>
+              <Paragraph style={{ fontSize: 13, opacity: 0.65 }}>No funnel patterns available for comparison.</Paragraph>
             ) : movers.map((m, i) => (
-              <div key={`${m.signature}-mover`} style={{ fontSize: 12, marginBottom: 6, display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <span>{`${i + 1}. ${m.app} | ${m.steps[0]} to ${m.steps[m.steps.length - 1]}`}</span>
-                <span style={{ opacity: 0.75 }}>Impact {m.impact.toFixed(1)}</span>
+              <div key={`${m.signature}-mover`} style={{ fontSize: 13, marginBottom: 10, display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 2 }}>{`${i + 1}. ${m.app} | ${m.steps[0]} to ${m.steps[m.steps.length - 1]}`}</div>
+                  <div style={{ opacity: 0.78, lineHeight: 1.45 }}>
+                    {m.isNew ? "This pattern is new in the current 7-day window. " : "This pattern existed previously and changed meaningfully. "}
+                    {m.deltaConv != null ? `Conversion moved ${m.deltaConv >= 0 ? "up" : "down"} by ${fmtPct(Math.abs(m.deltaConv))}. ` : ""}
+                    {m.deltaSessionsPct != null ? `Session volume changed ${m.deltaSessionsPct >= 0 ? "up" : "down"} by ${fmtPct(Math.abs(m.deltaSessionsPct))}. ` : ""}
+                    {m.stepCountDelta ? `The path length changed by ${m.stepCountDelta >= 0 ? "+" : ""}${m.stepCountDelta} step(s).` : "The path length stayed stable."}
+                  </div>
+                </div>
+                <span style={{ opacity: 0.88, fontWeight: 700, fontSize: 14, whiteSpace: "nowrap" }}>Impact {m.impact.toFixed(1)}</span>
               </div>
             ))}
           </div>
@@ -4693,20 +4805,28 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
             ))}
           </div>
 
-          <div style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 10, marginBottom: 12, background: "rgba(128,128,128,0.03)" }}>
-            <Text style={{ fontSize: 12, fontWeight: 700, display: "block", marginBottom: 8 }}>Scope Drift Diagnostics</Text>
+          <div style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 14, marginBottom: 14, background: "rgba(128,128,128,0.03)" }}>
+            <Text style={{ fontSize: 14, fontWeight: 700, display: "block", marginBottom: 8 }}>Scope Drift Diagnostics</Text>
             {appScopeDrift.entries.length === 0 ? (
-              <Paragraph style={{ margin: 0, fontSize: 12, opacity: 0.6 }}>No app distribution available for this selection.</Paragraph>
+              <Paragraph style={{ margin: 0, fontSize: 13, opacity: 0.65 }}>No app distribution available for this selection.</Paragraph>
             ) : (
               <>
-                <Paragraph style={{ margin: "0 0 6px 0", fontSize: 12 }}>
-                  Top app share: <b>{fmtPct(appScopeDrift.topShare)}</b> ({appScopeDrift.entries[0][0]}).
-                  {appScopeDrift.topShare >= 75 ? " Consider narrowing to single-app mode for cleaner trend attribution." : " Distribution is balanced enough for cross-app comparison."}
+                <Paragraph style={{ margin: "0 0 8px 0", fontSize: 13, lineHeight: 1.5 }}>
+                  Scope Drift shows how concentrated the discovered funnel traffic is across the apps included in this analysis. In other words, it answers: <Strong>are these findings truly cross-app, or is one application dominating the result set?</Strong>
+                </Paragraph>
+                <Paragraph style={{ margin: "0 0 8px 0", fontSize: 13, lineHeight: 1.5 }}>
+                  Right now, the top app contributes <Strong>{fmtPct(appScopeDrift.topShare)}</Strong> of all sessions in the analyzed funnels.
+                  {appScopeDrift.topShare >= 75
+                    ? ` That means this comparison is heavily dominated by ${appScopeDrift.entries[0][0]}, so the week-over-week movement you are seeing is mostly describing that one app rather than a balanced multi-app picture. Narrowing to single-app mode will make the findings easier to interpret and reduce false conclusions about the broader estate.`
+                    : ` That means no single app is overwhelming the sample, so this is a more balanced comparison and the movements are more representative of the selected app set overall.`}
+                </Paragraph>
+                <Paragraph style={{ margin: "0 0 10px 0", fontSize: 13, lineHeight: 1.5, opacity: 0.78 }}>
+                  This matters because Funnel Analysis ranks changes by sessions and conversion movement. If one app supplies nearly all of the traffic, it will naturally dominate the rankings and recommendations, even when other apps are changing in different ways.
                 </Paragraph>
                 {appScopeDrift.entries.slice(0, 5).map(([app, sess]) => (
-                  <div key={`drift-${app}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+                  <div key={`drift-${app}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
                     <span>{app}</span>
-                    <span>{fmtCount(sess)} sessions ({appScopeDrift.total > 0 ? fmtPct((sess / appScopeDrift.total) * 100) : "0%"})</span>
+                    <span style={{ fontWeight: 600 }}>{fmtCount(sess)} sessions ({appScopeDrift.total > 0 ? fmtPct((sess / appScopeDrift.total) * 100) : "0%"})</span>
                   </div>
                 ))}
               </>
@@ -4724,21 +4844,21 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
                 : "n/a";
               const scoreOpen = expandedScore.has(r.signature);
               return (
-                <div key={r.signature} style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 10, background: "rgba(128,128,128,0.03)" }}>
+                <div key={r.signature} style={{ border: "1px solid rgba(128,128,128,0.2)", borderRadius: 8, padding: 12, background: "rgba(128,128,128,0.03)" }}>
                   <Flex alignItems="center" justifyContent="space-between" gap={8} style={{ marginBottom: 8 }}>
-                    <Text style={{ fontSize: 13, fontWeight: 700 }}>#{idx + 1} {r.app} - {r.steps.length} steps</Text>
+                    <Text style={{ fontSize: 14, fontWeight: 700 }}>#{idx + 1} {r.app} - {r.steps.length} steps</Text>
                     <Flex alignItems="center" gap={6}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#8A3FFC", background: "rgba(138,63,252,0.14)", border: "1px solid rgba(138,63,252,0.35)", borderRadius: 4, padding: "1px 6px" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#8A3FFC", background: "rgba(138,63,252,0.14)", border: "1px solid rgba(138,63,252,0.35)", borderRadius: 4, padding: "2px 7px" }}>
                         Rank {rankText}
                       </span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: confColor, background: "rgba(128,128,128,0.12)", border: "1px solid rgba(128,128,128,0.35)", borderRadius: 4, padding: "1px 6px", textTransform: "uppercase" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: confColor, background: "rgba(128,128,128,0.12)", border: "1px solid rgba(128,128,128,0.35)", borderRadius: 4, padding: "2px 7px", textTransform: "uppercase" }}>
                         {r.confidence}
                       </span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#FF832B", background: "rgba(255,131,43,0.14)", border: "1px solid rgba(255,131,43,0.35)", borderRadius: 4, padding: "1px 6px", textTransform: "uppercase" }}>{r.stepShiftSeverity}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: trendColor }}>{r.isNew ? "NEW" : r.isMutated ? "MUTATED" : "CHANGED"}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#FF832B", background: "rgba(255,131,43,0.14)", border: "1px solid rgba(255,131,43,0.35)", borderRadius: 4, padding: "2px 7px", textTransform: "uppercase" }}>{r.stepShiftSeverity}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: trendColor }}>{r.isNew ? "NEW" : r.isMutated ? "MUTATED" : "CHANGED"}</span>
                       <button
                         onClick={() => toggleWatch(r.signature)}
-                        style={{ padding: "2px 7px", borderRadius: 4, border: `1px solid ${watchSignatures.has(r.signature) ? "#FF832B" : "rgba(128,128,128,0.35)"}`, background: watchSignatures.has(r.signature) ? "rgba(255,131,43,0.15)" : "rgba(128,128,128,0.08)", color: watchSignatures.has(r.signature) ? "#FF832B" : "inherit", fontSize: 10, fontWeight: 700, cursor: "pointer" }}
+                        style={{ padding: "3px 8px", borderRadius: 4, border: `1px solid ${watchSignatures.has(r.signature) ? "#FF832B" : "rgba(128,128,128,0.35)"}`, background: watchSignatures.has(r.signature) ? "rgba(255,131,43,0.15)" : "rgba(128,128,128,0.08)", color: watchSignatures.has(r.signature) ? "#FF832B" : "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
                       >
                         {watchSignatures.has(r.signature) ? "Watching" : "Watch"}
                       </button>
@@ -4746,19 +4866,19 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
                   </Flex>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
                     {r.steps.map((s, i) => (
-                      <span key={`${r.signature}-${i}`} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 4, background: "rgba(69,137,255,0.1)", color: BLUE }}>{s}</span>
+                      <span key={`${r.signature}-${i}`} style={{ fontSize: 12, padding: "3px 8px", borderRadius: 4, background: "rgba(69,137,255,0.1)", color: BLUE }}>{s}</span>
                     ))}
                   </div>
-                  <Flex gap={12} flexWrap="wrap" alignItems="center" style={{ marginBottom: 8, fontSize: 12 }}>
+                  <Flex gap={12} flexWrap="wrap" alignItems="center" style={{ marginBottom: 8, fontSize: 13 }}>
                     <span>Sessions: <Strong>{fmtCount(r.sessions)}</Strong>{r.prev ? ` (prev ${fmtCount(r.prev.sessions)}, ${r.deltaSessions >= 0 ? "+" : ""}${fmtCount(r.deltaSessions)})` : " (new)"}</span>
                     <span>Conversion: <Strong>{fmtPct(r.currConv)}</Strong>{r.prev ? ` (prev ${fmtPct(r.prevConv)}, ${(r.deltaConv ?? 0) >= 0 ? "+" : ""}${fmtPct(r.deltaConv ?? 0)})` : ""}</span>
                     <span>Step count: <Strong>{r.steps.length}</Strong>{r.stepCountDelta == null ? "" : ` (${r.stepCountDelta >= 0 ? "+" : ""}${r.stepCountDelta} vs prev comparable)`}</span>
                     <span>7d tail trend: <Strong>{trendSnippet}</Strong></span>
                   </Flex>
-                  <div style={{ fontSize: 11, marginBottom: 8, opacity: 0.9 }}>
+                  <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.9, lineHeight: 1.45 }}>
                     Structural diff: {r.stepDiffSummary}
                   </div>
-                  <Flex gap={12} flexWrap="wrap" style={{ marginBottom: 8, fontSize: 12 }}>
+                  <Flex gap={12} flexWrap="wrap" style={{ marginBottom: 8, fontSize: 13 }}>
                     <span>Expected conversions: <Strong>{r.expectedConversions == null ? "n/a" : fmtCount(r.expectedConversions)}</Strong></span>
                     <span>Conversion impact: <Strong style={{ color: (r.conversionDeltaCount ?? 0) >= 0 ? GREEN : RED }}>{r.conversionDeltaCount == null ? "n/a" : `${(r.conversionDeltaCount >= 0 ? "+" : "")}${fmtCount(r.conversionDeltaCount)}`}</Strong></span>
                     <span>Revenue impact: <Strong style={{ color: (r.revenueDelta ?? 0) >= 0 ? GREEN : RED }}>{r.revenueDelta == null ? "n/a" : `${r.revenueDelta >= 0 ? "+" : ""}${fmtCurrency(r.revenueDelta)}`}</Strong></span>
@@ -4766,11 +4886,11 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
                   </Flex>
                   <Flex gap={8} flexWrap="wrap" style={{ marginBottom: 8 }}>
                     <button onClick={() => jumpToTabForRow(r, "Funnel Overview")}
-                      style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid rgba(69,137,255,0.45)", background: "rgba(69,137,255,0.12)", color: BLUE, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                      style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid rgba(69,137,255,0.45)", background: "rgba(69,137,255,0.12)", color: BLUE, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                       Drill to Funnel
                     </button>
                     <button onClick={() => jumpToTabForRow(r, "Navigation Paths")}
-                      style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid rgba(69,137,255,0.35)", background: "rgba(69,137,255,0.08)", color: BLUE, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                      style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid rgba(69,137,255,0.35)", background: "rgba(69,137,255,0.08)", color: BLUE, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                       Drill to Navigation
                     </button>
                     <button
@@ -4780,13 +4900,13 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
                         else next.add(r.signature);
                         return next;
                       })}
-                      style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid rgba(128,128,128,0.35)", background: "rgba(128,128,128,0.08)", color: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                      style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid rgba(128,128,128,0.35)", background: "rgba(128,128,128,0.08)", color: "inherit", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
                     >
                       {scoreOpen ? "Hide Score" : "Explain Score"}
                     </button>
                   </Flex>
                   {scoreOpen && (
-                    <div style={{ border: "1px dashed rgba(128,128,128,0.4)", borderRadius: 6, padding: 8, marginBottom: 8, fontSize: 11 }}>
+                    <div style={{ border: "1px dashed rgba(128,128,128,0.4)", borderRadius: 6, padding: 8, marginBottom: 8, fontSize: 12 }}>
                       <div>Conversion weight: {r.scoreParts.convWeight.toFixed(1)}</div>
                       <div>Volume weight: {r.scoreParts.volumeWeight.toFixed(1)}</div>
                       <div>Structure weight: {r.scoreParts.structureWeight.toFixed(1)}</div>
@@ -4795,16 +4915,16 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
                     </div>
                   )}
                   <Flex alignItems="center" justifyContent="space-between" gap={8}>
-                    <span style={{ fontSize: 11, opacity: 0.75 }}>
+                    <span style={{ fontSize: 12, opacity: 0.78 }}>
                       {r.exactBuiltName ? `Built funnel: ${r.exactBuiltName}` : r.pageBuiltName ? `Similar funnel exists: ${r.pageBuiltName}` : "No matching managed funnel (can apply)"}
                     </span>
                     {canApply && (
-                      <button onClick={() => applyAsManagedFunnel(r)} style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${BLUE}55`, background: `${BLUE}22`, color: BLUE, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                      <button onClick={() => openCreateManagedFunnelPrompt(r)} style={{ padding: "5px 11px", borderRadius: 4, border: `1px solid ${BLUE}55`, background: `${BLUE}22`, color: BLUE, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                         Apply
                       </button>
                     )}
                     {!canApply && appliedSignatures.has(r.signature) && (
-                      <span style={{ fontSize: 11, color: GREEN, fontWeight: 700 }}>Applied</span>
+                      <span style={{ fontSize: 12, color: GREEN, fontWeight: 700 }}>Applied</span>
                     )}
                   </Flex>
                 </div>
@@ -4813,6 +4933,24 @@ function FunnelAnalysisTab({ frontend, funnels, saveFunnels, saveActiveFunnelInd
           </div>
         </>
       )}
+      <Sheet
+        title="Name New Funnel"
+        show={!!pendingCreateRow}
+        onDismiss={() => { setPendingCreateRow(null); setPendingCreateName(""); setPendingJumpTab(null); }}
+        actions={(
+          <Flex gap={8} alignItems="center">
+            <Button variant="emphasized" onClick={confirmCreateManagedFunnel} disabled={!pendingCreateName.trim()}>Save Funnel</Button>
+            <Button onClick={() => { setPendingCreateRow(null); setPendingCreateName(""); setPendingJumpTab(null); }}>Cancel</Button>
+          </Flex>
+        )}
+      >
+        <div style={{ padding: "6px 0" }}>
+          <Paragraph style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
+            Enter the name to save this discovered funnel before applying it to the app.
+          </Paragraph>
+          <TextInput value={pendingCreateName} onChange={(v) => setPendingCreateName(v ?? "")} placeholder="Funnel name" />
+        </div>
+      </Sheet>
     </div>
   );
 }
@@ -5053,10 +5191,14 @@ export function UserJourney() {
   const [timeframeAnchor, setTimeframeAnchor] = useState<number | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showSyntheticTemplate, setShowSyntheticTemplate] = useState(false);
-  const [syntheticTemplate, setSyntheticTemplate] = useState("");
-  const [syntheticTemplateTitle, setSyntheticTemplateTitle] = useState("");
-  const [syntheticCopyStatus, setSyntheticCopyStatus] = useState("");
+  const [showSyntheticDialog, setShowSyntheticDialog] = useState(false);
+  const [syntheticMonitorName, setSyntheticMonitorName] = useState("");
+  const [syntheticApiToken, setSyntheticApiToken] = useState("");
+  const [syntheticBaseUrl, setSyntheticBaseUrl] = useState("");
+  const [syntheticLocationIds, setSyntheticLocationIds] = useState("");
+  const [syntheticFrequencyMin, setSyntheticFrequencyMin] = useState(5);
+  const [syntheticStatus, setSyntheticStatus] = useState("");
+  const [syntheticBusy, setSyntheticBusy] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [tabVisibility, setTabVisibility] = useState<Record<TabKey, boolean>>(DEFAULT_TAB_VISIBILITY);
   const [tabOrder, setTabOrder] = useState<TabKey[]>([...DEFAULT_TAB_ORDER]);
@@ -5398,27 +5540,62 @@ export function UserJourney() {
   const openSyntheticTemplateForActiveFunnel = () => {
     const active = funnels[activeFunnelIndex];
     if (!active) return;
-    setSyntheticTemplateTitle(active.name || "Active Funnel");
-    setSyntheticTemplate(buildSyntheticTemplateFromFunnel(active, frontend));
-    setSyntheticCopyStatus("");
-    setShowSyntheticTemplate(true);
+    setSyntheticMonitorName(active.syntheticMonitorName || `UJ - ${active.name || "Active Funnel"}`);
+    const firstPath = String(active.steps?.[0]?.identifiers?.[0] ?? "").trim();
+    const defaultBase = /^https?:\/\//i.test(firstPath) ? firstPath.replace(/(https?:\/\/[^/]+).*/, "$1") : syntheticEnvironmentApiBase();
+    setSyntheticBaseUrl(defaultBase);
+    setSyntheticLocationIds("");
+    setSyntheticFrequencyMin(5);
+    setSyntheticStatus("");
+    setShowSyntheticDialog(true);
   };
 
-  const copySyntheticTemplate = async () => {
+  const createSyntheticMonitorForActiveFunnel = async () => {
+    const active = funnels[activeFunnelIndex];
+    if (!active) return;
+    const monitorName = syntheticMonitorName.trim();
+    const token = syntheticApiToken.trim();
+    const baseUrl = syntheticBaseUrl.trim();
+    const locationIds = syntheticLocationIds.split(",").map((v) => v.trim()).filter(Boolean);
+    if (!monitorName || !token || !baseUrl || locationIds.length === 0) {
+      setSyntheticStatus("Enter monitor name, API token, base URL, and at least one location ID.");
+      return;
+    }
+    setSyntheticBusy(true);
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(syntheticTemplate);
-      } else {
-        const ta = document.createElement("textarea");
-        ta.value = syntheticTemplate;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        ta.remove();
+      const payload = buildSyntheticMonitorPayload({
+        funnel: active,
+        fallbackFrontend: frontend,
+        monitorName,
+        baseUrl,
+        frequencyMin: syntheticFrequencyMin,
+        locationIds,
+      });
+      const response = await fetch(`${syntheticEnvironmentApiBase()}/api/v1/synthetic/monitors`, {
+        method: "POST",
+        headers: {
+          Authorization: `Api-Token ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json().catch(() => ({} as any));
+      if (!response.ok) {
+        const msg = body?.error?.message || `Create failed (${response.status})`;
+        throw new Error(msg);
       }
-      setSyntheticCopyStatus("Copied");
-    } catch {
-      setSyntheticCopyStatus("Copy failed");
+      const entityId = String(body?.entityId ?? "").trim();
+      if (!entityId) throw new Error("Synthetic monitor created but no entity ID was returned.");
+      const next = [...funnels];
+      if (next[activeFunnelIndex]) {
+        next[activeFunnelIndex] = { ...next[activeFunnelIndex], syntheticMonitorId: entityId, syntheticMonitorName: monitorName };
+        saveFunnels(next);
+      }
+      setSyntheticStatus(`Created monitor ${monitorName} (${entityId}).`);
+    } catch (err: any) {
+      setSyntheticStatus(err?.message || "Create failed.");
+    } finally {
+      setSyntheticBusy(false);
     }
   };
 
@@ -6324,11 +6501,16 @@ export function UserJourney() {
                 <div style={{ flex: 1 }}>
                   <TextInput value={funnels[activeFunnelIndex].name} onChange={(val) => { const next = [...funnels]; next[activeFunnelIndex] = { ...next[activeFunnelIndex], name: val ?? "" }; saveFunnels(next); }} placeholder="Funnel name" />
                 </div>
-                <button onClick={openSyntheticTemplateForActiveFunnel} style={{ background: "none", border: "1px solid rgba(69,137,255,0.45)", borderRadius: 4, color: BLUE, cursor: "pointer", fontSize: 11, padding: "4px 8px" }}>Create Synthetic Template</button>
+                <button onClick={openSyntheticTemplateForActiveFunnel} style={{ background: "none", border: "1px solid rgba(69,137,255,0.45)", borderRadius: 4, color: BLUE, cursor: "pointer", fontSize: 11, padding: "4px 8px" }}>Create Synthetic Monitor</button>
                 {funnels.length > 1 && (
                   <button onClick={() => { if (confirm(`Delete "${funnels[activeFunnelIndex].name}"?`)) { const next = funnels.filter((_, j) => j !== activeFunnelIndex); saveFunnels(next); saveActiveFunnelIndex(Math.max(0, activeFunnelIndex - 1)); } }} style={{ background: "none", border: "1px solid rgba(193,25,48,0.4)", borderRadius: 4, color: RED, cursor: "pointer", fontSize: 11, padding: "4px 8px" }}>Delete Funnel</button>
                 )}
               </Flex>
+              {funnels[activeFunnelIndex].syntheticMonitorId && (
+                <Paragraph style={{ marginBottom: 8, opacity: 0.75, fontSize: 12 }}>
+                  Synthetic monitor: <Strong>{funnels[activeFunnelIndex].syntheticMonitorName || funnels[activeFunnelIndex].name}</Strong> ({funnels[activeFunnelIndex].syntheticMonitorId})
+                </Paragraph>
+              )}
               <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Steps (min {MIN_STEPS}, max {MAX_STEPS}). Funnels can span multiple apps. Wildcards: <Strong>/home*</Strong>, <Strong>*home</Strong>, <Strong>*home*</Strong>.</Paragraph>
               <Paragraph style={{ marginBottom: 8, opacity: 0.7, fontSize: 12 }}>Drag a step by its handle and drop it on another step to reorder the funnel (for example, move step 4 to step 1).</Paragraph>
               {steps.map((step, i) => (
@@ -6660,26 +6842,47 @@ export function UserJourney() {
         </div>
       </Sheet>
       <Sheet
-        title={`Synthetic Template — ${syntheticTemplateTitle || "Funnel"}`}
-        show={showSyntheticTemplate}
-        onDismiss={() => setShowSyntheticTemplate(false)}
+        title="Create Synthetic Monitor"
+        show={showSyntheticDialog}
+        onDismiss={() => setShowSyntheticDialog(false)}
         actions={(
           <Flex gap={8} alignItems="center">
-            <Button variant="emphasized" onClick={copySyntheticTemplate}>Copy</Button>
-            <Button onClick={() => setShowSyntheticTemplate(false)}>Close</Button>
+            <Button variant="emphasized" onClick={createSyntheticMonitorForActiveFunnel} disabled={syntheticBusy}>{syntheticBusy ? "Creating..." : "Create"}</Button>
+            <Button onClick={() => setShowSyntheticDialog(false)}>Close</Button>
           </Flex>
         )}
       >
         <div style={{ padding: "6px 0" }}>
-          <Paragraph style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
-            Generated from the active funnel. Replace baseUrl, selectors, and credentials before creating the Dynatrace Synthetic monitor.
+          <Paragraph style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>
+            Creates a Dynatrace browser synthetic monitor directly from the active funnel. Requires an API token with ExternalSyntheticIntegration scope.
           </Paragraph>
-          <textarea
-            value={syntheticTemplate}
-            readOnly
-            style={{ width: "100%", minHeight: 360, borderRadius: 8, border: "1px solid rgba(128,128,128,0.35)", background: "rgba(128,128,128,0.05)", color: "inherit", fontFamily: "Consolas, monospace", fontSize: 12, padding: 10 }}
-          />
-          {syntheticCopyStatus && <Text style={{ fontSize: 11, opacity: 0.75, marginTop: 6, display: "block" }}>{syntheticCopyStatus}</Text>}
+          <div style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, opacity: 0.7, display: "block", marginBottom: 4 }}>Monitor Name</Text>
+            <TextInput value={syntheticMonitorName} onChange={(v) => setSyntheticMonitorName(v ?? "")} placeholder="UJ - Funnel Name" />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, opacity: 0.7, display: "block", marginBottom: 4 }}>Synthetic API Token</Text>
+            <TextInput value={syntheticApiToken} onChange={(v) => setSyntheticApiToken(v ?? "")} placeholder="dt0c01..." />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, opacity: 0.7, display: "block", marginBottom: 4 }}>Base URL</Text>
+            <TextInput value={syntheticBaseUrl} onChange={(v) => setSyntheticBaseUrl(v ?? "")} placeholder="https://your-site.example.com" />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, opacity: 0.7, display: "block", marginBottom: 4 }}>Location IDs</Text>
+            <TextInput value={syntheticLocationIds} onChange={(v) => setSyntheticLocationIds(v ?? "")} placeholder="GEOLOCATION-..., GEOLOCATION-..." />
+            <Text style={{ fontSize: 11, opacity: 0.55, display: "block", marginTop: 4 }}>Enter one or more Synthetic location IDs, comma-separated.</Text>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, opacity: 0.7, display: "block", marginBottom: 4 }}>Frequency</Text>
+            <Select value={String(syntheticFrequencyMin)} onChange={(v) => setSyntheticFrequencyMin(Number(v ?? 5))}>
+              <Select.Trigger style={{ minWidth: 140 }} />
+              <Select.Content>
+                {[5, 10, 15, 30, 60].map((n) => <Select.Option key={n} value={String(n)}>{n} minutes</Select.Option>)}
+              </Select.Content>
+            </Select>
+          </div>
+          {syntheticStatus && <Text style={{ fontSize: 11, opacity: 0.8, display: "block", marginTop: 8 }}>{syntheticStatus}</Text>}
         </div>
       </Sheet>
 

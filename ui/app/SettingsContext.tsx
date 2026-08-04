@@ -8,6 +8,8 @@ export type StepDef = { label: string; identifiers: string[]; type: "view" | "re
 export type FunnelDef = {
   name: string;
   steps: StepDef[];
+  syntheticMonitorId?: string;
+  syntheticMonitorName?: string;
   aov?: number;
   monthlyInfraCost?: number;
   cdnMonthlyCost?: number;
@@ -192,6 +194,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               type: s.type ?? "view",
               app: s.app ?? undefined,
             })) : DEFAULT_FUNNEL_STEPS,
+            syntheticMonitorId: f.syntheticMonitorId ?? undefined,
+            syntheticMonitorName: f.syntheticMonitorName ?? undefined,
             aov: f.aov !== undefined ? Number(f.aov) : undefined,
             monthlyInfraCost: f.monthlyInfraCost !== undefined ? Number(f.monthlyInfraCost) : undefined,
             cdnMonthlyCost: f.cdnMonthlyCost !== undefined ? Number(f.cdnMonthlyCost) : undefined,
