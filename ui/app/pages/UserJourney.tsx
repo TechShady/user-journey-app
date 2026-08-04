@@ -92,7 +92,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.22";
+const APP_VERSION_LABEL = "4.76.23";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -18617,7 +18617,7 @@ function buildSankey(records: any[]): { nodes: SankeyNode[]; links: SankeyLink[]
 function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData, frontend, durationData, prevPathsData, velocityData, onDrillToForecast }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any; frontend: string; durationData: any; prevPathsData: any; velocityData: any; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const [sankeySubTab, setSankeySubTab] = useState<"flow" | "convPaths" | "loops" | "timing" | "endpoints" | "revPaths" | "pathTrends" | "leakage" | "velocity">("flow");
   // Funnel Velocity what-if state (declared at component level so it survives re-renders)
-  const [velImprovePct, setVelImprovePct] = useState<number>(20);
+  const [velImprovePct, setVelImprovePct] = useState<number>(50);
   const [velBottleneckShaveSec, setVelBottleneckShaveSec] = useState<number>(5);
 
   const sankeySubTabLabel = useMemo(() => {
@@ -20894,6 +20894,10 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
               }
 
               // Elasticity: conv-rate delta between fast-half and slow-half of sessions.
+              // NOTE: this is a diagnostic signal only — for funnels where completing takes time,
+              // "fast" sessions are often bouncers, so elasticity can be negative. The What-If model
+              // below intentionally does NOT use raw elasticity — it uses the sweet-spot proximity
+              // model instead, which is self-consistent with the bucket chart.
               const sortedByTime = [...withTime].sort((a, b) => a.totalTime - b.totalTime);
               const midIdx = Math.floor(sortedByTime.length / 2);
               const fastHalf = sortedByTime.slice(0, midIdx);
@@ -20906,26 +20910,42 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
               const timeDiff = Math.max(0.1, medianSlow - medianFast);
               const elasticity = timeDiff > 0 ? convLift / timeDiff : 0;
 
-              // What-If: shift median velocity down by velImprovePct%.
+              // === Sweet-spot proximity model (drives What-If & Bottleneck) ===
+              // If we could shift the population's median toward the sweet-spot midpoint, how much
+              // of the (sweetSpotConvRate - overallConvRate) gap could we realistically capture?
+              const sweetMid = sweetSpot ? (sweetSpot.lo + sweetSpot.hi) / 2 : overallMedian;
+              const sweetLiftPP = sweetSpot ? Math.max(0, sweetSpot.convRate - convRate) : 0;
+              const gapToSweet = sweetMid - overallMedian; // + = sweet slower, − = sweet faster
+
+              // What-If: shift median X% of the way toward the sweet-spot midpoint.
               const impFrac = velImprovePct / 100;
-              const projMedian = overallMedian * (1 - impFrac);
-              const secondsSaved = overallMedian - projMedian;
-              const projConvLiftPP = Math.max(0, elasticity * secondsSaved);
+              const projMedian = overallMedian + impFrac * gapToSweet;
+              const secondsShifted = projMedian - overallMedian; // signed
+              const projConvLiftPP = impFrac * sweetLiftPP;
               const projConvRate = Math.min(100, convRate + projConvLiftPP);
               const projConversions = Math.round((projConvRate / 100) * timings.length);
               const extraConversions = Math.max(0, projConversions - converted.length);
               const extraRevenue = extraConversions * aov;
               const rSq = corr * corr;
-              const confidenceLo = extraConversions * Math.max(0.4, 1 - Math.sqrt(1 - rSq));
-              const confidenceHi = extraConversions * Math.min(1.6, 1 + Math.sqrt(1 - rSq));
+              // Uncertainty band widens when correlation is weak.
+              const confidenceLo = Math.round(extraConversions * Math.max(0.4, 1 - Math.sqrt(1 - Math.min(0.99, rSq + 0.15))));
+              const confidenceHi = Math.round(extraConversions * Math.min(1.6, 1 + Math.sqrt(1 - Math.min(0.99, rSq + 0.15))));
 
               // Bottleneck impact: shave shaveSec seconds off the slowest transition.
+              // Model: fraction of slowest-step time removed × fraction of sessions hitting it × sweetLift potential.
               const slowestT = stepStats.reduce((best, s) => s.median > best.median ? s : best, stepStats[0] ?? { label: "", avg: 0, median: 0, p90: 0, count: 0 });
               const btSecondsSaved = Math.min(velBottleneckShaveSec, slowestT.median);
-              const btConvLiftPP = Math.max(0, elasticity * btSecondsSaved);
+              const slowestFrac = timings.length > 0 ? Math.min(1, slowestT.count / timings.length) : 0;
+              const btShaveFrac = slowestT.median > 0 ? Math.min(1, btSecondsSaved / slowestT.median) : 0;
+              const btConvLiftPP = btShaveFrac * slowestFrac * sweetLiftPP;
               const btProjRate = Math.min(100, convRate + btConvLiftPP);
               const btExtraConv = Math.max(0, Math.round((btProjRate / 100) * timings.length) - converted.length);
               const btExtraRev = btExtraConv * aov;
+
+              // Direction hint for the What-If slider label.
+              const sweetDirection = sweetSpot
+                ? (gapToSweet > 0.5 ? "slower" : gapToSweet < -0.5 ? "faster" : "matched")
+                : "unknown";
 
               // Auto-generated insights.
               const insights: string[] = [];
@@ -20963,20 +20983,33 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
                     <KpiCard label="Sweet-Spot Range" value={sweetSpot ? `${sweetSpot.lo}-${sweetSpot.hi}s` : "n/a"} color={GREEN} rawValue={sweetSpot?.convRate ?? 0} prevRawValue={syntheticPrev(sweetSpot?.convRate ?? 0, "Sweet-Spot Conv")} sparkline={syntheticSparkline(sweetSpot?.convRate ?? 0, 8, "Sweet-Spot Conv")} onDrillToForecast={onDrillToForecast} />
                     <KpiCard label="Fast vs Slow Gap" value={`${convLift.toFixed(1)}pp`} color={convLift > 0 ? GREEN : RED} rawValue={convLift} prevRawValue={syntheticPrev(convLift, "Fast vs Slow Gap")} sparkline={syntheticSparkline(convLift, 8, "Fast vs Slow Gap")} onDrillToForecast={onDrillToForecast} />
                     <KpiCard label="Velocity-Conv Correlation" value={corr.toFixed(2)} color={corr < -0.05 ? GREEN : corr > 0.05 ? RED : YELLOW} rawValue={corr} prevRawValue={syntheticPrev(corr, "Correlation")} sparkline={syntheticSparkline(corr, 8, "Correlation")} onDrillToForecast={onDrillToForecast} />
-                    <KpiCard label="Conv Gain / sec saved" value={`${elasticity.toFixed(2)}pp`} color={PURPLE} rawValue={elasticity} prevRawValue={syntheticPrev(elasticity, "Elasticity")} sparkline={syntheticSparkline(elasticity, 8, "Elasticity")} onDrillToForecast={onDrillToForecast} />
+                    <KpiCard label="Sweet-Spot Lift Potential" value={`+${sweetLiftPP.toFixed(1)}pp`} color={PURPLE} rawValue={sweetLiftPP} prevRawValue={syntheticPrev(sweetLiftPP, "Sweet Lift")} sparkline={syntheticSparkline(sweetLiftPP, 8, "Sweet Lift")} onDrillToForecast={onDrillToForecast} />
                   </Flex>
 
                   <SectionHeader title="Conversion Rate by Velocity Bucket — Find the Sweet Spot" />
                   <div className="uj-table-tile" style={{ padding: 16 }}>
+                    {/* Header row: sub-title + legend */}
+                    <Flex alignItems="center" justifyContent="space-between" gap={12} flexWrap="wrap" style={{ marginBottom: 10 }}>
+                      <Text style={{ fontSize: 12, opacity: 0.7 }}>
+                        Sessions grouped by total journey duration. Each bar shows conversion rate for its group.
+                        <br />
+                        <span style={{ opacity: 0.55 }}><Strong>n</Strong> = number of sessions in that bucket (sample size). Small samples are shown dimmed and excluded from sweet-spot detection.</span>
+                      </Text>
+                      <Flex gap={12} alignItems="center" flexWrap="wrap" style={{ fontSize: 11 }}>
+                        <Flex gap={6} alignItems="center"><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 2, background: GREEN, border: `1.5px solid ${GREEN}` }} /><Text>Sweet spot</Text></Flex>
+                        <Flex gap={6} alignItems="center"><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 2, background: BLUE, opacity: 0.55 }} /><Text>Above average</Text></Flex>
+                        <Flex gap={6} alignItems="center"><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 2, background: ORANGE, opacity: 0.55 }} /><Text>Below average</Text></Flex>
+                        <Flex gap={6} alignItems="center"><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 2, background: "rgba(128,128,128,0.4)" }} /><Text>Small sample</Text></Flex>
+                      </Flex>
+                    </Flex>
                     <svg width="100%" viewBox={`0 0 ${CW} ${CH}`}>
-                      <text x={CPAD.left} y={CPAD.top - 12} fill="rgba(255,255,255,0.4)" fontSize={10}>Conversion rate (%)</text>
-                      <text x={CW - CPAD.right} y={CPAD.top - 12} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={10}>Bar = conv rate for sessions in that journey-time range</text>
+                      <text x={CPAD.left} y={CPAD.top - 12} fill="rgba(255,255,255,0.55)" fontSize={10} fontWeight={600}>Conversion rate (%)</text>
                       {[0, 0.25, 0.5, 0.75, 1].map(g => {
                         const y = CPAD.top + ciH * (1 - g);
                         return (
                           <g key={g}>
                             <line x1={CPAD.left} y1={y} x2={CW - CPAD.right} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
-                            <text x={CPAD.left - 6} y={y + 3} textAnchor="end" fill="rgba(255,255,255,0.35)" fontSize={9}>{(g * maxRate).toFixed(0)}%</text>
+                            <text x={CPAD.left - 8} y={y + 3} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={9}>{(g * maxRate).toFixed(0)}%</text>
                           </g>
                         );
                       })}
@@ -20984,8 +21017,9 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
                         const y = CPAD.top + ciH * (1 - Math.min(1, convRate / maxRate));
                         return (
                           <g>
-                            <line x1={CPAD.left} y1={y} x2={CW - CPAD.right} y2={y} stroke={BLUE} strokeWidth={1} strokeDasharray="4 4" opacity={0.6} />
-                            <text x={CW - CPAD.right - 4} y={y - 4} textAnchor="end" fill={BLUE} fontSize={9} fontWeight={700}>Overall {convRate.toFixed(1)}%</text>
+                            <line x1={CPAD.left} y1={y} x2={CW - CPAD.right} y2={y} stroke={BLUE} strokeWidth={1} strokeDasharray="4 4" opacity={0.7} />
+                            <rect x={CW - CPAD.right - 90} y={y - 12} width={86} height={12} rx={2} fill="rgba(69,137,255,0.15)" />
+                            <text x={CW - CPAD.right - 6} y={y - 3} textAnchor="end" fill={BLUE} fontSize={9} fontWeight={700}>Overall {convRate.toFixed(1)}%</text>
                           </g>
                         );
                       })()}
@@ -20996,29 +21030,36 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
                         const y = CPAD.top + ciH - bH;
                         const isSweet = !!sweetSpot && b.lo === sweetSpot.lo;
                         const enoughSample = b.total >= minBucketSize;
-                        const color = !enoughSample ? "rgba(128,128,128,0.4)" : isSweet ? GREEN : b.convRate >= convRate ? BLUE : ORANGE;
+                        const hasData = b.total > 0;
+                        const color = !hasData ? "rgba(128,128,128,0.25)" : !enoughSample ? "rgba(128,128,128,0.4)" : isSweet ? GREEN : b.convRate >= convRate ? BLUE : ORANGE;
                         return (
                           <g key={i}>
-                            <rect x={x} y={y} width={bW} height={bH} rx={3} fill={color} fillOpacity={enoughSample ? 0.55 : 0.25} stroke={color} strokeWidth={isSweet ? 2 : 0.6} strokeOpacity={0.9}>
-                              <title>{`${b.lo}-${b.hi}s: ${b.total} sessions, ${b.converted} converted (${b.convRate.toFixed(1)}%)${!enoughSample ? " — small sample" : ""}${isSweet ? " ★ sweet spot" : ""}`}</title>
-                            </rect>
+                            {hasData ? (
+                              <rect x={x} y={y} width={bW} height={bH} rx={3} fill={color} fillOpacity={enoughSample ? 0.55 : 0.25} stroke={color} strokeWidth={isSweet ? 2 : 0.6} strokeOpacity={0.9}>
+                                <title>{`${b.lo}-${b.hi}s: ${b.total} sessions, ${b.converted} converted (${b.convRate.toFixed(1)}%)${!enoughSample ? " — small sample" : ""}${isSweet ? " ★ sweet spot" : ""}`}</title>
+                              </rect>
+                            ) : (
+                              <rect x={x} y={CPAD.top + ciH - 2} width={bW} height={2} rx={1} fill="rgba(128,128,128,0.2)" />
+                            )}
                             {isSweet && <text x={x + bW / 2} y={y - 14} textAnchor="middle" fill={GREEN} fontSize={10} fontWeight={800}>★ SWEET</text>}
-                            {b.total > 0 && <text x={x + bW / 2} y={y - 3} textAnchor="middle" fill="rgba(255,255,255,0.75)" fontSize={9} fontWeight={600}>{b.convRate.toFixed(0)}%</text>}
-                            <text x={x + bW / 2} y={CH - CPAD.bottom + 14} textAnchor="middle" fill="rgba(255,255,255,0.45)" fontSize={9}>{b.lo}-{b.hi}s</text>
-                            <text x={x + bW / 2} y={CH - CPAD.bottom + 26} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={8}>n={b.total}</text>
+                            {hasData && <text x={x + bW / 2} y={y - 3} textAnchor="middle" fill={enoughSample ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.4)"} fontSize={9} fontWeight={700}>{b.convRate.toFixed(0)}%</text>}
+                            <text x={x + bW / 2} y={CH - CPAD.bottom + 14} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize={9} fontWeight={600}>{b.lo}-{b.hi}s</text>
+                            <text x={x + bW / 2} y={CH - CPAD.bottom + 26} textAnchor="middle" fill={hasData ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.25)"} fontSize={8}>n={b.total}</text>
                           </g>
                         );
                       })}
-                      <text x={CPAD.left + ciW / 2} y={CH - 4} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={10}>Journey Duration (seconds)</text>
+                      <text x={CPAD.left + ciW / 2} y={CH - 4} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize={10} fontWeight={600}>Journey Duration (seconds)</text>
                     </svg>
                   </div>
 
-                  <SectionHeader title="What-If — Improve Funnel Velocity by X%" />
+                  <SectionHeader title="What-If — Shift Median Velocity Toward Sweet Spot" />
                   <div className="uj-table-tile" style={{ padding: 16 }}>
                     <Flex flexDirection="column" gap={12}>
                       <Flex alignItems="center" gap={12} flexWrap="wrap">
-                        <Text style={{ fontSize: 13, minWidth: 180 }}>Improve median velocity by:</Text>
-                        <input type="range" min={0} max={60} step={5} value={velImprovePct} onChange={(e) => setVelImprovePct(Number(e.target.value))} style={{ flex: 1, minWidth: 240, maxWidth: 480 }} />
+                        <Text style={{ fontSize: 13, minWidth: 220 }}>
+                          Move median % toward sweet spot ({sweetDirection === "slower" ? "make journeys slower" : sweetDirection === "faster" ? "make journeys faster" : "already near sweet spot"}):
+                        </Text>
+                        <input type="range" min={0} max={100} step={5} value={velImprovePct} onChange={(e) => setVelImprovePct(Number(e.target.value))} style={{ flex: 1, minWidth: 240, maxWidth: 480 }} />
                         <Text style={{ fontSize: 18, fontWeight: 800, color: PURPLE, minWidth: 60 }}>{velImprovePct}%</Text>
                       </Flex>
                       <Flex gap={16} flexWrap="wrap">
@@ -21028,7 +21069,9 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
                             <span style={{ color: "rgba(255,255,255,0.5)", textDecoration: "line-through", fontSize: 15, marginRight: 6 }}>{overallMedian.toFixed(1)}s</span>
                             <span style={{ color: GREEN }}>{projMedian.toFixed(1)}s</span>
                           </div>
-                          <Text style={{ fontSize: 11, opacity: 0.6 }}>Save {secondsSaved.toFixed(1)}s per session</Text>
+                          <Text style={{ fontSize: 11, opacity: 0.6 }}>
+                            {secondsShifted < 0 ? `Save ${Math.abs(secondsShifted).toFixed(1)}s per session` : secondsShifted > 0 ? `Add ${secondsShifted.toFixed(1)}s per session (engagement)` : "No change"}
+                          </Text>
                         </div>
                         <div style={{ flex: "1 1 200px", padding: 12, borderRadius: 8, background: "rgba(128,128,128,0.06)", border: "1px solid rgba(128,128,128,0.2)" }}>
                           <Text style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.5, letterSpacing: 0.6 }}>Projected conv rate</Text>
@@ -21041,7 +21084,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
                         <div style={{ flex: "1 1 200px", padding: 12, borderRadius: 8, background: "rgba(51,212,113,0.08)", border: "1px solid rgba(51,212,113,0.4)" }}>
                           <Text style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.7, letterSpacing: 0.6, color: GREEN }}>Extra conversions</Text>
                           <div style={{ fontSize: 22, fontWeight: 800, color: GREEN }}>+{fmtCount(extraConversions)}</div>
-                          <Text style={{ fontSize: 11, opacity: 0.6 }}>range {fmtCount(Math.round(confidenceLo))}–{fmtCount(Math.round(confidenceHi))} · r²={rSq.toFixed(2)}</Text>
+                          <Text style={{ fontSize: 11, opacity: 0.6 }}>range {fmtCount(confidenceLo)}–{fmtCount(confidenceHi)} · r²={rSq.toFixed(2)}</Text>
                         </div>
                         <div style={{ flex: "1 1 200px", padding: 12, borderRadius: 8, background: "rgba(165,110,255,0.08)", border: "1px solid rgba(165,110,255,0.4)" }}>
                           <Text style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.7, letterSpacing: 0.6, color: PURPLE }}>Estimated revenue lift</Text>
@@ -21050,7 +21093,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
                         </div>
                       </Flex>
                       <Text style={{ fontSize: 11, opacity: 0.55, fontStyle: "italic" }}>
-                        Model: linear elasticity ({elasticity.toFixed(3)}pp conv per second saved) derived from the fast-half vs. slow-half gap observed in the timeframe. Treat improvements &gt;40% as directional.
+                        Model: sweet-spot proximity. At 100% the median lands exactly at the sweet-spot midpoint ({sweetMid.toFixed(1)}s) and captures the full +{sweetLiftPP.toFixed(1)}pp uplift; intermediate values capture a proportional share. Sweet spot detected from the bucket chart above.
                       </Text>
                     </Flex>
                   </div>
