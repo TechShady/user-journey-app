@@ -137,6 +137,7 @@ The 37 sub-tabs are organized into **8 parent tab groups** with nested Strato `<
 - **Funnel tabs**: Horizontal tab row showing all funnels by name, highlighted active tab, "+ New Funnel" button (disabled at MAX_FUNNELS)
 - **Per-funnel editor**: Editable name field, Delete button (with confirmation for last funnel), and the existing step editor scoped to that funnel's steps
 - **Auto-open Settings**: A `useEffect` detects `funnels.length === 0` and opens Settings automatically on first launch
+- **Security posture**: The app no longer includes in-app synthetic monitor creation or API token entry fields in Settings; token handling is intentionally out of scope
 
 **UI — Funnel Discovery** (`FunnelDiscovery` component):
 - **App selection**: Multi-select dropdown of available applications
@@ -216,22 +217,24 @@ fetch user.events, from: now() - {timeframe}
 - App scope controls: `all`, `single`, or `multiple` frontend applications with explicit Apply workflow
 - Top-N candidate detection (1-20) from discovered sequential paths (min 3 steps)
 - Rank movement and classification: new, mutated, or changed
+- Managed-funnel weekly panel: complete coverage of currently defined funnels with `CHANGED` / `STABLE` status and impact ranking
 - Confidence gating based on entry/session volume (`high`, `medium`, `low`)
 - Step-level diff summary (`added`, `removed`, `rewired`) via `describeStepDiff`
 - Business impact estimates: expected conversions, conversion delta count, and revenue delta when AOV > 0
-- Daily pattern trend tail from `funnelAnalysisDailyPatternQuery`
+- Daily pattern trend tail from `funnelAnalysisDailyPatternQuery` with explicit `no data` output when no usable trend signal exists
 - Priority recommendation buckets: `Critical`, `This Week`, `Monitor`
 - Scope drift diagnostics to detect app concentration bias in all-app runs
 - Watchlist state persistence (`FUNNEL_ANALYSIS_WATCH_STATE_KEY`) and watch-only filtering
 - Drill workflow buttons into Funnel and Traffic context plus score explainability panel
-- AI Assist tab-specific narration of high-impact movers, confidence risk, and immediate actions
+- AI Assist tab-specific narration of high-impact movers, confidence risk, managed-funnel change coverage, and immediate actions
 
 **Core data flow**:
 1. Discovery query builds current and previous period candidate funnel signatures.
 2. Entry query derives per-entry-page denominator for conversion baseline.
 3. Comparison model computes conversion/session deltas, rank deltas, structural drift, confidence, and weighted impact.
 4. Optional daily pattern query enriches rows with trend snippets.
-5. UI renders prioritized cards with drill actions and watchlist persistence.
+5. Managed-funnel overlay maps discovered movement back to configured funnels for weekly operational review.
+6. UI renders prioritized cards with drill actions and watchlist persistence.
 
 ---
 
