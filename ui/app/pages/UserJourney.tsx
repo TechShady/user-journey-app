@@ -92,7 +92,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.23";
+const APP_VERSION_LABEL = "4.76.24";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -6773,7 +6773,7 @@ export function UserJourney() {
             case "Perf Budgets": content = <PerfBudgetsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} hourlyData={hourlyDistributionData} isLoading={qualityData.isLoading || hourlyDistributionData.isLoading || qualityDataPrev.isLoading} saveState={saveState} savedThresholds={savedBudgetThresholds} onDrillToForecast={openForecast} />; break;
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} networkData={geoNetworkData} conversionData={geoConversionData} onDrillToForecast={openForecast} />; break;
             case "Maps": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} timelapseData={mapTimelapseData} conversionData={geoConversionData} funnelBounceData={geoFunnelBounceData} onDrillToForecast={openForecast} priorData={geoPriorPerformanceData} hotnessMode={hotnessMode} />; break;
-            case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} navPathConvData={navPathConvData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} backendServicesData={backendServicesData} serviceToServiceData={serviceToServiceData} frontend={funnelDrillFrontend} timeframeDays={timeframeDays} onDrillToForecast={openForecast} hotnessMode={hotnessMode} />; break;
+            case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} navPathConvData={navPathConvData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} backendServicesData={backendServicesData} serviceToServiceData={serviceToServiceData} frontend={funnelDrillFrontend} timeframeDays={timeframeDays} onDrillToForecast={openForecast} hotnessMode={hotnessMode} tlFrontendDiagPos={tlDiagPanel?.pos ?? null} />; break;
             case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} onDrillToForecast={openForecast} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov}  davisProblemsData={davisProblemsData} onDrillToForecast={openForecast} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} steps={steps} />; break;
@@ -14437,7 +14437,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
 // ===========================================================================
 // TAB: Navigation Paths — NEW
 // ===========================================================================
-function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvData, backendServicesData, serviceToServiceData, frontend, timeframeDays, onDrillToForecast, hotnessMode = "shared" }: { data: any; isLoading: boolean; appEntityId: string; steps: StepDef[]; navPathConvData?: any; backendServicesData?: any; serviceToServiceData?: any; frontend: string; timeframeDays: number; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; hotnessMode?: HotnessMode }) {
+function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvData, backendServicesData, serviceToServiceData, frontend, timeframeDays, onDrillToForecast, hotnessMode = "shared", tlFrontendDiagPos = null }: { data: any; isLoading: boolean; appEntityId: string; steps: StepDef[]; navPathConvData?: any; backendServicesData?: any; serviceToServiceData?: any; frontend: string; timeframeDays: number; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; hotnessMode?: HotnessMode; tlFrontendDiagPos?: { x: number; y: number } | null }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeNavigationPaths(data, [], steps), [data, steps]));
   const savedNavSession = useUserAppState({ key: NAV_FILTER_SESSION_STATE_KEY });
   const savedNavPreset = useUserAppState({ key: NAV_FILTER_PRESET_STATE_KEY });
@@ -16965,6 +16965,130 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
           </div>
         </>
       )}
+
+      {/* Backend hotness diagnosis popup — mirrors the App-level frontend popup, positioned to the right.
+          Only rendered on this tab because backend TL data (services + baselines) lives here. */}
+      {tlFrontendDiagPos && navTlEnabled && navTlBucketList.length > 0 && (() => {
+        const idx = Math.min(Math.max(tl.index, 0), navTlBucketList.length - 1);
+        const bKey = navTlBucketList[idx];
+        const emap = navTlEdgeBuckets.get(bKey);
+        if (!emap || emap.size === 0) return null;
+
+        // Aggregate this bucket across all backend services.
+        let totalReq = 0, totalErr = 0, weightedDurSum = 0;
+        let hottestSvc = ""; let hottestZ = -Infinity; let hottestReason = "";
+        let warnCount = 0, critCount = 0;
+        emap.forEach((v, key) => {
+          totalReq += v.requests;
+          totalErr += v.errors;
+          weightedDurSum += v.avgDur * v.requests;
+          const base = navTlServiceBaseline.get(key);
+          if (v.requests > 0 && base) {
+            const errRate = (v.errors / v.requests) * 100;
+            const errZ = (errRate - base.errRateStat.mean) / base.errRateStat.std;
+            const durZ = (v.avgDur - base.durStat.mean) / base.durStat.std;
+            const badZ = Math.max(errZ, durZ);
+            if (errRate >= 10 || badZ >= 2.5) critCount++;
+            else if (errRate >= 3 || badZ >= 1.5) warnCount++;
+            if (badZ > hottestZ) {
+              hottestZ = badZ;
+              // Show human-readable name if key is an entity id (SERVICE-...); else use key.
+              const nameGuess = navTlEdgeNameAlias.get(key) === key ? key : (Array.from(navTlEdgeNameAlias.entries()).find(([, v2]) => v2 === key)?.[0] ?? key);
+              hottestSvc = nameGuess;
+              const reasons: string[] = [];
+              if (errZ >= 1.5) reasons.push(`err z=${errZ.toFixed(1)}`);
+              if (durZ >= 1.5) reasons.push(`lat z=${durZ.toFixed(1)}`);
+              if (errRate >= 3) reasons.push(`${errRate.toFixed(1)}% err`);
+              hottestReason = reasons.join(", ") || "within range";
+            }
+          }
+        });
+        const aggErrRate = totalReq > 0 ? (totalErr / totalReq) * 100 : 0;
+        const aggAvgDur = totalReq > 0 ? weightedDurSum / totalReq : 0;
+
+        // Baselines from the whole timeframe: aggregate per bucket then stat.
+        const stat = (arr: number[]) => {
+          const n = arr.length;
+          if (n === 0) return { mean: 0, std: 1 };
+          const mean = arr.reduce((a, b) => a + b, 0) / n;
+          const varr = arr.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1);
+          return { mean, std: Math.max(0.01, Math.sqrt(varr)) };
+        };
+        const reqBuckets: number[] = []; const errBuckets: number[] = []; const durBuckets: number[] = [];
+        navTlEdgeBuckets.forEach((em) => {
+          let r = 0, e = 0, ws = 0;
+          em.forEach(v => { r += v.requests; e += v.errors; ws += v.avgDur * v.requests; });
+          reqBuckets.push(r);
+          errBuckets.push(r > 0 ? (e / r) * 100 : 0);
+          durBuckets.push(r > 0 ? ws / r : 0);
+        });
+        const reqStat = stat(reqBuckets), errStat = stat(errBuckets), durStat = stat(durBuckets);
+        const reqZ = (totalReq - reqStat.mean) / reqStat.std;
+        const errZagg = (aggErrRate - errStat.mean) / errStat.std;
+        const durZagg = (aggAvgDur - durStat.mean) / durStat.std;
+
+        const metrics = [
+          { label: "Backend Requests", value: fmtCount(totalReq), z: reqZ, neutral: true, desc: "aggregate span traffic vs avg" },
+          { label: "Backend Error Rate", value: fmtPct(aggErrRate), z: errZagg, neutral: false, desc: "weighted err rate — ↑ bad" },
+          { label: "Backend Avg Duration", value: `${Math.round(aggAvgDur)}ms`, z: durZagg, neutral: false, desc: "weighted latency — ↑ bad" },
+          { label: "Services in Warning", value: String(warnCount), z: warnCount > 0 ? 1.5 : 0, neutral: false, desc: "err ≥ 3% or z ≥ 1.5" },
+          { label: "Services in Critical", value: String(critCount), z: critCount > 0 ? 2.5 : 0, neutral: false, desc: "err ≥ 10% or z ≥ 2.5" },
+        ];
+        const mColor = (m: { z: number; neutral: boolean }) => {
+          if (m.neutral) return Math.abs(m.z) >= 1.5 ? TL_HOT_WARM : "#4589FF";
+          if (m.z <= 0) return GREEN;
+          return m.z >= 2.5 ? TL_HOT_HIGH : m.z >= 1.5 ? TL_HOT_WARM : m.z >= 0.75 ? TL_HOT_ELEV : GREEN;
+        };
+        const worstZ = Math.max(errZagg, durZagg, critCount > 0 ? 2.5 : warnCount > 0 ? 1.5 : 0);
+        const backendHotColor = worstZ >= 2.5 ? TL_HOT_HIGH : worstZ >= 1.5 ? TL_HOT_WARM : worstZ >= 0.75 ? TL_HOT_ELEV : "#4589FF";
+        const backendDriver = critCount > 0 ? `${critCount} service${critCount > 1 ? "s" : ""} critical` : warnCount > 0 ? `${warnCount} service${warnCount > 1 ? "s" : ""} elevated` : errZagg > durZagg ? (errZagg >= 1.5 ? "Backend error spike" : "Backend normal") : (durZagg >= 1.5 ? "Backend latency spike" : "Backend normal");
+
+        return createPortal(
+          <div style={{ position: "fixed", left: tlFrontendDiagPos.x + 300, top: tlFrontendDiagPos.y, width: 290, background: "var(--dt-colors-background-base-default,#0f1428)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,0.55)", zIndex: 600, userSelect: "none", fontSize: 12 }}>
+            <div style={{ padding: "7px 10px", borderBottom: "1px solid rgba(128,128,128,0.2)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(128,128,128,0.07)", borderRadius: "8px 8px 0 0" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, opacity: 0.85 }}>Bucket {idx + 1} · Backend Services</span>
+              <span style={{ fontSize: 9, opacity: 0.5, fontFamily: "monospace" }}>{emap.size} svc</span>
+            </div>
+            <div style={{ padding: "7px 10px", borderBottom: "1px solid rgba(128,128,128,0.12)" }}>
+              <div style={{ fontSize: 10, opacity: 0.45, marginBottom: 3, fontFamily: "monospace" }}>{bKey}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: backendHotColor }}>Backend Z = {worstZ.toFixed(2)}</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: backendHotColor, background: `${backendHotColor}18`, border: `1px solid ${backendHotColor}40`, borderRadius: 4, padding: "1px 6px" }}>{backendDriver}</span>
+              </div>
+            </div>
+            <div style={{ padding: "6px 0 4px" }}>
+              {metrics.map(m => {
+                const col = mColor(m);
+                const barW = Math.min(100, Math.abs(m.z) / 3 * 100);
+                return (
+                  <div key={m.label} style={{ padding: "3px 10px 5px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.8 }}>{m.label}</span>
+                      <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                        <span style={{ fontSize: 11, fontFamily: "monospace", opacity: 0.6 }}>{m.value}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: col, fontFamily: "monospace", minWidth: 54, textAlign: "right" }}>{m.z >= 0 ? "+" : ""}{m.z.toFixed(2)}z</span>
+                      </div>
+                    </div>
+                    <div style={{ height: 3, background: "rgba(128,128,128,0.12)", borderRadius: 2 }}>
+                      <div style={{ height: "100%", width: `${barW}%`, background: col, borderRadius: 2, transition: "width 0.2s" }} />
+                    </div>
+                    <div style={{ fontSize: 9, opacity: 0.35, marginTop: 1 }}>{m.desc}</div>
+                  </div>
+                );
+              })}
+            </div>
+            {hottestSvc && hottestZ >= 0.75 && (
+              <div style={{ padding: "6px 10px 8px", borderTop: "1px solid rgba(128,128,128,0.12)" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.7, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 }}>Hottest service</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: backendHotColor, wordBreak: "break-all" }}>{hottestSvc}</div>
+                <div style={{ fontSize: 10, opacity: 0.55, marginTop: 2 }}>z={hottestZ.toFixed(2)} · {hottestReason}</div>
+              </div>
+            )}
+            <div style={{ padding: "5px 10px", borderTop: "1px solid rgba(128,128,128,0.12)", fontSize: 9, opacity: 0.35 }}>Follows the frontend popup · closes with it</div>
+          </div>,
+          document.body
+        );
+      })()}
     </Flex>
   );
 }
