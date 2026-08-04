@@ -163,6 +163,46 @@
   border-color: rgba(165, 110, 255, 0.4);
 }
 
+/* KPI card action dropdown */
+.kpi-action-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  background: rgba(14, 17, 38, 0.98);
+  border: 1px solid rgba(69, 137, 255, 0.4);
+  border-radius: 9px;
+  padding: 5px;
+  min-width: 190px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+}
+.kpi-action-btn {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  text-align: left;
+  padding: 7px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.kpi-action-btn:hover {
+  background: rgba(69, 137, 255, 0.18);
+  color: #fff;
+}
+.kpi-action-sep {
+  height: 1px;
+  background: rgba(128, 128, 128, 0.2);
+  margin: 4px 8px;
+}
+
 .uj-kpi-label {
   font-size: 12px;
   text-transform: uppercase;

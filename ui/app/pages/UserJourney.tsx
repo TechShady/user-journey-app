@@ -87,10 +87,12 @@ const CYAN = "#08BDBA";
 const ORANGE = "#FF832B";
 // Time-lapse hotness palette — chosen to be visually distinct from node tier colors
 // (blue/green/cyan/purple/red-orange for services) so the overlay reads as a separate signal.
+const TL_HOT_OK   = "#33D471";   // bright green — service has data this bucket and looks healthy
 const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustard YELLOW)
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
-const APP_VERSION_LABEL = "4.76.2";
+const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
+const APP_VERSION_LABEL = "4.76.21";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -4006,32 +4008,23 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
 // ---------------------------------------------------------------------------
 // Funnel Discovery Component
 // ---------------------------------------------------------------------------
-function funnelDiscoveryQuery(apps: string[], filter?: string, exclude?: string): string {
+function funnelDiscoveryQuery(apps: string[]): string {
   if (apps.length === 0) return `fetch user.events | limit 0`;
   const appFilter = apps.length === 1
     ? `frontend.name == "${apps[0]}"`
     : `in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
-  const f = filter?.trim().toLowerCase() ?? "";
-  const x = exclude?.trim().toLowerCase() ?? "";
-  // Deduplicate per (session, view) first to get each view's first-seen timestamp, then collect in visit order.
-  // Without this, each page visit generates many events (actions, errors, requests) all with the same view.name,
-  // so pages[0..4] would all be the same view and the candidate would be filtered out after client-side dedup.
-  const lines = [
+  // Build per-session ordered page paths. Client logic compresses consecutive duplicates,
+  // then either preserves revisits (strict mode) or removes repeated pages (dedup mode).
+  return [
     `fetch user.events, from: now()-7d`,
     `| filter ${appFilter}`,
     `| filter isNotNull(view.name) and view.name != ""`,
-    `| summarize firstSeen = min(timestamp), app = first(frontend.name), by: {dt.rum.session.id, view.name}`,
-    `| sort firstSeen asc`,
-    `| summarize pages = collectArray(view.name), app = first(app), by: {dt.rum.session.id}`,
-    `| fieldsAdd pageCount = arraySize(pages)`,
-    `| filter pageCount >= 3`,
-    `| fieldsAdd step1 = pages[0], step2 = pages[1], step3 = pages[2], step4 = if(pageCount >= 4, pages[3], else:""), step5 = if(pageCount >= 5, pages[4], else:"")`,
-    `| summarize sessions = count(), by: {app, step1, step2, step3, step4, step5}`,
-  ];
-  if (f) lines.push(`| filter contains(lower(step1), "${f}") or contains(lower(step2), "${f}") or contains(lower(step3), "${f}") or contains(lower(step4), "${f}") or contains(lower(step5), "${f}")`);
-  if (x) lines.push(`| filter not(contains(lower(step1), "${x}") or contains(lower(step2), "${x}") or contains(lower(step3), "${x}") or contains(lower(step4), "${x}") or contains(lower(step5), "${x}"))`);
-  lines.push(`| sort sessions desc`, `| limit 100`);
-  return lines.join("\n");
+    `| sort timestamp asc, frontend.name asc, view.name asc`,
+    `| summarize pages = collectArray(view.name), apps = collectArray(frontend.name), by: {dt.rum.session.id}`,
+    `| fieldsAdd eventCount = arraySize(pages)`,
+    `| filter eventCount >= 3`,
+    `| limit 20000`,
+  ].join("\n");
 }
 
 function funnelAnalysisDiscoveryQuery(apps: string[], prev = false): string {
@@ -4045,8 +4038,8 @@ function funnelAnalysisDiscoveryQuery(apps: string[], prev = false): string {
     `fetch user.events, ${period}`,
     appFilter,
     `| filter isNotNull(view.name) and view.name != ""`,
-    `| summarize firstSeen = min(timestamp), app = first(frontend.name), by: {dt.rum.session.id, view.name}`,
-    `| sort firstSeen asc`,
+    `| summarize firstSeen = min(timestamp), app = first(frontend.name), by: {dt.rum.session.id, frontend.name, view.name}`,
+    `| sort firstSeen asc, frontend.name asc, view.name asc`,
     `| summarize pages = collectArray(view.name), app = first(app), by: {dt.rum.session.id}`,
     `| fieldsAdd pageCount = arraySize(pages)`,
     `| filter pageCount >= 3`,
@@ -4068,8 +4061,8 @@ function funnelAnalysisEntryQuery(apps: string[], prev = false): string {
     `fetch user.events, ${period}`,
     appFilter,
     `| filter isNotNull(view.name) and view.name != ""`,
-    `| summarize firstSeen = min(timestamp), app = first(frontend.name), by: {dt.rum.session.id, view.name}`,
-    `| sort firstSeen asc`,
+    `| summarize firstSeen = min(timestamp), app = first(frontend.name), by: {dt.rum.session.id, frontend.name, view.name}`,
+    `| sort firstSeen asc, frontend.name asc, view.name asc`,
     `| summarize pages = collectArray(view.name), app = first(app), by: {dt.rum.session.id}`,
     `| fieldsAdd pageCount = arraySize(pages)`,
     `| filter pageCount >= 1`,
@@ -4090,8 +4083,8 @@ function funnelAnalysisDailyPatternQuery(apps: string[]): string {
     `fetch user.events, from: now()-14d`,
     appFilter,
     `| filter isNotNull(view.name) and view.name != ""`,
-    `| summarize firstSeen = min(timestamp), app = first(frontend.name), by: {dt.rum.session.id, view.name}`,
-    `| sort firstSeen asc`,
+    `| summarize firstSeen = min(timestamp), app = first(frontend.name), by: {dt.rum.session.id, frontend.name, view.name}`,
+    `| sort firstSeen asc, frontend.name asc, view.name asc`,
     `| summarize pages = collectArray(view.name), app = first(app), session_start = min(firstSeen), by: {dt.rum.session.id}`,
     `| fieldsAdd pageCount = arraySize(pages)`,
     `| filter pageCount >= 3`,
@@ -4926,59 +4919,76 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
   const [pendingName, setPendingName] = useState("");
   const [discoveryStepFilter, setDiscoveryStepFilter] = useState("");
   const [discoveryStepExclude, setDiscoveryStepExclude] = useState("");
+  const [discoveryPathMode, setDiscoveryPathMode] = useState<"dedup" | "strict">("dedup");
   const [discoveryLimit, setDiscoveryLimit] = useState(3);
   const [activeFilter, setActiveFilter] = useState("");
   const [activeExclude, setActiveExclude] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
-  const discoveryData = useDql({ query: runDiscovery ? funnelDiscoveryQuery(discoveryApps, activeFilter, activeExclude) : "fetch user.events | limit 0" });
+  const discoveryData = useDql({ query: runDiscovery ? funnelDiscoveryQuery(discoveryApps) : "fetch user.events | limit 0" });
   const discoveryRecords = discoveryData.data?.records ?? [];
 
-  // Build candidate funnels from actual sequential page paths in sessions, grouped per app
+  // Build candidate funnels from actual sequential page paths in sessions.
+  // strict mode: preserve revisits; dedup mode: remove revisits after first appearance.
   const candidates = useMemo<{ steps: StepDef[]; sessions: number; app: string }[]>(() => {
     if (!runDiscovery || discoveryRecords.length === 0) return [];
 
-    const results: { steps: StepDef[]; sessions: number; app: string }[] = [];
-    const seen = new Set<string>(); // dedup candidates by app+step sequence
+    const counts = new Map<string, { app: string; path: Array<{ app: string; page: string }>; sessions: number }>();
+    const include = activeFilter.trim().toLowerCase();
+    const exclude = activeExclude.trim().toLowerCase();
 
     for (const rec of discoveryRecords as any[]) {
-      const sessions = Number(rec['sessions'] ?? 0);
-      if (sessions === 0) continue;
-      const app = (rec['app'] as string) || frontend;
-      const pagePath: string[] = [];
-      for (let i = 1; i <= 5; i++) {
-        const p = rec[`step${i}`];
-        if (p && typeof p === "string" && p.trim()) pagePath.push(p.trim());
+      const rawPages = Array.isArray(rec.pages) ? rec.pages : [];
+      const rawApps = Array.isArray(rec.apps) ? rec.apps : [];
+      const zipped: Array<{ app: string; page: string }> = [];
+      for (let i = 0; i < rawPages.length; i++) {
+        const page = String(rawPages[i] ?? "").trim();
+        if (!page) continue;
+        const app = String(rawApps[i] ?? frontend).trim() || frontend;
+        const prev = zipped[zipped.length - 1];
+        // Collapse consecutive repeats produced by non-view events on the same page.
+        if (prev && prev.app === app && prev.page === page) continue;
+        zipped.push({ app, page });
       }
-      // Deduplicate: skip any page already seen in this path (handles circular routes like /home→/auth→/home)
-      const visitedPages = new Set<string>();
-      const deduped = pagePath.filter(p => {
-        if (visitedPages.has(p)) return false;
-        visitedPages.add(p);
-        return true;
-      });
-      if (deduped.length < 3) continue;
 
-      const key = `${app}→${deduped.join("→")}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      if (zipped.length < 3) continue;
 
-      results.push({
-        app,
-        steps: deduped.map((p, i) => ({
-          label: p.split('/').filter(Boolean).pop() || `Step ${i + 1}`,
-          identifiers: [p],
-          type: "view" as const,
-          app,
-        })),
-        sessions,
-      });
+      const pathPairs = discoveryPathMode === "strict"
+        ? zipped
+        : zipped.filter((v, idx) => {
+          const key = `${v.app}::${v.page}`;
+          return zipped.slice(0, idx).every((p) => `${p.app}::${p.page}` !== key);
+        });
 
-      if (results.length >= 50) break; // generous cap — display limit is applied later
+      const app = pathPairs[0]?.app ?? frontend;
+      const stepPairs = pathPairs.slice(0, 5);
+      if (stepPairs.length < 3) continue;
+      if (include && !stepPairs.some((p) => p.page.toLowerCase().includes(include))) continue;
+      if (exclude && stepPairs.some((p) => p.page.toLowerCase().includes(exclude))) continue;
+
+      const key = stepPairs.map((p) => `${p.app}::${p.page}`).join("→");
+      const existing = counts.get(key);
+      if (existing) {
+        existing.sessions += 1;
+      } else {
+        counts.set(key, { app, path: stepPairs, sessions: 1 });
+      }
     }
 
-    return results;
-  }, [runDiscovery, discoveryRecords, frontend]);
+    return Array.from(counts.values())
+      .sort((a, b) => b.sessions - a.sessions)
+      .slice(0, 50)
+      .map((r) => ({
+        app: r.app,
+        sessions: r.sessions,
+        steps: r.path.map((p, i) => ({
+          label: p.page.split('/').filter(Boolean).pop() || `Step ${i + 1}`,
+          identifiers: [p.page],
+          type: "view" as const,
+          app: p.app,
+        })),
+      }));
+  }, [runDiscovery, discoveryRecords, frontend, activeFilter, activeExclude, discoveryPathMode]);
 
   // Group candidates by their unique page set — candidates sharing the same pages are "like" variants
   const groupedCandidates = useMemo(() => {
@@ -4994,7 +5004,7 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
     return Array.from(groups.values());
   }, [candidates]);
 
-  // Apply filter and exclude — both are substring/wildcard matches against step identifiers
+  // Extra client-side filter/exclude for quick iteration on top of applied discovery results.
   const filteredGroups = useMemo(() => {
     let result = groupedCandidates;
     if (discoveryStepFilter.trim()) {
@@ -5033,7 +5043,7 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
   return (
     <div style={{ marginBottom: 16 }}>
       <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Funnel Discovery</Paragraph>
-      <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Select one or more applications and discover common user journeys automatically from session data (last 7 days).</Paragraph>
+      <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Select one or more applications and discover common user journeys automatically from session data (last 7 days). Use Path Mode to preserve revisits (Strict) or remove repeats (Dedup).</Paragraph>
       <div style={{ marginBottom: 8 }}>
         <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 4 }}>Applications to analyze</Text>
         {settingsAppsLoading ? <ProgressBar style={{ width: "100%" }} /> : (
@@ -5066,6 +5076,23 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
             style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.3)", background: "rgba(0,0,0,0.2)", color: "inherit", fontSize: 12, boxSizing: "border-box" }}
           />
         </div>
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 4 }}>Path Mode</Text>
+        <Flex alignItems="center" gap={8}>
+          <button
+            onClick={() => { setDiscoveryPathMode("dedup"); setRunDiscovery(false); }}
+            style={{ padding: "4px 10px", borderRadius: 4, border: discoveryPathMode === "dedup" ? "2px solid #4589FF" : "1px solid rgba(128,128,128,0.3)", background: discoveryPathMode === "dedup" ? "rgba(69,137,255,0.12)" : "transparent", color: discoveryPathMode === "dedup" ? "#4589FF" : "inherit", cursor: "pointer", fontSize: 11, fontWeight: discoveryPathMode === "dedup" ? 700 : 400 }}
+          >
+            Dedup (default)
+          </button>
+          <button
+            onClick={() => { setDiscoveryPathMode("strict"); setRunDiscovery(false); }}
+            style={{ padding: "4px 10px", borderRadius: 4, border: discoveryPathMode === "strict" ? "2px solid #4589FF" : "1px solid rgba(128,128,128,0.3)", background: discoveryPathMode === "strict" ? "rgba(69,137,255,0.12)" : "transparent", color: discoveryPathMode === "strict" ? "#4589FF" : "inherit", cursor: "pointer", fontSize: 11, fontWeight: discoveryPathMode === "strict" ? 700 : 400 }}
+          >
+            Strict (preserve revisits)
+          </button>
+        </Flex>
       </div>
       <Flex alignItems="center" gap={8} style={{ marginBottom: 12 }}>
         <button onClick={() => { setActiveFilter(discoveryStepFilter); setActiveExclude(discoveryStepExclude); setRunDiscovery(true); }} disabled={discoveryApps.length === 0} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: discoveryApps.length > 0 ? "#4589FF" : "rgba(128,128,128,0.2)", color: discoveryApps.length > 0 ? "#fff" : "rgba(128,128,128,0.5)", cursor: discoveryApps.length > 0 ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 600 }}>Discover Funnels</button>
@@ -16099,25 +16126,58 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               else if (reqZ >= 2) color = TL_HOT_ELEV;
               return { color, width, z: Math.max(badZ, reqZ), data: m };
             };
-            const tlServiceOverride = (serviceName: string): { color: string | null; z: number; ring: number; data: { req: number; err: number; avgDur: number } | null } => {
-              if (!tlEdgeMap || !navTlEnabled) return { color: null, z: 0, ring: 0, data: null };
+            const tlServiceOverride = (serviceName: string): { color: string | null; z: number; ring: number; data: { req: number; err: number; avgDur: number } | null; status: "idle" | "ok" | "elev" | "warm" | "high"; statusColor: string; reason: string } => {
+              if (!tlEdgeMap || !navTlEnabled) return { color: null, z: 0, ring: 0, data: null, status: "idle", statusColor: TL_IDLE_GRAY, reason: "" };
               const nrm = serviceName.toLowerCase().trim();
               const m = tlEdgeMap.get(nrm);
-              if (!m || m.requests === 0) return { color: null, z: 0, ring: 0, data: null };
+              if (!m || m.requests === 0) {
+                // Service exists in the topology but had no traffic this bucket — mark as idle so users
+                // can see the service WAS evaluated (vs. "not evaluated at all").
+                return { color: null, z: 0, ring: 0, data: null, status: "idle", statusColor: TL_IDLE_GRAY, reason: "no traffic this bucket" };
+              }
               const data = { req: m.requests, err: m.errors, avgDur: m.avgDur };
-              const base = navTlServiceBaseline.get(nrm);
-              if (!base) return { color: null, z: 0, ring: 0, data };
               const errRate = (m.errors / m.requests) * 100;
-              const errZ = (errRate - base.errRateStat.mean) / base.errRateStat.std;
-              const durZ = (m.avgDur - base.durStat.mean) / base.durStat.std;
-              const reqZ = (m.requests - base.reqStat.mean) / base.reqStat.std;
+              const base = navTlServiceBaseline.get(nrm);
+              // Compute Z-scores when baseline exists, otherwise treat as zero-deviation.
+              const errZ = base ? (errRate - base.errRateStat.mean) / base.errRateStat.std : 0;
+              const durZ = base ? (m.avgDur - base.durStat.mean) / base.durStat.std : 0;
+              const reqZ = base ? (m.requests - base.reqStat.mean) / base.reqStat.std : 0;
               const badZ = Math.max(errZ, durZ);
               const ring = Math.max(0, reqZ);
+              // Combine absolute thresholds (obvious badness) with Z-score deviations (relative anomalies).
+              // Absolute thresholds ensure services with objectively high error rates always surface,
+              // even in noisy baselines where Z-scores stay low.
+              let status: "idle" | "ok" | "elev" | "warm" | "high" = "ok";
+              const reasons: string[] = [];
+              if (errRate >= 10 || badZ >= 2.5) {
+                status = "high";
+                if (errRate >= 10) reasons.push(`err ${errRate.toFixed(1)}%`);
+                if (errZ >= 2.5) reasons.push(`err spike (z=${errZ.toFixed(1)})`);
+                if (durZ >= 2.5) reasons.push(`latency spike (z=${durZ.toFixed(1)})`);
+              } else if (errRate >= 3 || badZ >= 1.5) {
+                status = "warm";
+                if (errRate >= 3) reasons.push(`err ${errRate.toFixed(1)}%`);
+                if (errZ >= 1.5) reasons.push(`err elevated (z=${errZ.toFixed(1)})`);
+                if (durZ >= 1.5) reasons.push(`latency elevated (z=${durZ.toFixed(1)})`);
+              } else if (reqZ >= 2 || durZ >= 1.0) {
+                status = "elev";
+                if (reqZ >= 2) reasons.push(`traffic spike (z=${reqZ.toFixed(1)})`);
+                if (durZ >= 1.0) reasons.push(`latency up (z=${durZ.toFixed(1)})`);
+              } else {
+                reasons.push("within normal range");
+              }
+              // The strong halo/badge overlays only fire for warm/high, so heavy visuals stay reserved
+              // for real issues. The small status dot uses statusColor for every state.
               let color: string | null = null;
-              if (badZ >= 2.5) color = TL_HOT_HIGH;
-              else if (badZ >= 1.5) color = TL_HOT_WARM;
-              else if (reqZ >= 2) color = TL_HOT_ELEV;
-              return { color, z: Math.max(badZ, reqZ), ring, data };
+              if (status === "high") color = TL_HOT_HIGH;
+              else if (status === "warm") color = TL_HOT_WARM;
+              else if (status === "elev" && reqZ >= 2) color = TL_HOT_ELEV;
+              const statusColor =
+                status === "high" ? TL_HOT_HIGH :
+                status === "warm" ? TL_HOT_WARM :
+                status === "elev" ? TL_HOT_ELEV :
+                TL_HOT_OK;
+              return { color, z: Math.max(badZ, reqZ), ring, data, status, statusColor, reason: reasons.join(", ") };
             };
 
             return (
@@ -16426,6 +16486,13 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     const hotColor = navTlEnabled ? svcTl.color : null;
                     const showSvcRing = navTlEnabled && svcTl.ring > 1;
                     const isHotHigh = hotColor === TL_HOT_HIGH;
+                    // Sub-label content during TL — always reflect the current bucket so every service
+                    // shows either its per-bucket telemetry or an explicit "idle" state.
+                    const svcTlSubLabel = navTlEnabled
+                      ? (svcTl.data
+                          ? `Tier ${bePos.depth} · ${fmtCount(svcTl.data.req)} req · ${svcTl.data.req > 0 ? ((svcTl.data.err / svcTl.data.req) * 100).toFixed(1) : "0.0"}% err · ${Math.round(svcTl.data.avgDur)}ms`
+                          : `Tier ${bePos.depth} · idle this bucket`)
+                      : `Tier ${bePos.depth} · ${strictSessionMode ? (isSessionContextOnly ? "ScopeCtx" : `SessHits ${fmtCount(svcReq)}`) : `ReqEvt ${fmtCount(svcReq)}`}`;
                     return (
                       <g key={svcId}
                         style={{ cursor: draggingNode === `be:${svcId}` ? "grabbing" : "grab", transition: draggingNode === `be:${svcId}` ? "none" : "opacity 0.2s", opacity: focusedSvcId ? (svcFocusSet.has(svcId) ? 1 : 0.1) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcFocusSet.has(svcId) ? 1 : 0.1) : 0.15) : 1 }}
@@ -16446,6 +16513,15 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                         {/* Tier-colored node (unchanged) */}
                         <rect x={bePos.x} y={bePos.y} width={beNodeW} height={beNodeH} rx={6}
                           fill={isActive ? `${meta.color}22` : "rgba(128,128,128,0.08)"} stroke={meta.color} strokeWidth={isActive ? meta.borderWidth + 1 : meta.borderWidth} strokeOpacity={0.85} />
+                        {/* TL status dot (top-left) — always visible during TL so users can see EVERY service was evaluated */}
+                        {navTlEnabled && (
+                          <g>
+                            <title>{`TL status: ${svcTl.status}${svcTl.reason ? ` — ${svcTl.reason}` : ""}`}</title>
+                            <circle cx={bePos.x + 6} cy={bePos.y + 6} r={4} fill={svcTl.statusColor} stroke="#000" strokeWidth={0.8} strokeOpacity={0.5}>
+                              {svcTl.status === "high" && <animate attributeName="fill-opacity" values="0.5;1;0.5" dur="1.4s" repeatCount="indefinite" />}
+                            </circle>
+                          </g>
+                        )}
                         {/* HOT badge — Z-score pill in top-right corner (higher = worse) */}
                         {hotColor && (
                           <g>
@@ -16453,13 +16529,11 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                             <text x={bePos.x + beNodeW - 12} y={bePos.y + 7} textAnchor="middle" fontSize={8.5} fontWeight={900} fill="#000">{svcTl.z.toFixed(1)}</text>
                           </g>
                         )}
-                        <text x={bePos.x + 8} y={bePos.y + 15} fontSize={11} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
+                        <text x={bePos.x + (navTlEnabled ? 16 : 8)} y={bePos.y + 15} fontSize={11} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
                           {shortName}
                         </text>
                         <text x={bePos.x + 8} y={bePos.y + 34} fontSize={9} fill="rgba(255,255,255,0.4)" style={{ dominantBaseline: "middle" } as any}>
-                          {navTlEnabled && svcTl.data
-                            ? `Tier ${bePos.depth} · ${fmtCount(svcTl.data.req)} req · ${svcTl.data.req > 0 ? ((svcTl.data.err / svcTl.data.req) * 100).toFixed(1) : "0.0"}% err`
-                            : `Tier ${bePos.depth} · ${strictSessionMode ? (isSessionContextOnly ? "ScopeCtx" : `SessHits ${fmtCount(svcReq)}`) : `ReqEvt ${fmtCount(svcReq)}`}`}
+                          {svcTlSubLabel}
                         </text>
                       </g>
                     );
@@ -18522,6 +18596,9 @@ function buildSankey(records: any[]): { nodes: SankeyNode[]; links: SankeyLink[]
 
 function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData, frontend, durationData, prevPathsData, velocityData, onDrillToForecast }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any; frontend: string; durationData: any; prevPathsData: any; velocityData: any; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const [sankeySubTab, setSankeySubTab] = useState<"flow" | "convPaths" | "loops" | "timing" | "endpoints" | "revPaths" | "pathTrends" | "leakage" | "velocity">("flow");
+  // Funnel Velocity what-if state (declared at component level so it survives re-renders)
+  const [velImprovePct, setVelImprovePct] = useState<number>(20);
+  const [velBottleneckShaveSec, setVelBottleneckShaveSec] = useState<number>(5);
 
   const sankeySubTabLabel = useMemo(() => {
     const map: Record<string, string> = { flow: "Flow Chart", convPaths: "Conversion Paths", loops: "Loop Analysis", timing: "Page Timing", endpoints: "Session Endpoints", revPaths: "Revenue Paths", pathTrends: "Path Trends", leakage: "Funnel Leakage", velocity: "Funnel Velocity" };
@@ -20619,7 +20696,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
         // Parse step_entries: each record has step_entries = [{step, ts}, ...] — one entry per unique step
         // Build step order from user-defined steps
         const stepOrder = steps.map(s => s.label);
-        type StepTiming = { sessionId: string; deltas: number[] };
+        type StepTiming = { sessionId: string; deltas: number[]; stepsCompleted: number; totalTime: number; converted: boolean };
         const timings: StepTiming[] = [];
         for (const r of velRecords) {
           const st = (r.step_entries ?? r.step_times ?? []) as any[];
@@ -20642,7 +20719,14 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
           if (orderedTimes.length < 2) continue;
           const deltas: number[] = [];
           for (let i = 1; i < orderedTimes.length; i++) deltas.push(Math.max(0, (orderedTimes[i] - orderedTimes[i - 1]) / 1000));
-          timings.push({ sessionId: String(r["dt.rum.session.id"] ?? ""), deltas });
+          const totalTime = deltas.reduce((a, b) => a + b, 0);
+          timings.push({
+            sessionId: String(r["dt.rum.session.id"] ?? ""),
+            deltas,
+            stepsCompleted: orderedTimes.length,
+            totalTime,
+            converted: orderedTimes.length >= stepOrder.length,
+          });
         }
         // Per-step-transition stats
         const maxSteps = Math.max(0, ...timings.map(t => t.deltas.length));
@@ -20744,6 +20828,265 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
               { id: "P90 (s)", header: "P90", accessor: "P90 (s)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: BLUE }}>{value}s</Strong> },
               { id: "Sessions", header: "Sessions", accessor: "Sessions", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
             ]} /></div>
+
+            {/* ==== VELOCITY ANALYSIS & MODELING ==== */}
+            {(() => {
+              const converted = timings.filter(t => t.converted);
+              const convRate = timings.length > 0 ? (converted.length / timings.length) * 100 : 0;
+
+              // Sweet-spot analysis: bucket sessions by their totalTime, compute per-bucket conv rate.
+              const allTimes = timings.map(t => t.totalTime).filter(x => x > 0);
+              const maxSeen = allTimes.length > 0 ? Math.max(...allTimes) : 60;
+              const nBuckets = 8;
+              const bSize = Math.max(1, Math.ceil(maxSeen / nBuckets));
+              const velBuckets: { lo: number; hi: number; total: number; converted: number; convRate: number }[] = [];
+              for (let b = 0; b < nBuckets; b++) {
+                const lo = b * bSize;
+                const hi = lo + bSize;
+                const inBucket = timings.filter(t => t.totalTime >= lo && t.totalTime < hi);
+                const conv = inBucket.filter(t => t.converted).length;
+                velBuckets.push({ lo, hi, total: inBucket.length, converted: conv, convRate: inBucket.length > 0 ? (conv / inBucket.length) * 100 : 0 });
+              }
+              // Sweet spot = bucket with highest conv rate that has ≥ 5% of sessions (avoid tiny-sample noise).
+              const minBucketSize = Math.max(3, Math.floor(timings.length * 0.05));
+              const eligible = velBuckets.filter(b => b.total >= minBucketSize);
+              const sweetSpot = eligible.reduce((best, b) => b.convRate > best.convRate ? b : best, eligible[0] ?? velBuckets[0]);
+
+              // Overall median journey time (from all sessions with a duration).
+              const sortedAll = [...allTimes].sort((a, b) => a - b);
+              const overallMedian = sortedAll[Math.floor(sortedAll.length / 2)] ?? 0;
+
+              // Pearson correlation between session totalTime and conversion (converted=1, else 0).
+              const withTime = timings.filter(t => t.totalTime > 0);
+              const n = withTime.length;
+              let corr = 0;
+              if (n > 3) {
+                const mx = withTime.reduce((a, t) => a + t.totalTime, 0) / n;
+                const my = withTime.reduce((a, t) => a + (t.converted ? 1 : 0), 0) / n;
+                let num = 0, dx2 = 0, dy2 = 0;
+                for (const t of withTime) {
+                  const dx = t.totalTime - mx;
+                  const dy = (t.converted ? 1 : 0) - my;
+                  num += dx * dy; dx2 += dx * dx; dy2 += dy * dy;
+                }
+                const denom = Math.sqrt(dx2 * dy2);
+                corr = denom > 0 ? num / denom : 0;
+              }
+
+              // Elasticity: conv-rate delta between fast-half and slow-half of sessions.
+              const sortedByTime = [...withTime].sort((a, b) => a.totalTime - b.totalTime);
+              const midIdx = Math.floor(sortedByTime.length / 2);
+              const fastHalf = sortedByTime.slice(0, midIdx);
+              const slowHalf = sortedByTime.slice(midIdx);
+              const fastConv = fastHalf.length > 0 ? (fastHalf.filter(t => t.converted).length / fastHalf.length) * 100 : 0;
+              const slowConv = slowHalf.length > 0 ? (slowHalf.filter(t => t.converted).length / slowHalf.length) * 100 : 0;
+              const convLift = fastConv - slowConv;
+              const medianFast = fastHalf.length > 0 ? fastHalf[Math.floor(fastHalf.length / 2)].totalTime : 0;
+              const medianSlow = slowHalf.length > 0 ? slowHalf[Math.floor(slowHalf.length / 2)].totalTime : 0;
+              const timeDiff = Math.max(0.1, medianSlow - medianFast);
+              const elasticity = timeDiff > 0 ? convLift / timeDiff : 0;
+
+              // What-If: shift median velocity down by velImprovePct%.
+              const impFrac = velImprovePct / 100;
+              const projMedian = overallMedian * (1 - impFrac);
+              const secondsSaved = overallMedian - projMedian;
+              const projConvLiftPP = Math.max(0, elasticity * secondsSaved);
+              const projConvRate = Math.min(100, convRate + projConvLiftPP);
+              const projConversions = Math.round((projConvRate / 100) * timings.length);
+              const extraConversions = Math.max(0, projConversions - converted.length);
+              const extraRevenue = extraConversions * aov;
+              const rSq = corr * corr;
+              const confidenceLo = extraConversions * Math.max(0.4, 1 - Math.sqrt(1 - rSq));
+              const confidenceHi = extraConversions * Math.min(1.6, 1 + Math.sqrt(1 - rSq));
+
+              // Bottleneck impact: shave shaveSec seconds off the slowest transition.
+              const slowestT = stepStats.reduce((best, s) => s.median > best.median ? s : best, stepStats[0] ?? { label: "", avg: 0, median: 0, p90: 0, count: 0 });
+              const btSecondsSaved = Math.min(velBottleneckShaveSec, slowestT.median);
+              const btConvLiftPP = Math.max(0, elasticity * btSecondsSaved);
+              const btProjRate = Math.min(100, convRate + btConvLiftPP);
+              const btExtraConv = Math.max(0, Math.round((btProjRate / 100) * timings.length) - converted.length);
+              const btExtraRev = btExtraConv * aov;
+
+              // Auto-generated insights.
+              const insights: string[] = [];
+              if (sweetSpot && sweetSpot.total > 0) {
+                insights.push(`✨ Sweet spot: sessions completing in ${sweetSpot.lo}–${sweetSpot.hi}s convert at ${sweetSpot.convRate.toFixed(1)}% — ${(sweetSpot.convRate - convRate).toFixed(1)}pp above the ${convRate.toFixed(1)}% overall rate.`);
+              }
+              if (convLift > 0.5) {
+                insights.push(`🏎 Fast users win: fastest-half sessions (median ${medianFast.toFixed(1)}s) convert at ${fastConv.toFixed(1)}% vs ${slowConv.toFixed(1)}% for the slower half — a ${convLift.toFixed(1)}pp gap.`);
+              } else if (convLift < -0.5) {
+                insights.push(`🤔 Faster is not always better here: the slower half actually converts slightly higher, suggesting users who linger may be more considered/engaged.`);
+              }
+              if (corr < -0.05) {
+                insights.push(`📉 Negative correlation (r=${corr.toFixed(2)}): every 1s reduction in median journey time is worth roughly ${elasticity.toFixed(2)}pp of additional conversion.`);
+              }
+              if (slowestT.count > 0 && overallMedian > 0 && slowestT.median > overallMedian * 0.4) {
+                insights.push(`🔧 Bottleneck: "${slowestT.label}" alone accounts for ${((slowestT.median / Math.max(1, overallMedian)) * 100).toFixed(0)}% of the median journey — biggest single lever.`);
+              }
+              const p90JourneyLocal = journeyTimes[Math.floor(journeyTimes.length * 0.9)] ?? 0;
+              if (overallMedian > 0 && p90JourneyLocal > overallMedian * 3) {
+                insights.push(`📊 Long-tail: P90 journey (${p90JourneyLocal.toFixed(0)}s) is ${(p90JourneyLocal / overallMedian).toFixed(1)}× the median — a subset of users is struggling disproportionately.`);
+              }
+              if (insights.length === 0) insights.push(`No strong velocity signal in this timeframe — try widening the range or picking a busier funnel.`);
+
+              // Chart geometry for velocity-vs-conversion bars.
+              const CW = 720, CH = 240, CPAD = { top: 30, right: 20, bottom: 40, left: 60 };
+              const ciW = CW - CPAD.left - CPAD.right, ciH = CH - CPAD.top - CPAD.bottom;
+              const maxRate = Math.max(10, ...velBuckets.map(b => b.convRate));
+
+              return (
+                <>
+                  <SectionHeader title="Velocity Analysis & Modeling — Sweet Spot, Correlation, What-If" />
+
+                  <Flex gap={16} flexWrap="wrap">
+                    <KpiCard label="Overall Conv Rate" value={`${convRate.toFixed(1)}%`} color={BLUE} rawValue={convRate} prevRawValue={syntheticPrev(convRate, "Overall Conv Rate")} sparkline={syntheticSparkline(convRate, 8, "Overall Conv Rate")} onDrillToForecast={onDrillToForecast} />
+                    <KpiCard label="Sweet-Spot Range" value={sweetSpot ? `${sweetSpot.lo}-${sweetSpot.hi}s` : "n/a"} color={GREEN} rawValue={sweetSpot?.convRate ?? 0} prevRawValue={syntheticPrev(sweetSpot?.convRate ?? 0, "Sweet-Spot Conv")} sparkline={syntheticSparkline(sweetSpot?.convRate ?? 0, 8, "Sweet-Spot Conv")} onDrillToForecast={onDrillToForecast} />
+                    <KpiCard label="Fast vs Slow Gap" value={`${convLift.toFixed(1)}pp`} color={convLift > 0 ? GREEN : RED} rawValue={convLift} prevRawValue={syntheticPrev(convLift, "Fast vs Slow Gap")} sparkline={syntheticSparkline(convLift, 8, "Fast vs Slow Gap")} onDrillToForecast={onDrillToForecast} />
+                    <KpiCard label="Velocity-Conv Correlation" value={corr.toFixed(2)} color={corr < -0.05 ? GREEN : corr > 0.05 ? RED : YELLOW} rawValue={corr} prevRawValue={syntheticPrev(corr, "Correlation")} sparkline={syntheticSparkline(corr, 8, "Correlation")} onDrillToForecast={onDrillToForecast} />
+                    <KpiCard label="Conv Gain / sec saved" value={`${elasticity.toFixed(2)}pp`} color={PURPLE} rawValue={elasticity} prevRawValue={syntheticPrev(elasticity, "Elasticity")} sparkline={syntheticSparkline(elasticity, 8, "Elasticity")} onDrillToForecast={onDrillToForecast} />
+                  </Flex>
+
+                  <SectionHeader title="Conversion Rate by Velocity Bucket — Find the Sweet Spot" />
+                  <div className="uj-table-tile" style={{ padding: 16 }}>
+                    <svg width="100%" viewBox={`0 0 ${CW} ${CH}`}>
+                      <text x={CPAD.left} y={CPAD.top - 12} fill="rgba(255,255,255,0.4)" fontSize={10}>Conversion rate (%)</text>
+                      <text x={CW - CPAD.right} y={CPAD.top - 12} textAnchor="end" fill="rgba(255,255,255,0.4)" fontSize={10}>Bar = conv rate for sessions in that journey-time range</text>
+                      {[0, 0.25, 0.5, 0.75, 1].map(g => {
+                        const y = CPAD.top + ciH * (1 - g);
+                        return (
+                          <g key={g}>
+                            <line x1={CPAD.left} y1={y} x2={CW - CPAD.right} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+                            <text x={CPAD.left - 6} y={y + 3} textAnchor="end" fill="rgba(255,255,255,0.35)" fontSize={9}>{(g * maxRate).toFixed(0)}%</text>
+                          </g>
+                        );
+                      })}
+                      {(() => {
+                        const y = CPAD.top + ciH * (1 - Math.min(1, convRate / maxRate));
+                        return (
+                          <g>
+                            <line x1={CPAD.left} y1={y} x2={CW - CPAD.right} y2={y} stroke={BLUE} strokeWidth={1} strokeDasharray="4 4" opacity={0.6} />
+                            <text x={CW - CPAD.right - 4} y={y - 4} textAnchor="end" fill={BLUE} fontSize={9} fontWeight={700}>Overall {convRate.toFixed(1)}%</text>
+                          </g>
+                        );
+                      })()}
+                      {velBuckets.map((b, i) => {
+                        const bW = ciW / velBuckets.length - 6;
+                        const x = CPAD.left + i * (ciW / velBuckets.length) + 3;
+                        const bH = Math.max(1, (b.convRate / maxRate) * ciH);
+                        const y = CPAD.top + ciH - bH;
+                        const isSweet = !!sweetSpot && b.lo === sweetSpot.lo;
+                        const enoughSample = b.total >= minBucketSize;
+                        const color = !enoughSample ? "rgba(128,128,128,0.4)" : isSweet ? GREEN : b.convRate >= convRate ? BLUE : ORANGE;
+                        return (
+                          <g key={i}>
+                            <rect x={x} y={y} width={bW} height={bH} rx={3} fill={color} fillOpacity={enoughSample ? 0.55 : 0.25} stroke={color} strokeWidth={isSweet ? 2 : 0.6} strokeOpacity={0.9}>
+                              <title>{`${b.lo}-${b.hi}s: ${b.total} sessions, ${b.converted} converted (${b.convRate.toFixed(1)}%)${!enoughSample ? " — small sample" : ""}${isSweet ? " ★ sweet spot" : ""}`}</title>
+                            </rect>
+                            {isSweet && <text x={x + bW / 2} y={y - 14} textAnchor="middle" fill={GREEN} fontSize={10} fontWeight={800}>★ SWEET</text>}
+                            {b.total > 0 && <text x={x + bW / 2} y={y - 3} textAnchor="middle" fill="rgba(255,255,255,0.75)" fontSize={9} fontWeight={600}>{b.convRate.toFixed(0)}%</text>}
+                            <text x={x + bW / 2} y={CH - CPAD.bottom + 14} textAnchor="middle" fill="rgba(255,255,255,0.45)" fontSize={9}>{b.lo}-{b.hi}s</text>
+                            <text x={x + bW / 2} y={CH - CPAD.bottom + 26} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize={8}>n={b.total}</text>
+                          </g>
+                        );
+                      })}
+                      <text x={CPAD.left + ciW / 2} y={CH - 4} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={10}>Journey Duration (seconds)</text>
+                    </svg>
+                  </div>
+
+                  <SectionHeader title="What-If — Improve Funnel Velocity by X%" />
+                  <div className="uj-table-tile" style={{ padding: 16 }}>
+                    <Flex flexDirection="column" gap={12}>
+                      <Flex alignItems="center" gap={12} flexWrap="wrap">
+                        <Text style={{ fontSize: 13, minWidth: 180 }}>Improve median velocity by:</Text>
+                        <input type="range" min={0} max={60} step={5} value={velImprovePct} onChange={(e) => setVelImprovePct(Number(e.target.value))} style={{ flex: 1, minWidth: 240, maxWidth: 480 }} />
+                        <Text style={{ fontSize: 18, fontWeight: 800, color: PURPLE, minWidth: 60 }}>{velImprovePct}%</Text>
+                      </Flex>
+                      <Flex gap={16} flexWrap="wrap">
+                        <div style={{ flex: "1 1 200px", padding: 12, borderRadius: 8, background: "rgba(128,128,128,0.06)", border: "1px solid rgba(128,128,128,0.2)" }}>
+                          <Text style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.5, letterSpacing: 0.6 }}>Median journey</Text>
+                          <div style={{ fontSize: 20, fontWeight: 800 }}>
+                            <span style={{ color: "rgba(255,255,255,0.5)", textDecoration: "line-through", fontSize: 15, marginRight: 6 }}>{overallMedian.toFixed(1)}s</span>
+                            <span style={{ color: GREEN }}>{projMedian.toFixed(1)}s</span>
+                          </div>
+                          <Text style={{ fontSize: 11, opacity: 0.6 }}>Save {secondsSaved.toFixed(1)}s per session</Text>
+                        </div>
+                        <div style={{ flex: "1 1 200px", padding: 12, borderRadius: 8, background: "rgba(128,128,128,0.06)", border: "1px solid rgba(128,128,128,0.2)" }}>
+                          <Text style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.5, letterSpacing: 0.6 }}>Projected conv rate</Text>
+                          <div style={{ fontSize: 20, fontWeight: 800 }}>
+                            <span style={{ color: "rgba(255,255,255,0.5)", textDecoration: "line-through", fontSize: 15, marginRight: 6 }}>{convRate.toFixed(1)}%</span>
+                            <span style={{ color: GREEN }}>{projConvRate.toFixed(1)}%</span>
+                          </div>
+                          <Text style={{ fontSize: 11, opacity: 0.6 }}>+{projConvLiftPP.toFixed(2)}pp lift</Text>
+                        </div>
+                        <div style={{ flex: "1 1 200px", padding: 12, borderRadius: 8, background: "rgba(51,212,113,0.08)", border: "1px solid rgba(51,212,113,0.4)" }}>
+                          <Text style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.7, letterSpacing: 0.6, color: GREEN }}>Extra conversions</Text>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: GREEN }}>+{fmtCount(extraConversions)}</div>
+                          <Text style={{ fontSize: 11, opacity: 0.6 }}>range {fmtCount(Math.round(confidenceLo))}–{fmtCount(Math.round(confidenceHi))} · r²={rSq.toFixed(2)}</Text>
+                        </div>
+                        <div style={{ flex: "1 1 200px", padding: 12, borderRadius: 8, background: "rgba(165,110,255,0.08)", border: "1px solid rgba(165,110,255,0.4)" }}>
+                          <Text style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.7, letterSpacing: 0.6, color: PURPLE }}>Estimated revenue lift</Text>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: PURPLE }}>${fmtCount(Math.round(extraRevenue))}</div>
+                          <Text style={{ fontSize: 11, opacity: 0.6 }}>AOV ${aov.toFixed(2)} × {fmtCount(extraConversions)} conv</Text>
+                        </div>
+                      </Flex>
+                      <Text style={{ fontSize: 11, opacity: 0.55, fontStyle: "italic" }}>
+                        Model: linear elasticity ({elasticity.toFixed(3)}pp conv per second saved) derived from the fast-half vs. slow-half gap observed in the timeframe. Treat improvements &gt;40% as directional.
+                      </Text>
+                    </Flex>
+                  </div>
+
+                  <SectionHeader title="Bottleneck Impact — Shave Seconds Off the Slowest Transition" />
+                  <div className="uj-table-tile" style={{ padding: 16 }}>
+                    <Flex flexDirection="column" gap={12}>
+                      <Flex alignItems="center" gap={12} flexWrap="wrap">
+                        <Text style={{ fontSize: 13, minWidth: 220 }}>Reduce "<Strong>{slowestT.label.length > 30 ? slowestT.label.substring(0, 30) + "…" : slowestT.label}</Strong>" by:</Text>
+                        <input type="range" min={0} max={Math.max(5, Math.ceil(slowestT.median))} step={1} value={Math.min(velBottleneckShaveSec, Math.max(5, Math.ceil(slowestT.median)))} onChange={(e) => setVelBottleneckShaveSec(Number(e.target.value))} style={{ flex: 1, minWidth: 240, maxWidth: 480 }} />
+                        <Text style={{ fontSize: 18, fontWeight: 800, color: ORANGE, minWidth: 60 }}>{btSecondsSaved.toFixed(1)}s</Text>
+                      </Flex>
+                      <Flex gap={16} flexWrap="wrap">
+                        <div style={{ flex: "1 1 220px", padding: 12, borderRadius: 8, background: "rgba(128,128,128,0.06)", border: "1px solid rgba(128,128,128,0.2)" }}>
+                          <Text style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.5, letterSpacing: 0.6 }}>Bottleneck median</Text>
+                          <div style={{ fontSize: 20, fontWeight: 800 }}>
+                            <span style={{ color: "rgba(255,255,255,0.5)", textDecoration: "line-through", fontSize: 15, marginRight: 6 }}>{slowestT.median.toFixed(1)}s</span>
+                            <span style={{ color: GREEN }}>{Math.max(0, slowestT.median - btSecondsSaved).toFixed(1)}s</span>
+                          </div>
+                          <Text style={{ fontSize: 11, opacity: 0.6 }}>P90 was {slowestT.p90.toFixed(1)}s</Text>
+                        </div>
+                        <div style={{ flex: "1 1 220px", padding: 12, borderRadius: 8, background: "rgba(128,128,128,0.06)", border: "1px solid rgba(128,128,128,0.2)" }}>
+                          <Text style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.5, letterSpacing: 0.6 }}>Projected conv rate</Text>
+                          <div style={{ fontSize: 20, fontWeight: 800 }}>
+                            <span style={{ color: "rgba(255,255,255,0.5)", textDecoration: "line-through", fontSize: 15, marginRight: 6 }}>{convRate.toFixed(1)}%</span>
+                            <span style={{ color: GREEN }}>{btProjRate.toFixed(1)}%</span>
+                          </div>
+                          <Text style={{ fontSize: 11, opacity: 0.6 }}>+{btConvLiftPP.toFixed(2)}pp lift</Text>
+                        </div>
+                        <div style={{ flex: "1 1 220px", padding: 12, borderRadius: 8, background: "rgba(51,212,113,0.08)", border: "1px solid rgba(51,212,113,0.4)" }}>
+                          <Text style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.7, letterSpacing: 0.6, color: GREEN }}>Extra conversions</Text>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: GREEN }}>+{fmtCount(btExtraConv)}</div>
+                          <Text style={{ fontSize: 11, opacity: 0.6 }}>from {fmtCount(slowestT.count)} sessions hitting this transition</Text>
+                        </div>
+                        <div style={{ flex: "1 1 220px", padding: 12, borderRadius: 8, background: "rgba(165,110,255,0.08)", border: "1px solid rgba(165,110,255,0.4)" }}>
+                          <Text style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.7, letterSpacing: 0.6, color: PURPLE }}>Revenue lift</Text>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: PURPLE }}>${fmtCount(Math.round(btExtraRev))}</div>
+                          <Text style={{ fontSize: 11, opacity: 0.6 }}>AOV ${aov.toFixed(2)}</Text>
+                        </div>
+                      </Flex>
+                    </Flex>
+                  </div>
+
+                  <SectionHeader title="Velocity Insights & Recommendations" />
+                  <div className="uj-table-tile" style={{ padding: 16 }}>
+                    <Flex flexDirection="column" gap={8}>
+                      {insights.map((ins, i) => (
+                        <div key={i} style={{ padding: "8px 12px", borderLeft: `3px solid ${ins.startsWith("✨") ? GREEN : ins.startsWith("🏎") ? BLUE : ins.startsWith("📉") ? PURPLE : ins.startsWith("🔧") ? ORANGE : ins.startsWith("📊") ? YELLOW : "rgba(128,128,128,0.4)"}`, background: "rgba(128,128,128,0.05)", borderRadius: 4 }}>
+                          <Text style={{ fontSize: 13 }}>{ins}</Text>
+                        </div>
+                      ))}
+                    </Flex>
+                  </div>
+                </>
+              );
+            })()}
 
             <div className="uj-table-tile" style={{ padding: 16 }}>
               <Text style={{ fontSize: 13, opacity: 0.7 }}>
