@@ -2632,13 +2632,28 @@ function davisProblemsQuery(days: number, frontend: string): string {
 }
 
 // NEW: Backend Services for Root Cause Tab — service topology from the APPLICATION entity
-function backendServicesQuery(days: number, frontend: string): string {
-  return `fetch dt.entity.application
-| filter entity.name == "${frontend}"
-| expand service_id = calls[dt.entity.service]
-| filter isNotNull(service_id)
-| lookup [fetch dt.entity.service | fields id, entity.name, entity.detected_name], sourceField:service_id, lookupField:id, prefix:"svc."
-| fields id = service_id, entity.name = svc.entity.name, entity.detected_name = svc.entity.detected_name
+function backendServicesQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  // Seed the backend topology from services actually hit by RUM traces originating from the selected
+  // frontend(s). This matches Dynatrace's classic service flow which is trace-based. Using
+  // dt.entity.application.calls[dt.entity.service] alone can include services that share the
+  // application entity in Smartscape but never receive traffic from the app in the current window
+  // (e.g. sibling demo apps like astroshop appearing under easytravel).
+  return `fetch spans, ${period}
+| filter span.kind == "server"
+| filter isNotNull(service.name) and isNotNull(dt.entity.service)
+| lookup [
+    fetch user.events, ${period}
+    | filter ${frontendFilter(steps, frontend)}
+    | filter characteristics.has_request == true
+    | filter isNotNull(dt.rum.trace_id)
+    | fields tid = dt.rum.trace_id
+    | dedup tid
+  ], sourceField:trace.id, lookupField:tid, prefix:"rum."
+| filter isNotNull(rum.tid)
+| summarize requests = count(), by: {id = dt.entity.service, entity.name = service.name}
+| fieldsAdd entity.detected_name = entity.name
+| sort requests desc
 | limit 500`;
 }
 
@@ -5732,7 +5747,7 @@ export function UserJourney() {
   const navPathConvData = useDql({ query: navPathConversionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Navigation Paths"]));
   const clickReplayData = useDql({ query: clickIssuesReplayQuery(timeframeDays, frontend) }, lazyOpts(["Click Issues"]));
   const davisProblemsData = useDql({ query: davisProblemsQuery(timeframeDays, frontend) }, lazyOpts(["Anomaly Detection"]));
-  const backendServicesData = useDql({ query: backendServicesQuery(timeframeDays, frontend) }, lazyOpts(["Navigation Paths", "Root Cause Correlation"]));
+  const backendServicesData = useDql({ query: backendServicesQuery(timeframeDays, frontend, steps) }, lazyOpts(["Navigation Paths", "Root Cause Correlation"]));
   const serviceToServiceData = useDql({ query: serviceToServiceQuery(timeframeDays, frontend) }, lazyOpts(["Navigation Paths", "Root Cause Correlation"]));
   const backendProblemsData = useDql({ query: backendProblemsQuery(timeframeDays) }, lazyOpts(["Root Cause Correlation"]));
   const featureFlagData = useDql({ query: featureFlagEventsQuery(timeframeDays) }, lazyOpts(["Change Intelligence"]));
