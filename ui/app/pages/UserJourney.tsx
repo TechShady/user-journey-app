@@ -2633,27 +2633,18 @@ function davisProblemsQuery(days: number, frontend: string): string {
 
 // NEW: Backend Services for Root Cause Tab — service topology from the APPLICATION entity
 function backendServicesQuery(days: number, frontend: string, steps: StepDef[]): string {
-  const period = periodClause(days);
-  // Seed the backend topology from services actually hit by RUM traces originating from the selected
-  // frontend(s). This matches Dynatrace's classic service flow which is trace-based. Using
-  // dt.entity.application.calls[dt.entity.service] alone can include services that share the
-  // application entity in Smartscape but never receive traffic from the app in the current window
-  // (e.g. sibling demo apps like astroshop appearing under easytravel).
-  return `fetch spans, ${period}
-| filter span.kind == "server"
-| filter isNotNull(service.name) and isNotNull(dt.entity.service)
-| lookup [
-    fetch user.events, ${period}
-    | filter ${frontendFilter(steps, frontend)}
-    | filter characteristics.has_request == true
-    | filter isNotNull(dt.rum.trace_id)
-    | fields tid = dt.rum.trace_id
-    | dedup tid
-  ], sourceField:trace.id, lookupField:tid, prefix:"rum."
-| filter isNotNull(rum.tid)
-| summarize requests = count(), by: {id = dt.entity.service, entity.name = service.name}
-| fieldsAdd entity.detected_name = entity.name
-| sort requests desc
+  // Entity-based seed: services the Dynatrace topology says this application calls.
+  // NavigationPathsTab additionally filters this set client-side against RUM trace-correlated spans
+  // (pageBackendServicesData) to remove cross-app noise (e.g. sibling demo apps sharing entity links).
+  // Kept as an entity query so Root Cause Correlation and other consumers still get the full topology.
+  const _steps = steps; void _steps;
+  const _days = days; void _days;
+  return `fetch dt.entity.application
+| filter entity.name == "${frontend}"
+| expand service_id = calls[dt.entity.service]
+| filter isNotNull(service_id)
+| lookup [fetch dt.entity.service | fields id, entity.name, entity.detected_name], sourceField:service_id, lookupField:id, prefix:"svc."
+| fields id = service_id, entity.name = svc.entity.name, entity.detected_name = svc.entity.detected_name
 | limit 500`;
 }
 
@@ -15219,10 +15210,27 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   };
 
   const rawBeServiceIds = new Set<string>();
+  // Build a normalized-name allow-list from RUM trace-correlated spans (pageBackendMap holds
+  // page → services actually hit by traces from the selected frontend). If we have any entries,
+  // filter the entity.calls seed to only services whose name matches — this removes cross-app
+  // leakage where sibling demo apps share entity-topology links but never receive real traffic.
+  const traceCorrelatedSvcNames = new Set<string>();
+  pageBackendMap.forEach((list) => list.forEach((svc) => traceCorrelatedSvcNames.add(norm(svc.name))));
+  const traceFilterActive = traceCorrelatedSvcNames.size > 0;
   (backendServicesData?.data?.records ?? []).forEach((r: any) => {
     const id = String(r.id ?? "");
     const name = String(r["entity.name"] ?? r.id ?? "Unknown");
     if (!id) return;
+    if (traceFilterActive) {
+      const n = norm(name);
+      let matched = traceCorrelatedSvcNames.has(n);
+      if (!matched) {
+        for (const s of traceCorrelatedSvcNames) {
+          if (n.includes(s) || s.includes(n)) { matched = true; break; }
+        }
+      }
+      if (!matched) return;
+    }
     rawBeServiceIds.add(id);
     addNode(id, name);
   });
