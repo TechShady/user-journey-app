@@ -978,7 +978,11 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
   useEffect(() => {
     if (!menuOpen) return;
     const handler = (e: MouseEvent) => {
-      if (cardRef.current && !cardRef.current.contains(e.target as Node)) setMenuOpen(false);
+      const t = e.target as Node;
+      if (cardRef.current && cardRef.current.contains(t)) return;
+      // Portaled menu lives outside the card — don't close when clicking inside it
+      if ((t as HTMLElement).closest?.(".kpi-action-menu-portal")) return;
+      setMenuOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -1057,16 +1061,29 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
           )}
         </>
       )}
-      {menuOpen && hasSpark && (
-        <div className="kpi-action-menu" onClick={(e) => e.stopPropagation()}>
-          <button className="kpi-action-btn" onClick={doForecast}>📈 Forecast</button>
-          <button className="kpi-action-btn" onClick={doRelated}>⟷ Related Metrics</button>
-          <div className="kpi-action-sep" />
-          <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("impact"); }}>👥 Impact</button>
-          <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("anomaly"); }}>🔍 Anomaly</button>
-          <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("attribution"); }}>📋 Change Attribution</button>
-        </div>
-      )}
+      {menuOpen && hasSpark && (() => {
+        const rect = cardRef.current?.getBoundingClientRect();
+        if (!rect) return null;
+        const menuW = 200;
+        const left = Math.max(8, Math.min(window.innerWidth - menuW - 8, rect.left + rect.width / 2 - menuW / 2));
+        const top = rect.bottom + 6;
+        return createPortal(
+          <div
+            className="kpi-action-menu kpi-action-menu-portal"
+            style={{ position: "fixed", top, left, width: menuW }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button className="kpi-action-btn" onClick={doForecast}>📈 Forecast</button>
+            <button className="kpi-action-btn" onClick={doRelated}>⟷ Related Metrics</button>
+            <div className="kpi-action-sep" />
+            <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("impact"); }}>👥 Impact</button>
+            <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("anomaly"); }}>🔍 Anomaly</button>
+            <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("attribution"); }}>📋 Change Attribution</button>
+          </div>,
+          document.body
+        );
+      })()}
       {activePanel && <KpiPanelOverlay label={label} rawValue={rawValue} sparkline={sparkline} color={color} panel={activePanel} onClose={() => setActivePanel(null)} effectiveHigherIsBetter={effectiveHigherIsBetter} />}
     </div>
   );
@@ -1859,6 +1876,49 @@ function navigationFrontendBackendSessionEdgesQuery(days: number, frontend: stri
 | summarize requests = sum(req), traces = countDistinctExact(trace_id), by: {page_name, service_name = svc.service_name}
 | sort requests desc
 | limit 400`;
+}
+
+// Per-page backend services (unfiltered by session) — powers backend hints in the Top Navigation Flows list.
+// Correlates RUM page_name → server span service.name via dt.rum.trace_id, aggregated over the timeframe.
+function navigationPageBackendServicesQuery(days: number, frontend: string, steps: StepDef[], appFilter?: string, appFilters?: string[], userId?: string): string {
+  const period = periodClause(days);
+  const userLookup = userId ? `
+| fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
+| fieldsAdd sid = dt.rum.session.id
+| lookup [
+    fetch user.sessions, ${period}
+    | filter dt.system.bucket != "default_synthetic_user_sessions"
+    | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
+    | filter not(isNull(sid))
+    | fields sid, session_user_id
+  ], sourceField:sid, lookupField:sid, prefix:"sess."
+| fieldsAdd effective_user_id = coalesce(sess.session_user_id, nav_user_id, concat("session:", substring(sid, from: 0, to: 16)))
+| filter effective_user_id == "${userId.replace(/"/g, "\\\"")}"` : "";
+  return `fetch user.events, ${period}
+| filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
+| filter characteristics.has_request == true
+| filter isNotNull(dt.rum.trace_id)${userLookup}
+| fieldsAdd trace_id = dt.rum.trace_id
+| fieldsAdd page_name = coalesce(view.name, page.name, url.path, "unknown")
+| summarize req = count(), by: {trace_id, page_name}
+| lookup [
+    fetch spans, ${period}
+    | filter span.kind == "server"
+    | filter isNotNull(service.name)
+    | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+    | fieldsAdd is_err = coalesce(toString(span.status_code), "UNSET") == "ERROR"
+    | summarize span_count = count(), errs = countIf(is_err), avg_dur = avg(dur_ms), by: {trace.id, service_name = service.name}
+  ], sourceField:trace_id, lookupField:trace.id, prefix:"svc."
+| filter isNotNull(svc.service_name)
+| summarize
+    requests = sum(svc.span_count),
+    errors = sum(svc.errs),
+    avg_dur = avg(svc.avg_dur),
+    traces = countDistinctExact(trace_id),
+    by: {page_name, service_name = svc.service_name}
+| filter requests > 0
+| sort requests desc
+| limit 2000`;
 }
 
 function navigationSessionTimelineQuery(days: number, frontend: string, steps: StepDef[], sessionId: string, appFilter?: string, appFilters?: string[]): string {
@@ -14481,6 +14541,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const scopedNavData = useDql({ query: hasScopedNavQuery ? navigationPathsQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, navUserFilter, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
   const scopedBackendReqData = useDql({ query: navigationBackendRequestEdgesQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, navUserFilter, navAppFilterOverride, navigationApps) });
   const scopedFrontendBackendData = useDql({ query: selectedSessionId ? navigationFrontendBackendSessionEdgesQuery(timeframeDays, frontend, steps, selectedSessionId, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
+  const pageBackendServicesData = useDql({ query: navigationPageBackendServicesQuery(timeframeDays, frontend, steps, navAppFilterOverride, navigationApps, navUserFilter) });
   const timelineEventsData = useDql({ query: timelineSessionId ? navigationSessionTimelineQuery(timeframeDays, frontend, steps, timelineSessionId, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
   const sessionActionBreakdownData = useDql({ query: selectedSessionId ? navigationSessionActionBreakdownQuery(timeframeDays, frontend, steps, selectedSessionId, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
 
@@ -14909,6 +14970,38 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const sources = Array.from(sourceMap.entries())
     .map(([name, d]) => ({ name, ...d, targets: d.targets.sort((a, b) => b.count - a.count) }))
     .sort((a, b) => b.total - a.total);
+
+  // Per-page backend services (RUM page_name → server span service.name) for the Top Navigation Flows
+  // backend hints. Keyed by normalized page name so it matches transitions produced by paths above.
+  const pageBackendMap = React.useMemo(() => {
+    const map = new Map<string, { name: string; requests: number; errors: number; avgDur: number; traces: number }[]>();
+    const rows = (pageBackendServicesData?.data?.records ?? []) as any[];
+    rows.forEach((r: any) => {
+      const rawPage = String(r.page_name ?? "");
+      const svcName = String(r.service_name ?? "").trim();
+      if (!rawPage || !svcName) return;
+      const key = normalizePageForRollup(rawPage);
+      const requests = Number(r.requests ?? 0);
+      const errors = Number(r.errors ?? 0);
+      const avgDur = Number(r.avg_dur ?? 0);
+      const traces = Number(r.traces ?? 0);
+      const arr = map.get(key) ?? [];
+      const existing = arr.find(e => e.name === svcName);
+      if (existing) {
+        const totalReq = existing.requests + requests;
+        existing.avgDur = totalReq > 0 ? (existing.avgDur * existing.requests + avgDur * requests) / totalReq : 0;
+        existing.requests = totalReq;
+        existing.errors += errors;
+        existing.traces += traces;
+      } else {
+        arr.push({ name: svcName, requests, errors, avgDur, traces });
+      }
+      map.set(key, arr);
+    });
+    // Sort each list by request count
+    map.forEach((arr) => arr.sort((a, b) => b.requests - a.requests));
+    return map;
+  }, [pageBackendServicesData?.data?.records]);
 
   const sessionRows = (sessionCandidatesData.data?.records ?? []) as any[];
   const sessionOptions = sessionRows.map((r: any) => {
@@ -16910,6 +17003,58 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     <Text style={{ fontSize: 12, opacity: 0.4, paddingLeft: 22 }}>+{src.targets.length - 5} more destinations</Text>
                   )}
                 </Flex>
+                {(() => {
+                  const beSvcs = pageBackendMap.get(normalizePageForRollup(src.name)) ?? [];
+                  if (beSvcs.length === 0) return null;
+                  const top = beSvcs.slice(0, 5);
+                  const remaining = beSvcs.length - top.length;
+                  return (
+                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px dashed rgba(128,128,128,0.25)", paddingLeft: 20 }}>
+                      <Flex alignItems="center" gap={6} style={{ marginBottom: 6 }}>
+                        <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 1, background: "#A56EFF" }} />
+                        <Text style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, opacity: 0.6 }}>Backend services called from this page</Text>
+                        <Text style={{ fontSize: 10, opacity: 0.35, marginLeft: "auto" }}>via server span correlation</Text>
+                      </Flex>
+                      <Flex flexWrap="wrap" gap={6}>
+                        {top.map((svc, si) => {
+                          const errRate = svc.requests > 0 ? (svc.errors / svc.requests) * 100 : 0;
+                          const errColor = errRate >= 5 ? RED : errRate >= 1 ? YELLOW : GREEN;
+                          const svcUrl = `${ENV_URL}/ui/apps/dynatrace.classic.services/#services;filter=${encodeURIComponent(`text:${svc.name}`)};gtf=${encodeURIComponent(tfParam())}`;
+                          return (
+                            <a
+                              key={si}
+                              href={svcUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                padding: "3px 8px 3px 6px",
+                                borderRadius: 5,
+                                background: "rgba(165, 110, 255, 0.08)",
+                                border: "1px solid rgba(165, 110, 255, 0.28)",
+                                textDecoration: "none",
+                                fontSize: 11,
+                                lineHeight: 1.3,
+                                color: "rgba(255,255,255,0.85)",
+                              }}
+                              title={`${svc.name} — ${fmtCount(svc.requests)} requests, ${errRate.toFixed(1)}% errors, ${Math.round(svc.avgDur)}ms avg`}
+                            >
+                              <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: errColor }} />
+                              <span style={{ fontWeight: 600 }}>{svc.name.length > 34 ? svc.name.substring(0, 34) + "…" : svc.name}</span>
+                              <span style={{ opacity: 0.55, fontFamily: "monospace" }}>{fmtCount(svc.requests)}</span>
+                              {svc.avgDur > 0 && <span style={{ opacity: 0.45, fontFamily: "monospace" }}>· {Math.round(svc.avgDur)}ms</span>}
+                            </a>
+                          );
+                        })}
+                        {remaining > 0 && (
+                          <span style={{ fontSize: 11, opacity: 0.5, alignSelf: "center" }}>+{remaining} more</span>
+                        )}
+                      </Flex>
+                    </div>
+                  );
+                })()}
               </div>
               );
             })}

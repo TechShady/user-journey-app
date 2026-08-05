@@ -178,6 +178,13 @@
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(10px);
 }
+/* Portaled variant renders at document.body — override transform/positioning */
+.kpi-action-menu-portal {
+  transform: none;
+  left: auto;
+  top: auto;
+  z-index: 100000;
+}
 .kpi-action-btn {
   display: block;
   width: 100%;
