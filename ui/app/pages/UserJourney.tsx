@@ -92,7 +92,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.32";
+const APP_VERSION_LABEL = "4.76.33";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -2140,7 +2140,8 @@ function sankeyPrevPathsQuery(days: number, frontend: string, steps: StepDef[]):
 }
 
 // Sankey Time-Lapse — per-bucket path transitions. Buckets each session by its earliest event
-// so a session lives in exactly one bucket, then aggregates s0..s4 transitions per bucket.
+// so a session lives in exactly one bucket, then keeps only the top 100 paths per bucket so a
+// single high-cardinality bucket can't starve later buckets out of the row budget.
 function sankeyTimelapseQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
@@ -2161,7 +2162,18 @@ function sankeyTimelapseQuery(days: number, frontend: string, steps: StepDef[], 
 | fieldsAdd bucket = formatTimestamp(bucket_ts, format: "yyyy-MM-dd HH:mm")
 | summarize sessions = count(), by: {bucket, s0, s1, s2, s3, s4}
 | sort bucket asc, sessions desc
-| limit 20000`;
+| summarize top_paths = arraySlice(collectArray(record(s0, s1, s2, s3, s4, sessions)), from: 0, to: 100), by: {bucket}
+| expand top_paths
+| fields
+    bucket,
+    s0 = top_paths[s0],
+    s1 = top_paths[s1],
+    s2 = top_paths[s2],
+    s3 = top_paths[s3],
+    s4 = top_paths[s4],
+    sessions = top_paths[sessions]
+| sort bucket asc, sessions desc
+| limit 200000`;
 }
 
 // NEW: Hourly distribution for performance budgets
