@@ -92,7 +92,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.35";
+const APP_VERSION_LABEL = "4.76.36";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -19730,11 +19730,14 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     const totalOut = outbound.reduce((s, x) => s + x.value, 0);
     const exits = Math.max(0, node.value - totalOut);
     const exitPct = node.value > 0 ? (exits / node.value) * 100 : 0;
+    const starts = Math.max(0, node.value - totalIn);
+    const startPct = node.value > 0 ? (starts / node.value) * 100 : 0;
     const selfIn = inbound.find(x => x.label === node.label);
     const selfReloadPct = selfIn && node.value > 0 ? (selfIn.value / node.value) * 100 : 0;
     const lines: string[] = [`${node.label}: ${fmtCount(node.value)} sessions`];
     if (isExit) lines[0] += " ⛔ Exit Point";
     else if (inFunnel) lines[0] += " ★ Funnel";
+    if (starts > 0) lines.push(`← Starts: ${fmtCount(starts)} (${Math.round(startPct)}% started here)`);
     if (exits > 0) lines.push(`→ Exits: ${fmtCount(exits)} (${Math.round(exitPct)}% left here)`);
     if (selfReloadPct > 5) lines.push(`⟲ Self-reload: ${Math.round(selfReloadPct)}% (${fmtCount(selfIn!.value)})`);
     if (inbound.length > 0) {
@@ -19772,11 +19775,14 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     const totalOut = outbound.reduce((s, x) => s + x.value, 0);
     const exits = Math.max(0, totalSessions - totalOut);
     const exitPct = totalSessions > 0 ? (exits / totalSessions) * 100 : 0;
+    const starts = Math.max(0, totalSessions - totalIn);
+    const startPct = totalSessions > 0 ? (starts / totalSessions) * 100 : 0;
     const selfIn = inbound.find(x => x.label === label);
     const selfReloadPct = selfIn && totalSessions > 0 ? (selfIn.value / totalSessions) * 100 : 0;
     const lines: string[] = [`${label}: ${fmtCount(totalSessions)} sessions`];
     if (isExit) lines[0] += " ⛔ Exit Point";
     else if (inFunnel) lines[0] += " ★ Funnel";
+    if (starts > 0) lines.push(`← Starts: ${fmtCount(starts)} (${Math.round(startPct)}% started here)`);
     if (exits > 0) lines.push(`→ Exits: ${fmtCount(exits)} (${Math.round(exitPct)}% left here)`);
     if (selfReloadPct > 5) lines.push(`⟲ Self-reload: ${Math.round(selfReloadPct)}% (${fmtCount(selfIn!.value)})`);
     if (inbound.length > 0) {
@@ -19802,6 +19808,26 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
           {isFunnelPage(focusLabel) && <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 3, background: "rgba(255,215,0,0.12)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", fontWeight: 700 }}>★ Funnel</span>}
           <button onClick={() => setFocusLabel(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 12 }}>Clear</button>
         </Flex>
+        {/* Flow balance: sessions = starts + inbound = exits + outbound */}
+        {(() => {
+          const totalIn = labelInbound.reduce((s, l) => s + l.value, 0);
+          const totalOut = labelOutbound.reduce((s, l) => s + l.value, 0);
+          const starts = Math.max(0, labelSessions - totalIn);
+          const exits = Math.max(0, labelSessions - totalOut);
+          if (starts === 0 && exits === 0) return null;
+          const startPct = labelSessions > 0 ? (starts / labelSessions) * 100 : 0;
+          const exitPct = labelSessions > 0 ? (exits / labelSessions) * 100 : 0;
+          return (
+            <Flex gap={6} flexWrap="wrap" style={{ marginBottom: 8 }}>
+              {starts > 0 && (
+                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "rgba(69,137,255,0.12)", border: "1px solid rgba(69,137,255,0.3)", color: BLUE, fontWeight: 700 }}>← Starts: {fmtCount(starts)} ({Math.round(startPct)}%)</span>
+              )}
+              {exits > 0 && (
+                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "rgba(194,25,48,0.12)", border: "1px solid rgba(194,25,48,0.3)", color: RED, fontWeight: 700 }}>→ Exits: {fmtCount(exits)} ({Math.round(exitPct)}%)</span>
+              )}
+            </Flex>
+          );
+        })()}
         {labelInbound.length > 0 && (
           <div style={{ marginBottom: 6 }}>
             <Text style={{ fontSize: 12, opacity: 0.5 }}>Inbound ({labelInbound.length}):</Text>
@@ -20023,6 +20049,26 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
               <Text style={{ fontSize: 11, color: "#FFD700", fontWeight: 700 }}>★ Funnel Step {funnelStepIndex(focusNode.label) + 1}: {steps[funnelStepIndex(focusNode.label)]?.label ?? ""}</Text>
             </div>
           )}
+          {/* Flow balance: sessions = starts + inbound = exits + outbound */}
+          {(() => {
+            const totalIn = focusInbound.reduce((s, l) => s + l.value, 0);
+            const totalOut = focusOutbound.reduce((s, l) => s + l.value, 0);
+            const starts = Math.max(0, focusSessions - totalIn);
+            const exits = Math.max(0, focusSessions - totalOut);
+            if (starts === 0 && exits === 0) return null;
+            const startPct = focusSessions > 0 ? (starts / focusSessions) * 100 : 0;
+            const exitPct = focusSessions > 0 ? (exits / focusSessions) * 100 : 0;
+            return (
+              <Flex gap={6} flexWrap="wrap" style={{ marginBottom: 8 }}>
+                {starts > 0 && (
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "rgba(69,137,255,0.12)", border: "1px solid rgba(69,137,255,0.3)", color: BLUE, fontWeight: 700 }}>← Starts: {fmtCount(starts)} ({Math.round(startPct)}%)</span>
+                )}
+                {exits > 0 && (
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "rgba(194,25,48,0.12)", border: "1px solid rgba(194,25,48,0.3)", color: RED, fontWeight: 700 }}>→ Exits: {fmtCount(exits)} ({Math.round(exitPct)}%)</span>
+                )}
+              </Flex>
+            );
+          })()}
           {focusInbound.length > 0 && (
             <div style={{ marginBottom: 6 }}>
               <Text style={{ fontSize: 12, opacity: 0.5 }}>Inbound ({focusInbound.length}):</Text>
