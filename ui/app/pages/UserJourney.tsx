@@ -92,7 +92,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.24";
+const APP_VERSION_LABEL = "4.76.32";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -103,10 +103,11 @@ const TL_ANIMATED_TABS = new Set<string>([
   "Session Replay Spotlight", "SLO Tracker", "Root Cause Correlation", "Cohort Retention",
   "Worst Sessions", "Resource Waterfall", "3rd Party Impact", "Geo Heatmap",
   "Conversion Attribution", "Exceptions", "Error Clustering", "Step Details",
+  "Sankey",
 ]);
-// Sankey and its sub-tabs are intentionally NOT animated — they contain many derived sub-tabs
-// (Conversion Paths, Loops, Timing, Endpoints, Revenue Paths, Path Trends, Leakage, Velocity)
-// whose tiles are computed from timeframe-wide records and would need per-bucket re-queries.
+// Sankey Time-Lapse animates only the Flow Chart sub-tab (per-bucket path transitions).
+// Derived sub-tabs (Conversion Paths, Loops, Timing, Endpoints, Revenue Paths, Path Trends,
+// Leakage, Velocity) continue to show aggregate data for the selected timeframe.
 
 // Tabs where Time-Lapse fundamentally does not apply (forecasts, simulators, event-based comparisons).
 // These get a distinct "TL doesn't apply here" banner and their controls remain visible but inert.
@@ -2136,6 +2137,31 @@ function sankeyPrevPathsQuery(days: number, frontend: string, steps: StepDef[]):
 | fieldsAdd pathLen = arraySize(path)
 | filter pathLen >= 2
 | limit 500`;
+}
+
+// Sankey Time-Lapse — per-bucket path transitions. Buckets each session by its earliest event
+// so a session lives in exactly one bucket, then aggregates s0..s4 transitions per bucket.
+function sankeyTimelapseQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket): string {
+  const period = periodClause(days);
+  return `fetch user.events, ${period}
+| filter ${frontendFilter(steps, frontend)}
+| filter characteristics.has_navigation == true OR characteristics.has_page_summary == true
+| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| fieldsAdd event_ts = coalesce(start_time, timestamp)
+| sort timestamp asc
+| summarize path = collectArray(pageName), session_start = min(event_ts), by: {dt.rum.session.id}
+| fieldsAdd pathLen = arraySize(path)
+| filter pathLen >= 2
+| fieldsAdd
+    s0 = path[0], s1 = path[1],
+    s2 = if(pathLen >= 3, path[2], else: "(exit)"),
+    s3 = if(pathLen >= 4, path[3], else: "(exit)"),
+    s4 = if(pathLen >= 5, path[4], else: "(exit)")
+| fieldsAdd bucket_ts = bin(session_start, ${bucket})
+| fieldsAdd bucket = formatTimestamp(bucket_ts, format: "yyyy-MM-dd HH:mm")
+| summarize sessions = count(), by: {bucket, s0, s1, s2, s3, s4}
+| sort bucket asc, sessions desc
+| limit 20000`;
 }
 
 // NEW: Hourly distribution for performance budgets
@@ -5640,6 +5666,11 @@ export function UserJourney() {
   const sankeyPathsData = useDql({ query: sankeyExtendedPathsQuery(timeframeDays, frontend, steps) }, lazyOpts(["Sankey"]));
   const sankeyDurationData = useDql({ query: sankeyPageDurationQuery(timeframeDays, frontend, steps) }, lazyOpts(["Sankey"]));
   const sankeyPrevPaths = useDql({ query: sankeyPrevPathsQuery(timeframeDays, frontend, steps) }, lazyOpts(["Sankey"]));
+  const sankeyTimelapseData = useDql({
+    query: (tl.enabled && (visitedTabs.has("Sankey") || activeSubTabKey === "Sankey"))
+      ? sankeyTimelapseQuery(timeframeDays, frontend, steps, tl.bucket)
+      : "fetch user.events | limit 0",
+  }, refetchOpts);
   const funnelDrillFrontend = useMemo(() => {
     const stepApp = steps.find((s) => (s.app ?? "").trim() !== "")?.app;
     return stepApp || frontend;
@@ -6840,7 +6871,7 @@ export function UserJourney() {
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} networkData={geoNetworkData} conversionData={geoConversionData} onDrillToForecast={openForecast} />; break;
             case "Maps": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} timelapseData={mapTimelapseData} conversionData={geoConversionData} funnelBounceData={geoFunnelBounceData} onDrillToForecast={openForecast} priorData={geoPriorPerformanceData} hotnessMode={hotnessMode} />; break;
             case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} navPathConvData={navPathConvData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} backendServicesData={backendServicesData} serviceToServiceData={serviceToServiceData} frontend={funnelDrillFrontend} timeframeDays={timeframeDays} onDrillToForecast={openForecast} hotnessMode={hotnessMode} tlFrontendDiagPos={tlDiagPanel?.pos ?? null} />; break;
-            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} onDrillToForecast={openForecast} />; break;
+            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} onDrillToForecast={openForecast} timelapseData={sankeyTimelapseData} hotnessMode={hotnessMode} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov}  davisProblemsData={davisProblemsData} onDrillToForecast={openForecast} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} steps={steps} />; break;
             case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
@@ -18906,7 +18937,7 @@ function buildSankey(records: any[]): { nodes: SankeyNode[]; links: SankeyLink[]
   return { nodes, links, maxDepth };
 }
 
-function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData, frontend, durationData, prevPathsData, velocityData, onDrillToForecast }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any; frontend: string; durationData: any; prevPathsData: any; velocityData: any; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
+function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData, frontend, durationData, prevPathsData, velocityData, onDrillToForecast, timelapseData, hotnessMode = "shared" }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any; frontend: string; durationData: any; prevPathsData: any; velocityData: any; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; timelapseData?: any; hotnessMode?: HotnessMode }) {
   const [sankeySubTab, setSankeySubTab] = useState<"flow" | "convPaths" | "loops" | "timing" | "endpoints" | "revPaths" | "pathTrends" | "leakage" | "velocity">("flow");
   // Funnel Velocity what-if state (declared at component level so it survives re-renders)
   const [velImprovePct, setVelImprovePct] = useState<number>(50);
@@ -18918,7 +18949,72 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   }, [sankeySubTab]);
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSankeySubTab(sankeySubTabLabel), [sankeySubTabLabel]));
 
-  const records = (data.data?.records ?? []) as any[];
+  // ===== Time-Lapse — per-bucket path aggregations for the Flow Chart sub-tab =====
+  const tl = useTimelapse();
+  const sankeyTlActive = tl.enabled && sankeySubTab === "flow";
+
+  const sankeyTlBuckets = React.useMemo(() => {
+    const m = new Map<string, any[]>();
+    const rows = (timelapseData?.data?.records ?? []) as any[];
+    rows.forEach((r) => {
+      const b = String(r.bucket ?? "");
+      if (!b) return;
+      const arr = m.get(b) ?? [];
+      arr.push(r);
+      m.set(b, arr);
+    });
+    return m;
+  }, [timelapseData?.data]);
+
+  const sankeyTlBucketList = React.useMemo(
+    () => Array.from(sankeyTlBuckets.keys()).sort(),
+    [sankeyTlBuckets]
+  );
+
+  // Publish bucket count + current key to the global TL context when this tab drives playback.
+  React.useEffect(() => {
+    if (!sankeyTlActive) return;
+    const key = sankeyTlBucketList.length > 0 ? sankeyTlBucketList[Math.min(tl.index, sankeyTlBucketList.length - 1)] ?? "" : "";
+    tl.reportBuckets(sankeyTlBucketList.length, key);
+  }, [sankeyTlActive, sankeyTlBucketList, tl.index, tl]);
+
+  React.useEffect(() => {
+    if (!tl.enabled) return;
+    tl.reportLoading("sankey", !!timelapseData?.isLoading);
+    return () => tl.reportLoading("sankey", false);
+  }, [tl.enabled, timelapseData?.isLoading, tl]);
+
+  // Per-bucket session count for hotness Z-score (spike detection on flow volume)
+  const sankeyTlSessionCounts = React.useMemo(() => {
+    return sankeyTlBucketList.map((b) => {
+      const arr = sankeyTlBuckets.get(b) ?? [];
+      return arr.reduce((a, r) => a + Number(r.sessions ?? 0), 0);
+    });
+  }, [sankeyTlBucketList, sankeyTlBuckets]);
+
+  const sankeyTlHotness = React.useMemo(() => {
+    const counts = sankeyTlSessionCounts;
+    if (counts.length < 2) return counts.map(() => 0);
+    const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
+    const variance = counts.reduce((a, b) => a + (b - mean) ** 2, 0) / counts.length;
+    const std = Math.max(Math.sqrt(variance), 0.5);
+    // Both spikes and dips are noteworthy for flow volume — use absolute Z.
+    return counts.map((v) => Math.abs(v - mean) / std);
+  }, [sankeyTlSessionCounts]);
+
+  React.useEffect(() => {
+    if (!sankeyTlActive || hotnessMode !== "tab-specific") return;
+    tl.reportHotness(sankeyTlHotness, "Sankey flow volume · session Z-score");
+  }, [sankeyTlActive, hotnessMode, sankeyTlHotness, tl]);
+
+  const allRecords = (data.data?.records ?? []) as any[];
+  const tlBucketRecords = React.useMemo(() => {
+    if (!sankeyTlActive || sankeyTlBucketList.length === 0) return null;
+    const key = sankeyTlBucketList[Math.min(tl.index, sankeyTlBucketList.length - 1)];
+    return sankeyTlBuckets.get(key) ?? [];
+  }, [sankeyTlActive, sankeyTlBucketList, sankeyTlBuckets, tl.index]);
+
+  const records = tlBucketRecords ?? allRecords;
   const { nodes, links, maxDepth } = useMemo(() => buildSankey(records), [records]);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
@@ -19795,7 +19891,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
           </Select>
         </Flex>
       </Flex>
-      <Text style={{ fontSize: 12, opacity: 0.5 }}>{SANKEY_STYLE_OPTIONS.find(o => o.value === chartStyle)?.label}: User navigation flows. Top {nodes.length} page nodes shown.</Text>
+      <Text style={{ fontSize: 12, opacity: 0.5 }}>{SANKEY_STYLE_OPTIONS.find(o => o.value === chartStyle)?.label}: User navigation flows. Top {nodes.length} page nodes shown.{sankeyTlActive && tl.currentBucketKey ? ` · Time-Lapse bucket ${tl.currentBucketKey} (${tl.index + 1}/${tl.totalBuckets})` : ""}</Text>
       <Flex gap={16} flexWrap="wrap">
         <KpiCard label="Total Sessions" value={fmtCount(totalSessions)} color={BLUE} rawValue={totalSessions} prevRawValue={syntheticPrev(totalSessions, "Total Sessions")} sparkline={syntheticSparkline(totalSessions, 8, "Total Sessions")} onDrillToForecast={onDrillToForecast} />
         <KpiCard label="Unique Pages" value={uniquePages} color={PURPLE} rawValue={uniquePages} prevRawValue={syntheticPrev(uniquePages, "Unique Pages")} sparkline={syntheticSparkline(uniquePages, 8, "Unique Pages")} onDrillToForecast={onDrillToForecast} />
