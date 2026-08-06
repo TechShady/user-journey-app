@@ -92,7 +92,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.34";
+const APP_VERSION_LABEL = "4.76.35";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -19728,11 +19728,14 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     }).sort((a, b) => b.value - a.value);
     const totalIn = inbound.reduce((s, x) => s + x.value, 0);
     const totalOut = outbound.reduce((s, x) => s + x.value, 0);
+    const exits = Math.max(0, node.value - totalOut);
+    const exitPct = node.value > 0 ? (exits / node.value) * 100 : 0;
     const selfIn = inbound.find(x => x.label === node.label);
     const selfReloadPct = selfIn && node.value > 0 ? (selfIn.value / node.value) * 100 : 0;
     const lines: string[] = [`${node.label}: ${fmtCount(node.value)} sessions`];
     if (isExit) lines[0] += " ⛔ Exit Point";
     else if (inFunnel) lines[0] += " ★ Funnel";
+    if (exits > 0) lines.push(`→ Exits: ${fmtCount(exits)} (${Math.round(exitPct)}% left here)`);
     if (selfReloadPct > 5) lines.push(`⟲ Self-reload: ${Math.round(selfReloadPct)}% (${fmtCount(selfIn!.value)})`);
     if (inbound.length > 0) {
       lines.push(`Inbound (${inbound.length}):`);
@@ -19767,11 +19770,14 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     }, [] as { label: string; value: number }[]).sort((a, b) => b.value - a.value);
     const totalIn = inbound.reduce((s, x) => s + x.value, 0);
     const totalOut = outbound.reduce((s, x) => s + x.value, 0);
+    const exits = Math.max(0, totalSessions - totalOut);
+    const exitPct = totalSessions > 0 ? (exits / totalSessions) * 100 : 0;
     const selfIn = inbound.find(x => x.label === label);
     const selfReloadPct = selfIn && totalSessions > 0 ? (selfIn.value / totalSessions) * 100 : 0;
     const lines: string[] = [`${label}: ${fmtCount(totalSessions)} sessions`];
     if (isExit) lines[0] += " ⛔ Exit Point";
     else if (inFunnel) lines[0] += " ★ Funnel";
+    if (exits > 0) lines.push(`→ Exits: ${fmtCount(exits)} (${Math.round(exitPct)}% left here)`);
     if (selfReloadPct > 5) lines.push(`⟲ Self-reload: ${Math.round(selfReloadPct)}% (${fmtCount(selfIn!.value)})`);
     if (inbound.length > 0) {
       lines.push(`Inbound (${inbound.length}):`);
