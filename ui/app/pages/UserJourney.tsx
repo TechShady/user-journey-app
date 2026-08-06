@@ -49,7 +49,7 @@ const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "heatmap", label: "Transition Heatmap" },
 ];
 const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
-type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying" | "uhaul" | "eyeExam" | "spectacles";
+type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying" | "uhaul" | "eyeExam" | "spectacles" | "grocery" | "curbside";
 const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "classic", label: "Classic Funnel" },
   { value: "horizontal", label: "Horizontal Bar" },
@@ -68,6 +68,8 @@ const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "uhaul", label: "\uD83D\uDE9A Truck Rental" },
   { value: "eyeExam", label: "\uD83D\uDC41 Eye Exam Room" },
   { value: "spectacles", label: "\uD83D\uDC53 Spectacle Frames" },
+  { value: "grocery", label: "\uD83D\uDED2 Grocery Aisles" },
+  { value: "curbside", label: "\uD83D\uDCF1 Curbside Pickup" },
 ];
 const DEFAULT_FUNNEL_STYLE: FunnelStyle = "classic";
 const FUNNEL_STYLE_STATE_KEY = "uj-funnel-style";
@@ -92,7 +94,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.36";
+const APP_VERSION_LABEL = "4.76.37";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -10731,6 +10733,470 @@ function SpectaclesFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov
 }
 
 // ===========================================================================
+// SKIN: Grocery Store Aisle (top-down cart journey)
+// ===========================================================================
+function GroceryAisleFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const N = steps.length;
+  const shoppers = steps[0]?.count ?? 0;
+  const checkedOut = steps[N - 1]?.count ?? 0;
+  const conv = shoppers > 0 ? (checkedOut / shoppers) * 100 : 0;
+  const abandoned = shoppers - checkedOut;
+  const revenue = checkedOut * aov;
+  const GR_GREEN = "#3FA34D";
+  const GR_CREAM = "rgba(28,22,10,0.95)";
+  const GR_ORANGE = "#F79420";
+  const stepClr = (step: FunnelStep, i: number) =>
+    i === 0 ? BLUE : step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 30 ? YELLOW : RED;
+  const statusClr = (r: number) => r >= 60 ? GREEN : r >= 30 ? YELLOW : RED;
+
+  // Aisle layout — pack N aisle endcaps along a horizontal path
+  const AISLE_ICONS = ["🥬", "🥛", "🥖", "🍎", "🥩", "🍞", "🥫", "🧀", "🍫", "🛒"];
+  const svgW = 680, svgH = 455;
+  const floorX = 40, floorY = 60, floorW = 600, floorH = 340;
+  // Serpentine path: sweeps left-to-right, wrapping every 4 aisles
+  const perRow = Math.min(4, N);
+  const rows = Math.ceil(N / perRow);
+  const aisleW = (floorW - 60) / perRow;
+  const aisleH = (floorH - 40) / rows;
+  const aislePos = (i: number) => {
+    const row = Math.floor(i / perRow);
+    const colIdx = row % 2 === 0 ? i % perRow : perRow - 1 - (i % perRow);
+    const cx = floorX + 30 + colIdx * aisleW + aisleW / 2;
+    const cy = floorY + 20 + row * aisleH + aisleH / 2;
+    return { cx, cy };
+  };
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "300px 1fr 330px", gap: 14, background: "rgba(4,6,10,0.98)", color: "#e8eeff", padding: 16, fontFamily: '"Inter",system-ui,sans-serif', borderRadius: 12, boxSizing: "border-box", minHeight: 520 }}>
+
+      {/* LEFT — Aisle Stops */}
+      <div style={{ border: `1px solid ${GR_GREEN}55`, borderRadius: 14, padding: 14, background: GR_CREAM, overflow: "hidden" }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: GR_GREEN, marginBottom: 14, paddingBottom: 8, borderBottom: `1px solid ${GR_GREEN}33` }}>
+          🛒 Aisle Stops
+        </div>
+        {steps.map((step, i) => {
+          const clr = stepClr(step, i);
+          const icon = AISLE_ICONS[i % AISLE_ICONS.length];
+          return (
+            <div key={i} style={{ marginBottom: i < N - 1 ? 14 : 0, paddingBottom: i < N - 1 ? 14 : 0, borderBottom: i < N - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 6, background: GR_GREEN, color: "white", fontSize: 15, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {icon}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#e8eeff", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>
+                  {step.label}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 36 }}>
+                <span style={{ fontSize: 20, fontWeight: 800 }}>{fmtCount(step.count)}</span>
+                {i === 0 && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>carts in</span>}
+                {i > 0 && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: clr, background: `${clr.replace("0.92)", "0.12)")}`, padding: "2px 8px", borderRadius: 8, border: `1px solid ${clr.replace("0.92)", "0.25)")}`, marginLeft: "auto" }}>
+                    {fmtPct(step.convFromPrev)}
+                  </span>
+                )}
+              </div>
+              {i > 0 && (
+                <div style={{ height: 3, borderRadius: 2, marginTop: 6, marginLeft: 36, background: "rgba(255,255,255,0.07)" }}>
+                  <div style={{ height: "100%", width: `${Math.min(step.convFromPrev, 100)}%`, background: clr, borderRadius: 2 }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* CENTER — Store Floor SVG */}
+      <div style={{ borderRadius: 14, overflow: "hidden", background: "#12362A", display: "flex", flexDirection: "column" }}>
+        {funnelName && (
+          <div style={{ textAlign: "center", fontSize: 13, fontWeight: 800, color: "white", letterSpacing: 2, textTransform: "uppercase", padding: "6px 0", background: GR_GREEN }}>
+            {funnelName}
+          </div>
+        )}
+        <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: "100%", height: "auto", display: "block" }}>
+          <defs>
+            <linearGradient id="gr-floor" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#F4E9CE" />
+              <stop offset="100%" stopColor="#DCC79E" />
+            </linearGradient>
+            <linearGradient id="gr-shelf" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#7A5A2E" />
+              <stop offset="100%" stopColor="#5A4020" />
+            </linearGradient>
+          </defs>
+
+          {/* Store outline */}
+          <rect x={floorX - 8} y={floorY - 8} width={floorW + 16} height={floorH + 16} rx={12} fill="#1E4B3A" />
+          <rect x={floorX} y={floorY} width={floorW} height={floorH} rx={8} fill="url(#gr-floor)" />
+
+          {/* Tile grid pattern */}
+          {Array.from({ length: 12 }).map((_, i) => (
+            <line key={`v${i}`} x1={floorX + (i + 1) * (floorW / 13)} y1={floorY} x2={floorX + (i + 1) * (floorW / 13)} y2={floorY + floorH} stroke="#B8A57C" strokeWidth={0.5} opacity={0.35} />
+          ))}
+          {Array.from({ length: 7 }).map((_, i) => (
+            <line key={`h${i}`} x1={floorX} y1={floorY + (i + 1) * (floorH / 8)} x2={floorX + floorW} y2={floorY + (i + 1) * (floorH / 8)} stroke="#B8A57C" strokeWidth={0.5} opacity={0.35} />
+          ))}
+
+          {/* Serpentine cart path */}
+          {(() => {
+            const pts = steps.map((_, i) => aislePos(i));
+            const d = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.cx} ${p.cy}`).join(" ");
+            return <path d={d} fill="none" stroke={GR_ORANGE} strokeWidth={3} strokeDasharray="8 4" opacity={0.55} />;
+          })()}
+
+          {/* Aisle endcap boxes at each step */}
+          {steps.map((step, i) => {
+            const { cx, cy } = aislePos(i);
+            const clr = stepClr(step, i);
+            const icon = AISLE_ICONS[i % AISLE_ICONS.length];
+            const w = Math.min(120, aisleW - 30);
+            const h = 60;
+            return (
+              <g key={i}>
+                {/* Shelf endcap */}
+                <rect x={cx - w / 2} y={cy - h / 2} width={w} height={h} rx={6} fill="url(#gr-shelf)" stroke={clr} strokeWidth={2} />
+                {/* Aisle number banner */}
+                <rect x={cx - w / 2} y={cy - h / 2 - 12} width={w} height={14} rx={3} fill={clr} />
+                <text x={cx} y={cy - h / 2 - 2} textAnchor="middle" fontSize={9} fontWeight={800} fill="white">
+                  AISLE {i + 1}
+                </text>
+                {/* Icon */}
+                <text x={cx - w / 2 + 14} y={cy + 5} fontSize={22}>{icon}</text>
+                {/* Step label + count */}
+                <text x={cx - w / 2 + 32} y={cy - 4} fontSize={9} fontWeight={700} fill="#F4E9CE">
+                  {step.label.length > 14 ? step.label.slice(0, 12) + "…" : step.label}
+                </text>
+                <text x={cx - w / 2 + 32} y={cy + 9} fontSize={11} fontWeight={800} fill="white">
+                  {fmtCount(step.count)}
+                </text>
+                {/* Conversion pill */}
+                {i > 0 && (
+                  <g>
+                    <rect x={cx + w / 2 - 30} y={cy + h / 2 + 3} width={30} height={13} rx={6} fill={clr} />
+                    <text x={cx + w / 2 - 15} y={cy + h / 2 + 12} textAnchor="middle" fontSize={9} fontWeight={800} fill="white">
+                      {Math.round(step.convFromPrev)}%
+                    </text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
+
+          {/* Shopping cart at final aisle — grows as it fills */}
+          {(() => {
+            const last = aislePos(N - 1);
+            const fillRatio = shoppers > 0 ? checkedOut / shoppers : 0;
+            return (
+              <g transform={`translate(${last.cx - 55}, ${last.cy + 45})`}>
+                {/* Cart basket */}
+                <path d="M0 0 L45 0 L40 22 L5 22 Z" fill="#C8D3E0" stroke="#333" strokeWidth={1.5} />
+                {/* Grid on basket */}
+                {[0.25, 0.5, 0.75].map((r, ri) => (
+                  <line key={ri} x1={r * 45} y1={0} x2={r * 40 + 2} y2={22} stroke="#666" strokeWidth={0.5} />
+                ))}
+                <line x1={2} y1={11} x2={43} y2={11} stroke="#666" strokeWidth={0.5} />
+                {/* Fill (groceries) */}
+                <rect x={3} y={3 + (1 - fillRatio) * 16} width={39} height={fillRatio * 16} fill={fillRatio >= 0.6 ? GREEN : fillRatio >= 0.3 ? YELLOW : GR_ORANGE} opacity={0.85} />
+                {/* Handle */}
+                <path d="M45 0 L52 -8 L58 -8" stroke="#333" strokeWidth={2} fill="none" />
+                {/* Wheels */}
+                <circle cx={10} cy={26} r={4} fill="#222" />
+                <circle cx={35} cy={26} r={4} fill="#222" />
+                {/* "You're here" flag */}
+                <rect x={-5} y={-22} width={40} height={14} rx={3} fill={GR_ORANGE} />
+                <text x={15} y={-12} textAnchor="middle" fontSize={9} fontWeight={800} fill="white">CART</text>
+              </g>
+            );
+          })()}
+
+          {/* Entrance sign (top-left corner) */}
+          <g transform={`translate(${floorX + 20}, ${floorY + 20})`}>
+            <rect x={-6} y={-6} width={64} height={22} rx={4} fill={BLUE} />
+            <text x={26} y={9} textAnchor="middle" fontSize={11} fontWeight={800} fill="white">ENTER</text>
+          </g>
+          {/* Checkout sign (bottom-right) */}
+          <g transform={`translate(${floorX + floorW - 90}, ${floorY + floorH - 30})`}>
+            <rect x={-6} y={-6} width={90} height={22} rx={4} fill={GREEN} />
+            <text x={39} y={9} textAnchor="middle" fontSize={11} fontWeight={800} fill="white">CHECKOUT</text>
+          </g>
+        </svg>
+      </div>
+
+      {/* RIGHT — Basket Metrics */}
+      <div style={{ border: `1px solid ${GR_GREEN}55`, borderRadius: 14, padding: "12px 14px", background: GR_CREAM, display: "flex", flexDirection: "column", gap: 9 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: GR_GREEN, paddingBottom: 8, borderBottom: `1px solid ${GR_GREEN}33`, marginBottom: 4 }}>
+          🧺 Basket Metrics
+        </div>
+        {([
+          { icon: "🛒", label: "Shoppers", value: fmtCount(shoppers), clr: BLUE, sub: "carts entered" },
+          { icon: "💳", label: "Checked Out", value: fmtCount(checkedOut), clr: GREEN, sub: "completed purchases" },
+          { icon: "📊", label: "Conversion", value: fmtPct(conv), clr: statusClr(conv), sub: "cart-to-checkout" },
+          { icon: "💰", label: "Basket Revenue", value: fmtCurrency(revenue), clr: GR_ORANGE, sub: `${fmtCurrency(aov)} avg basket` },
+          { icon: "🥫", label: "Cart Abandonment", value: fmtCount(abandoned), clr: RED, sub: "left before checkout" },
+        ] as { icon: string; label: string; value: string; clr: string; sub: string }[]).map((m, mi) => (
+          <div key={mi} style={{ background: "rgba(12,26,20,0.9)", border: `1px solid ${m.clr === GR_ORANGE ? GR_ORANGE + "30" : m.clr.replace("0.92)", "0.22)")}`, borderRadius: 10, padding: "10px 12px", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+              <span style={{ fontSize: 18 }}>{m.icon}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.36)", textTransform: "uppercase" }}>{m.label}</span>
+            </div>
+            <div style={{ fontSize: 27, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginTop: 3 }}>{m.sub}</div>
+          </div>
+        ))}
+        <div style={{ borderTop: `1px solid ${GR_GREEN}22`, paddingTop: 9, marginTop: 2 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", marginBottom: 6 }}>Aisle Breakdown</div>
+          {steps.map((step, i) => {
+            const clr = stepClr(step, i);
+            return (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: clr, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.52)", maxWidth: 145, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{step.label}</span>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: i === 0 ? "rgba(255,255,255,0.3)" : clr, flexShrink: 0, marginLeft: 6 }}>
+                  {i === 0 ? "start" : fmtPct(step.convFromPrev)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// SKIN: Curbside Pickup Bays (mobile order → drive-up handoff)
+// ===========================================================================
+function CurbsidePickupFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const N = steps.length;
+  const orders = steps[0]?.count ?? 0;
+  const pickedUp = steps[N - 1]?.count ?? 0;
+  const fulfillmentRate = orders > 0 ? (pickedUp / orders) * 100 : 0;
+  const unfulfilled = orders - pickedUp;
+  const revenue = pickedUp * aov;
+  const CP_RED = "#E53935";
+  const CP_DARK = "rgba(10,14,22,0.95)";
+  const CP_YELLOW = "#FFD400";
+  const stepClr = (step: FunnelStep, i: number) =>
+    i === 0 ? BLUE : step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 30 ? YELLOW : RED;
+  const statusClr = (r: number) => r >= 60 ? GREEN : r >= 30 ? YELLOW : RED;
+
+  const BAY_STAGE_ICONS = ["📱", "🛒", "🧾", "📦", "🅿️", "🚗", "🚙", "🛍️"];
+  const svgW = 680, svgH = 455;
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "300px 1fr 330px", gap: 14, background: "rgba(4,6,10,0.98)", color: "#e8eeff", padding: 16, fontFamily: '"Inter",system-ui,sans-serif', borderRadius: 12, boxSizing: "border-box", minHeight: 520 }}>
+
+      {/* LEFT — Order Stages */}
+      <div style={{ border: `1px solid ${CP_RED}55`, borderRadius: 14, padding: 14, background: CP_DARK, overflow: "hidden" }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: CP_RED, marginBottom: 14, paddingBottom: 8, borderBottom: `1px solid ${CP_RED}33` }}>
+          📱 Order Lifecycle
+        </div>
+        {steps.map((step, i) => {
+          const clr = stepClr(step, i);
+          const icon = BAY_STAGE_ICONS[i % BAY_STAGE_ICONS.length];
+          return (
+            <div key={i} style={{ marginBottom: i < N - 1 ? 14 : 0, paddingBottom: i < N - 1 ? 14 : 0, borderBottom: i < N - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: CP_RED, color: "white", fontSize: 14, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {icon}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#e8eeff", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>
+                  {step.label}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 36 }}>
+                <span style={{ fontSize: 20, fontWeight: 800 }}>{fmtCount(step.count)}</span>
+                {i === 0 && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>orders placed</span>}
+                {i > 0 && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: clr, background: `${clr.replace("0.92)", "0.12)")}`, padding: "2px 8px", borderRadius: 8, border: `1px solid ${clr.replace("0.92)", "0.25)")}`, marginLeft: "auto" }}>
+                    {fmtPct(step.convFromPrev)}
+                  </span>
+                )}
+              </div>
+              {i > 0 && (
+                <div style={{ height: 3, borderRadius: 2, marginTop: 6, marginLeft: 36, background: "rgba(255,255,255,0.07)" }}>
+                  <div style={{ height: "100%", width: `${Math.min(step.convFromPrev, 100)}%`, background: clr, borderRadius: 2 }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* CENTER — Storefront + Pickup Bays SVG */}
+      <div style={{ borderRadius: 14, overflow: "hidden", background: "#1A2233", display: "flex", flexDirection: "column" }}>
+        {funnelName && (
+          <div style={{ textAlign: "center", fontSize: 13, fontWeight: 800, color: "white", letterSpacing: 2, textTransform: "uppercase", padding: "6px 0", background: CP_RED }}>
+            {funnelName}
+          </div>
+        )}
+        <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: "100%", height: "auto", display: "block" }}>
+          <defs>
+            <linearGradient id="cp-sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#2A3550" />
+              <stop offset="100%" stopColor="#4A6088" />
+            </linearGradient>
+            <linearGradient id="cp-store" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#E53935" />
+              <stop offset="100%" stopColor="#B71C1C" />
+            </linearGradient>
+            <linearGradient id="cp-asphalt" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#3A3F48" />
+              <stop offset="100%" stopColor="#22262E" />
+            </linearGradient>
+          </defs>
+
+          {/* Sky */}
+          <rect x={0} y={0} width={svgW} height={140} fill="url(#cp-sky)" />
+          {/* Store facade */}
+          <rect x={40} y={40} width={svgW - 80} height={110} fill="url(#cp-store)" />
+          {/* Awning stripes */}
+          {Array.from({ length: 10 }).map((_, i) => (
+            <rect key={i} x={40 + i * ((svgW - 80) / 10)} y={140} width={(svgW - 80) / 10} height={16} fill={i % 2 === 0 ? CP_YELLOW : "white"} />
+          ))}
+          {/* Store sign */}
+          <rect x={svgW / 2 - 120} y={65} width={240} height={38} rx={4} fill="white" opacity={0.95} />
+          <text x={svgW / 2} y={91} textAnchor="middle" fontSize={20} fontWeight={900} fill={CP_RED} letterSpacing={2}>
+            PICKUP
+          </text>
+          {/* Store windows */}
+          {[80, 180, svgW - 260, svgW - 160].map((x, i) => (
+            <g key={i}>
+              <rect x={x} y={110} width={70} height={35} fill="#7EC8E3" opacity={0.6} stroke="white" strokeWidth={1.5} />
+              <line x1={x + 35} y1={110} x2={x + 35} y2={145} stroke="white" strokeWidth={1} opacity={0.6} />
+            </g>
+          ))}
+
+          {/* Asphalt */}
+          <rect x={0} y={170} width={svgW} height={svgH - 170} fill="url(#cp-asphalt)" />
+
+          {/* Bays — one per step */}
+          {(() => {
+            const bayY = 200;
+            const bayH = 220;
+            const marginX = 30;
+            const bayW = (svgW - marginX * 2) / N;
+            return steps.map((step, i) => {
+              const bx = marginX + i * bayW;
+              const clr = stepClr(step, i);
+              const icon = BAY_STAGE_ICONS[i % BAY_STAGE_ICONS.length];
+              const isFilled = i === N - 1;
+              return (
+                <g key={i}>
+                  {/* Parking space outline */}
+                  <rect x={bx + 6} y={bayY} width={bayW - 12} height={bayH} fill={isFilled ? "rgba(255,212,0,0.08)" : "rgba(255,255,255,0.03)"} stroke={CP_YELLOW} strokeWidth={2} strokeDasharray="6 3" opacity={0.8} />
+                  {/* Bay number sign at top */}
+                  <rect x={bx + bayW / 2 - 22} y={bayY - 24} width={44} height={22} rx={3} fill={clr} />
+                  <text x={bx + bayW / 2} y={bayY - 8} textAnchor="middle" fontSize={13} fontWeight={900} fill="white">
+                    #{i + 1}
+                  </text>
+                  {/* Bay label */}
+                  <text x={bx + bayW / 2} y={bayY + 22} textAnchor="middle" fontSize={24}>{icon}</text>
+                  <text x={bx + bayW / 2} y={bayY + 44} textAnchor="middle" fontSize={9} fontWeight={700} fill="rgba(255,255,255,0.6)">
+                    {step.label.length > 14 ? step.label.slice(0, 12) + "…" : step.label}
+                  </text>
+                  {/* Count */}
+                  <text x={bx + bayW / 2} y={bayY + 66} textAnchor="middle" fontSize={16} fontWeight={900} fill="white">
+                    {fmtCount(step.count)}
+                  </text>
+                  {/* Conv pill */}
+                  {i > 0 && (
+                    <g>
+                      <rect x={bx + bayW / 2 - 24} y={bayY + 74} width={48} height={16} rx={8} fill={clr} />
+                      <text x={bx + bayW / 2} y={bayY + 86} textAnchor="middle" fontSize={10} fontWeight={800} fill="white">
+                        {fmtPct(step.convFromPrev)}
+                      </text>
+                    </g>
+                  )}
+                  {/* Car in final bay */}
+                  {isFilled && (
+                    <g transform={`translate(${bx + bayW / 2 - 34}, ${bayY + 130})`}>
+                      {/* Car body */}
+                      <rect x={0} y={12} width={68} height={22} rx={5} fill="#4C87D8" stroke="#1E4D8C" strokeWidth={1.5} />
+                      <path d="M8 12 L14 0 L54 0 L60 12 Z" fill="#5C9AE8" stroke="#1E4D8C" strokeWidth={1.5} />
+                      {/* Windows */}
+                      <path d="M14 2 L20 11 L48 11 L54 2 Z" fill="#B8D8F0" opacity={0.85} />
+                      <line x1={34} y1={2} x2={34} y2={11} stroke="#1E4D8C" strokeWidth={1} />
+                      {/* Wheels */}
+                      <circle cx={16} cy={36} r={6} fill="#111" />
+                      <circle cx={52} cy={36} r={6} fill="#111" />
+                      <circle cx={16} cy={36} r={2.5} fill="#444" />
+                      <circle cx={52} cy={36} r={2.5} fill="#444" />
+                      {/* Headlights */}
+                      <rect x={62} y={16} width={5} height={5} rx={1} fill={CP_YELLOW} />
+                      {/* Trunk open */}
+                      <rect x={-4} y={4} width={12} height={16} rx={1} fill="#5C9AE8" stroke="#1E4D8C" strokeWidth={1} />
+                    </g>
+                  )}
+                  {/* Associate walking out (final bay only) */}
+                  {isFilled && (
+                    <g transform={`translate(${bx + bayW / 2 + 10}, ${bayY + 115})`}>
+                      {/* Head */}
+                      <circle cx={0} cy={0} r={5} fill="#F5C89A" />
+                      {/* Body / uniform */}
+                      <path d="M-6 5 L6 5 L7 22 L-7 22 Z" fill={CP_RED} />
+                      {/* Bag */}
+                      <rect x={7} y={12} width={9} height={12} fill="#8B4513" stroke="#5A2A0A" strokeWidth={1} />
+                      <line x1={9} y1={12} x2={9} y2={8} stroke="#5A2A0A" strokeWidth={1} />
+                      <line x1={14} y1={12} x2={14} y2={8} stroke="#5A2A0A" strokeWidth={1} />
+                      {/* Legs */}
+                      <line x1={-3} y1={22} x2={-3} y2={30} stroke="#333" strokeWidth={3} />
+                      <line x1={3} y1={22} x2={3} y2={30} stroke="#333" strokeWidth={3} />
+                    </g>
+                  )}
+                </g>
+              );
+            });
+          })()}
+        </svg>
+      </div>
+
+      {/* RIGHT — Fulfillment Metrics */}
+      <div style={{ border: `1px solid ${CP_RED}55`, borderRadius: 14, padding: "12px 14px", background: CP_DARK, display: "flex", flexDirection: "column", gap: 9 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: CP_RED, paddingBottom: 8, borderBottom: `1px solid ${CP_RED}33`, marginBottom: 4 }}>
+          🚗 Fulfillment Metrics
+        </div>
+        {([
+          { icon: "📱", label: "Orders Placed", value: fmtCount(orders), clr: BLUE, sub: "mobile app orders" },
+          { icon: "🛍️", label: "Picked Up", value: fmtCount(pickedUp), clr: GREEN, sub: "successful handoffs" },
+          { icon: "✅", label: "Fulfillment Rate", value: fmtPct(fulfillmentRate), clr: statusClr(fulfillmentRate), sub: "order-to-handoff" },
+          { icon: "💰", label: "Pickup Revenue", value: fmtCurrency(revenue), clr: CP_YELLOW, sub: `${fmtCurrency(aov)} avg order` },
+          { icon: "⚠️", label: "Unfulfilled", value: fmtCount(unfulfilled), clr: RED, sub: "abandoned or timed out" },
+        ] as { icon: string; label: string; value: string; clr: string; sub: string }[]).map((m, mi) => (
+          <div key={mi} style={{ background: "rgba(6,10,20,0.9)", border: `1px solid ${m.clr === CP_YELLOW ? CP_YELLOW + "30" : m.clr.replace("0.92)", "0.22)")}`, borderRadius: 10, padding: "10px 12px", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+              <span style={{ fontSize: 18 }}>{m.icon}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.36)", textTransform: "uppercase" }}>{m.label}</span>
+            </div>
+            <div style={{ fontSize: 27, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginTop: 3 }}>{m.sub}</div>
+          </div>
+        ))}
+        <div style={{ borderTop: `1px solid ${CP_RED}22`, paddingTop: 9, marginTop: 2 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", marginBottom: 6 }}>Stage Breakdown</div>
+          {steps.map((step, i) => {
+            const clr = stepClr(step, i);
+            return (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: clr, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.52)", maxWidth: 145, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{step.label}</span>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: i === 0 ? "rgba(255,255,255,0.3)" : clr, flexShrink: 0, marginLeft: 6 }}>
+                  {i === 0 ? "start" : fmtPct(step.convFromPrev)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
 function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast, funnelName, timeframeDays, frontend, hotnessMode }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnelName?: string; timeframeDays: number; frontend: string; hotnessMode: HotnessMode; }) {
@@ -11213,7 +11679,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           </button>
         </Flex>
       </Flex>
-      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && funnelStyle !== "mri" && funnelStyle !== "autoFinance" && funnelStyle !== "rocketLaunch" && funnelStyle !== "airport" && funnelStyle !== "retail" && funnelStyle !== "cyber" && funnelStyle !== "stadium" && funnelStyle !== "homebuying" && funnelStyle !== "eyeExam" && funnelStyle !== "spectacles" && (
+      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && funnelStyle !== "mri" && funnelStyle !== "autoFinance" && funnelStyle !== "rocketLaunch" && funnelStyle !== "airport" && funnelStyle !== "retail" && funnelStyle !== "cyber" && funnelStyle !== "stadium" && funnelStyle !== "homebuying" && funnelStyle !== "eyeExam" && funnelStyle !== "spectacles" && funnelStyle !== "grocery" && funnelStyle !== "curbside" && (
         <div style={{ textAlign: "center", padding: "6px 0 2px" }}>
           <Heading level={3} style={{ fontWeight: 700, margin: 0 }}>{funnelName}</Heading>
         </div>
@@ -11264,6 +11730,8 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         {funnelStyle === "uhaul" && <UHaulFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "eyeExam" && <EyeExamFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "spectacles" && <SpectaclesFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "grocery" && <GroceryAisleFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "curbside" && <CurbsidePickupFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
