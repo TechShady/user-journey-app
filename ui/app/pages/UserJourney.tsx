@@ -92,7 +92,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.33";
+const APP_VERSION_LABEL = "4.76.34";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -5682,6 +5682,8 @@ export function UserJourney() {
     query: (tl.enabled && (visitedTabs.has("Sankey") || activeSubTabKey === "Sankey"))
       ? sankeyTimelapseQuery(timeframeDays, frontend, steps, tl.bucket)
       : "fetch user.events | limit 0",
+    // Default useDql cap is 1000 records — Sankey TL needs headroom for 1440+ buckets * top-N paths.
+    maxResultRecords: 200000,
   }, refetchOpts);
   const funnelDrillFrontend = useMemo(() => {
     const stepApp = steps.find((s) => (s.app ?? "").trim() !== "")?.app;
