@@ -1645,6 +1645,7 @@ function worstSessionsQuery(days: number, frontend: string, steps: StepDef[]): s
     start_ts = min(start_time),
     pages = collectDistinct(pageName),
     error_types = collectDistinct(errName),
+    user_tag = takeFirst(coalesce(dt.rum.user_tag, "")),
     by: {dt.rum.session.id}
 | sort frustrated desc, errors desc, max_dur desc
 | limit 50`;
@@ -12738,6 +12739,7 @@ function WorstSessionsTab({ data, isLoading, onDrillToForecast }: { data: any; i
                 Impact: s._impactScore,
                 Cluster: s._clusterSize,
                 IsSystemic: s._isSystemic,
+                UserTag: String(s.user_tag ?? ""),
                 Actions: actions,
                 "Avg (ms)": Number(s.avg_dur ?? 0),
                 "Max (ms)": Number(s.max_dur ?? 0),
@@ -12768,6 +12770,7 @@ function WorstSessionsTab({ data, isLoading, onDrillToForecast }: { data: any; i
                   <a href={url} target="_blank" rel="noopener noreferrer" className="uj-session-link">{value} ↗</a>
                 ) : <Text>{value}</Text>;
               }},
+              { id: "UserTag", header: "User Tag", accessor: "UserTag", cell: ({ value }: any) => <Text style={{ fontSize: 12, opacity: value ? 1 : 0.3 }}>{value || "—"}</Text> },
               { id: "Actions", header: "Actions", accessor: "Actions", sortType: "number" as any, cell: ({ value }: any) => <Text>{value}</Text> },
               { id: "Avg (ms)", header: "Avg Duration", accessor: "Avg (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 3000 ? RED : value > 1000 ? YELLOW : GREEN }}>{fmt(value)}</Text> },
               { id: "Max (ms)", header: "Max Duration", accessor: "Max (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 10000 ? RED : value > 5000 ? ORANGE : GREEN }}>{fmt(value)}</Strong> },
@@ -24149,6 +24152,7 @@ function SessionReplaySpotlightTab({ data, quality, overallConv, isLoading, onDr
             <DataTable sortable resizable fullWidth data={sessions.map((s: any) => ({
               Impact: Number(s.impact_score ?? 0), Duration: Number(s.dur_s ?? 0), Errors: Number(s.err ?? 0),
               Navs: Number(s.navs ?? 0),
+              UserTag: String(s.user_tag ?? ""),
               Device: s.device, Browser: s.browser_name, Country: s.country,
               Crash: s.has_crash ? "Yes" : "No", Bounce: s.is_bounce ? "Yes" : "No",
               _sessionId: s.session_id, _startTime: s.start_time,
@@ -24157,6 +24161,7 @@ function SessionReplaySpotlightTab({ data, quality, overallConv, isLoading, onDr
               { id: "Duration", header: "Duration", accessor: "Duration", sortType: "number" as any, cell: ({ value }: any) => <Text>{value.toFixed(1)}s</Text> },
               { id: "Errors", header: "Errors", accessor: "Errors", sortType: "number" as any, cell: ({ value }: any) => <Text style={{ color: value > 0 ? RED : GREEN }}>{value}</Text> },
               { id: "Navs", header: "Navs", accessor: "Navs", sortType: "number" as any },
+              { id: "UserTag", header: "User Tag", accessor: "UserTag", cell: ({ value }: any) => <Text style={{ fontSize: 12, opacity: value ? 1 : 0.3 }}>{value || "\u2014"}</Text> },
               { id: "Device", header: "Device", accessor: "Device" },
               { id: "Browser", header: "Browser", accessor: "Browser" },
               { id: "Country", header: "Country", accessor: "Country" },
