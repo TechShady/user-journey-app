@@ -25853,7 +25853,8 @@ function CdnRoiTab({ thirdPartyData, quality, cdnMonthlyCost, costPerGb, aov, ov
   const monthlyPageViews = totalSessions * 30; // extrapolate
   const monthlyDataGb = (monthlyPageViews * avgPageSizeKb) / (1024 * 1024);
   const originDataCost = monthlyDataGb * costPerGb;
-  const cdnDataSavings = originDataCost * 0.7; // CDN typically offloads 70% of origin traffic
+  // Guard: if origin latency is 0ms there is no real resource-timing data, so suppress the savings estimate
+  const cdnDataSavings = firstPartyAvgLatency > 0 ? originDataCost * 0.7 : 0; // CDN typically offloads 70% of origin traffic
 
   // ROI calculation
   const cdnNetBenefit = additionalRevenue + cdnDataSavings - cdnMonthlyCost;
@@ -25892,7 +25893,7 @@ function CdnRoiTab({ thirdPartyData, quality, cdnMonthlyCost, costPerGb, aov, ov
           <tr><td style={{ padding: "4px 0", fontSize: 13 }}>Data transfer savings:</td><td style={{ padding: "4px 16px 4px 0", textAlign: "right" }}><Strong style={{ color: CYAN }}>{fmtCurrency(cdnDataSavings)}/mo</Strong></td></tr>
           <tr><td style={{ padding: "4px 0", fontSize: 13 }}>CDN cost:</td><td style={{ padding: "4px 16px 4px 0", textAlign: "right" }}><Strong style={{ color: RED }}>-{fmtCurrency(cdnMonthlyCost)}/mo</Strong></td></tr>
           <tr><td colSpan={2} style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: "4px 0" }} /></tr>
-          <tr><td style={{ padding: "4px 0", fontSize: 13, fontWeight: 700 }}>Net monthly benefit:</td><td style={{ padding: "4px 16px 4px 0", textAlign: "right" }}><Strong style={{ color: cdnNetBenefit > 0 ? GREEN : RED, fontSize: 16 }}>{fmtCurrency(cdnNetBenefit * 30)}</Strong></td></tr>
+          <tr><td style={{ padding: "4px 0", fontSize: 13, fontWeight: 700 }}>Net monthly benefit:</td><td style={{ padding: "4px 16px 4px 0", textAlign: "right" }}><Strong style={{ color: cdnNetBenefit > 0 ? GREEN : RED, fontSize: 16 }}>{fmtCurrency((additionalRevenue * 30) + cdnDataSavings - cdnMonthlyCost)}</Strong></td></tr>
         </tbody></table>
       </div>
 
