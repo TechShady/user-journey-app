@@ -7261,6 +7261,130 @@ function HotnessAssistPanel({
   let insightOffset = summaryDuration + (data.worstProblems.length > 0 ? 1550 : 1400);
   const insightDurations = data.insights.map(ins => ins.text.split(/\s+/).length * 60);
   const hotColor = (z: number) => z >= 2.5 ? TL_HOT_HIGH : z >= 1.5 ? TL_HOT_WARM : z >= 0.75 ? TL_HOT_ELEV : "#4589FF";
+  const generateHotnessReportHtml = (): string => {
+    const ts = new Date().toLocaleString();
+    const rMaxZ = Math.max(0.5, ...data.allHotness);
+    const rFmtPct = (v: number) => `${v.toFixed(1)}%`;
+    const rFmtCount = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v));
+    const svgW = Math.max(data.allHotness.length * 6, 120);
+
+    const bars = data.allHotness.map((v, i) => {
+      const h = Math.max(2, (v / rMaxZ) * 74);
+      const color = v >= 2.5 ? "#FF073A" : v >= 1.5 ? "#FF3D9A" : v >= 0.75 ? "#FFF04D" : "#4589FF";
+      return `<rect x="${i * 6 + 0.5}" y="${90 - h}" width="5" height="${h}" fill="${color}" opacity="${i === data.worstIdx || i === data.bestIdx ? 1 : 0.65}" rx="0.5"/>`;
+    }).join("");
+    const threshLines = [{ z: 0.75, c: "#FFF04D" }, { z: 1.5, c: "#FF3D9A" }, { z: 2.5, c: "#FF073A" }]
+      .map(({ z, c }) => `<line x1="0" y1="${90 - (z / rMaxZ) * 74}" x2="${svgW}" y2="${90 - (z / rMaxZ) * 74}" stroke="${c}" stroke-width="0.5" stroke-dasharray="3,2" opacity="0.4"/>`).join("");
+    const worstMark = `<line x1="${data.worstIdx * 6 + 3}" y1="16" x2="${data.worstIdx * 6 + 3}" y2="90" stroke="#FF073A" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${Math.min(data.worstIdx * 6 + 5, svgW - 28)}" y="11" font-size="7" fill="#FF073A" opacity="0.85" font-family="monospace">worst</text>`;
+    const bestMark = data.bestIdx !== data.worstIdx ? `<line x1="${data.bestIdx * 6 + 3}" y1="16" x2="${data.bestIdx * 6 + 3}" y2="90" stroke="#0D9C29" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${Math.min(data.bestIdx * 6 + 5, svgW - 24)}" y="11" font-size="7" fill="#0D9C29" opacity="0.85" font-family="monospace">best</text>` : "";
+
+    const worstRows = [
+      { l: "Sessions", v: rFmtCount(data.worstRow.sessions) },
+      { l: "Error Rate", v: rFmtPct(data.worstRow.errorRate) },
+      { l: "Avg Load", v: `${Math.round(data.worstRow.avgDurationMs)}ms` },
+      { l: "Apdex", v: data.worstRow.apdex.toFixed(3) },
+      ...(data.worstRow.lcp != null ? [{ l: "LCP", v: `${Math.round(data.worstRow.lcp)}ms` }] : []),
+      { l: "Problems", v: String(data.worstProblems.length) },
+      { l: "Frustrated", v: data.worstRow.sessions > 0 ? rFmtPct(data.worstRow.frustrated / data.worstRow.sessions * 100) : "—" },
+    ].map(r => `<tr><td style="padding:3px 10px;opacity:0.7;font-size:12px">${r.l}</td><td style="padding:3px 10px;font-weight:600;font-size:12px;color:#FF073A">${r.v}</td></tr>`).join("");
+
+    const bestRows = [
+      { l: "Sessions", v: rFmtCount(data.bestRow.sessions) },
+      { l: "Error Rate", v: rFmtPct(data.bestRow.errorRate) },
+      { l: "Avg Load", v: `${Math.round(data.bestRow.avgDurationMs)}ms` },
+      { l: "Apdex", v: data.bestRow.apdex.toFixed(3) },
+      ...(data.bestRow.lcp != null ? [{ l: "LCP", v: `${Math.round(data.bestRow.lcp)}ms` }] : []),
+      { l: "Problems", v: String(data.bestProblemsCount) },
+      { l: "Frustrated", v: data.bestRow.sessions > 0 ? rFmtPct(data.bestRow.frustrated / data.bestRow.sessions * 100) : "—" },
+    ].map(r => `<tr><td style="padding:3px 10px;opacity:0.7;font-size:12px">${r.l}</td><td style="padding:3px 10px;font-weight:600;font-size:12px;color:#0D9C29">${r.v}</td></tr>`).join("");
+
+    const gapRows = [
+      { m: "Apdex", best: data.bestRow.apdex.toFixed(3), worst: data.worstRow.apdex.toFixed(3), gap: (data.bestRow.apdex - data.worstRow.apdex).toFixed(3), good: data.bestRow.apdex > data.worstRow.apdex },
+      { m: "Error Rate", best: rFmtPct(data.bestRow.errorRate), worst: rFmtPct(data.worstRow.errorRate), gap: rFmtPct(Math.abs(data.worstRow.errorRate - data.bestRow.errorRate)), good: data.bestRow.errorRate < data.worstRow.errorRate },
+      { m: "Avg Load", best: `${Math.round(data.bestRow.avgDurationMs)}ms`, worst: `${Math.round(data.worstRow.avgDurationMs)}ms`, gap: `${Math.round(Math.abs(data.worstRow.avgDurationMs - data.bestRow.avgDurationMs))}ms`, good: data.bestRow.avgDurationMs < data.worstRow.avgDurationMs },
+      { m: "Sessions", best: rFmtCount(data.bestRow.sessions), worst: rFmtCount(data.worstRow.sessions), gap: "—", good: null },
+      ...(data.bestRow.lcp != null && data.worstRow.lcp != null ? [{ m: "LCP", best: `${Math.round(data.bestRow.lcp)}ms`, worst: `${Math.round(data.worstRow.lcp)}ms`, gap: `${Math.round(Math.abs(data.worstRow.lcp! - data.bestRow.lcp!))}ms`, good: data.bestRow.lcp < data.worstRow.lcp }] : []),
+    ].map(r => `<tr style="border-bottom:1px solid rgba(255,255,255,0.06)"><td style="padding:6px 12px;font-size:12px">${r.m}</td><td style="padding:6px 12px;font-size:12px;color:#0D9C29;font-weight:600">${r.best}</td><td style="padding:6px 12px;font-size:12px;color:#FF073A;font-weight:600">${r.worst}</td><td style="padding:6px 12px;font-size:12px;font-weight:700;color:${r.good === null ? "#888" : r.good ? "#0D9C29" : "#FF073A"}">${r.gap}</td></tr>`).join("");
+
+    const insightsHtml = data.insights.length > 0 ? `<h2>AI Insights</h2>${data.insights.map(ins => {
+      const c = ins.severity === "critical" ? "#FF073A" : ins.severity === "warning" ? "#FF3D9A" : ins.severity === "good" ? "#0D9C29" : "#4589FF";
+      return `<div style="margin-bottom:7px;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:6px;border-left:3px solid ${c}"><span style="font-size:10px;font-weight:700;text-transform:uppercase;opacity:0.55;margin-right:6px">${ins.severity}</span><span style="font-size:12px">${ins.text}</span></div>`;
+    }).join("")}` : "";
+
+    const problemsHtml = data.worstProblems.length > 0 ? `<h2>Active Problems During Worst Window</h2><ul style="margin:0 0 20px;padding-left:18px">${data.worstProblems.map(p => `<li style="margin-bottom:4px;font-size:12px"><span style="font-family:monospace;color:#FF073A;font-size:11px">${p.displayId}</span> — ${p.title}</li>`).join("")}</ul>` : "";
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Hotness Assist Report</title>
+<style>
+  @media print{body{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}@page{margin:0.6in;size:A4;}.no-print{display:none !important;}}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#e0e0e0;background:#0f1428;margin:0 auto;padding:32px;max-width:900px;line-height:1.5;}
+  h1{margin:0 0 4px;font-size:22px;color:#FF6B35;}
+  h2{font-size:12px;margin:20px 0 8px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:5px;color:#bbb;text-transform:uppercase;letter-spacing:0.5px;}
+  table{border-collapse:collapse;width:100%;}
+  .toolbar{text-align:right;margin-bottom:16px;}
+  .toolbar button{background:#FF6B35;color:#fff;border:none;padding:8px 20px;border-radius:6px;font-size:13px;cursor:pointer;}
+  .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;}
+  .kpi-tile{background:rgba(128,128,128,0.08);border:1px solid rgba(128,128,128,0.15);border-radius:8px;padding:10px 14px;}
+  .card-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
+  .card{border-radius:8px;padding:12px 14px;}
+</style></head><body>
+<div class="toolbar no-print"><button onclick="window.print()">Print / Save PDF</button></div>
+<h1>🔥 Hotness Assist Report</h1>
+<div style="font-size:11px;color:#888;margin-bottom:20px">${data.allHotness.length} buckets · ${data.hotBuckets} elevated · ${data.criticalBuckets} critical | Generated: ${ts}</div>
+
+<h2>Summary</h2>
+<p style="font-size:13px;line-height:1.6;margin:0 0 20px">${data.summary}</p>
+
+<h2>Key Metrics</h2>
+<div class="kpi-grid">
+  <div class="kpi-tile"><div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Hot Buckets</div><div style="font-size:22px;font-weight:700;font-family:monospace;color:${data.hotBuckets > 0 ? "#FFF04D" : "#4589FF"}">${data.hotBuckets}</div><div style="font-size:10px;opacity:0.4">of ${data.allHotness.length} total</div></div>
+  <div class="kpi-tile"><div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Critical Spikes</div><div style="font-size:22px;font-weight:700;font-family:monospace;color:${data.criticalBuckets > 0 ? "#FF073A" : "#4589FF"}">${data.criticalBuckets}</div><div style="font-size:10px;opacity:0.4">Z ≥ 2.5</div></div>
+  <div class="kpi-tile"><div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Est. Rev. Lost</div><div style="font-size:22px;font-weight:700;font-family:monospace;color:${data.totalEstimatedRevLoss > 100 ? "#FF832B" : "#4589FF"}">${data.totalEstimatedRevLoss >= 10000 ? `$${(data.totalEstimatedRevLoss / 1000).toFixed(1)}k` : `$${Math.round(data.totalEstimatedRevLoss).toLocaleString()}`}</div><div style="font-size:10px;opacity:0.4">hot windows</div></div>
+  <div class="kpi-tile"><div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Lost Conversions</div><div style="font-size:22px;font-weight:700;font-family:monospace;color:${data.totalLostConversions > 1 ? "#FF832B" : "#4589FF"}">${Math.round(data.totalLostConversions).toLocaleString()}</div><div style="font-size:10px;opacity:0.4">estimated</div></div>
+</div>
+
+<h2>Hotness Timeline — Full Period</h2>
+<div style="background:rgba(128,128,128,0.04);border:1px solid rgba(128,128,128,0.15);border-radius:8px;padding:8px 10px 6px;margin-bottom:20px">
+  <svg width="100%" height="90" viewBox="0 0 ${svgW} 90" preserveAspectRatio="none" style="display:block">${threshLines}${bars}${worstMark}${bestMark}</svg>
+  <div style="display:flex;gap:12px;margin-top:4px;font-size:10px;opacity:0.5">
+    <span><span style="display:inline-block;width:7px;height:7px;background:#FFF04D;border-radius:1px;vertical-align:middle;margin-right:3px"></span>Elevated (Z≥0.75)</span>
+    <span><span style="display:inline-block;width:7px;height:7px;background:#FF3D9A;border-radius:1px;vertical-align:middle;margin-right:3px"></span>Warm (Z≥1.5)</span>
+    <span><span style="display:inline-block;width:7px;height:7px;background:#FF073A;border-radius:1px;vertical-align:middle;margin-right:3px"></span>Spike (Z≥2.5)</span>
+    <span>— dashed = threshold lines</span>
+  </div>
+</div>
+
+<div class="card-grid">
+  <div class="card" style="background:rgba(255,7,58,0.05);border:1px solid rgba(255,7,58,0.2)">
+    <div style="font-size:11px;font-weight:700;color:#FF073A;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">🔥 Worst Spike — Bucket ${data.worstIdx + 1}</div>
+    <div style="font-size:10px;opacity:0.4;font-family:monospace;margin-bottom:6px">${data.worstBucketKey}</div>
+    <div style="font-size:13px;font-weight:700;color:#FF073A;margin-bottom:8px">Z = ${data.worstHotZ.toFixed(2)} · ${data.worstDriver}</div>
+    <table style="border:none"><tbody>${worstRows}</tbody></table>
+    ${data.worstEstimatedConvDrop > 0.1 ? `<div style="margin-top:8px;padding:6px 8px;background:rgba(255,7,58,0.1);border-radius:5px;font-size:12px;font-weight:700;color:#FF073A">−${data.worstEstimatedConvDrop.toFixed(1)}pp conv${data.worstEstimatedRevLoss > 0 ? ` · −$${Math.round(data.worstEstimatedRevLoss).toLocaleString()}` : ""}</div>` : ""}
+  </div>
+  <div class="card" style="background:rgba(13,156,41,0.04);border:1px solid rgba(13,156,41,0.2)">
+    <div style="font-size:11px;font-weight:700;color:#0D9C29;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">✨ Best Window — Bucket ${data.bestIdx + 1}</div>
+    <div style="font-size:10px;opacity:0.4;font-family:monospace;margin-bottom:6px">${data.bestBucketKey}</div>
+    <div style="font-size:13px;font-weight:700;color:#0D9C29;margin-bottom:8px">Z = ${(data.allHotness[data.bestIdx] ?? 0).toFixed(2)} · Optimal</div>
+    <table style="border:none"><tbody>${bestRows}</tbody></table>
+    ${data.bestEstimatedConv > 0 ? `<div style="margin-top:8px;padding:6px 8px;background:rgba(13,156,41,0.1);border-radius:5px;font-size:12px;font-weight:700;color:#0D9C29">${data.bestEstimatedConv.toFixed(1)}% conv${data.bestEstimatedRev > 0 ? ` · $${Math.round(data.bestEstimatedRev).toLocaleString()}` : ""}</div>` : ""}
+  </div>
+</div>
+
+<h2>Δ Gap — Best vs Worst</h2>
+<table style="margin-bottom:20px"><thead><tr style="background:rgba(128,128,128,0.08)"><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Metric</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#0D9C29">Best</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#FF073A">Worst</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Gap</th></tr></thead><tbody>${gapRows}</tbody></table>
+
+${insightsHtml}
+${problemsHtml}
+
+<div style="text-align:center;margin-top:30px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);font-size:10px;color:#555">Hotness Assist | ${data.allHotness.length} buckets | ${ts}</div>
+</body></html>`;
+  };
+
+  const handleExportPdf = () => {
+    const html = generateHotnessReportHtml();
+    const win = window.open("", "_blank");
+    if (win) { win.document.write(html); win.document.close(); }
+  };
 
   return (
     <div style={{ position: "fixed", left: pos.x, top: pos.y, width: 628, maxHeight: "calc(100vh - 36px)", background: "var(--dt-colors-background-base-default,#0f1428)", border: "1px solid rgba(255,107,53,0.3)", borderRadius: 10, boxShadow: "0 16px 56px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,107,53,0.08)", zIndex: 601, userSelect: "none", fontSize: 12, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -7273,6 +7397,10 @@ function HotnessAssistPanel({
         </svg>
         <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>Hotness Assist</span>
         <span style={{ fontSize: 10, opacity: 0.5, fontFamily: "monospace" }}>{data.allHotness.length} buckets · {data.hotBuckets} elevated{data.criticalBuckets > 0 ? ` · ${data.criticalBuckets} critical` : ""}</span>
+        <button onMouseDown={e => e.stopPropagation()} onClick={handleExportPdf} className="uj-export-btn" title="Open printable report for PDF export" style={{ fontSize: 11, padding: "3px 10px" }}>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ marginRight: 5, verticalAlign: "middle" }}><path d="M4 1h5l4 4v9a1.5 1.5 0 01-1.5 1.5h-7A1.5 1.5 0 013 14V2.5A1.5 1.5 0 014 1z" stroke="currentColor" strokeWidth="1.5"/><path d="M9 1v4h4" stroke="currentColor" strokeWidth="1.5"/></svg>
+          Export PDF
+        </button>
         <button onClick={onClose} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", opacity: 0.5, fontSize: 16, padding: "0 2px", lineHeight: 1 }}>✕</button>
       </div>
 
@@ -7307,26 +7435,26 @@ function HotnessAssistPanel({
         <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${chartDelay}ms` }}>
           <div className="uj-ai-section-title">Hotness Timeline — Full Period</div>
           <div style={{ background: "rgba(128,128,128,0.04)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, padding: "8px 10px 6px" }}>
-            <svg width="100%" height="52" viewBox={`0 0 ${Math.max(data.allHotness.length * 6, 120)} 52`} preserveAspectRatio="none" style={{ display: "block" }}>
-              {/* Threshold reference lines */}
+            <svg width="100%" height="90" viewBox={`0 0 ${Math.max(data.allHotness.length * 6, 120)} 90`} preserveAspectRatio="none" style={{ display: "block" }}>
+              {/* Threshold reference lines — drawn in chart area (y 16-90, 74px tall) */}
               {[{ z: 0.75, color: TL_HOT_ELEV }, { z: 1.5, color: TL_HOT_WARM }, { z: 2.5, color: TL_HOT_HIGH }].map(({ z, color }) => (
-                <line key={z} x1={0} y1={52 - (z / maxZ) * 48} x2={data.allHotness.length * 6} y2={52 - (z / maxZ) * 48} stroke={color} strokeWidth={0.5} strokeDasharray="3,2" opacity={0.4} />
+                <line key={z} x1={0} y1={90 - (z / maxZ) * 74} x2={data.allHotness.length * 6} y2={90 - (z / maxZ) * 74} stroke={color} strokeWidth={0.5} strokeDasharray="3,2" opacity={0.4} />
               ))}
               {/* Bars */}
               {data.allHotness.map((v, i) => {
-                const h = Math.max(2, (v / maxZ) * 48);
+                const h = Math.max(2, (v / maxZ) * 74);
                 const color = v >= 2.5 ? TL_HOT_HIGH : v >= 1.5 ? TL_HOT_WARM : v >= 0.75 ? TL_HOT_ELEV : "#4589FF";
                 const isWorst = i === data.worstIdx;
                 const isBest = i === data.bestIdx;
-                return <rect key={i} x={i * 6 + 0.5} y={52 - h} width={5} height={h} fill={color} opacity={isWorst || isBest ? 1 : 0.65} rx={0.5} />;
+                return <rect key={i} x={i * 6 + 0.5} y={90 - h} width={5} height={h} fill={color} opacity={isWorst || isBest ? 1 : 0.65} rx={0.5} />;
               })}
-              {/* Worst marker */}
-              <line x1={data.worstIdx * 6 + 3} y1={0} x2={data.worstIdx * 6 + 3} y2={52} stroke={TL_HOT_HIGH} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
-              <text x={Math.min(data.worstIdx * 6 + 5, data.allHotness.length * 6 - 28)} y={9} fontSize={7} fill={TL_HOT_HIGH} opacity={0.85} fontFamily="monospace">worst</text>
+              {/* Worst marker — line starts at top of chart area (y=16) so it doesn't overlap label */}
+              <line x1={data.worstIdx * 6 + 3} y1={16} x2={data.worstIdx * 6 + 3} y2={90} stroke={TL_HOT_HIGH} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
+              <text x={Math.min(data.worstIdx * 6 + 5, data.allHotness.length * 6 - 28)} y={11} fontSize={7} fill={TL_HOT_HIGH} opacity={0.85} fontFamily="monospace">worst</text>
               {/* Best marker */}
               {data.bestIdx !== data.worstIdx && <>
-                <line x1={data.bestIdx * 6 + 3} y1={0} x2={data.bestIdx * 6 + 3} y2={52} stroke={GREEN} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
-                <text x={Math.min(data.bestIdx * 6 + 5, data.allHotness.length * 6 - 24)} y={9} fontSize={7} fill={GREEN} opacity={0.85} fontFamily="monospace">best</text>
+                <line x1={data.bestIdx * 6 + 3} y1={16} x2={data.bestIdx * 6 + 3} y2={90} stroke={GREEN} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
+                <text x={Math.min(data.bestIdx * 6 + 5, data.allHotness.length * 6 - 24)} y={11} fontSize={7} fill={GREEN} opacity={0.85} fontFamily="monospace">best</text>
               </>}
             </svg>
             <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: 9, opacity: 0.4 }}>
