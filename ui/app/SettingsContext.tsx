@@ -4,7 +4,7 @@ import { useAppState, useSetAppState, useUserAppState } from "@dynatrace-sdk/rea
 // ---------------------------------------------------------------------------
 // Types & defaults
 // ---------------------------------------------------------------------------
-export type StepDef = { label: string; identifiers: string[]; type: "view" | "request"; app?: string };
+export type StepDef = { label: string; identifiers: string[]; type: "view" | "request" | "action"; app?: string };
 export type FunnelDef = {
   name: string;
   steps: StepDef[];

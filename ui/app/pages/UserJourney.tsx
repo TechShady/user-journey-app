@@ -507,8 +507,8 @@ function formatTimeAgo(ts: number): string {
   return `${Math.floor(mins / 60)}h ${mins % 60}m ago`;
 }
 
-function identifierFilter(id: string, type: "view" | "request"): string {
-  const field = type === "view" ? "view.name" : "url.path";
+function identifierFilter(id: string, type: "view" | "request" | "action"): string {
+  const field = type === "view" ? "view.name" : type === "action" ? "user_action.name" : "url.path";
   const startsW = id.startsWith("*");
   const endsW = id.endsWith("*");
   // Mid-string wildcard: /easytravel/journeys/*/book → startsWith + endsWith
@@ -1285,7 +1285,7 @@ fetch user.events, ${period}
 /** Per-page metrics — breaks down each page (view.name) individually for multi-page steps */
 function pageMetricsQuery(days: number, frontend: string, steps: StepDef[], nonce = 0, prev = false): string {
   const period = periodClause(days, prev);
-  const field = steps[0]?.type === "view" ? "view.name" : "url.path";
+  const field = steps[0]?.type === "view" ? "view.name" : steps[0]?.type === "action" ? "user_action.name" : "url.path";
   return `// ${nonce}
 fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend)}
@@ -1427,7 +1427,7 @@ function trendsSparklineQuery(days: number, frontend: string, steps: StepDef[]):
 function pageSparklineQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days, false);
   const binSize = days < 1 ? '1h' : days <= 3 ? '6h' : '1d';
-  const field = steps[0]?.type === "view" ? "view.name" : "url.path";
+  const field = steps[0]?.type === "view" ? "view.name" : steps[0]?.type === "action" ? "user_action.name" : "url.path";
   return `fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend)}
 | filter ${anyStepFilter(steps)}
@@ -4120,15 +4120,17 @@ function funnelDiscoveryQuery(apps: string[]): string {
   const appFilter = apps.length === 1
     ? `frontend.name == "${apps[0]}"`
     : `in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
-  // Build per-session ordered page paths. Client logic compresses consecutive duplicates,
-  // then either preserves revisits (strict mode) or removes repeated pages (dedup mode).
+  // Build per-session ordered step paths including both page views and click user actions.
+  // Client logic compresses consecutive duplicates, then deduplicates or preserves revisits.
   return [
     `fetch user.events, from: now()-7d`,
     `| filter ${appFilter}`,
-    `| filter isNotNull(view.name) and view.name != ""`,
-    `| sort timestamp asc, frontend.name asc, view.name asc`,
-    `| summarize pages = collectArray(view.name), apps = collectArray(frontend.name), by: {dt.rum.session.id}`,
-    `| fieldsAdd eventCount = arraySize(pages)`,
+    `| filter (isNotNull(view.name) and view.name != "") or (isNotNull(user_action.name) and user_action.name != "")`,
+    `| fieldsAdd step_name = if(isNotNull(view.name) and view.name != "", view.name, else: user_action.name)`,
+    `| fieldsAdd step_type = if(isNotNull(view.name) and view.name != "", "view", else: "action")`,
+    `| sort timestamp asc`,
+    `| summarize steps = collectArray(step_name), step_types = collectArray(step_type), apps = collectArray(frontend.name), by: {dt.rum.session.id}`,
+    `| fieldsAdd eventCount = arraySize(steps)`,
     `| filter eventCount >= 3`,
     `| limit 20000`,
   ].join("\n");
@@ -5035,27 +5037,29 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
   const discoveryData = useDql({ query: runDiscovery ? funnelDiscoveryQuery(discoveryApps) : "fetch user.events | limit 0" });
   const discoveryRecords = discoveryData.data?.records ?? [];
 
-  // Build candidate funnels from actual sequential page paths in sessions.
+  // Build candidate funnels from per-session step paths (views + click user actions).
   // strict mode: preserve revisits; dedup mode: remove revisits after first appearance.
   const candidates = useMemo<{ steps: StepDef[]; sessions: number; app: string }[]>(() => {
     if (!runDiscovery || discoveryRecords.length === 0) return [];
 
-    const counts = new Map<string, { app: string; path: Array<{ app: string; page: string }>; sessions: number }>();
+    const counts = new Map<string, { app: string; path: Array<{ app: string; page: string; stepType: "view" | "action" }>; sessions: number }>();
     const include = activeFilter.trim().toLowerCase();
     const exclude = activeExclude.trim().toLowerCase();
 
     for (const rec of discoveryRecords as any[]) {
-      const rawPages = Array.isArray(rec.pages) ? rec.pages : [];
+      const rawSteps = Array.isArray(rec.steps) ? rec.steps : [];
+      const rawTypes = Array.isArray(rec.step_types) ? rec.step_types : [];
       const rawApps = Array.isArray(rec.apps) ? rec.apps : [];
-      const zipped: Array<{ app: string; page: string }> = [];
-      for (let i = 0; i < rawPages.length; i++) {
-        const page = String(rawPages[i] ?? "").trim();
+      const zipped: Array<{ app: string; page: string; stepType: "view" | "action" }> = [];
+      for (let i = 0; i < rawSteps.length; i++) {
+        const page = String(rawSteps[i] ?? "").trim();
         if (!page) continue;
         const app = String(rawApps[i] ?? frontend).trim() || frontend;
+        const stepType = (String(rawTypes[i] ?? "view").trim() || "view") as "view" | "action";
         const prev = zipped[zipped.length - 1];
-        // Collapse consecutive repeats produced by non-view events on the same page.
+        // Collapse consecutive repeats (same step name back-to-back).
         if (prev && prev.app === app && prev.page === page) continue;
-        zipped.push({ app, page });
+        zipped.push({ app, page, stepType });
       }
 
       if (zipped.length < 3) continue;
@@ -5089,9 +5093,11 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
         app: r.app,
         sessions: r.sessions,
         steps: r.path.map((p, i) => ({
-          label: p.page.split('/').filter(Boolean).pop() || `Step ${i + 1}`,
+          label: p.stepType === "view"
+            ? (p.page.split('/').filter(Boolean).pop() || `Step ${i + 1}`)
+            : p.page,
           identifiers: [p.page],
-          type: "view" as const,
+          type: p.stepType,
           app: p.app,
         })),
       }));
@@ -6588,11 +6594,12 @@ export function UserJourney() {
                     </div>
                     <div style={{ minWidth: 100 }}>
                       <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 2 }}>Type</Text>
-                      <Select value={step.type} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], type: (val ?? "view") as "view" | "request" }; saveSteps(next); }}>
+                      <Select value={step.type} onChange={(val) => { const next = [...steps]; next[i] = { ...next[i], type: (val ?? "view") as "view" | "request" | "action" }; saveSteps(next); }}>
                         <Select.Trigger style={{ minWidth: 90 }} />
                         <Select.Content>
                           <Select.Option value="view">View</Select.Option>
                           <Select.Option value="request">Request</Select.Option>
+                          <Select.Option value="action">Action</Select.Option>
                         </Select.Content>
                       </Select>
                     </div>
