@@ -4121,13 +4121,17 @@ function funnelDiscoveryQuery(apps: string[]): string {
     ? `frontend.name == "${apps[0]}"`
     : `in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
   // Build per-session ordered step paths including both page views and click user actions.
-  // Client logic compresses consecutive duplicates, then deduplicates or preserves revisits.
+  // Use characteristics.has_page_summary to identify true page-load events; click actions
+  // also carry view.name (set to the current page) so we cannot rely on view.name alone.
+  // Exclude XHR/resource events (characteristics.has_request) to keep only views + clicks.
   return [
     `fetch user.events, from: now()-7d`,
     `| filter ${appFilter}`,
-    `| filter (isNotNull(view.name) and view.name != "") or (isNotNull(user_action.name) and user_action.name != "")`,
-    `| fieldsAdd step_name = if(isNotNull(view.name) and view.name != "", view.name, else: user_action.name)`,
-    `| fieldsAdd step_type = if(isNotNull(view.name) and view.name != "", "view", else: "action")`,
+    `| filter characteristics.has_request != true`,
+    `| filter (characteristics.has_page_summary == true and isNotNull(view.name) and view.name != "") or (isNotNull(user_action.name) and user_action.name != "")`,
+    `| fieldsAdd step_name = if(characteristics.has_page_summary == true, view.name, else: user_action.name)`,
+    `| fieldsAdd step_type = if(characteristics.has_page_summary == true, "view", else: "action")`,
+    `| filter isNotNull(step_name) and step_name != ""`,
     `| sort timestamp asc`,
     `| summarize steps = collectArray(step_name), step_types = collectArray(step_type), apps = collectArray(frontend.name), by: {dt.rum.session.id}`,
     `| fieldsAdd eventCount = arraySize(steps)`,
