@@ -7269,14 +7269,14 @@ function HotnessAssistPanel({
     const svgW = Math.max(data.allHotness.length * 6, 120);
 
     const bars = data.allHotness.map((v, i) => {
-      const h = Math.max(2, (v / rMaxZ) * 74);
+      const h = Math.max(2, (v / rMaxZ) * 106);
       const color = v >= 2.5 ? "#FF073A" : v >= 1.5 ? "#FF3D9A" : v >= 0.75 ? "#FFF04D" : "#4589FF";
-      return `<rect x="${i * 6 + 0.5}" y="${90 - h}" width="5" height="${h}" fill="${color}" opacity="${i === data.worstIdx || i === data.bestIdx ? 1 : 0.65}" rx="0.5"/>`;
+      return `<rect x="${i * 6 + 0.5}" y="${130 - h}" width="5" height="${h}" fill="${color}" opacity="${i === data.worstIdx || i === data.bestIdx ? 1 : 0.65}" rx="0.5"/>`;
     }).join("");
     const threshLines = [{ z: 0.75, c: "#FFF04D" }, { z: 1.5, c: "#FF3D9A" }, { z: 2.5, c: "#FF073A" }]
-      .map(({ z, c }) => `<line x1="0" y1="${90 - (z / rMaxZ) * 74}" x2="${svgW}" y2="${90 - (z / rMaxZ) * 74}" stroke="${c}" stroke-width="0.5" stroke-dasharray="3,2" opacity="0.4"/>`).join("");
-    const worstMark = `<line x1="${data.worstIdx * 6 + 3}" y1="16" x2="${data.worstIdx * 6 + 3}" y2="90" stroke="#FF073A" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${Math.min(data.worstIdx * 6 + 5, svgW - 28)}" y="11" font-size="7" fill="#FF073A" opacity="0.85" font-family="monospace">worst</text>`;
-    const bestMark = data.bestIdx !== data.worstIdx ? `<line x1="${data.bestIdx * 6 + 3}" y1="16" x2="${data.bestIdx * 6 + 3}" y2="90" stroke="#0D9C29" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${Math.min(data.bestIdx * 6 + 5, svgW - 24)}" y="11" font-size="7" fill="#0D9C29" opacity="0.85" font-family="monospace">best</text>` : "";
+      .map(({ z, c }) => `<line x1="0" y1="${130 - (z / rMaxZ) * 106}" x2="${svgW}" y2="${130 - (z / rMaxZ) * 106}" stroke="${c}" stroke-width="0.5" stroke-dasharray="3,2" opacity="0.4"/>`).join("");
+    const worstMark = `<line x1="${data.worstIdx * 6 + 3}" y1="24" x2="${data.worstIdx * 6 + 3}" y2="130" stroke="#FF073A" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${Math.min(data.worstIdx * 6 + 5, svgW - 36)}" y="17" font-size="9" fill="#FF073A" opacity="0.9" font-family="monospace" font-weight="600">worst</text>`;
+    const bestMark = data.bestIdx !== data.worstIdx ? `<line x1="${data.bestIdx * 6 + 3}" y1="24" x2="${data.bestIdx * 6 + 3}" y2="130" stroke="#0D9C29" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${Math.min(data.bestIdx * 6 + 5, svgW - 28)}" y="17" font-size="9" fill="#0D9C29" opacity="0.9" font-family="monospace" font-weight="600">best</text>` : "";
 
     const worstRows = [
       { l: "Sessions", v: rFmtCount(data.worstRow.sessions) },
@@ -7344,7 +7344,7 @@ function HotnessAssistPanel({
 
 <h2>Hotness Timeline — Full Period</h2>
 <div style="background:rgba(128,128,128,0.04);border:1px solid rgba(128,128,128,0.15);border-radius:8px;padding:8px 10px 6px;margin-bottom:20px">
-  <svg width="100%" height="90" viewBox="0 0 ${svgW} 90" preserveAspectRatio="none" style="display:block">${threshLines}${bars}${worstMark}${bestMark}</svg>
+  <svg width="100%" height="130" viewBox="0 0 ${svgW} 130" preserveAspectRatio="none" style="display:block">${threshLines}${bars}${worstMark}${bestMark}</svg>
   <div style="display:flex;gap:12px;margin-top:4px;font-size:10px;opacity:0.5">
     <span><span style="display:inline-block;width:7px;height:7px;background:#FFF04D;border-radius:1px;vertical-align:middle;margin-right:3px"></span>Elevated (Z≥0.75)</span>
     <span><span style="display:inline-block;width:7px;height:7px;background:#FF3D9A;border-radius:1px;vertical-align:middle;margin-right:3px"></span>Warm (Z≥1.5)</span>
@@ -7435,26 +7435,26 @@ ${problemsHtml}
         <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${chartDelay}ms` }}>
           <div className="uj-ai-section-title">Hotness Timeline — Full Period</div>
           <div style={{ background: "rgba(128,128,128,0.04)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, padding: "8px 10px 6px" }}>
-            <svg width="100%" height="90" viewBox={`0 0 ${Math.max(data.allHotness.length * 6, 120)} 90`} preserveAspectRatio="none" style={{ display: "block" }}>
-              {/* Threshold reference lines — drawn in chart area (y 16-90, 74px tall) */}
+            <svg width="100%" height="130" viewBox={`0 0 ${Math.max(data.allHotness.length * 6, 120)} 130`} preserveAspectRatio="none" style={{ display: "block" }}>
+              {/* Threshold reference lines — chart area is y=24 to y=130 (106px) */}
               {[{ z: 0.75, color: TL_HOT_ELEV }, { z: 1.5, color: TL_HOT_WARM }, { z: 2.5, color: TL_HOT_HIGH }].map(({ z, color }) => (
-                <line key={z} x1={0} y1={90 - (z / maxZ) * 74} x2={data.allHotness.length * 6} y2={90 - (z / maxZ) * 74} stroke={color} strokeWidth={0.5} strokeDasharray="3,2" opacity={0.4} />
+                <line key={z} x1={0} y1={130 - (z / maxZ) * 106} x2={data.allHotness.length * 6} y2={130 - (z / maxZ) * 106} stroke={color} strokeWidth={0.5} strokeDasharray="3,2" opacity={0.4} />
               ))}
               {/* Bars */}
               {data.allHotness.map((v, i) => {
-                const h = Math.max(2, (v / maxZ) * 74);
+                const h = Math.max(2, (v / maxZ) * 106);
                 const color = v >= 2.5 ? TL_HOT_HIGH : v >= 1.5 ? TL_HOT_WARM : v >= 0.75 ? TL_HOT_ELEV : "#4589FF";
                 const isWorst = i === data.worstIdx;
                 const isBest = i === data.bestIdx;
-                return <rect key={i} x={i * 6 + 0.5} y={90 - h} width={5} height={h} fill={color} opacity={isWorst || isBest ? 1 : 0.65} rx={0.5} />;
+                return <rect key={i} x={i * 6 + 0.5} y={130 - h} width={5} height={h} fill={color} opacity={isWorst || isBest ? 1 : 0.65} rx={0.5} />;
               })}
-              {/* Worst marker — line starts at top of chart area (y=16) so it doesn't overlap label */}
-              <line x1={data.worstIdx * 6 + 3} y1={16} x2={data.worstIdx * 6 + 3} y2={90} stroke={TL_HOT_HIGH} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
-              <text x={Math.min(data.worstIdx * 6 + 5, data.allHotness.length * 6 - 28)} y={11} fontSize={7} fill={TL_HOT_HIGH} opacity={0.85} fontFamily="monospace">worst</text>
+              {/* Worst marker — line starts at y=24 (below label zone) */}
+              <line x1={data.worstIdx * 6 + 3} y1={24} x2={data.worstIdx * 6 + 3} y2={130} stroke={TL_HOT_HIGH} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
+              <text x={Math.min(data.worstIdx * 6 + 5, data.allHotness.length * 6 - 36)} y={17} fontSize={9} fill={TL_HOT_HIGH} opacity={0.9} fontFamily="monospace" fontWeight="600">worst</text>
               {/* Best marker */}
               {data.bestIdx !== data.worstIdx && <>
-                <line x1={data.bestIdx * 6 + 3} y1={16} x2={data.bestIdx * 6 + 3} y2={90} stroke={GREEN} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
-                <text x={Math.min(data.bestIdx * 6 + 5, data.allHotness.length * 6 - 24)} y={11} fontSize={7} fill={GREEN} opacity={0.85} fontFamily="monospace">best</text>
+                <line x1={data.bestIdx * 6 + 3} y1={24} x2={data.bestIdx * 6 + 3} y2={130} stroke={GREEN} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
+                <text x={Math.min(data.bestIdx * 6 + 5, data.allHotness.length * 6 - 28)} y={17} fontSize={9} fill={GREEN} opacity={0.9} fontFamily="monospace" fontWeight="600">best</text>
               </>}
             </svg>
             <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: 9, opacity: 0.4 }}>
