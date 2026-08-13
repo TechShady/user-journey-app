@@ -4121,14 +4121,14 @@ function funnelDiscoveryQuery(apps: string[]): string {
     ? `frontend.name == "${apps[0]}"`
     : `in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
   // Build per-session ordered step paths including both page views and click user actions.
-  // Use characteristics.has_page_summary to identify true page-load events; click actions
-  // also carry view.name (set to the current page) so we cannot rely on view.name alone.
-  // Exclude XHR/resource events (characteristics.has_request) to keep only views + clicks.
+  // Click actions also carry view.name (set to the current page) so we use
+  // characteristics.has_page_summary to distinguish true page-load events from clicks.
+  // Note: DQL null comparisons (field != true) are falsy when the field is unset, so we
+  // avoid filtering on characteristics flags and instead use them only in fieldsAdd.
   return [
     `fetch user.events, from: now()-7d`,
     `| filter ${appFilter}`,
-    `| filter characteristics.has_request != true`,
-    `| filter (characteristics.has_page_summary == true and isNotNull(view.name) and view.name != "") or (isNotNull(user_action.name) and user_action.name != "")`,
+    `| filter (isNotNull(view.name) and view.name != "") or (isNotNull(user_action.name) and user_action.name != "")`,
     `| fieldsAdd step_name = if(characteristics.has_page_summary == true, view.name, else: user_action.name)`,
     `| fieldsAdd step_type = if(characteristics.has_page_summary == true, "view", else: "action")`,
     `| filter isNotNull(step_name) and step_name != ""`,
