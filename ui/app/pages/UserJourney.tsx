@@ -22,7 +22,7 @@ import { LAMBO_CAR } from "../lamboCarImage";
 import { useSettings, DEFAULT_FRONTEND, DEFAULT_FUNNEL_STEPS, DEFAULT_FUNNELS, MIN_STEPS, MAX_STEPS, MAX_FUNNELS, DEFAULT_AOV, INDUSTRY_OPTIONS, INDUSTRY_BENCHMARKS, IndustryType, IndustryBenchmark } from "../SettingsContext";
 import type { StepDef, FunnelDef } from "../SettingsContext";
 import { useTimelapse, TL_BUCKETS, TL_SPEEDS } from "../TimelapseContext";
-import type { TlBucket } from "../TimelapseContext";
+import type { TlBucket, SharedBucketMetrics } from "../TimelapseContext";
 import { HyperlyzerTab } from "./HyperlyzerTab";
 import { ForecastModal } from "../components/ForecastModal";
 import { CorrelationsPanel, CorrelationsContext, computeCorrelations } from "../components/CorrelationsPanel";
@@ -94,7 +94,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.37";
+const APP_VERSION_LABEL = "4.76.45";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -5310,6 +5310,9 @@ export function UserJourney() {
   const [visitedTabs, setVisitedTabs] = useState<Set<TabKey>>(new Set<TabKey>(["Funnel Overview"]));
   const [tlDiagPanel, setTlDiagPanel] = useState<{ pos: { x: number; y: number } } | null>(null);
   const tlDiagDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const [hotnessAssistOpen, setHotnessAssistOpen] = useState(false);
+  const [hotnessAssistPos, setHotnessAssistPos] = useState<{ x: number; y: number }>({ x: 200, y: 80 });
+  const hotnessAssistDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const closeAiInsights = React.useCallback(() => setAiOpen(false), []);
   const aiContextValue = React.useMemo(() => ({ open: aiOpen, close: closeAiInsights, activeSubTab: activeSubTabKey }), [aiOpen, closeAiInsights, activeSubTabKey]);
@@ -5966,8 +5969,21 @@ export function UserJourney() {
     window.addEventListener('mouseup', onUp);
   }, [tlDiagPanel]);
 
+  const startHotnessAssistDrag = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    hotnessAssistDragRef.current = { startX: e.clientX, startY: e.clientY, origX: hotnessAssistPos.x, origY: hotnessAssistPos.y };
+    const onMove = (me: MouseEvent) => {
+      if (!hotnessAssistDragRef.current) return;
+      setHotnessAssistPos({ x: hotnessAssistDragRef.current.origX + me.clientX - hotnessAssistDragRef.current.startX, y: hotnessAssistDragRef.current.origY + me.clientY - hotnessAssistDragRef.current.startY });
+    };
+    const onUp = () => { hotnessAssistDragRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [hotnessAssistPos]);
+
   // Close the diag panel when Time-Lapse is turned off
   useEffect(() => { if (!tl.enabled) setTlDiagPanel(null); }, [tl.enabled]);
+  useEffect(() => { if (!tl.enabled) setHotnessAssistOpen(false); }, [tl.enabled]);
 
   // Parse funnel
   const parseFunnel = (result: any) => {
@@ -6088,6 +6104,22 @@ export function UserJourney() {
   const lastIdx = steps.length - 1;
   const overallConv = funnelCounts[0] > 0 ? (funnelCounts[lastIdx] / funnelCounts[0]) * 100 : 0;
   const overallConvPrev = funnelCountsPrev[0] > 0 ? (funnelCountsPrev[lastIdx] / funnelCountsPrev[0]) * 100 : 0;
+
+  const hotnessAssistData = React.useMemo(() => {
+    if (!tl.enabled || tl.sharedMetricsAll.length < 2 || !tlSharedBaselines || tl.hotness.length === 0) return null;
+    return analyzeHotnessTimelapse(
+      tl.sharedMetricsAll,
+      tl.hotness,
+      tlSharedBaselines,
+      tlProblemsOpenedByBucket,
+      overallConv,
+      aov,
+      tl.bucket,
+      industry,
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tl.enabled, tl.sharedMetricsAll, tl.hotness, tlSharedBaselines, tlProblemsOpenedByBucket, overallConv, aov, tl.bucket, industry]);
+
   const isLoading = funnelResult.isLoading || stepMetrics.isLoading;
   const isFunnelFetching = funnelResult.isFetching || stepMetrics.isFetching || qualityData.isFetching;
 
@@ -6332,6 +6364,9 @@ export function UserJourney() {
                   <span style={{ fontSize: 10, opacity: 0.55 }}><span style={{ display: "inline-block", width: 8, height: 8, background: TL_HOT_WARM, borderRadius: 2, marginRight: 4, verticalAlign: "middle" }} />Warm</span>
                   <span style={{ fontSize: 10, opacity: 0.55 }}><span style={{ display: "inline-block", width: 8, height: 8, background: TL_HOT_HIGH, borderRadius: 2, marginRight: 4, verticalAlign: "middle" }} />Spike</span>
                   <span style={{ fontSize: 10, opacity: 0.55, fontFamily: "monospace" }}>peak z={maxHot.toFixed(1)}</span>
+                  {hotnessAssistData && (
+                    <HotnessAssistButton active={hotnessAssistOpen} onClick={() => setHotnessAssistOpen(v => !v)} />
+                  )}
                 </Flex>
               </Flex>
               <div style={{ display: "flex", alignItems: "flex-end", gap: 1, height: stripH, cursor: "pointer" }}>
@@ -6462,6 +6497,16 @@ export function UserJourney() {
           </div>
         );
       })(), document.body)}
+
+      {hotnessAssistOpen && hotnessAssistData && createPortal(
+        <HotnessAssistPanel
+          data={hotnessAssistData}
+          pos={hotnessAssistPos}
+          onClose={() => setHotnessAssistOpen(false)}
+          onDragStart={startHotnessAssistDrag}
+        />,
+        document.body
+      )}
 
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
       <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
@@ -6958,6 +7003,488 @@ export function UserJourney() {
           onClose={() => setCorrelationsTarget(null)}
         />
       )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// HOTNESS ASSIST — Full-period timelapse analysis engine
+// ===========================================================================
+interface HotnessAssistData {
+  summary: string;
+  worstIdx: number;
+  worstBucketKey: string;
+  worstHotZ: number;
+  worstDriver: string;
+  worstRow: SharedBucketMetrics;
+  worstProblems: { problemId: string; displayId: string; title: string }[];
+  worstEstimatedConvDrop: number;
+  worstEstimatedRevLoss: number;
+  bestIdx: number;
+  bestBucketKey: string;
+  bestRow: SharedBucketMetrics;
+  bestEstimatedConv: number;
+  bestEstimatedRev: number;
+  bestProblemsCount: number;
+  hotBuckets: number;
+  criticalBuckets: number;
+  totalEstimatedRevLoss: number;
+  totalLostConversions: number;
+  alertStormBuckets: number;
+  errorRateDelta: number;
+  durationDelta: number;
+  apdexDelta: number;
+  lcpDelta: number | null;
+  allHotness: number[];
+  insights: InsightItem[];
+  recommendations: RecommendationItem[];
+}
+
+function analyzeHotnessTimelapse(
+  allRows: SharedBucketMetrics[],
+  hotness: number[],
+  baselines: { sessions: { mean: number; std: number }; errorRate: { mean: number; std: number }; avgDurationMs: { mean: number; std: number }; apdex: { mean: number; std: number }; lcp: { mean: number; std: number }; openedProblems: { mean: number; std: number } },
+  problemsByBucket: { problemId: string; displayId: string; title: string; startMs: number; endMs: number | null; status: string }[][],
+  overallConv: number,
+  aov: number,
+  bucketGranularity: string,
+  industry: IndustryType,
+): HotnessAssistData {
+  // Find worst (hottest) and best (coolest) buckets
+  let worstIdx = 0;
+  let bestIdx = 0;
+  for (let i = 0; i < hotness.length; i++) {
+    if ((hotness[i] ?? 0) > (hotness[worstIdx] ?? 0)) worstIdx = i;
+    if ((hotness[i] ?? 0) < (hotness[bestIdx] ?? 0)) bestIdx = i;
+  }
+  const worstRow = allRows[worstIdx];
+  const bestRow = allRows[bestIdx];
+  const worstZ = hotness[worstIdx] ?? 0;
+  const bestZ = hotness[bestIdx] ?? 0;
+
+  // Performance→Conversion correlation model (Deloitte/Google research):
+  // 100ms extra latency ≈ 1% conversion drop; 1pp error rate ≈ 0.5% conv drop; 0.1 Apdex drop ≈ 2% conv drop
+  const estimateConvRate = (row: SharedBucketMetrics): number => {
+    const durationImpact = ((row.avgDurationMs - baselines.avgDurationMs.mean) / 100) * 0.01;
+    const errorImpact = (row.errorRate - baselines.errorRate.mean) * 0.005;
+    const apdexImpact = Math.max(0, baselines.apdex.mean - row.apdex) * 0.2;
+    const multiplier = Math.max(0.4, 1 - durationImpact - errorImpact - apdexImpact);
+    return overallConv * multiplier;
+  };
+
+  let totalRevLoss = 0;
+  let totalLostConversions = 0;
+  let hotBuckets = 0;
+  let criticalBuckets = 0;
+  let alertStormBuckets = 0;
+
+  for (let i = 0; i < allRows.length; i++) {
+    const z = hotness[i] ?? 0;
+    const row = allRows[i];
+    const problems = problemsByBucket[i] ?? [];
+    if (z >= 0.75) {
+      hotBuckets++;
+      const estimatedConv = estimateConvRate(row);
+      const lostConv = Math.max(0, row.sessions * (overallConv - estimatedConv) / 100);
+      totalLostConversions += lostConv;
+      totalRevLoss += lostConv * aov;
+      if (problems.length > 0) alertStormBuckets++;
+    }
+    if (z >= 2.5) criticalBuckets++;
+  }
+
+  const worstConvRate = estimateConvRate(worstRow);
+  const worstConvDrop = Math.max(0, overallConv - worstConvRate);
+  const worstRevLoss = worstRow.sessions * (worstConvDrop / 100) * aov;
+  const worstProblems = problemsByBucket[worstIdx] ?? [];
+
+  const bestConvRate = estimateConvRate(bestRow);
+  const bestRev = bestRow.sessions * (bestConvRate / 100) * aov;
+  const bestProblemsCount = (problemsByBucket[bestIdx] ?? []).length;
+
+  // Driver classification for worst bucket Z-scores
+  const errZ = baselines.errorRate.std > 0 ? (worstRow.errorRate - baselines.errorRate.mean) / baselines.errorRate.std : 0;
+  const durZ = baselines.avgDurationMs.std > 0 ? (worstRow.avgDurationMs - baselines.avgDurationMs.mean) / baselines.avgDurationMs.std : 0;
+  const apdexBadZ = baselines.apdex.std > 0 ? (baselines.apdex.mean - worstRow.apdex) / baselines.apdex.std : 0;
+  const sessZ = baselines.sessions.std > 0 ? (worstRow.sessions - baselines.sessions.mean) / baselines.sessions.std : 0;
+
+  let worstDriver = "Mixed issues";
+  if (worstProblems.length >= 2) worstDriver = "Alert storm";
+  else if (worstProblems.length === 1 && worstZ >= 1.5) worstDriver = "Active incident";
+  else if (errZ >= 2.5) worstDriver = "Error storm";
+  else if (errZ >= 1.5) worstDriver = "Error rate spike";
+  else if (durZ >= 2.5 || apdexBadZ >= 2.5) worstDriver = "Severe performance regression";
+  else if (durZ >= 1.5) worstDriver = "Performance regression";
+  else if (apdexBadZ >= 1.5) worstDriver = "Experience degradation";
+  else if (sessZ >= 2.0) worstDriver = "Traffic surge";
+  else if (sessZ <= -1.5) worstDriver = "Traffic anomaly";
+
+  const errorRateDelta = worstRow.errorRate - bestRow.errorRate;
+  const durationDelta = worstRow.avgDurationMs - bestRow.avgDurationMs;
+  const apdexDelta = bestRow.apdex - worstRow.apdex;
+  const lcpDelta = (worstRow.lcp != null && bestRow.lcp != null) ? worstRow.lcp - bestRow.lcp : null;
+
+  // Build insights array
+  const insights: InsightItem[] = [];
+
+  if (worstZ >= 2.5) {
+    insights.push({ severity: "critical", icon: "🔥", text: `Peak critical spike at bucket ${worstIdx + 1} (${worstRow.bucket}, Z=${worstZ.toFixed(1)}) driven by ${worstDriver.toLowerCase()}. Error rate hit ${worstRow.errorRate.toFixed(1)}%, avg load ${Math.round(worstRow.avgDurationMs)}ms, Apdex ${worstRow.apdex.toFixed(2)}. Estimated conversion drop: ${worstConvDrop.toFixed(1)}pp${aov > 0 ? `, single-window revenue impact: ~$${Math.round(worstRevLoss).toLocaleString()}` : ""}.` });
+  } else if (worstZ >= 1.5) {
+    insights.push({ severity: "warning", icon: "⚠️", text: `Worst window at bucket ${worstIdx + 1} (${worstRow.bucket}, Z=${worstZ.toFixed(1)}) — ${worstDriver.toLowerCase()}. Estimated ${worstConvDrop.toFixed(1)}pp conversion drop${aov > 0 ? `, costing ~$${Math.round(worstRevLoss).toLocaleString()} in that window` : ""}.` });
+  } else if (worstZ >= 0.75) {
+    insights.push({ severity: "info", icon: "📈", text: `Hottest window at bucket ${worstIdx + 1} (${worstRow.bucket}, Z=${worstZ.toFixed(1)}) showed elevated metrics but remained in tolerable range. Estimated minor conversion impact of ${worstConvDrop.toFixed(1)}pp.` });
+  }
+
+  if (alertStormBuckets > 0) {
+    const totalProblems = problemsByBucket.filter((_, i) => (hotness[i] ?? 0) >= 0.75).reduce((acc, arr) => acc + arr.length, 0);
+    insights.push({ severity: "critical", icon: "🚨", text: `Davis alert storms coincided with hotness spikes in ${alertStormBuckets} bucket${alertStormBuckets !== 1 ? "s" : ""} (${totalProblems} total problem${totalProblems !== 1 ? "s" : ""}). Active incidents amplify user-facing degradation — errors, latency, and frustrated sessions spike in lockstep with Davis problems.` });
+  }
+
+  insights.push({ severity: "good", icon: "✨", text: `Peak performance window: bucket ${bestIdx + 1} (${bestRow.bucket}, Z=${bestZ.toFixed(2)}) — Apdex ${bestRow.apdex.toFixed(3)}, error rate ${bestRow.errorRate.toFixed(1)}%, load ${Math.round(bestRow.avgDurationMs)}ms. At these conditions estimated conversion reaches ${bestConvRate.toFixed(1)}%${aov > 0 ? `, generating ~$${Math.round(bestRev).toLocaleString()} per window` : ""}.` });
+
+  if (totalRevLoss > aov && aov > 0) {
+    insights.push({ severity: "warning", icon: "💸", text: `Across ${hotBuckets} elevated/hot bucket${hotBuckets !== 1 ? "s" : ""}, an estimated ${Math.round(totalLostConversions)} conversion${Math.round(totalLostConversions) !== 1 ? "s" : ""} were lost, totaling ~$${Math.round(totalRevLoss).toLocaleString()} in revenue impact. That's ${fmtCount(Math.round(totalLostConversions / Math.max(1, hotBuckets)))} lost conversions per hot window on average.` });
+  }
+
+  if (errorRateDelta > 2) {
+    insights.push({ severity: "warning", icon: "🐛", text: `Error rate gap between best and worst: ${errorRateDelta.toFixed(1)}pp (${bestRow.errorRate.toFixed(1)}% best vs ${worstRow.errorRate.toFixed(1)}% worst). Error rate is the highest-leverage conversion metric — every 1pp of error rate costs an estimated 0.5pp of conversion.` });
+  }
+
+  if (durationDelta > 300) {
+    insights.push({ severity: "warning", icon: "⏱️", text: `Load time gap: ${Math.round(durationDelta)}ms slower at worst vs best (${Math.round(bestRow.avgDurationMs)}ms best vs ${Math.round(worstRow.avgDurationMs)}ms worst). Each 100ms of added latency reduces conversions by ~1% — this ${Math.round(durationDelta)}ms gap contributes an estimated ${(durationDelta / 100).toFixed(1)}pp conversion loss.` });
+  }
+
+  if (lcpDelta != null && lcpDelta > 500) {
+    insights.push({ severity: "warning", icon: "🖼️", text: `LCP worsened ${Math.round(lcpDelta)}ms during the spike (${Math.round(bestRow.lcp!)}ms best → ${Math.round(worstRow.lcp!)}ms worst). Poor LCP degrades Core Web Vitals scores and Google search ranking, compounding the revenue impact beyond the observation window.` });
+  }
+
+  if (criticalBuckets > 0) {
+    insights.push({ severity: "critical", icon: "🚨", text: `${criticalBuckets} bucket${criticalBuckets !== 1 ? "s" : ""} reached critical spike level (Z≥2.5), indicating severe operational incidents. These windows are your highest-priority remediation targets with the largest per-window revenue impact.` });
+  }
+
+  if (sessZ >= 1.5) {
+    insights.push({ severity: "info", icon: "📈", text: `Traffic surge (${fmtCount(worstRow.sessions)} sessions vs ${fmtCount(Math.round(baselines.sessions.mean))} avg) coincided with the worst spike. High traffic amplifies latency at the infrastructure level — performance issues tolerable at normal load become critical under surge conditions.` });
+  } else if (sessZ <= -1.5) {
+    insights.push({ severity: "info", icon: "📉", text: `Traffic was unusually low during some hot periods. Degradation under low traffic often indicates infrastructure or cold-cache issues rather than capacity constraints.` });
+  }
+
+  const frustWorst = worstRow.sessions > 0 ? (worstRow.frustrated / worstRow.sessions) * 100 : 0;
+  const frustBest = bestRow.sessions > 0 ? (bestRow.frustrated / bestRow.sessions) * 100 : 0;
+  if (frustWorst > 15 && frustWorst > frustBest * 1.5) {
+    insights.push({ severity: "warning", icon: "😤", text: `Frustrated user share hit ${frustWorst.toFixed(1)}% during worst window vs ${frustBest.toFixed(1)}% at best. Frustrated users have <5% chance of completing a purchase — each ${bucketGranularity} of frustrated traffic multiplies conversion loss.` });
+  }
+
+  if (bestProblemsCount === 0 && alertStormBuckets > 0) {
+    insights.push({ severity: "good", icon: "🛡️", text: `The best-performing window had zero active Davis problems, confirming that keeping the alert queue clean directly translates to better user experience and higher conversion rates.` });
+  }
+
+  // Build recommendations
+  const recs: RecommendationItem[] = [];
+
+  if (worstProblems.length > 0) {
+    const names = worstProblems.slice(0, 2).map(p => p.title).join("; ");
+    recs.push({ impact: "high", text: `Root-cause and prevent the ${worstProblems.length} incident${worstProblems.length !== 1 ? "s" : ""} that opened during the worst spike (${names}${worstProblems.length > 2 ? ` + ${worstProblems.length - 2} more` : ""}).${aov > 0 ? ` Resolving these alert storms could recover ~$${Math.round(worstRevLoss).toLocaleString()} per equivalent traffic window.` : ""}` });
+  } else if (worstDriver.includes("Error")) {
+    recs.push({ impact: "high", text: `Identify the root cause of the error surge to ${worstRow.errorRate.toFixed(1)}% during ${worstRow.bucket}. Returning to baseline ${baselines.errorRate.mean.toFixed(1)}% error rate would recover ~${worstConvDrop.toFixed(1)}pp of conversion${aov > 0 ? `, worth $${Math.round(worstRevLoss).toLocaleString()} per equivalent window` : ""}.` });
+  } else if (worstDriver.includes("Performance") || worstDriver.includes("regression")) {
+    recs.push({ impact: "high", text: `Investigate the ${Math.round(durationDelta)}ms load time regression during ${worstRow.bucket}. Common causes: slow backend queries, CDN cache miss storm, or infrastructure saturation.${aov > 0 ? ` Resolving this would recover ~$${Math.round(worstRevLoss).toLocaleString()} per equivalent window.` : ""}` });
+  }
+
+  if (worstZ > 0.75 && bestZ < worstZ * 0.5) {
+    recs.push({ impact: "high", text: `Engineer for ${bestRow.bucket}-style conditions consistently: Apdex ${bestRow.apdex.toFixed(2)}, error rate ${bestRow.errorRate.toFixed(1)}%, ${Math.round(bestRow.avgDurationMs)}ms load.${aov > 0 && totalRevLoss > 0 ? ` If all ${allRows.length} buckets matched best-window performance, estimated total revenue uplift would be ~$${Math.round(totalRevLoss).toLocaleString()}.` : ""}` });
+  }
+
+  if (worstConvDrop > 1) {
+    recs.push({ impact: "medium", text: `Set up a Davis anomaly detection metric event on funnel conversion rate. If conversion drops more than ${(worstConvDrop / 2).toFixed(1)}pp in any ${bucketGranularity} window, trigger an auto-remediation workflow or PagerDuty escalation${aov > 0 ? ` — the ${worstConvDrop.toFixed(1)}pp drop in this analysis represents ~$${Math.round(worstRevLoss / Math.max(1, worstRow.sessions) * 1000).toLocaleString()} per 1,000 sessions` : ""}.` });
+  }
+
+  if (durationDelta > 500) {
+    recs.push({ impact: "medium", text: `Audit CDN cache-hit rates during the spike window — a cache miss storm under peak load is the most common cause of a ${Math.round(durationDelta)}ms latency jump. Target ≥85% CDN cache-hit ratio and configure origin shield / stale-while-revalidate to prevent cascade.` });
+  }
+
+  if (totalRevLoss > aov * 20 && aov > 0) {
+    recs.push({ impact: "medium", text: `Build a real-time revenue-at-risk dashboard in Dynatrace Notebooks: track estimated conversion rate and revenue per ${bucketGranularity} window using the same hotness correlation model. This gives on-call engineers immediate business context during incidents — "this P1 is costing ~$${Math.round(totalRevLoss / Math.max(1, hotBuckets)).toLocaleString()} per ${bucketGranularity}" accelerates prioritization.` });
+  }
+
+  if (sessZ >= 1.5 && (durZ >= 1.0 || errZ >= 1.0)) {
+    recs.push({ impact: "medium", text: `Traffic surge correlated with performance degradation — horizontal scaling headroom may be insufficient. Review auto-scaling policies and set scale-out triggers at ${Math.round(baselines.sessions.mean * 1.3)} sessions/${bucketGranularity} (130% of average) to proactively absorb burst traffic before it degrades UX.` });
+  }
+
+  // Build summary
+  const spikeSummary = criticalBuckets > 0
+    ? `${hotBuckets} bucket${hotBuckets !== 1 ? "s" : ""} showed elevated hotness including ${criticalBuckets} critical spike${criticalBuckets !== 1 ? "s" : ""}`
+    : hotBuckets > 0
+      ? `${hotBuckets} bucket${hotBuckets !== 1 ? "s" : ""} showed elevated hotness`
+      : "all buckets remained within normal operating range";
+  const revContext = aov > 0 && totalRevLoss > aov ? ` — estimated revenue impact across hot windows: ~$${Math.round(totalRevLoss).toLocaleString()} representing ${Math.round(totalLostConversions)} lost conversion${Math.round(totalLostConversions) !== 1 ? "s" : ""}` : "";
+  const convContext = overallConv > 0 ? ` with an overall conversion rate of ${overallConv.toFixed(1)}%` : "";
+  const summary = `Analyzed ${allRows.length} ${bucketGranularity} bucket${allRows.length !== 1 ? "s" : ""}${convContext}. ${spikeSummary.charAt(0).toUpperCase() + spikeSummary.slice(1)}${revContext}. The worst anomaly occurred at bucket ${worstIdx + 1} (${worstRow.bucket}, Z=${worstZ.toFixed(1)}, driver: ${worstDriver})${alertStormBuckets > 0 ? `, with ${alertStormBuckets} window${alertStormBuckets !== 1 ? "s" : ""} coinciding with active Davis problems` : ""}. Best conditions were at bucket ${bestIdx + 1} (${bestRow.bucket}) with Apdex ${bestRow.apdex.toFixed(2)} and ${bestRow.errorRate.toFixed(1)}% error rate.`;
+
+  return {
+    summary, worstIdx, worstBucketKey: worstRow.bucket, worstHotZ: worstZ, worstDriver,
+    worstRow, worstProblems: worstProblems.map(p => ({ problemId: p.problemId, displayId: p.displayId, title: p.title })),
+    worstEstimatedConvDrop: worstConvDrop, worstEstimatedRevLoss: worstRevLoss,
+    bestIdx, bestBucketKey: bestRow.bucket, bestRow, bestEstimatedConv: bestConvRate, bestEstimatedRev: bestRev, bestProblemsCount,
+    hotBuckets, criticalBuckets, totalEstimatedRevLoss: totalRevLoss, totalLostConversions, alertStormBuckets,
+    errorRateDelta, durationDelta, apdexDelta, lcpDelta, allHotness: hotness, insights, recommendations: recs,
+  };
+}
+
+function HotnessAssistButton({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <button className={`uj-ha-btn${active ? " active" : ""}`} onClick={onClick} title="Hotness Assist — AI analysis of all timelapse hotness buckets">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2C9 6 7 10 9 13C10 15 11 16 10 18C12 17 13 15 12 13C14 14 15 16 14 18C16 16 17 13 15 10C17 12 18 14 17 17C19 15 19 11 17 8C20 10 21 13 20 16C22 13 21 8 18 5C15 3 13 2 12 2Z" fill="url(#ha-btn-grad)" />
+        <defs><linearGradient id="ha-btn-grad" x1="7" y1="2" x2="17" y2="18"><stop stopColor="#FF6B35"/><stop offset="0.5" stopColor="#FF073A"/><stop offset="1" stopColor="#FF3D9A"/></linearGradient></defs>
+      </svg>
+      Hotness Assist
+    </button>
+  );
+}
+
+function HotnessAssistPanel({
+  data, pos, onClose, onDragStart,
+}: {
+  data: HotnessAssistData;
+  pos: { x: number; y: number };
+  onClose: () => void;
+  onDragStart: (e: React.MouseEvent<HTMLDivElement>) => void;
+}) {
+  const maxZ = Math.max(0.5, ...data.allHotness);
+  const summaryWords = data.summary.split(/\s+/).length;
+  const summaryDuration = summaryWords * 60;
+  const kpiDelay = summaryDuration + 200;
+  const chartDelay = summaryDuration + 700;
+  const cardsDelay = summaryDuration + 1000;
+  const tableDelay = summaryDuration + 1200;
+  const problemsDelay = summaryDuration + 1350;
+  let insightOffset = summaryDuration + (data.worstProblems.length > 0 ? 1550 : 1400);
+  const insightDurations = data.insights.map(ins => ins.text.split(/\s+/).length * 60);
+  const hotColor = (z: number) => z >= 2.5 ? TL_HOT_HIGH : z >= 1.5 ? TL_HOT_WARM : z >= 0.75 ? TL_HOT_ELEV : "#4589FF";
+
+  return (
+    <div style={{ position: "fixed", left: pos.x, top: pos.y, width: 628, maxHeight: "calc(100vh - 36px)", background: "var(--dt-colors-background-base-default,#0f1428)", border: "1px solid rgba(255,107,53,0.3)", borderRadius: 10, boxShadow: "0 16px 56px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,107,53,0.08)", zIndex: 601, userSelect: "none", fontSize: 12, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+      {/* Header */}
+      <div onMouseDown={onDragStart} style={{ padding: "11px 14px", background: "linear-gradient(135deg, rgba(255,107,53,0.13) 0%, rgba(255,61,154,0.07) 100%)", borderBottom: "1px solid rgba(255,107,53,0.2)", cursor: "grab", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+          <path d="M12 2C9 6 7 10 9 13C10 15 11 16 10 18C12 17 13 15 12 13C14 14 15 16 14 18C16 16 17 13 15 10C17 12 18 14 17 17C19 15 19 11 17 8C20 10 21 13 20 16C22 13 21 8 18 5C15 3 13 2 12 2Z" fill="url(#ha-hdr-grad)" />
+          <defs><linearGradient id="ha-hdr-grad" x1="7" y1="2" x2="17" y2="18"><stop stopColor="#FF6B35"/><stop offset="0.5" stopColor="#FF073A"/><stop offset="1" stopColor="#FF3D9A"/></linearGradient></defs>
+        </svg>
+        <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>Hotness Assist</span>
+        <span style={{ fontSize: 10, opacity: 0.5, fontFamily: "monospace" }}>{data.allHotness.length} buckets · {data.hotBuckets} elevated{data.criticalBuckets > 0 ? ` · ${data.criticalBuckets} critical` : ""}</span>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", opacity: 0.5, fontSize: 16, padding: "0 2px", lineHeight: 1 }}>✕</button>
+      </div>
+
+      {/* Scrollable body */}
+      <div style={{ overflowY: "auto", flex: 1, padding: "14px 16px" }}>
+
+        {/* Summary */}
+        <div style={{ marginBottom: 14 }}>
+          <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: "100ms" }}>Summary</div>
+          <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(255,107,53,0.05)", border: "1px solid rgba(255,107,53,0.15)" }}>
+            <StreamText text={data.summary} baseDelay={200} style={{ fontSize: 13, lineHeight: "1.6" }} />
+          </div>
+        </div>
+
+        {/* KPI tiles */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 14 }}>
+          {[
+            { label: "Hot Buckets", value: String(data.hotBuckets), sub: `of ${data.allHotness.length} total`, color: data.hotBuckets > 0 ? TL_HOT_ELEV : "#4589FF" },
+            { label: "Critical Spikes", value: String(data.criticalBuckets), sub: "Z ≥ 2.5", color: data.criticalBuckets > 0 ? TL_HOT_HIGH : "#4589FF" },
+            { label: "Est. Rev. Lost", value: data.totalEstimatedRevLoss >= 10000 ? `$${(data.totalEstimatedRevLoss / 1000).toFixed(1)}k` : `$${Math.round(data.totalEstimatedRevLoss).toLocaleString()}`, sub: "hot windows", color: data.totalEstimatedRevLoss > 100 ? "#FF832B" : "#4589FF" },
+            { label: "Lost Conversions", value: Math.round(data.totalLostConversions).toLocaleString(), sub: "estimated", color: data.totalLostConversions > 1 ? "#FF832B" : "#4589FF" },
+          ].map((tile, i) => (
+            <div key={i} style={{ background: "rgba(128,128,128,0.06)", border: "1px solid rgba(128,128,128,0.14)", borderRadius: 8, padding: "10px 12px", opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${kpiDelay + i * 80}ms` }}>
+              <div style={{ fontSize: 9, opacity: 0.5, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{tile.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: tile.color, fontFamily: "monospace", lineHeight: 1.2 }}>{tile.value}</div>
+              <div style={{ fontSize: 9, opacity: 0.4, marginTop: 2 }}>{tile.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Hotness mini-chart */}
+        <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${chartDelay}ms` }}>
+          <div className="uj-ai-section-title">Hotness Timeline — Full Period</div>
+          <div style={{ background: "rgba(128,128,128,0.04)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, padding: "8px 10px 6px" }}>
+            <svg width="100%" height="52" viewBox={`0 0 ${Math.max(data.allHotness.length * 6, 120)} 52`} preserveAspectRatio="none" style={{ display: "block" }}>
+              {/* Threshold reference lines */}
+              {[{ z: 0.75, color: TL_HOT_ELEV }, { z: 1.5, color: TL_HOT_WARM }, { z: 2.5, color: TL_HOT_HIGH }].map(({ z, color }) => (
+                <line key={z} x1={0} y1={52 - (z / maxZ) * 48} x2={data.allHotness.length * 6} y2={52 - (z / maxZ) * 48} stroke={color} strokeWidth={0.5} strokeDasharray="3,2" opacity={0.4} />
+              ))}
+              {/* Bars */}
+              {data.allHotness.map((v, i) => {
+                const h = Math.max(2, (v / maxZ) * 48);
+                const color = v >= 2.5 ? TL_HOT_HIGH : v >= 1.5 ? TL_HOT_WARM : v >= 0.75 ? TL_HOT_ELEV : "#4589FF";
+                const isWorst = i === data.worstIdx;
+                const isBest = i === data.bestIdx;
+                return <rect key={i} x={i * 6 + 0.5} y={52 - h} width={5} height={h} fill={color} opacity={isWorst || isBest ? 1 : 0.65} rx={0.5} />;
+              })}
+              {/* Worst marker */}
+              <line x1={data.worstIdx * 6 + 3} y1={0} x2={data.worstIdx * 6 + 3} y2={52} stroke={TL_HOT_HIGH} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
+              <text x={Math.min(data.worstIdx * 6 + 5, data.allHotness.length * 6 - 28)} y={9} fontSize={7} fill={TL_HOT_HIGH} opacity={0.85} fontFamily="monospace">worst</text>
+              {/* Best marker */}
+              {data.bestIdx !== data.worstIdx && <>
+                <line x1={data.bestIdx * 6 + 3} y1={0} x2={data.bestIdx * 6 + 3} y2={52} stroke={GREEN} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
+                <text x={Math.min(data.bestIdx * 6 + 5, data.allHotness.length * 6 - 24)} y={9} fontSize={7} fill={GREEN} opacity={0.85} fontFamily="monospace">best</text>
+              </>}
+            </svg>
+            <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: 9, opacity: 0.4 }}>
+              <span><span style={{ display: "inline-block", width: 7, height: 7, background: TL_HOT_ELEV, borderRadius: 1, verticalAlign: "middle", marginRight: 3 }} />Elevated (Z≥0.75)</span>
+              <span><span style={{ display: "inline-block", width: 7, height: 7, background: TL_HOT_WARM, borderRadius: 1, verticalAlign: "middle", marginRight: 3 }} />Warm (Z≥1.5)</span>
+              <span><span style={{ display: "inline-block", width: 7, height: 7, background: TL_HOT_HIGH, borderRadius: 1, verticalAlign: "middle", marginRight: 3 }} />Spike (Z≥2.5)</span>
+              <span>— dashed = threshold lines</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Worst vs Best side-by-side cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${cardsDelay}ms` }}>
+          {/* Worst spike */}
+          <div style={{ background: "rgba(255,7,58,0.05)", border: "1px solid rgba(255,7,58,0.2)", borderRadius: 8, padding: "10px 12px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: TL_HOT_HIGH, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>🔥 Worst Spike — Bucket {data.worstIdx + 1}</div>
+            <div style={{ fontSize: 9, opacity: 0.4, fontFamily: "monospace", marginBottom: 5 }}>{data.worstBucketKey}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: hotColor(data.worstHotZ) }}>Z = {data.worstHotZ.toFixed(2)}</span>
+              <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, fontWeight: 600, background: `${hotColor(data.worstHotZ)}22`, border: `1px solid ${hotColor(data.worstHotZ)}44`, color: hotColor(data.worstHotZ) }}>{data.worstDriver}</span>
+            </div>
+            {([
+              { label: "Sessions", value: fmtCount(data.worstRow.sessions), bad: false },
+              { label: "Error Rate", value: fmtPct(data.worstRow.errorRate), bad: data.worstRow.errorRate > 2 },
+              { label: "Avg Load", value: `${Math.round(data.worstRow.avgDurationMs)}ms`, bad: true },
+              { label: "Apdex", value: data.worstRow.apdex.toFixed(3), bad: data.worstRow.apdex < 0.7 },
+              ...(data.worstRow.lcp != null ? [{ label: "LCP", value: `${Math.round(data.worstRow.lcp)}ms`, bad: data.worstRow.lcp > 2500 }] : []),
+              { label: "Problems", value: String(data.worstProblems.length), bad: data.worstProblems.length > 0 },
+              { label: "Frustrated", value: data.worstRow.sessions > 0 ? fmtPct(data.worstRow.frustrated / data.worstRow.sessions * 100) : "—", bad: data.worstRow.sessions > 0 && (data.worstRow.frustrated / data.worstRow.sessions) > 0.15 },
+            ] as const).map((row, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderBottom: "1px solid rgba(128,128,128,0.08)" }}>
+                <span style={{ opacity: 0.55, fontSize: 11 }}>{row.label}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: row.bad ? TL_HOT_WARM : "#c0c0c0" }}>{row.value}</span>
+              </div>
+            ))}
+            {data.worstEstimatedConvDrop > 0.1 && (
+              <div style={{ marginTop: 8, padding: "6px 8px", background: "rgba(255,7,58,0.08)", borderRadius: 5 }}>
+                <div style={{ fontSize: 9, opacity: 0.6 }}>Estimated impact</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: TL_HOT_HIGH }}>−{data.worstEstimatedConvDrop.toFixed(1)}pp conv{data.worstEstimatedRevLoss > 0 ? ` · −$${Math.round(data.worstEstimatedRevLoss).toLocaleString()}` : ""}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Best window */}
+          <div style={{ background: "rgba(13,156,41,0.04)", border: "1px solid rgba(13,156,41,0.2)", borderRadius: 8, padding: "10px 12px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: GREEN, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>✨ Best Window — Bucket {data.bestIdx + 1}</div>
+            <div style={{ fontSize: 9, opacity: 0.4, fontFamily: "monospace", marginBottom: 5 }}>{data.bestBucketKey}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: hotColor(data.allHotness[data.bestIdx] ?? 0) }}>Z = {(data.allHotness[data.bestIdx] ?? 0).toFixed(2)}</span>
+              <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, fontWeight: 600, background: "rgba(13,156,41,0.12)", border: "1px solid rgba(13,156,41,0.3)", color: GREEN }}>Optimal</span>
+            </div>
+            {([
+              { label: "Sessions", value: fmtCount(data.bestRow.sessions), good: false },
+              { label: "Error Rate", value: fmtPct(data.bestRow.errorRate), good: data.bestRow.errorRate < 1 },
+              { label: "Avg Load", value: `${Math.round(data.bestRow.avgDurationMs)}ms`, good: true },
+              { label: "Apdex", value: data.bestRow.apdex.toFixed(3), good: data.bestRow.apdex > 0.85 },
+              ...(data.bestRow.lcp != null ? [{ label: "LCP", value: `${Math.round(data.bestRow.lcp)}ms`, good: data.bestRow.lcp < 2500 }] : []),
+              { label: "Problems", value: String(data.bestProblemsCount), good: data.bestProblemsCount === 0 },
+              { label: "Frustrated", value: data.bestRow.sessions > 0 ? fmtPct(data.bestRow.frustrated / data.bestRow.sessions * 100) : "—", good: true },
+            ] as const).map((row, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderBottom: "1px solid rgba(128,128,128,0.08)" }}>
+                <span style={{ opacity: 0.55, fontSize: 11 }}>{row.label}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: row.good ? GREEN : "#c0c0c0" }}>{row.value}</span>
+              </div>
+            ))}
+            {data.bestEstimatedConv > 0 && (
+              <div style={{ marginTop: 8, padding: "6px 8px", background: "rgba(13,156,41,0.08)", borderRadius: 5 }}>
+                <div style={{ fontSize: 9, opacity: 0.6 }}>Estimated performance</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: GREEN }}>{data.bestEstimatedConv.toFixed(1)}% conv{data.bestEstimatedRev > 0 ? ` · $${Math.round(data.bestEstimatedRev).toLocaleString()}` : ""}</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Delta gap comparison table */}
+        <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay}ms` }}>
+          <div className="uj-ai-section-title">Δ Gap — What Changed Between Best &amp; Worst?</div>
+          <div style={{ background: "rgba(128,128,128,0.03)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
+              {["Metric", "Best", "Worst", "Gap"].map((h, i) => (
+                <div key={i} style={{ padding: "5px 10px", fontSize: 9, fontWeight: 700, opacity: 0.45, textTransform: "uppercase", letterSpacing: 0.5, background: "rgba(128,128,128,0.06)", borderBottom: "1px solid rgba(128,128,128,0.12)" }}>{h}</div>
+              ))}
+              {([
+                { label: "Error Rate", best: `${data.bestRow.errorRate.toFixed(1)}%`, worst: `${data.worstRow.errorRate.toFixed(1)}%`, gap: data.errorRateDelta >= 0 ? `+${data.errorRateDelta.toFixed(1)}pp` : `${data.errorRateDelta.toFixed(1)}pp`, bad: data.errorRateDelta > 1 },
+                { label: "Avg Load", best: `${Math.round(data.bestRow.avgDurationMs)}ms`, worst: `${Math.round(data.worstRow.avgDurationMs)}ms`, gap: data.durationDelta >= 0 ? `+${Math.round(data.durationDelta)}ms` : `${Math.round(data.durationDelta)}ms`, bad: data.durationDelta > 200 },
+                { label: "Apdex", best: data.bestRow.apdex.toFixed(3), worst: data.worstRow.apdex.toFixed(3), gap: data.apdexDelta > 0 ? `−${data.apdexDelta.toFixed(3)}` : `+${Math.abs(data.apdexDelta).toFixed(3)}`, bad: data.apdexDelta > 0.05 },
+                ...(data.lcpDelta != null ? [{ label: "LCP", best: `${Math.round(data.bestRow.lcp!)}ms`, worst: `${Math.round(data.worstRow.lcp!)}ms`, gap: `+${Math.round(data.lcpDelta)}ms`, bad: data.lcpDelta > 300 }] : []),
+                { label: "Sessions", best: fmtCount(data.bestRow.sessions), worst: fmtCount(data.worstRow.sessions), gap: data.worstRow.sessions >= data.bestRow.sessions ? `+${fmtCount(data.worstRow.sessions - data.bestRow.sessions)}` : `−${fmtCount(data.bestRow.sessions - data.worstRow.sessions)}`, bad: false },
+                { label: "Satisfied %", best: data.bestRow.sessions > 0 ? fmtPct(data.bestRow.satisfied / data.bestRow.sessions * 100) : "—", worst: data.worstRow.sessions > 0 ? fmtPct(data.worstRow.satisfied / data.worstRow.sessions * 100) : "—", gap: (data.bestRow.sessions > 0 && data.worstRow.sessions > 0) ? `${((data.worstRow.satisfied / data.worstRow.sessions - data.bestRow.satisfied / data.bestRow.sessions) * 100).toFixed(1)}pp` : "—", bad: true },
+                { label: "Frustrated %", best: data.bestRow.sessions > 0 ? fmtPct(data.bestRow.frustrated / data.bestRow.sessions * 100) : "—", worst: data.worstRow.sessions > 0 ? fmtPct(data.worstRow.frustrated / data.worstRow.sessions * 100) : "—", gap: (data.bestRow.sessions > 0 && data.worstRow.sessions > 0) ? `+${((data.worstRow.frustrated / data.worstRow.sessions - data.bestRow.frustrated / data.bestRow.sessions) * 100).toFixed(1)}pp` : "—", bad: true },
+                { label: "Est. Conv. Rate", best: `${data.bestEstimatedConv.toFixed(1)}%`, worst: `${Math.max(0, data.bestEstimatedConv - data.worstEstimatedConvDrop).toFixed(1)}%`, gap: `−${data.worstEstimatedConvDrop.toFixed(1)}pp`, bad: data.worstEstimatedConvDrop > 0.5 },
+                ...(data.worstEstimatedRevLoss > 0 ? [{ label: "Est. Revenue", best: `$${Math.round(data.bestEstimatedRev).toLocaleString()}`, worst: `$${Math.round(Math.max(0, data.bestEstimatedRev - data.worstEstimatedRevLoss)).toLocaleString()}`, gap: `−$${Math.round(data.worstEstimatedRevLoss).toLocaleString()}`, bad: true }] : []),
+              ] as const).map((row, i, arr) => (
+                <React.Fragment key={i}>
+                  <div style={{ padding: "4px 10px", fontSize: 11, opacity: 0.75, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.label}</div>
+                  <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: GREEN, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.best}</div>
+                  <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: (row as any).bad ? TL_HOT_WARM : "#c0c0c0", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.worst}</div>
+                  <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, color: (row as any).bad ? TL_HOT_HIGH : "#4589FF", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.gap}</div>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Problems active during worst spike */}
+        {data.worstProblems.length > 0 && (
+          <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${problemsDelay}ms` }}>
+            <div className="uj-ai-section-title">Active Problems During Worst Spike</div>
+            <div style={{ background: "rgba(255,7,58,0.04)", border: "1px solid rgba(255,7,58,0.15)", borderRadius: 8, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
+              {data.worstProblems.map((p, i) => (
+                <div key={i} style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, padding: "2px 0", borderBottom: i < data.worstProblems.length - 1 ? "1px solid rgba(128,128,128,0.08)" : "none" }}>
+                  <span style={{ color: TL_HOT_HIGH, fontSize: 10, flexShrink: 0 }}>◆</span>
+                  {p.displayId && <span style={{ fontFamily: "monospace", fontSize: 10, color: TL_HOT_WARM, flexShrink: 0 }}>{p.displayId}</span>}
+                  <span style={{ opacity: 0.8 }}>{p.title}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Insights */}
+        {data.insights.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${insightOffset - 200}ms` }}>Insights</div>
+            {data.insights.map((ins, i) => {
+              const myOffset = insightOffset;
+              insightOffset += insightDurations[i] + 240;
+              return (
+                <div key={i} className={`uj-ai-insight-row ${ins.severity}`} style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${myOffset - 100}ms` }}>
+                  <span style={{ fontSize: 14, flexShrink: 0 }}>{ins.icon}</span>
+                  <StreamText text={ins.text} baseDelay={myOffset} style={{ fontSize: 13 }} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Recommendations */}
+        {data.recommendations.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${insightOffset}ms` }}>Recommendations</div>
+            {data.recommendations.map((rec, i) => {
+              const myOffset = insightOffset + 300 + i * 800;
+              return (
+                <div key={i} className="uj-ai-recommendation" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${myOffset}ms` }}>
+                  <span className={`uj-ai-rec-badge ${rec.impact}`}>{rec.impact}</span>
+                  <StreamText text={rec.text} baseDelay={myOffset + 100} style={{ fontSize: 13 }} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Footer */}
+        <div style={{ padding: "6px 0", borderTop: "1px solid rgba(128,128,128,0.1)", fontSize: 9, opacity: 0.3, lineHeight: 1.5 }}>
+          Drag header to reposition · Revenue estimates use performance-conversion correlation models (Deloitte/Google: 100ms latency ≈ 1% conv, 1pp errors ≈ 0.5% conv, 0.1 Apdex drop ≈ 2% conv) · Z-scores computed from shared KPI baselines across all buckets
+        </div>
+      </div>
     </div>
   );
 }
