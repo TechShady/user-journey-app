@@ -49,7 +49,7 @@ const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "heatmap", label: "Transition Heatmap" },
 ];
 const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
-type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying" | "uhaul" | "eyeExam" | "spectacles" | "grocery" | "curbside";
+type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying" | "uhaul" | "eyeExam" | "spectacles" | "grocery" | "curbside" | "molsonCoors";
 const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "classic", label: "Classic Funnel" },
   { value: "horizontal", label: "Horizontal Bar" },
@@ -70,6 +70,7 @@ const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "spectacles", label: "\uD83D\uDC53 Spectacle Frames" },
   { value: "grocery", label: "\uD83D\uDED2 Grocery Aisles" },
   { value: "curbside", label: "\uD83D\uDCF1 Curbside Pickup" },
+  { value: "molsonCoors", label: "\uD83C\uDF7A Molson Coors" },
 ];
 const DEFAULT_FUNNEL_STYLE: FunnelStyle = "classic";
 const FUNNEL_STYLE_STATE_KEY = "uj-funnel-style";
@@ -94,7 +95,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.45";
+const APP_VERSION_LABEL = "4.76.50";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -11888,6 +11889,331 @@ function CurbsidePickupFunnel({ steps, aov, funnelName }: { steps: FunnelStep[];
 }
 
 // ===========================================================================
+// SKIN: Molson Coors Taproom
+// ===========================================================================
+function MolsonCoorsFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const N = steps.length;
+  const totalSessions = steps[0]?.count ?? 0;
+  const converted = steps[N - 1]?.count ?? 0;
+  const convRate = totalSessions > 0 ? (converted / totalSessions) * 100 : 0;
+  const dropped = totalSessions - converted;
+
+  const MC_GOLD  = "#C9A227";
+  const MC_NAVY  = "#1B2B5E";
+  const MC_AMBER = "#D4860A";
+  const MC_FOAM  = "rgba(245,235,210,0.93)";
+
+  const stepClr  = (step: FunnelStep, i: number) =>
+    i === 0 ? BLUE : step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 30 ? YELLOW : RED;
+  const statusClr = (r: number) => r >= 60 ? GREEN : r >= 30 ? YELLOW : RED;
+
+  // SVG geometry
+  const SVG_W      = 680;
+  const SVG_H      = 455;
+  const barTopY    = 372;
+  const glassBot   = 368;
+  const glassH     = 102;
+  const glassTop   = glassBot - glassH;   // 266
+  const nozzleY    = glassTop - 5;        // 261
+  const stemTopY   = 216;
+  const handleBotY = 216;
+  const handleH    = 14;
+  const shelfY     = 184;
+  const lMargin    = 45;
+  const spacing    = (SVG_W - lMargin * 2) / N;
+  const gHW        = Math.min(26, spacing * 0.28);
+  const gHWBot     = Math.max(8, gHW * 0.70);
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "300px 1fr 330px", gap: 14, background: "rgba(8,14,32,0.98)", color: "#e8eeff", padding: 16, fontFamily: '"Inter",system-ui,sans-serif', borderRadius: 12, boxSizing: "border-box", minHeight: 520 }}>
+
+      {/* LEFT — Journey Stages */}
+      <div style={{ border: `1px solid ${MC_GOLD}55`, borderRadius: 14, padding: 14, background: "rgba(14,20,48,0.96)", overflow: "hidden" }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: MC_GOLD, marginBottom: 14, paddingBottom: 8, borderBottom: `1px solid ${MC_GOLD}33` }}>
+          🍺 Journey Stages
+        </div>
+        {steps.map((step, i) => {
+          const clr = stepClr(step, i);
+          return (
+            <div key={i} style={{ marginBottom: i < N - 1 ? 14 : 0, paddingBottom: i < N - 1 ? 14 : 0, borderBottom: i < N - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <div style={{ width: 26, height: 26, borderRadius: "50%", background: MC_GOLD, color: MC_NAVY, fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {i + 1}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#e8eeff", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>
+                  {step.label}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 34 }}>
+                <span style={{ fontSize: 20, fontWeight: 800 }}>{fmtCount(step.count)}</span>
+                {i === 0 && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>sessions</span>}
+                {i > 0 && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: clr, background: `${clr.replace("0.92)", "0.12)")}`, padding: "2px 8px", borderRadius: 8, border: `1px solid ${clr.replace("0.92)", "0.25)")}`, marginLeft: "auto" }}>
+                    {fmtPct(step.convFromPrev)}
+                  </span>
+                )}
+              </div>
+              {i > 0 && (
+                <div style={{ height: 3, borderRadius: 2, marginTop: 6, marginLeft: 34, background: "rgba(255,255,255,0.07)" }}>
+                  <div style={{ height: "100%", width: `${Math.min(step.convFromPrev, 100)}%`, background: clr, borderRadius: 2 }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* CENTER — Taproom SVG */}
+      <div style={{ borderRadius: 14, overflow: "hidden", background: "#060C1C", display: "flex", flexDirection: "column" }}>
+        {funnelName && (
+          <div style={{ textAlign: "center", fontSize: 13, fontWeight: 800, color: MC_NAVY, letterSpacing: 2, textTransform: "uppercase", padding: "6px 0", background: MC_GOLD }}>
+            {funnelName}
+          </div>
+        )}
+        <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+          <defs>
+            <linearGradient id="mct-bg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#050A18" />
+              <stop offset="100%" stopColor="#0C1428" />
+            </linearGradient>
+            <linearGradient id="mct-bar" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#7A4A1A" />
+              <stop offset="50%" stopColor="#4E2E0A" />
+              <stop offset="100%" stopColor="#301A06" />
+            </linearGradient>
+            <linearGradient id="mct-bar-top" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#A8682E" />
+              <stop offset="100%" stopColor="#6A3E12" />
+            </linearGradient>
+            <linearGradient id="mct-beer" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#E89020" />
+              <stop offset="100%" stopColor="#7A3E08" />
+            </linearGradient>
+            <linearGradient id="mct-chrome" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#555" />
+              <stop offset="45%" stopColor="#E0E0E0" />
+              <stop offset="100%" stopColor="#666" />
+            </linearGradient>
+            <linearGradient id="mct-tap-handle" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#253880" />
+              <stop offset="100%" stopColor={MC_NAVY} />
+            </linearGradient>
+            <radialGradient id="mct-ambient" cx="50%" cy="45%" r="55%">
+              <stop offset="0%" stopColor="rgba(201,162,39,0.10)" />
+              <stop offset="100%" stopColor="rgba(0,0,0,0)" />
+            </radialGradient>
+          </defs>
+
+          {/* Background */}
+          <rect x="0" y="0" width={SVG_W} height={SVG_H} fill="url(#mct-bg)" />
+          <rect x="0" y="0" width={SVG_W} height={SVG_H} fill="url(#mct-ambient)" />
+
+          {/* Subtle brick-wall texture */}
+          {Array.from({ length: 15 }, (_, i) => (
+            <line key={i} x1="0" y1={8 + i * 24} x2={SVG_W} y2={8 + i * 24}
+              stroke="rgba(255,255,255,0.022)" strokeWidth="0.7" />
+          ))}
+
+          {/* Mountain silhouette (back-wall mural — Coors nod) */}
+          <polygon
+            points="0,210 70,118 135,160 210,95 300,148 388,82 470,132 545,98 620,140 680,112 680,215 0,215"
+            fill="rgba(18,32,72,0.72)"
+          />
+          {/* Snow caps */}
+          <polygon points="210,95 232,116 188,116" fill="rgba(210,225,255,0.18)" />
+          <polygon points="388,82 414,110 362,110" fill="rgba(210,225,255,0.20)" />
+          <polygon points="545,98 568,122 522,122" fill="rgba(210,225,255,0.18)" />
+
+          {/* Taproom sign */}
+          <rect x="195" y="20" width="290" height="46" rx="5" fill="rgba(12,22,52,0.96)" stroke={MC_GOLD} strokeWidth="1.5" />
+          <rect x="199" y="24" width="282" height="38" rx="4" fill="none" stroke={`${MC_GOLD}44`} strokeWidth="0.8" />
+          <text x="340" y="48" textAnchor="middle" fill={MC_GOLD}
+            fontSize="17" fontWeight="900" fontFamily="'Impact','Arial Narrow',sans-serif" letterSpacing="3">
+            MOLSON COORS
+          </text>
+          <text x="340" y="62" textAnchor="middle" fill={`${MC_GOLD}88`}
+            fontSize="9" fontWeight="700" fontFamily="'Impact',sans-serif" letterSpacing="5">
+            TAPROOM
+          </text>
+
+          {/* Back-bar shelf line */}
+          <rect x="18" y={shelfY} width={SVG_W - 36} height="5" rx="2" fill={MC_GOLD} opacity={0.42} />
+          {/* Shelf surface */}
+          <rect x="18" y={shelfY + 5} width={SVG_W - 36} height="38" fill="rgba(10,18,42,0.88)" />
+
+          {/* Bottles on shelf */}
+          {Array.from({ length: 9 }, (_, bi) => {
+            const bx   = 38 + bi * 67;
+            const bH   = 30 + (bi % 3) * 8;
+            const bClr = bi % 3 === 0 ? "#1A3A18" : bi % 3 === 1 ? "#2E1A0A" : "#181830";
+            const bY   = shelfY - bH;
+            return (
+              <g key={bi}>
+                <rect x={bx + 4} y={bY - 9} width={7} height={10} rx={2} fill={bClr} opacity={0.88} />
+                <rect x={bx + 4} y={bY - 11} width={7} height={4} rx={1} fill={MC_GOLD} opacity={0.55} />
+                <rect x={bx} y={bY} width={15} height={bH} rx={3} fill={bClr} opacity={0.9} />
+                <rect x={bx + 2} y={bY + 4} width={11} height={8} rx={1} fill={`${MC_GOLD}28`} />
+              </g>
+            );
+          })}
+
+          {/* "ON TAP" badge above tap handles */}
+          <rect x="270" y={handleBotY - handleH - 22} width="140" height="20" rx="4"
+            fill={`${MC_NAVY}CC`} stroke={`${MC_GOLD}55`} strokeWidth="1" />
+          <text x="340" y={handleBotY - handleH - 7} textAnchor="middle" fill={MC_GOLD}
+            fontSize="9.5" fontWeight="800" fontFamily="'Impact','Arial Narrow',sans-serif" letterSpacing="4">
+            ON TAP
+          </text>
+
+          {/* Bar counter */}
+          <rect x="0" y={barTopY} width={SVG_W} height={SVG_H - barTopY} fill="url(#mct-bar)" />
+          <rect x="0" y={barTopY} width={SVG_W} height={13} fill="url(#mct-bar-top)" />
+          <rect x="0" y={barTopY} width={SVG_W} height={3} fill="rgba(220,160,80,0.38)" />
+          {Array.from({ length: 5 }, (_, gi) => (
+            <line key={gi} x1="0" y1={barTopY + 18 + gi * 12} x2={SVG_W} y2={barTopY + 19 + gi * 12}
+              stroke="rgba(0,0,0,0.28)" strokeWidth="1.2" />
+          ))}
+
+          {/* Taps and glasses */}
+          {steps.map((step, i) => {
+            const cx      = lMargin + (i + 0.5) * spacing;
+            const frac    = Math.max(0, Math.min(1, step.overallConv / 100));
+            const clr     = stepClr(step, i);
+
+            // Glass polygon (trapezoid, wider at top)
+            const glassOutline = [
+              `${cx - gHW},${glassTop}`, `${cx + gHW},${glassTop}`,
+              `${cx + gHWBot},${glassBot}`, `${cx - gHWBot},${glassBot}`,
+            ].join(" ");
+
+            // Beer fill polygon (from bottom up to frac)
+            const fillH      = glassH * frac;
+            const fillTopY   = glassBot - fillH;
+            const fillHW     = gHWBot + (gHW - gHWBot) * frac;
+            const fillOutline = [
+              `${cx - gHWBot},${glassBot}`, `${cx + gHWBot},${glassBot}`,
+              `${cx + fillHW},${fillTopY}`, `${cx - fillHW},${fillTopY}`,
+            ].join(" ");
+
+            // Label inside fill: center of the filled area
+            const labelY   = glassBot - fillH / 2 + 4;
+            const showLabel = fillH > 22;
+
+            return (
+              <g key={i}>
+                {/* Tap stem */}
+                <rect x={cx - 2.5} y={stemTopY} width={5} height={nozzleY - stemTopY} rx={2.5}
+                  fill="url(#mct-chrome)" />
+
+                {/* Tap handle flag */}
+                <rect x={cx - 20} y={handleBotY - handleH} width={40} height={handleH} rx={4}
+                  fill="url(#mct-tap-handle)" stroke={MC_GOLD} strokeWidth="0.9" />
+                <text x={cx} y={handleBotY - 3} textAnchor="middle" fill={MC_GOLD}
+                  fontSize="8" fontWeight="900" fontFamily="'Impact',sans-serif">
+                  {i + 1}
+                </text>
+
+                {/* Tap nozzle cap */}
+                <rect x={cx - 5} y={nozzleY - 5} width={10} height={7} rx={2} fill="#A0A0A0" />
+                <ellipse cx={cx} cy={nozzleY + 2} rx={5} ry={2.5} fill="#707070" />
+
+                {/* Drip line when glass has some fill */}
+                {frac > 0 && (
+                  <line x1={cx} y1={nozzleY + 2} x2={cx} y2={glassTop + 3}
+                    stroke={MC_AMBER} strokeWidth="1.5" opacity={0.38} />
+                )}
+
+                {/* Glass body outline */}
+                <polygon points={glassOutline}
+                  fill="rgba(12,28,60,0.22)" stroke="rgba(170,205,255,0.38)" strokeWidth="1.3" />
+
+                {/* Beer fill */}
+                {frac > 0 && (
+                  <polygon points={fillOutline} fill="url(#mct-beer)" opacity={0.92} />
+                )}
+
+                {/* Foam head (two-layer) */}
+                {frac > 0.04 && (
+                  <>
+                    <ellipse cx={cx} cy={fillTopY} rx={fillHW * 0.90} ry={5.5} fill={MC_FOAM} />
+                    <ellipse cx={cx - fillHW * 0.28} cy={fillTopY - 3} rx={fillHW * 0.30} ry={3}
+                      fill={MC_FOAM} opacity={0.65} />
+                  </>
+                )}
+
+                {/* Glass left-side reflection */}
+                <polygon
+                  points={`${cx - gHW + 3},${glassTop + 6} ${cx - gHW + 7},${glassTop + 6} ${cx - gHWBot + 4},${glassBot - 5} ${cx - gHWBot + 1},${glassBot - 5}`}
+                  fill="rgba(255,255,255,0.11)"
+                />
+
+                {/* Overall conversion % inside fill */}
+                {showLabel && (
+                  <text x={cx} y={labelY} textAnchor="middle"
+                    fill="rgba(255,255,255,0.92)" fontSize="10" fontWeight="800">
+                    {fmtPct(step.overallConv)}
+                  </text>
+                )}
+
+                {/* Step label on bar surface */}
+                <text x={cx} y={barTopY + 23} textAnchor="middle" fill={MC_GOLD}
+                  fontSize="8.5" fontWeight="700" fontFamily="'Inter',sans-serif">
+                  {step.label.length > 12 ? step.label.slice(0, 11) + "…" : step.label}
+                </text>
+
+                {/* Coaster under glass */}
+                <ellipse cx={cx} cy={glassBot + 3} rx={gHWBot + 5} ry={3}
+                  fill={`${MC_GOLD}22`} />
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* RIGHT — Pour Metrics */}
+      <div style={{ border: `1px solid ${MC_GOLD}55`, borderRadius: 14, padding: "12px 14px", background: "rgba(14,20,48,0.96)", display: "flex", flexDirection: "column", gap: 9 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: MC_GOLD, paddingBottom: 8, borderBottom: `1px solid ${MC_GOLD}33`, marginBottom: 4 }}>
+          🍻 Pour Metrics
+        </div>
+        {([
+          { icon: "🍺", label: "Total Sessions", value: fmtCount(totalSessions), clr: BLUE,               sub: "entered the funnel" },
+          { icon: "🏆", label: "Converted",      value: fmtCount(converted),     clr: GREEN,              sub: "completed journey"  },
+          { icon: "📊", label: "Conv Rate",      value: fmtPct(convRate),        clr: statusClr(convRate), sub: "end-to-end"        },
+          { icon: "💰", label: "Avg Order Value", value: fmtCurrency(aov),       clr: MC_GOLD,            sub: "per conversion"     },
+          { icon: "📉", label: "Drop-off",       value: fmtCount(dropped),       clr: RED,                sub: "did not convert"    },
+        ] as { icon: string; label: string; value: string; clr: string; sub: string }[]).map((m, mi) => (
+          <div key={mi} style={{ background: "rgba(8,12,32,0.9)", border: `1px solid ${m.clr === MC_GOLD ? MC_GOLD + "30" : m.clr.replace("0.92)", "0.22)")}`, borderRadius: 10, padding: "10px 12px", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+              <span style={{ fontSize: 18 }}>{m.icon}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.36)", textTransform: "uppercase" }}>{m.label}</span>
+            </div>
+            <div style={{ fontSize: 27, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginTop: 3 }}>{m.sub}</div>
+          </div>
+        ))}
+        <div style={{ borderTop: `1px solid ${MC_GOLD}22`, paddingTop: 9, marginTop: 2 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", marginBottom: 6 }}>Stage Breakdown</div>
+          {steps.map((step, i) => {
+            const clr = stepClr(step, i);
+            return (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: clr, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.52)", maxWidth: 145, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{step.label}</span>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: i === 0 ? "rgba(255,255,255,0.3)" : clr, flexShrink: 0, marginLeft: 6 }}>
+                  {i === 0 ? "start" : fmtPct(step.convFromPrev)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
 function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast, funnelName, timeframeDays, frontend, hotnessMode }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnelName?: string; timeframeDays: number; frontend: string; hotnessMode: HotnessMode; }) {
@@ -12423,6 +12749,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         {funnelStyle === "spectacles" && <SpectaclesFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "grocery" && <GroceryAisleFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "curbside" && <CurbsidePickupFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "molsonCoors" && <MolsonCoorsFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
