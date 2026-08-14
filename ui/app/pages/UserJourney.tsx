@@ -7093,6 +7093,14 @@ function analyzeHotnessTimelapse(
     if (z >= 2.5) criticalBuckets++;
   }
 
+  // [5] Sustained vs Burst Classification
+  let maxRun = 0, currentRun = 0;
+  for (const z of hotness) {
+    if (z >= 0.75) { currentRun++; maxRun = Math.max(maxRun, currentRun); }
+    else currentRun = 0;
+  }
+  const burstType = maxRun === 0 ? "stable" : maxRun <= 2 ? "transient" : maxRun <= 5 ? "sustained" : "chronic";
+
   const worstConvRate = estimateConvRate(worstRow);
   const worstConvDrop = Math.max(0, overallConv - worstConvRate);
   const worstRevLoss = worstRow.sessions * (worstConvDrop / 100) * aov;
@@ -7176,6 +7184,22 @@ function analyzeHotnessTimelapse(
 
   if (bestProblemsCount === 0 && alertStormBuckets > 0) {
     insights.push({ severity: "good", icon: "🛡️", text: `The best-performing window had zero active Davis problems, confirming that keeping the alert queue clean directly translates to better user experience and higher conversion rates.` });
+  }
+
+  // [2] Traffic vs Error Decoupling
+  if (errZ >= 1.0 && sessZ < 0.5) {
+    insights.push({ severity: "warning", icon: "🚢", text: `Deployment signal: error rate spiked to ${worstRow.errorRate.toFixed(1)}% while session volume stayed near-normal (sessionsZ=${sessZ.toFixed(1)}). This pattern strongly suggests a code deployment or configuration change rather than a capacity issue. Check deployment history around ${worstRow.bucket}.` });
+  } else if (errZ >= 1.0 && sessZ >= 0.75) {
+    insights.push({ severity: "warning", icon: "📈", text: `Load-induced degradation: sessions (+${sessZ.toFixed(1)}z) and errors (+${errZ.toFixed(1)}z) spiked together, suggesting the infrastructure hit capacity limits. Consider triggering scale-out at ${Math.round(baselines.sessions.mean * 1.3).toLocaleString()} sessions/${bucketGranularity} (130% of average) to absorb burst traffic before it degrades UX.` });
+  }
+
+  // [5] Sustained vs Burst Classification
+  if (burstType === "chronic") {
+    insights.push({ severity: "critical", icon: "⏳", text: `Chronic degradation pattern: ${maxRun} consecutive hot buckets detected. This duration (${maxRun} × ${bucketGranularity}) suggests the issue was not self-healing and likely required explicit intervention — rollback, scaling, or emergency config fix.` });
+  } else if (burstType === "sustained") {
+    insights.push({ severity: "warning", icon: "⏱️", text: `Sustained degradation: ${maxRun} consecutive elevated buckets (${maxRun} × ${bucketGranularity} of hotness). The issue persisted long enough to require active intervention — check for auto-remediation workflows that could have shortened the window.` });
+  } else if (burstType === "transient") {
+    insights.push({ severity: "info", icon: "⚡", text: `Transient spike: max ${maxRun} consecutive hot bucket${maxRun !== 1 ? "s" : ""} that self-resolved. This pattern suggests a brief cache miss storm, a deployment that auto-rolled back, or a short infrastructure hiccup.` });
   }
 
   // Build recommendations
@@ -7275,8 +7299,8 @@ function HotnessAssistPanel({
     }).join("");
     const threshLines = [{ z: 0.75, c: "#FFF04D" }, { z: 1.5, c: "#FF3D9A" }, { z: 2.5, c: "#FF073A" }]
       .map(({ z, c }) => `<line x1="0" y1="${130 - (z / rMaxZ) * 106}" x2="${svgW}" y2="${130 - (z / rMaxZ) * 106}" stroke="${c}" stroke-width="0.5" stroke-dasharray="3,2" opacity="0.4"/>`).join("");
-    const worstMark = `<line x1="${data.worstIdx * 6 + 3}" y1="24" x2="${data.worstIdx * 6 + 3}" y2="130" stroke="#FF073A" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${Math.min(data.worstIdx * 6 + 5, svgW - 36)}" y="17" font-size="9" fill="#FF073A" opacity="0.9" font-family="monospace" font-weight="600">worst</text>`;
-    const bestMark = data.bestIdx !== data.worstIdx ? `<line x1="${data.bestIdx * 6 + 3}" y1="24" x2="${data.bestIdx * 6 + 3}" y2="130" stroke="#0D9C29" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${Math.min(data.bestIdx * 6 + 5, svgW - 28)}" y="17" font-size="9" fill="#0D9C29" opacity="0.9" font-family="monospace" font-weight="600">best</text>` : "";
+    const worstMark = `<line x1="${data.worstIdx * 6 + 3}" y1="24" x2="${data.worstIdx * 6 + 3}" y2="130" stroke="#FF073A" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${data.worstIdx * 6 + 3}" y="17" font-size="11" fill="#FF073A" opacity="0.9" text-anchor="middle" font-weight="700">&#8595;</text>`;
+    const bestMark = data.bestIdx !== data.worstIdx ? `<line x1="${data.bestIdx * 6 + 3}" y1="24" x2="${data.bestIdx * 6 + 3}" y2="130" stroke="#0D9C29" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${data.bestIdx * 6 + 3}" y="17" font-size="11" fill="#0D9C29" opacity="0.9" text-anchor="middle" font-weight="700">&#8593;</text>` : "";
 
     const worstRows = [
       { l: "Sessions", v: rFmtCount(data.worstRow.sessions) },
@@ -7450,11 +7474,11 @@ ${problemsHtml}
               })}
               {/* Worst marker — line starts at y=24 (below label zone) */}
               <line x1={data.worstIdx * 6 + 3} y1={24} x2={data.worstIdx * 6 + 3} y2={130} stroke={TL_HOT_HIGH} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
-              <text x={Math.min(data.worstIdx * 6 + 5, data.allHotness.length * 6 - 36)} y={17} fontSize={9} fill={TL_HOT_HIGH} opacity={0.9} fontFamily="monospace" fontWeight="600">worst</text>
+              <text x={data.worstIdx * 6 + 3} y={17} fontSize={11} fill={TL_HOT_HIGH} opacity={0.9} textAnchor="middle" fontWeight="700">↓</text>
               {/* Best marker */}
               {data.bestIdx !== data.worstIdx && <>
                 <line x1={data.bestIdx * 6 + 3} y1={24} x2={data.bestIdx * 6 + 3} y2={130} stroke={GREEN} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
-                <text x={Math.min(data.bestIdx * 6 + 5, data.allHotness.length * 6 - 28)} y={17} fontSize={9} fill={GREEN} opacity={0.9} fontFamily="monospace" fontWeight="600">best</text>
+                <text x={data.bestIdx * 6 + 3} y={17} fontSize={11} fill={GREEN} opacity={0.9} textAnchor="middle" fontWeight="700">↑</text>
               </>}
             </svg>
             <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: 9, opacity: 0.4 }}>
