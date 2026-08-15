@@ -80,7 +80,6 @@ export const INDUSTRY_BENCHMARKS: Record<IndustryType, IndustryBenchmark> = {
   general: { costPerConvLow: 1, costPerConvHigh: 50, revCostRatioTarget: 5, infraPctRevenueLow: 5, infraPctRevenueHigh: 15, errorRateTarget: 1, cdnRoiTarget: 5, latencyImpactPerSec: 5, idleUtilTarget: 65, breakEvenHoursTarget: 200, convRateTarget: 3, apdexTarget: 0.85, avgDurationTarget: 3000, bounceRateTarget: 45, frustratedPctTarget: 10, lcpTarget: 2500, clsTarget: 0.1, inpTarget: 200, sessionDepthTarget: 4, retentionD7Target: 30, thirdPartyBudgetMs: 800, mobileShareExpected: 55, label: "General / Other" },
 };
 
-const FRONTEND_STATE_KEY = "uj-frontend-app";
 const FUNNELS_STATE_KEY = "uj-funnels";
 const ACTIVE_FUNNEL_STATE_KEY = "uj-active-funnel";
 const STEPS_STATE_KEY = "uj-funnel-steps"; // legacy — used for migration only
@@ -97,7 +96,6 @@ const INDUSTRY_STATE_KEY = "uj-industry";
 // ---------------------------------------------------------------------------
 interface SettingsContextValue {
   frontend: string;
-  setFrontend: (v: string) => void;
   // Multi-funnel
   funnels: FunnelDef[];
   setFunnels: (v: FunnelDef[]) => void;
@@ -124,7 +122,6 @@ interface SettingsContextValue {
   setEngineerHourlyRate: (v: number) => void;
   industry: IndustryType;
   setIndustry: (v: IndustryType) => void;
-  saveFrontend: (v: string) => void;
   saveAov: (v: number) => void;
   saveMonthlyInfraCost: (v: number) => void;
   saveCdnMonthlyCost: (v: number) => void;
@@ -140,12 +137,10 @@ const SettingsContext = createContext<SettingsContextValue | null>(null);
 // Provider
 // ---------------------------------------------------------------------------
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [frontend, setFrontend] = useState<string>(DEFAULT_FRONTEND);
   const [funnels, setFunnels] = useState<FunnelDef[]>(DEFAULT_FUNNELS);
   const [activeFunnelIndex, setActiveFunnelIndex] = useState<number>(0);
 
   // Global (app-scoped) reads — shared across every user of this app in the Dynatrace environment.
-  const savedFrontend = useAppState({ key: FRONTEND_STATE_KEY });
   const savedFunnels = useAppState({ key: FUNNELS_STATE_KEY });
   const savedActiveFunnel = useAppState({ key: ACTIVE_FUNNEL_STATE_KEY });
   const savedLegacySteps = useAppState({ key: STEPS_STATE_KEY });
@@ -158,7 +153,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const savedIndustry = useAppState({ key: INDUSTRY_STATE_KEY });
   // Per-user fallbacks — pre-migration these keys were stored per-user. Fall back to those values
   // when the global bucket has not been written yet, so nothing is lost on first load after upgrade.
-  const userLegacyFrontend = useUserAppState({ key: FRONTEND_STATE_KEY });
   const userLegacyFunnels = useUserAppState({ key: FUNNELS_STATE_KEY });
   const userLegacyActiveFunnel = useUserAppState({ key: ACTIVE_FUNNEL_STATE_KEY });
   const userLegacySteps = useUserAppState({ key: STEPS_STATE_KEY });
@@ -170,11 +164,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const userLegacyEngineer = useUserAppState({ key: ENGINEER_HOURLY_RATE_STATE_KEY });
   const userLegacyIndustry = useUserAppState({ key: INDUSTRY_STATE_KEY });
   const { execute: saveState } = useSetAppState();
-
-  useEffect(() => {
-    const raw = (savedFrontend.data?.value ?? userLegacyFrontend.data?.value) as string | undefined;
-    if (raw && raw.trim()) setFrontend(raw.trim());
-  }, [savedFrontend.data?.value, userLegacyFrontend.data?.value]);
 
   // Load multi-funnel state (or migrate from legacy single-funnel).
   // Prefer the shared/global bucket; fall back to the per-user bucket for pre-migration data.
@@ -231,11 +220,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [savedActiveFunnel.data?.value, userLegacyActiveFunnel.data?.value]);
 
-  const saveFrontend = (v: string) => {
-    setFrontend(v);
-    saveState({ key: FRONTEND_STATE_KEY, body: { value: v } });
-  };
-
   const saveFunnels = (v: FunnelDef[]) => {
     setFunnels(v);
     saveState({ key: FUNNELS_STATE_KEY, body: { value: JSON.stringify(v) } });
@@ -252,6 +236,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const safeIndex = activeFunnelIndex < funnels.length ? activeFunnelIndex : 0;
   const activeFunnel = funnels[safeIndex];
   const steps = activeFunnel?.steps ?? DEFAULT_FUNNEL_STEPS;
+  // Derived from step 1 of the active funnel — no longer a separate stored setting.
+  const frontend = steps[0]?.app || DEFAULT_FRONTEND;
 
   // Legacy fallbacks: use old top-level state keys if the funnel doesn't have these fields yet.
   // Read the shared bucket first, then fall back to any pre-migration per-user value.
@@ -315,7 +301,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const saveIndustry = (v: IndustryType) => persistActiveFunnel({ industry: v });
 
   return (
-    <SettingsContext.Provider value={{ frontend, setFrontend, funnels, setFunnels, activeFunnelIndex, setActiveFunnelIndex, saveFunnels, saveActiveFunnelIndex, steps, setSteps, saveSteps, aov, setAov, monthlyInfraCost, setMonthlyInfraCost, cdnMonthlyCost, setCdnMonthlyCost, computeCostPerHour, setComputeCostPerHour, costPerGb, setCostPerGb, engineerHourlyRate, setEngineerHourlyRate, industry, setIndustry, saveFrontend, saveAov, saveMonthlyInfraCost, saveCdnMonthlyCost, saveComputeCostPerHour, saveCostPerGb, saveEngineerHourlyRate, saveIndustry }}>
+    <SettingsContext.Provider value={{ frontend, funnels, setFunnels, activeFunnelIndex, setActiveFunnelIndex, saveFunnels, saveActiveFunnelIndex, steps, setSteps, saveSteps, aov, setAov, monthlyInfraCost, setMonthlyInfraCost, cdnMonthlyCost, setCdnMonthlyCost, computeCostPerHour, setComputeCostPerHour, costPerGb, setCostPerGb, engineerHourlyRate, setEngineerHourlyRate, industry, setIndustry, saveAov, saveMonthlyInfraCost, saveCdnMonthlyCost, saveComputeCostPerHour, saveCostPerGb, saveEngineerHourlyRate, saveIndustry }}>
       {children}
     </SettingsContext.Provider>
   );

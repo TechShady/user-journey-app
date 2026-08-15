@@ -19,12 +19,15 @@ import type { Timeseries } from "@dynatrace/strato-components/charts";
 import { DataTable } from "@dynatrace/strato-components-preview/tables";
 import "./UserJourney.css";
 import { LAMBO_CAR } from "../lamboCarImage";
-import { useSettings, DEFAULT_FRONTEND, DEFAULT_FUNNEL_STEPS, DEFAULT_FUNNELS, MIN_STEPS, MAX_STEPS, MAX_FUNNELS, DEFAULT_AOV, INDUSTRY_OPTIONS, INDUSTRY_BENCHMARKS, IndustryType, IndustryBenchmark } from "../SettingsContext";
+import { useSettings, DEFAULT_FUNNEL_STEPS, DEFAULT_FUNNELS, MIN_STEPS, MAX_STEPS, MAX_FUNNELS, DEFAULT_AOV, INDUSTRY_OPTIONS, INDUSTRY_BENCHMARKS, IndustryType, IndustryBenchmark } from "../SettingsContext";
 import type { StepDef, FunnelDef } from "../SettingsContext";
 import { useTimelapse, TL_BUCKETS, TL_SPEEDS } from "../TimelapseContext";
 import type { TlBucket, SharedBucketMetrics } from "../TimelapseContext";
 import { HyperlyzerTab } from "./HyperlyzerTab";
 import { ForecastModal } from "../components/ForecastModal";
+import { HotnessForecastPanel } from "../components/HotnessForecastPanel";
+import { PersonaPickerModal } from "../components/PersonaPickerModal";
+import type { PersonaDef } from "../components/PersonaPickerModal";
 import { CorrelationsPanel, CorrelationsContext, computeCorrelations } from "../components/CorrelationsPanel";
 import type { MetricEntry, CorrelationOpener } from "../components/CorrelationsPanel";
 
@@ -95,7 +98,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.50";
+const APP_VERSION_LABEL = "4.76.51";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -399,6 +402,31 @@ const PARENT_TAB_ORDER_STATE_KEY = "uj-parent-tab-order";
 const PARENT_TAB_VISIBILITY_STATE_KEY = "uj-parent-tab-visibility";
 const SUB_TAB_ORDER_STATE_KEY = "uj-sub-tab-order";
 const DEFAULT_PARENT_TAB_VISIBILITY: Record<ParentTabKey, boolean> = Object.fromEntries(PARENT_TAB_KEYS.map(k => [k, true])) as Record<ParentTabKey, boolean>;
+
+const UJ_PERSONAS: PersonaDef[] = [
+  { id: "all",       label: "All",             icon: "👥", description: "Full access — every tab enabled",           tabSummary: "All tab groups are visible." },
+  { id: "developer", label: "Developer",        icon: "💻", description: "Errors, performance & debug tools",         tabSummary: "Funnel & Conversion · User Experience · Navigation & Flows · Errors & Reliability · Intelligence & AI" },
+  { id: "sre",       label: "SRE",              icon: "🔧", description: "Reliability, hotness & error signals",      tabSummary: "Funnel & Conversion · User Experience · Errors & Reliability · Intelligence & AI" },
+  { id: "manager",   label: "Manager",          icon: "📊", description: "KPIs, trends & business impact",           tabSummary: "Funnel & Conversion · Executive Summary · Intelligence & AI · Engagement & Revenue · Errors & Reliability" },
+  { id: "executive", label: "Executive",        icon: "🏢", description: "High-level business metrics only",         tabSummary: "Executive Summary · Engagement & Revenue" },
+  { id: "product",   label: "Product Manager",  icon: "🎯", description: "User journeys, funnels & engagement",      tabSummary: "Funnel & Conversion · Executive Summary · Navigation & Flows · Engagement & Revenue" },
+  { id: "finops",    label: "FinOps",           icon: "💰", description: "Cost attribution & optimization",          tabSummary: "FinOps · Executive Summary · Funnel & Conversion" },
+];
+
+const UJ_PERSONA_PARENT_TABS: Record<string, Record<ParentTabKey, boolean>> = {
+  all:       { "Funnel & Conversion": true,  "Executive Summary": true,  "User Experience": true,  "Navigation & Flows": true,  "Intelligence & AI": true,  "Engagement & Revenue": true,  "Errors & Reliability": true,  "FinOps": true  },
+  developer: { "Funnel & Conversion": true,  "Executive Summary": false, "User Experience": true,  "Navigation & Flows": true,  "Intelligence & AI": true,  "Engagement & Revenue": false, "Errors & Reliability": true,  "FinOps": false },
+  sre:       { "Funnel & Conversion": true,  "Executive Summary": false, "User Experience": true,  "Navigation & Flows": false, "Intelligence & AI": true,  "Engagement & Revenue": false, "Errors & Reliability": true,  "FinOps": false },
+  manager:   { "Funnel & Conversion": true,  "Executive Summary": true,  "User Experience": false, "Navigation & Flows": false, "Intelligence & AI": true,  "Engagement & Revenue": true,  "Errors & Reliability": true,  "FinOps": false },
+  executive: { "Funnel & Conversion": false, "Executive Summary": true,  "User Experience": false, "Navigation & Flows": false, "Intelligence & AI": false, "Engagement & Revenue": true,  "Errors & Reliability": false, "FinOps": false },
+  product:   { "Funnel & Conversion": true,  "Executive Summary": true,  "User Experience": false, "Navigation & Flows": true,  "Intelligence & AI": false, "Engagement & Revenue": true,  "Errors & Reliability": false, "FinOps": false },
+  finops:    { "Funnel & Conversion": true,  "Executive Summary": true,  "User Experience": false, "Navigation & Flows": false, "Intelligence & AI": false, "Engagement & Revenue": false, "Errors & Reliability": false, "FinOps": true  },
+};
+
+const UJ_WHATS_NEW = [
+  "📈 Predictive Hotness Forecasting — forecast future system stress with 6 AI-powered models (Prophet, Holt-Winters, ARIMA, SARIMA, Triple Exp. Smoothing, Linear Regression)",
+  "🎭 Persona Presets — role-based tab layouts; select your role to see only the tabs that matter to you",
+];
 const DEFAULT_SUB_TAB_ORDER: Record<ParentTabKey, TabKey[]> = Object.fromEntries(TAB_GROUPS.map(g => [g.label, [...g.subTabs]])) as Record<ParentTabKey, TabKey[]>;
 
 const DEFAULT_TAB_VISIBILITY: Record<TabKey, boolean> = Object.fromEntries(TAB_KEYS.map(k => [k, true])) as Record<TabKey, boolean>;
@@ -4055,7 +4083,6 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
         <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>Errors &amp; Reliability</Strong>: Exceptions, Error Clustering, SLO Tracker</Paragraph>
         <Paragraph style={{ fontSize: 13, paddingLeft: 12 }}>• <Strong>FinOps</Strong>: Cost per Conversion, Performance Tax, Idle Capacity, CDN ROI, Cost per Transaction, SLO Cost Trade-offs</Paragraph>
         <Paragraph><Strong>Hiding a parent group</Strong> hides all its sub-tabs. Hiding individual sub-tabs within a visible group removes only those sub-tabs. Hiding a tab does not affect data collection, only display.</Paragraph>
-        <Paragraph><Strong>Default Frontend Application</Strong>: Searchable dropdown listing all applications with session data in the last 30 days. This serves as the default app for new funnel steps. Each step can be assigned a different app to support cross-app funnels.</Paragraph>
         <Paragraph><Strong>Funnels</Strong>: You can create up to {MAX_FUNNELS} named funnels. Use the header <Strong>Funnel</Strong> dropdown to switch between them. In Settings, funnel tabs let you select, create, rename, and delete funnels. If no funnels exist on first launch, Settings opens automatically.</Paragraph>
         <Paragraph><Strong>Funnel Discovery</Strong>: Select one or more applications and click <Strong>Discover Funnels</Strong> to automatically find common user journeys from the last 7 days of session data. Discovered candidates show step count and session volume — click <Strong>Apply</Strong>, enter a name, and the funnel is added to your collection.</Paragraph>
         <Paragraph><Strong>Funnel Steps — Per-Step Application</Strong>: Each funnel step has its own Application selector. When adding a new step, it inherits the previous step's app. Change a step's app to build funnels that span multiple applications (e.g. marketing site → checkout app). The Pages/Identifiers dropdown shows pages specific to that step's selected app. Queries automatically use <code>in(frontend.name, {"{"}app1", "app2{"}"})</code> when the funnel spans multiple apps.</Paragraph>
@@ -5314,10 +5341,13 @@ export function UserJourney() {
   const [hotnessAssistOpen, setHotnessAssistOpen] = useState(false);
   const [hotnessAssistPos, setHotnessAssistPos] = useState<{ x: number; y: number }>({ x: 200, y: 80 });
   const hotnessAssistDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const [hotnessForecastOpen, setHotnessForecastOpen] = useState(false);
+  const [hotnessForecastPos, setHotnessForecastPos] = useState<{ x: number; y: number }>({ x: 240, y: 120 });
+  const hotnessForecastDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const closeAiInsights = React.useCallback(() => setAiOpen(false), []);
   const aiContextValue = React.useMemo(() => ({ open: aiOpen, close: closeAiInsights, activeSubTab: activeSubTabKey }), [aiOpen, closeAiInsights, activeSubTabKey]);
-  const { frontend, steps, funnels, activeFunnelIndex, saveFunnels, saveActiveFunnelIndex, saveFrontend, saveSteps, aov, saveAov, monthlyInfraCost, saveMonthlyInfraCost, cdnMonthlyCost, saveCdnMonthlyCost, computeCostPerHour, saveComputeCostPerHour, costPerGb, saveCostPerGb, engineerHourlyRate, saveEngineerHourlyRate, industry, saveIndustry } = useSettings();
+  const { frontend, steps, funnels, activeFunnelIndex, saveFunnels, saveActiveFunnelIndex, saveSteps, aov, saveAov, monthlyInfraCost, saveMonthlyInfraCost, cdnMonthlyCost, saveCdnMonthlyCost, computeCostPerHour, saveComputeCostPerHour, costPerGb, saveCostPerGb, engineerHourlyRate, saveEngineerHourlyRate, industry, saveIndustry } = useSettings();
   const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
   const [funnelStyle, setFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState<number>(0);
@@ -5982,9 +6012,22 @@ export function UserJourney() {
     window.addEventListener('mouseup', onUp);
   }, [hotnessAssistPos]);
 
+  const startHotnessForecastDrag = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    hotnessForecastDragRef.current = { startX: e.clientX, startY: e.clientY, origX: hotnessForecastPos.x, origY: hotnessForecastPos.y };
+    const onMove = (me: MouseEvent) => {
+      if (!hotnessForecastDragRef.current) return;
+      setHotnessForecastPos({ x: hotnessForecastDragRef.current.origX + me.clientX - hotnessForecastDragRef.current.startX, y: hotnessForecastDragRef.current.origY + me.clientY - hotnessForecastDragRef.current.startY });
+    };
+    const onUp = () => { hotnessForecastDragRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [hotnessForecastPos]);
+
   // Close the diag panel when Time-Lapse is turned off
   useEffect(() => { if (!tl.enabled) setTlDiagPanel(null); }, [tl.enabled]);
   useEffect(() => { if (!tl.enabled) setHotnessAssistOpen(false); }, [tl.enabled]);
+  useEffect(() => { if (!tl.enabled) setHotnessForecastOpen(false); }, [tl.enabled]);
 
   // Parse funnel
   const parseFunnel = (result: any) => {
@@ -6120,6 +6163,39 @@ export function UserJourney() {
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tl.enabled, tl.sharedMetricsAll, tl.hotness, tlSharedBaselines, tlProblemsOpenedByBucket, overallConv, aov, tl.bucket, industry]);
+
+  const getHotnessForecastData = React.useCallback(async (days: number): Promise<number[]> => {
+    try {
+      const q = `fetch user.events, from: now()-${days}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0, day = bin(start_time, 1d)
+| summarize
+    total = count(),
+    errors = countIf(characteristics.has_error == true),
+    avgDur = avg(dur_ms),
+    sat = countIf(dur_ms <= ${APDEX_T}.0),
+    tol = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
+    by: {day}
+| sort day asc`;
+      const recs = await runDqlQuery(q);
+      if (recs.length < 2) return [];
+      const errRates = recs.map((r: any) => { const t = Number(r.total ?? 0); return t > 0 ? Number(r.errors ?? 0) / t * 100 : 0; });
+      const durs     = recs.map((r: any) => Number(r.avgDur ?? 0));
+      const apdexes  = recs.map((r: any) => { const t = Number(r.total ?? 0); return t > 0 ? (Number(r.sat ?? 0) + Number(r.tol ?? 0) / 2) / t : 1; });
+      const mn = (a: number[]) => a.reduce((x, y) => x + y, 0) / Math.max(a.length, 1);
+      const sd = (a: number[], m: number) => Math.sqrt(a.reduce((x, v) => x + (v - m) ** 2, 0) / Math.max(a.length, 1)) || 1;
+      const eM = mn(errRates), eS = sd(errRates, eM);
+      const dM = mn(durs),     dS = sd(durs, dM);
+      const aM = mn(apdexes),  aS = sd(apdexes, aM);
+      return recs.map((_: any, i: number) => Math.max(0,
+        (errRates[i] - eM) / eS,
+        (durs[i] - dM) / dS,
+        (aM - apdexes[i]) / aS,
+      ));
+    } catch { return []; }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [steps, frontend]);
 
   const isLoading = funnelResult.isLoading || stepMetrics.isLoading;
   const isFunnelFetching = funnelResult.isFetching || stepMetrics.isFetching || qualityData.isFetching;
@@ -6368,6 +6444,19 @@ export function UserJourney() {
                   {hotnessAssistData && (
                     <HotnessAssistButton active={hotnessAssistOpen} onClick={() => setHotnessAssistOpen(v => !v)} />
                   )}
+                  {tl.hotness.length > 0 && (
+                    <button
+                      onClick={() => setHotnessForecastOpen(v => !v)}
+                      title="Hotness Forecast"
+                      style={{
+                        fontSize: 11, padding: "2px 8px", borderRadius: 5, cursor: "pointer",
+                        background: hotnessForecastOpen ? "rgba(69,137,255,0.25)" : "rgba(255,255,255,0.07)",
+                        color: hotnessForecastOpen ? "#4589FF" : "rgba(255,255,255,0.6)",
+                        border: `1px solid ${hotnessForecastOpen ? "rgba(69,137,255,0.5)" : "rgba(255,255,255,0.15)"}`,
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                      }}
+                    >📈 Forecast</button>
+                  )}
                 </Flex>
               </Flex>
               <div style={{ display: "flex", alignItems: "flex-end", gap: 1, height: stripH, cursor: "pointer" }}>
@@ -6509,6 +6598,33 @@ export function UserJourney() {
         document.body
       )}
 
+      {hotnessForecastOpen && tl.hotness.length > 0 && (
+        <HotnessForecastPanel
+          hotness={tl.hotness}
+          bucketMs={tl.bucketMs}
+          pos={hotnessForecastPos}
+          onClose={() => setHotnessForecastOpen(false)}
+          onDragStart={startHotnessForecastDrag}
+          getRequeryData={getHotnessForecastData}
+        />
+      )}
+
+      <PersonaPickerModal
+        appName="User Journey & Experience"
+        appVersion={APP_VERSION_LABEL}
+        appDesc="Tracks conversion funnels, revenue impact, user behavior, and performance across every step of your users' journeys."
+        repoUrl="https://github.com/TechShady/user-journey-app"
+        whatsNew={UJ_WHATS_NEW}
+        statePrefix="uj"
+        personas={UJ_PERSONAS}
+        defaultPersonaId="all"
+        onApply={(personaId) => {
+          const vis = UJ_PERSONA_PARENT_TABS[personaId] ?? DEFAULT_PARENT_TAB_VISIBILITY;
+          setParentTabVisibility(vis);
+          saveState({ key: PARENT_TAB_VISIBILITY_STATE_KEY, body: { value: JSON.stringify(vis) } });
+        }}
+      />
+
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
       <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
         <div style={{ padding: "4px 0" }}>
@@ -6539,31 +6655,6 @@ export function UserJourney() {
             </button>
             {globalSettingsExpanded && (
               <div style={{ padding: "14px" }}>
-          {/* Frontend Application Name */}
-          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Default Frontend Application</Paragraph>
-          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Default app for new funnel steps and non-step queries (Sankey, CWV, Session Replay). Each step can override this.</Paragraph>
-          <div style={{ marginBottom: 20 }}>
-            {settingsAppsData.isLoading ? (
-              <ProgressBar style={{ width: "100%" }} />
-            ) : (
-              <Select value={frontend} onChange={(val) => { if (val) saveFrontend(val); }}>
-                <Select.Trigger />
-                <Select.Content>
-                  <Select.Filter />
-                  {frontend && !availableApps.includes(frontend) && (
-                    <Select.Option value={frontend}>{frontend}</Select.Option>
-                  )}
-                  {availableApps.map(app => (
-                    <Select.Option key={app} value={app}>{app}</Select.Option>
-                  ))}
-                  {availableApps.length === 0 && (
-                    <Select.Option value="" disabled>No applications found</Select.Option>
-                  )}
-                </Select.Content>
-              </Select>
-            )}
-          </div>
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
           {/* Funnel Management */}
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Funnels ({funnels.length}/{MAX_FUNNELS})</Paragraph>
           <Paragraph style={{ marginBottom: 12, opacity: 0.6, fontSize: 12 }}>Manage multiple funnels (up to {MAX_FUNNELS}). Select the active funnel from the header dropdown. Each funnel has a name and its own step definitions.</Paragraph>
@@ -6854,6 +6945,30 @@ export function UserJourney() {
                 {HOTNESS_MODE_OPTIONS.map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
               </Select.Content>
             </Select>
+          </div>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
+          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Role Preset</Paragraph>
+          <Paragraph style={{ marginBottom: 10, opacity: 0.6, fontSize: 12 }}>Apply a persona preset to quickly show only the tabs relevant to your role. You can still manually adjust individual tabs below.</Paragraph>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+            {UJ_PERSONAS.map(p => (
+              <button
+                key={p.id}
+                title={p.tabSummary}
+                onClick={() => {
+                  const vis = UJ_PERSONA_PARENT_TABS[p.id] ?? DEFAULT_PARENT_TAB_VISIBILITY;
+                  setParentTabVisibility(vis);
+                  saveState({ key: PARENT_TAB_VISIBILITY_STATE_KEY, body: { value: JSON.stringify(vis) } });
+                }}
+                style={{
+                  fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: "pointer",
+                  background: "rgba(69,137,255,0.1)", color: "#a8c4ff",
+                  border: "1px solid rgba(69,137,255,0.3)",
+                  display: "inline-flex", alignItems: "center", gap: 5, transition: "all 0.15s",
+                }}
+              >
+                <span>{p.icon}</span> {p.label}
+              </button>
+            ))}
           </div>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Tab Groups & Sub-Tab Visibility</Paragraph>
