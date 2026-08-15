@@ -100,7 +100,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.53";
+const APP_VERSION_LABEL = "4.76.54";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -21101,21 +21101,39 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
+  const [expandPath, setExpandPath] = useState(false);
+  React.useEffect(() => { if (!focusNodeId) setExpandPath(false); }, [focusNodeId]);
 
   // Build a set of connected node IDs and link indices for the focused node
   const { connectedNodes, connectedLinks } = useMemo(() => {
     if (!focusNodeId) return { connectedNodes: new Set<string>(), connectedLinks: new Set<number>() };
     const cn = new Set<string>([focusNodeId]);
     const cl = new Set<number>();
-    links.forEach((l, i) => {
-      if (l.source === focusNodeId || l.target === focusNodeId) {
-        cl.add(i);
-        cn.add(l.source);
-        cn.add(l.target);
+    if (!expandPath) {
+      links.forEach((l, i) => {
+        if (l.source === focusNodeId || l.target === focusNodeId) { cl.add(i); cn.add(l.source); cn.add(l.target); }
+      });
+    } else {
+      // Fan back: BFS upstream through all ancestors
+      const upQ = [focusNodeId];
+      while (upQ.length) {
+        const cur = upQ.shift()!;
+        links.forEach((l, i) => {
+          if (l.target === cur && !cn.has(l.source)) { cn.add(l.source); cl.add(i); upQ.push(l.source); }
+        });
       }
-    });
+      // Fan forward: BFS downstream through all descendants
+      const downVisited = new Set<string>([focusNodeId]);
+      const downQ = [focusNodeId];
+      while (downQ.length) {
+        const cur = downQ.shift()!;
+        links.forEach((l, i) => {
+          if (l.source === cur && !downVisited.has(l.target)) { downVisited.add(l.target); cn.add(l.target); cl.add(i); downQ.push(l.target); }
+        });
+      }
+    }
     return { connectedNodes: cn, connectedLinks: cl };
-  }, [focusNodeId, links]);
+  }, [focusNodeId, links, expandPath]);
 
   // Set of labels connected to the focused label (for directed/alluvial/stateMachine focus mode)
   const connectedLabelSet = useMemo(() => {
@@ -22109,6 +22127,10 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
               : <Strong style={{ fontSize: 13 }}>{focusNode.label}</Strong>
             }
             <Text style={{ fontSize: 12, opacity: 0.5 }}>{fmtCount(focusSessions)} sessions</Text>
+            <button
+              onClick={() => setExpandPath(p => !p)}
+              style={{ background: expandPath ? "rgba(69,137,255,0.18)" : "none", border: `1px solid ${expandPath ? "#4589FF" : "rgba(255,255,255,0.2)"}`, borderRadius: 4, color: expandPath ? "#4589FF" : "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 10px", fontSize: 12, fontWeight: expandPath ? 700 : 400, transition: "all 0.15s" }}
+            >⛓ {expandPath ? "Full Path" : "Expand Path"}</button>
             <button onClick={() => setFocusNodeId(null)} style={{ marginLeft: "auto", background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 4, color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "2px 8px", fontSize: 12 }}>Clear</button>
           </Flex>
           {/* Funnel status badge */}
