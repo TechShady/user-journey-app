@@ -52,7 +52,7 @@ const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "heatmap", label: "Transition Heatmap" },
 ];
 const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
-type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying" | "uhaul" | "eyeExam" | "spectacles" | "grocery" | "curbside" | "molsonCoors";
+type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying" | "uhaul" | "eyeExam" | "spectacles" | "grocery" | "curbside" | "molsonCoors" | "bankVault" | "goldBars";
 const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "classic", label: "Classic Funnel" },
   { value: "horizontal", label: "Horizontal Bar" },
@@ -74,6 +74,8 @@ const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
   { value: "grocery", label: "\uD83D\uDED2 Grocery Aisles" },
   { value: "curbside", label: "\uD83D\uDCF1 Curbside Pickup" },
   { value: "molsonCoors", label: "\uD83C\uDF7A Molson Coors" },
+  { value: "bankVault", label: "\uD83C\uDFE6 Bank Vault" },
+  { value: "goldBars", label: "\uD83E\uDE99 Gold Bars" },
 ];
 const DEFAULT_FUNNEL_STYLE: FunnelStyle = "classic";
 const FUNNEL_STYLE_STATE_KEY = "uj-funnel-style";
@@ -98,7 +100,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.51";
+const APP_VERSION_LABEL = "4.76.53";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -375,7 +377,7 @@ const TAB_KEYS = [
   "Third-Party Impact", "Error Clustering",
   "Hyperlyzer",
   "Cost per Conversion", "Performance Tax", "Idle Capacity", "CDN ROI",
-  "Cost per Transaction", "SLO Cost Trade-offs",
+  "Cost per Transaction", "SLO Cost Trade-offs", "Budget Impact Simulator",
 ] as const;
 type TabKey = typeof TAB_KEYS[number];
 
@@ -391,7 +393,7 @@ const TAB_GROUPS: TabGroupDef[] = [
   { label: "Intelligence & AI", subTabs: ["Anomaly Detection", "Root Cause Correlation", "Predictive Forecasting", "Change Intelligence", "What-If Analysis"] },
   { label: "Engagement & Revenue", subTabs: ["Segmentation", "Cohort Retention", "Session Engagement", "Revenue Intelligence", "A/B Comparison"] },
   { label: "Errors & Reliability", subTabs: ["Exceptions", "Error Clustering", "SLO Tracker"] },
-  { label: "FinOps", subTabs: ["Cost per Conversion", "Performance Tax", "Idle Capacity", "CDN ROI", "Cost per Transaction", "SLO Cost Trade-offs"] },
+  { label: "FinOps", subTabs: ["Cost per Conversion", "Performance Tax", "Idle Capacity", "CDN ROI", "Cost per Transaction", "SLO Cost Trade-offs", "Budget Impact Simulator"] },
 ];
 type ParentTabKey = typeof TAB_GROUPS[number]["label"];
 const PARENT_TAB_KEYS: ParentTabKey[] = TAB_GROUPS.map(g => g.label);
@@ -7086,6 +7088,7 @@ export function UserJourney() {
             case "CDN ROI": content = <CdnRoiTab thirdPartyData={thirdPartyData} quality={quality} cdnMonthlyCost={cdnMonthlyCost} costPerGb={costPerGb} aov={aov} overallConv={overallConv} funnelCounts={funnelCounts} isLoading={thirdPartyData.isLoading} onDrillToForecast={openForecast} />; break;
             case "Cost per Transaction": content = <CostPerTransactionTab quality={quality} qualityPrev={qualityPrev} funnelCounts={funnelCounts} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} aov={aov} overallConv={overallConv} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
             case "SLO Cost Trade-offs": content = <SloCostTradeoffsTab quality={quality} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
+            case "Budget Impact Simulator": content = <BudgetImpactSimulatorTab funnelCounts={funnelCounts} steps={steps} aov={aov} monthlyInfraCost={monthlyInfraCost} timeframeDays={timeframeDays} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
                   }
                   return <Tab key={tabId} title={tabId}><TabTlBanner tabId={tabId} />{content}</Tab>;
                 })}
@@ -12329,6 +12332,466 @@ function MolsonCoorsFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; ao
 }
 
 // ===========================================================================
+// SKIN: Bank Vault Corridor
+// ===========================================================================
+function BankVaultFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const N = steps.length;
+  const totalSessions = steps[0]?.count ?? 0;
+  const converted = steps[N - 1]?.count ?? 0;
+  const convRate = totalSessions > 0 ? (converted / totalSessions) * 100 : 0;
+  const dropped = totalSessions - converted;
+
+  const VAULT_GOLD  = "#C9A84C";
+  const VAULT_STEEL = "#3A3A4A";
+  const VAULT_DARK  = "#0D0D14";
+
+  const stepClr    = (step: FunnelStep, i: number) => i === 0 ? BLUE : step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 30 ? YELLOW : RED;
+  const statusClr  = (r: number) => r >= 60 ? GREEN : r >= 30 ? YELLOW : RED;
+
+  const SVG_W = 680;
+  const SVG_H = 400;
+  const lMargin = 28;
+  const rMargin = 28;
+  const doorSpacing = (SVG_W - lMargin - rMargin) / N;
+  const maxDoorH = 238;
+  const maxDoorW = Math.min(doorSpacing * 0.78, 108);
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "300px 1fr 330px", gap: 14, background: `${VAULT_DARK}FC`, color: "#e8eeff", padding: 16, fontFamily: '"Inter",system-ui,sans-serif', borderRadius: 12, boxSizing: "border-box", minHeight: 520 }}>
+      {/* LEFT — Journey Stages */}
+      <div style={{ border: `1px solid ${VAULT_GOLD}55`, borderRadius: 14, padding: 14, background: "rgba(14,14,24,0.96)", overflow: "hidden" }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: VAULT_GOLD, marginBottom: 14, paddingBottom: 8, borderBottom: `1px solid ${VAULT_GOLD}33` }}>
+          🏦 Vault Stages
+        </div>
+        {steps.map((step, i) => {
+          const clr = stepClr(step, i);
+          return (
+            <div key={i} style={{ marginBottom: i < N - 1 ? 14 : 0, paddingBottom: i < N - 1 ? 14 : 0, borderBottom: i < N - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <div style={{ width: 26, height: 26, borderRadius: "50%", background: VAULT_STEEL, color: VAULT_GOLD, fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: `1px solid ${VAULT_GOLD}55` }}>
+                  {i + 1}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#e8eeff", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>{step.label}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 34 }}>
+                <span style={{ fontSize: 20, fontWeight: 800 }}>{fmtCount(step.count)}</span>
+                {i === 0 && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>sessions</span>}
+                {i > 0 && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: `${clr}55`, padding: "2px 8px", borderRadius: 8, border: `1px solid ${clr}`, marginLeft: "auto" }}>
+                    {fmtPct(step.convFromPrev)}
+                  </span>
+                )}
+              </div>
+              {i > 0 && (
+                <div style={{ height: 3, borderRadius: 2, marginTop: 6, marginLeft: 34, background: "rgba(255,255,255,0.07)" }}>
+                  <div style={{ height: "100%", width: `${Math.min(step.convFromPrev, 100)}%`, background: clr, borderRadius: 2 }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* CENTER — Vault Corridor SVG */}
+      <div style={{ borderRadius: 14, overflow: "hidden", background: VAULT_DARK, display: "flex", flexDirection: "column" }}>
+        {funnelName && (
+          <div style={{ textAlign: "center", fontSize: 13, fontWeight: 800, color: VAULT_DARK, letterSpacing: 2, textTransform: "uppercase", padding: "6px 0", background: VAULT_GOLD }}>
+            {funnelName}
+          </div>
+        )}
+        <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+          <defs>
+            <linearGradient id="bv-bg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#080810" />
+              <stop offset="100%" stopColor="#111120" />
+            </linearGradient>
+            <linearGradient id="bv-door" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#2E2E3E" />
+              <stop offset="50%" stopColor="#1E1E2C" />
+              <stop offset="100%" stopColor="#14141E" />
+            </linearGradient>
+          </defs>
+          <rect width={SVG_W} height={SVG_H} fill="url(#bv-bg)" />
+          {/* Ceiling and floor cornices */}
+          <rect x="0" y="0" width={SVG_W} height="18" fill={`${VAULT_GOLD}0C`} />
+          <line x1="0" y1="18" x2={SVG_W} y2="18" stroke={`${VAULT_GOLD}33`} strokeWidth="1" />
+          <rect x="0" y={SVG_H - 18} width={SVG_W} height="18" fill={`${VAULT_GOLD}0C`} />
+          <line x1="0" y1={SVG_H - 18} x2={SVG_W} y2={SVG_H - 18} stroke={`${VAULT_GOLD}33`} strokeWidth="1" />
+          {/* Marble floor stripes */}
+          {Array.from({ length: 6 }, (_, i) => (
+            <line key={i} x1="0" y1={SVG_H - 38 + i * 5} x2={SVG_W} y2={SVG_H - 38 + i * 5} stroke={`${VAULT_GOLD}05`} strokeWidth="0.8" />
+          ))}
+          {/* Header label */}
+          <text x={SVG_W / 2} y="13" textAnchor="middle" fill={`${VAULT_GOLD}66`} fontSize="9" fontWeight="700" letterSpacing="3">
+            PRIVATE BANKING — SECURITY CORRIDOR
+          </text>
+
+          {/* Vault doors */}
+          {steps.map((step, i) => {
+            const isLast = i === N - 1;
+            const cx = lMargin + (i + 0.5) * doorSpacing;
+            const frac = Math.max(0, Math.min(1, step.overallConv / 100));
+            const clr = stepClr(step, i);
+            const scale = 1 - (i / Math.max(N, 2)) * 0.44;
+            const dW = maxDoorW * scale;
+            const dH = maxDoorH * scale;
+            const dY = (SVG_H - dH) / 2 + 4;
+            const dX = cx - dW / 2;
+            const dialR = Math.max(8, dW * 0.22);
+            const dialCY = dY + dH * 0.37;
+            const isOpen = isLast && frac > 0.3;
+
+            return (
+              <g key={i}>
+                {/* Glow behind last open door */}
+                {isOpen && <ellipse cx={cx} cy={dY + dH / 2} rx={dW * 1.1} ry={dH * 0.55} fill={`${GREEN}14`} />}
+
+                {/* Door frame outer glow */}
+                <rect x={dX - 6} y={dY - 6} width={dW + 12} height={dH + 12} rx={4} fill={VAULT_GOLD} opacity={0.14} />
+                {/* Door frame */}
+                <rect x={dX - 4} y={dY - 4} width={dW + 8} height={dH + 8} rx={3} fill={VAULT_STEEL} stroke={`${VAULT_GOLD}66`} strokeWidth="1.5" />
+                {/* Door body */}
+                <rect x={dX} y={dY} width={dW} height={dH} rx={2} fill={isOpen ? `${GREEN}1A` : "url(#bv-door)"} stroke={isOpen ? GREEN : VAULT_STEEL} strokeWidth="1" />
+
+                {/* Corner rivets */}
+                {([[dX + 7, dY + 7], [dX + dW - 7, dY + 7], [dX + 7, dY + dH - 7], [dX + dW - 7, dY + dH - 7]] as [number, number][]).map(([bx, by], bi) => (
+                  <g key={bi}>
+                    <circle cx={bx} cy={by} r={Math.max(4, dW * 0.065)} fill={VAULT_STEEL} stroke={`${VAULT_GOLD}66`} strokeWidth="1" />
+                    <circle cx={bx} cy={by} r={Math.max(2, dW * 0.03)} fill={VAULT_GOLD} opacity={0.55} />
+                  </g>
+                ))}
+
+                {/* Combination dial — outer ring */}
+                <circle cx={cx} cy={dialCY} r={dialR + 4} fill={VAULT_STEEL} stroke={`${VAULT_GOLD}88`} strokeWidth="1.5" />
+                {/* Dial face */}
+                <circle cx={cx} cy={dialCY} r={dialR} fill="rgba(6,6,14,0.95)" stroke={`${VAULT_GOLD}66`} strokeWidth="1" />
+                {/* Tick marks */}
+                {Array.from({ length: 12 }, (_, t) => {
+                  const angle = (t / 12) * Math.PI * 2;
+                  return (
+                    <line key={t}
+                      x1={cx + Math.cos(angle) * (dialR - 2)} y1={dialCY + Math.sin(angle) * (dialR - 2)}
+                      x2={cx + Math.cos(angle) * (dialR - 5)} y2={dialCY + Math.sin(angle) * (dialR - 5)}
+                      stroke={`${VAULT_GOLD}88`} strokeWidth="1" />
+                  );
+                })}
+                {/* Dial hand */}
+                {(() => {
+                  const angle = -Math.PI / 2 + frac * Math.PI * 2;
+                  return <line x1={cx} y1={dialCY} x2={cx + Math.cos(angle) * (dialR - 5)} y2={dialCY + Math.sin(angle) * (dialR - 5)} stroke={isOpen ? GREEN : VAULT_GOLD} strokeWidth="2" strokeLinecap="round" />;
+                })()}
+                <circle cx={cx} cy={dialCY} r={2.5} fill={VAULT_GOLD} />
+
+                {/* Handle */}
+                <rect x={cx + dW * 0.25} y={dY + dH * 0.55} width={dW * 0.12} height={dH * 0.13} rx={dW * 0.04} fill="rgba(100,100,120,0.9)" stroke={`${VAULT_GOLD}55`} strokeWidth="0.8" />
+
+                {/* Conversion % below dial */}
+                {dH > 55 && (
+                  <text x={cx} y={dY + dH * 0.72} textAnchor="middle" fill={clr} fontSize={Math.max(9, dW * 0.19)} fontWeight="800">
+                    {i === 0 ? "100%" : fmtPct(step.convFromPrev)}
+                  </text>
+                )}
+
+                {/* Unlocked / locked badge */}
+                {isLast && dH > 40 && (
+                  <text x={cx} y={dY - 12} textAnchor="middle" fill={frac > 0.3 ? GREEN : RED} fontSize={Math.max(8, dW * 0.13)} fontWeight="900">
+                    {frac > 0.3 ? "✓ UNLOCKED" : "✗ LOCKED"}
+                  </text>
+                )}
+
+                {/* Session count + step label below door */}
+                <text x={cx} y={dY + dH + 20} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize={Math.max(8, dW * 0.15)}>
+                  {fmtCount(step.count)}
+                </text>
+                <text x={cx} y={dY + dH + 35} textAnchor="middle" fill={`${VAULT_GOLD}99`} fontSize={Math.max(7, dW * 0.13)} fontWeight="700">
+                  {step.label.length > 14 ? step.label.slice(0, 13) + "…" : step.label}
+                </text>
+
+                {/* Arrow to next */}
+                {i < N - 1 && (
+                  <text x={cx + doorSpacing * 0.5} y={dY + dH * 0.5 + 5} textAnchor="middle" fill={`${VAULT_GOLD}44`} fontSize="16">→</text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* RIGHT — Vault Metrics */}
+      <div style={{ border: `1px solid ${VAULT_GOLD}55`, borderRadius: 14, padding: "12px 14px", background: "rgba(14,14,24,0.96)", display: "flex", flexDirection: "column", gap: 9 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: VAULT_GOLD, paddingBottom: 8, borderBottom: `1px solid ${VAULT_GOLD}33`, marginBottom: 4 }}>
+          🔐 Vault Metrics
+        </div>
+        {([
+          { icon: "👤", label: "Total Sessions", value: fmtCount(totalSessions), clr: BLUE,             sub: "entered the vault" },
+          { icon: "✅", label: "Converted",      value: fmtCount(converted),     clr: statusClr(convRate), sub: "cleared all doors" },
+          { icon: "📊", label: "Conv Rate",      value: fmtPct(convRate),        clr: statusClr(convRate), sub: "end-to-end"       },
+          { icon: "💰", label: "Avg Order Value", value: fmtCurrency(aov),       clr: VAULT_GOLD,          sub: "per conversion"   },
+          { icon: "🚫", label: "Drop-off",        value: fmtCount(dropped),      clr: RED,                 sub: "denied access"    },
+        ] as { icon: string; label: string; value: string; clr: string; sub: string }[]).map((m, mi) => (
+          <div key={mi} style={{ background: "rgba(8,8,16,0.9)", border: `1px solid ${m.clr}33`, borderRadius: 10, padding: "10px 12px", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+              <span style={{ fontSize: 18 }}>{m.icon}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.36)", textTransform: "uppercase" }}>{m.label}</span>
+            </div>
+            <div style={{ fontSize: 27, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginTop: 3 }}>{m.sub}</div>
+          </div>
+        ))}
+        <div style={{ borderTop: `1px solid ${VAULT_GOLD}22`, paddingTop: 9, marginTop: 2 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", marginBottom: 6 }}>Security Clearance</div>
+          {steps.map((step, i) => {
+            const clr = stepClr(step, i);
+            return (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: clr, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.52)", maxWidth: 145, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{step.label}</span>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: i === 0 ? "rgba(255,255,255,0.3)" : clr, flexShrink: 0, marginLeft: 6 }}>
+                  {i === 0 ? "entry" : fmtPct(step.convFromPrev)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// SKIN: Stacked Gold Bars
+// ===========================================================================
+function GoldBarsFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: number; funnelName?: string }) {
+  const N = steps.length;
+  const totalSessions = steps[0]?.count ?? 0;
+  const converted = steps[N - 1]?.count ?? 0;
+  const convRate = totalSessions > 0 ? (converted / totalSessions) * 100 : 0;
+  const dropped = totalSessions - converted;
+  const maxCount = Math.max(...steps.map(s => s.count), 1);
+
+  const GOLD_BRIGHT = "#FFD700";
+  const GOLD_MID    = "#C9A84C";
+  const GOLD_DARK   = "#8B6914";
+  const VAULT_BG    = "#0A0A10";
+
+  const stepClr  = (step: FunnelStep, i: number) => i === 0 ? BLUE : step.convFromPrev >= 60 ? GREEN : step.convFromPrev >= 30 ? YELLOW : RED;
+  const statusClr = (r: number) => r >= 60 ? GREEN : r >= 30 ? YELLOW : RED;
+
+  const SVG_W    = 680;
+  const SVG_H    = 420;
+  const lMargin  = 38;
+  const rMargin  = 38;
+  const bottomY  = SVG_H - 58;
+  const maxStackH = 258;
+  const colW     = (SVG_W - lMargin - rMargin) / N;
+  const barH     = 22;
+  const barGap   = 3;
+  const ingotW   = Math.min(colW * 0.72, 82);
+  const topOffX  = ingotW * 0.09;
+  const topOffY  = ingotW * 0.055;
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "300px 1fr 330px", gap: 14, background: `${VAULT_BG}FC`, color: "#e8eeff", padding: 16, fontFamily: '"Inter",system-ui,sans-serif', borderRadius: 12, boxSizing: "border-box", minHeight: 520 }}>
+      {/* LEFT — Journey Stages */}
+      <div style={{ border: `1px solid ${GOLD_MID}55`, borderRadius: 14, padding: 14, background: "rgba(14,14,16,0.97)", overflow: "hidden" }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: GOLD_MID, marginBottom: 14, paddingBottom: 8, borderBottom: `1px solid ${GOLD_MID}33` }}>
+          🏅 Journey Stages
+        </div>
+        {steps.map((step, i) => {
+          const clr = stepClr(step, i);
+          return (
+            <div key={i} style={{ marginBottom: i < N - 1 ? 14 : 0, paddingBottom: i < N - 1 ? 14 : 0, borderBottom: i < N - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <div style={{ width: 26, height: 26, borderRadius: "50%", background: GOLD_DARK, color: GOLD_BRIGHT, fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {i + 1}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#e8eeff", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>{step.label}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 34 }}>
+                <span style={{ fontSize: 20, fontWeight: 800 }}>{fmtCount(step.count)}</span>
+                {i === 0 && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>sessions</span>}
+                {i > 0 && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: `${clr}55`, padding: "2px 8px", borderRadius: 8, border: `1px solid ${clr}`, marginLeft: "auto" }}>
+                    {fmtPct(step.convFromPrev)}
+                  </span>
+                )}
+              </div>
+              {i > 0 && (
+                <div style={{ height: 3, borderRadius: 2, marginTop: 6, marginLeft: 34, background: "rgba(255,255,255,0.07)" }}>
+                  <div style={{ height: "100%", width: `${Math.min(step.convFromPrev, 100)}%`, background: clr, borderRadius: 2 }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* CENTER — Gold Bars SVG */}
+      <div style={{ borderRadius: 14, overflow: "hidden", background: VAULT_BG, display: "flex", flexDirection: "column" }}>
+        {funnelName && (
+          <div style={{ textAlign: "center", fontSize: 13, fontWeight: 800, color: VAULT_BG, letterSpacing: 2, textTransform: "uppercase", padding: "6px 0", background: GOLD_MID }}>
+            {funnelName}
+          </div>
+        )}
+        <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+          <defs>
+            <linearGradient id="gb-bg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#080810" />
+              <stop offset="100%" stopColor="#0E0E1A" />
+            </linearGradient>
+            <linearGradient id="gb-ingot" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#FFE066" />
+              <stop offset="30%" stopColor="#C9A84C" />
+              <stop offset="70%" stopColor="#A37C20" />
+              <stop offset="100%" stopColor="#7A5A10" />
+            </linearGradient>
+            <linearGradient id="gb-ingot-top" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#FFE980" />
+              <stop offset="50%" stopColor="#FFD700" />
+              <stop offset="100%" stopColor="#C9A84C" />
+            </linearGradient>
+            <linearGradient id="gb-ingot-side" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#6B5010" />
+              <stop offset="100%" stopColor="#3A2C08" />
+            </linearGradient>
+            <radialGradient id="gb-shimmer" cx="30%" cy="30%" r="60%">
+              <stop offset="0%" stopColor="rgba(255,240,120,0.30)" />
+              <stop offset="100%" stopColor="rgba(0,0,0,0)" />
+            </radialGradient>
+          </defs>
+
+          <rect width={SVG_W} height={SVG_H} fill="url(#gb-bg)" />
+          {/* Subtle grid */}
+          {Array.from({ length: 8 }, (_, i) => (
+            <line key={i} x1="0" y1={i * (SVG_H / 8)} x2={SVG_W} y2={i * (SVG_H / 8)} stroke={`${GOLD_MID}04`} strokeWidth="0.8" />
+          ))}
+          {/* Floor */}
+          <line x1="0" y1={bottomY + 8} x2={SVG_W} y2={bottomY + 8} stroke={`${GOLD_MID}44`} strokeWidth="1.5" />
+          <rect x="0" y={bottomY + 8} width={SVG_W} height={SVG_H - bottomY - 8} fill={`${GOLD_MID}08`} />
+          {/* Header */}
+          <text x={SVG_W / 2} y="22" textAnchor="middle" fill={`${GOLD_MID}66`} fontSize="10" fontWeight="700" letterSpacing="3">
+            GOLD RESERVES — SESSION WEALTH
+          </text>
+
+          {/* Columns */}
+          {steps.map((step, i) => {
+            const cx = lMargin + (i + 0.5) * colW;
+            const frac = step.count / maxCount;
+            const numBars = Math.max(1, Math.floor(Math.max(barH + barGap, frac * maxStackH) / (barH + barGap)));
+            const ingotX = cx - ingotW / 2;
+            const clr = stepClr(step, i);
+
+            return (
+              <g key={i}>
+                {/* Floor glow */}
+                <ellipse cx={cx} cy={bottomY + 10} rx={ingotW * 0.52} ry={7} fill={`${GOLD_MID}18`} />
+
+                {/* Ingots (bottom to top) */}
+                {Array.from({ length: numBars }, (_, bi) => {
+                  const ingotY = bottomY - (bi + 1) * (barH + barGap) + barGap;
+                  const isTop = bi === numBars - 1;
+                  return (
+                    <g key={bi}>
+                      {/* Front face */}
+                      <rect x={ingotX} y={ingotY} width={ingotW} height={barH} rx={3} fill="url(#gb-ingot)" />
+                      <rect x={ingotX} y={ingotY} width={ingotW} height={barH} rx={3} fill="url(#gb-shimmer)" opacity={0.6} />
+                      {/* Center divider groove */}
+                      <line x1={ingotX + 7} y1={ingotY + barH / 2} x2={ingotX + ingotW - 7} y2={ingotY + barH / 2} stroke="rgba(255,255,255,0.13)" strokeWidth="0.7" />
+                      {/* "FINE GOLD" text */}
+                      <text x={cx} y={ingotY + barH * 0.65} textAnchor="middle" fill="rgba(255,255,255,0.16)" fontSize="7" fontWeight="800" letterSpacing="2">FINE GOLD</text>
+                      {/* Isometric top face */}
+                      {isTop && (
+                        <polygon
+                          points={`${ingotX},${ingotY} ${ingotX + ingotW},${ingotY} ${ingotX + ingotW - topOffX},${ingotY - topOffY} ${ingotX - topOffX},${ingotY - topOffY}`}
+                          fill="url(#gb-ingot-top)" opacity={0.9}
+                        />
+                      )}
+                      {/* Isometric right side */}
+                      {isTop && (
+                        <polygon
+                          points={`${ingotX + ingotW},${ingotY} ${ingotX + ingotW},${ingotY + barH} ${ingotX + ingotW - topOffX},${ingotY + barH - topOffY} ${ingotX + ingotW - topOffX},${ingotY - topOffY}`}
+                          fill="url(#gb-ingot-side)" opacity={0.85}
+                        />
+                      )}
+                    </g>
+                  );
+                })}
+
+                {/* Conv % above stack */}
+                {i > 0 && (
+                  <text x={cx} y={bottomY - numBars * (barH + barGap) - 26} textAnchor="middle" fill={clr} fontSize="11" fontWeight="700">
+                    {fmtPct(step.convFromPrev)}
+                  </text>
+                )}
+                {/* Session count */}
+                <text x={cx} y={bottomY - numBars * (barH + barGap) - 10} textAnchor="middle" fill={GOLD_MID} fontSize="13" fontWeight="800">
+                  {fmtCount(step.count)}
+                </text>
+
+                {/* Step label + number below floor */}
+                <text x={cx} y={bottomY + 26} textAnchor="middle" fill={`${GOLD_MID}CC`} fontSize="9.5" fontWeight="700">
+                  {step.label.length > 14 ? step.label.slice(0, 13) + "…" : step.label}
+                </text>
+                <text x={cx} y={bottomY + 40} textAnchor="middle" fill="rgba(255,255,255,0.24)" fontSize="8.5">
+                  Step {i + 1}
+                </text>
+
+                {/* Arrow to next */}
+                {i < N - 1 && (
+                  <text x={cx + colW * 0.5} y={bottomY - 8} textAnchor="middle" fill={`${GOLD_MID}55`} fontSize="14">→</text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* RIGHT — Wealth Metrics */}
+      <div style={{ border: `1px solid ${GOLD_MID}55`, borderRadius: 14, padding: "12px 14px", background: "rgba(14,14,16,0.97)", display: "flex", flexDirection: "column", gap: 9 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2.5, textTransform: "uppercase", color: GOLD_MID, paddingBottom: 8, borderBottom: `1px solid ${GOLD_MID}33`, marginBottom: 4 }}>
+          💰 Wealth Metrics
+        </div>
+        {([
+          { icon: "🏦", label: "Total Sessions",  value: fmtCount(totalSessions), clr: BLUE,              sub: "reserves entered"  },
+          { icon: "🏅", label: "Converted",        value: fmtCount(converted),     clr: statusClr(convRate), sub: "gold secured"    },
+          { icon: "📊", label: "Conv Rate",        value: fmtPct(convRate),        clr: statusClr(convRate), sub: "end-to-end"      },
+          { icon: "💵", label: "Avg Order Value",  value: fmtCurrency(aov),        clr: GOLD_MID,            sub: "per conversion"  },
+          { icon: "📉", label: "Drop-off",         value: fmtCount(dropped),       clr: RED,                 sub: "gold lost"       },
+        ] as { icon: string; label: string; value: string; clr: string; sub: string }[]).map((m, mi) => (
+          <div key={mi} style={{ background: "rgba(8,8,12,0.9)", border: `1px solid ${m.clr}33`, borderRadius: 10, padding: "10px 12px", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+              <span style={{ fontSize: 18 }}>{m.icon}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.36)", textTransform: "uppercase" }}>{m.label}</span>
+            </div>
+            <div style={{ fontSize: 27, fontWeight: 900, color: m.clr, lineHeight: 1 }}>{m.value}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginTop: 3 }}>{m.sub}</div>
+          </div>
+        ))}
+        <div style={{ borderTop: `1px solid ${GOLD_MID}22`, paddingTop: 9, marginTop: 2 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.28)", textTransform: "uppercase", marginBottom: 6 }}>Reserve Breakdown</div>
+          {steps.map((step, i) => {
+            const clr = stepClr(step, i);
+            return (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: clr, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.52)", maxWidth: 145, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{step.label}</span>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: i === 0 ? "rgba(255,255,255,0.3)" : clr, flexShrink: 0, marginLeft: 6 }}>
+                  {i === 0 ? "start" : fmtPct(step.convFromPrev)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
 function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast, funnelName, timeframeDays, frontend, hotnessMode }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnelName?: string; timeframeDays: number; frontend: string; hotnessMode: HotnessMode; }) {
@@ -12811,7 +13274,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
           </button>
         </Flex>
       </Flex>
-      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && funnelStyle !== "mri" && funnelStyle !== "autoFinance" && funnelStyle !== "rocketLaunch" && funnelStyle !== "airport" && funnelStyle !== "retail" && funnelStyle !== "cyber" && funnelStyle !== "stadium" && funnelStyle !== "homebuying" && funnelStyle !== "eyeExam" && funnelStyle !== "spectacles" && funnelStyle !== "grocery" && funnelStyle !== "curbside" && (
+      {funnelName && funnelStyle !== "classic" && funnelStyle !== "elevator" && funnelStyle !== "mri" && funnelStyle !== "autoFinance" && funnelStyle !== "rocketLaunch" && funnelStyle !== "airport" && funnelStyle !== "retail" && funnelStyle !== "cyber" && funnelStyle !== "stadium" && funnelStyle !== "homebuying" && funnelStyle !== "eyeExam" && funnelStyle !== "spectacles" && funnelStyle !== "grocery" && funnelStyle !== "curbside" && funnelStyle !== "bankVault" && funnelStyle !== "goldBars" && (
         <div style={{ textAlign: "center", padding: "6px 0 2px" }}>
           <Heading level={3} style={{ fontWeight: 700, margin: 0 }}>{funnelName}</Heading>
         </div>
@@ -12865,6 +13328,8 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
         {funnelStyle === "grocery" && <GroceryAisleFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "curbside" && <CurbsidePickupFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {funnelStyle === "molsonCoors" && <MolsonCoorsFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "bankVault" && <BankVaultFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
+        {funnelStyle === "goldBars" && <GoldBarsFunnel steps={funnelSteps} aov={aov} funnelName={funnelName} />}
         {compareMode && (funnelStyle === "classic" || funnelStyle === "cohort" || funnelStyle === "elapsed") && (
           <Flex gap={12} justifyContent="center" style={{ marginTop: 8 }}>
             <Flex gap={6} alignItems="center"><div style={{ width: 20, height: 3, background: BLUE, borderRadius: 2 }} /><Text style={{ fontSize: 12, opacity: 0.5 }}>Current period</Text></Flex>
@@ -27143,6 +27608,133 @@ function CostPerTransactionTab({ quality, qualityPrev, funnelCounts, monthlyInfr
           <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Monthly revenue:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: GREEN }}>{fmtCurrency(conversions * aov)}</Strong></td></tr>
           <tr><td style={{ padding: '4px 0', fontSize: 13 }}>Infra cost as % of revenue:</td><td style={{ padding: '4px 16px 4px 0', textAlign: 'right' }}><Strong style={{ color: monthlyInfraCost / Math.max(1, conversions * aov) * 100 > 10 ? RED : GREEN }}>{(monthlyInfraCost / Math.max(1, conversions * aov) * 100).toFixed(1)}%</Strong></td></tr>
         </tbody></table>
+      </div>
+    </Flex>
+  );
+}
+
+function BudgetImpactSimulatorTab({ funnelCounts, steps, aov, monthlyInfraCost, timeframeDays, isLoading, onDrillToForecast }: { funnelCounts: number[]; steps: StepDef[]; aov: number; monthlyInfraCost: number; timeframeDays: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
+  const lastIdx = Math.max(0, steps.length - 1);
+  const currentRates = React.useMemo(() =>
+    steps.map((_, i) => i === 0 ? 1 : (funnelCounts[i - 1] > 0 ? funnelCounts[i] / funnelCounts[i - 1] : 0)),
+    [funnelCounts, steps]
+  );
+  const [improvements, setImprovements] = React.useState<number[]>(() => steps.map(() => 0));
+  React.useEffect(() => { setImprovements(steps.map(() => 0)); }, [steps.length]);
+
+  const simCounts = React.useMemo(() => {
+    const out: number[] = [funnelCounts[0] || 0];
+    for (let i = 1; i < steps.length; i++) {
+      const base = currentRates[i] || 0;
+      const improved = Math.min(1, base * (1 + (improvements[i] || 0) / 100));
+      out.push(Math.round((out[i - 1] ?? 0) * improved));
+    }
+    return out;
+  }, [funnelCounts, currentRates, improvements, steps.length]);
+
+  const dailyFactor = timeframeDays > 0 ? 30 / timeframeDays : 1;
+  const curMonthlyConv = Math.round((funnelCounts[lastIdx] ?? 0) * dailyFactor);
+  const simMonthlyConv = Math.round((simCounts[lastIdx] ?? 0) * dailyFactor);
+  const addlConv = simMonthlyConv - curMonthlyConv;
+  const revUplift = addlConv * aov;
+  const curCpc = curMonthlyConv > 0 ? monthlyInfraCost / curMonthlyConv : 0;
+  const simCpc = simMonthlyConv > 0 ? monthlyInfraCost / simMonthlyConv : 0;
+  const curConvPct = funnelCounts[0] > 0 ? (funnelCounts[lastIdx] / funnelCounts[0]) * 100 : 0;
+  const simConvPct = simCounts[0] > 0 ? (simCounts[lastIdx] / simCounts[0]) * 100 : 0;
+  const anyImproved = improvements.some(v => v > 0);
+  const weakestStep = steps.reduce((w, _, i) => i > 0 && (currentRates[i] ?? 1) < (currentRates[w] ?? 1) ? i : w, 1);
+
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => ({
+    summary: `Baseline: ${curConvPct.toFixed(1)}% overall conversion, ${fmtCurrency(curCpc)} cost per conversion, ~${curMonthlyConv.toLocaleString()} monthly conversions. Weakest step: "${steps[weakestStep]?.label}" at ${((currentRates[weakestStep] ?? 0) * 100).toFixed(1)}% step rate.${anyImproved ? ` Simulated improvements yield +${addlConv.toLocaleString()} conversions and +${fmtCurrency(revUplift)}/mo revenue uplift.` : " Adjust the sliders below to model improvement scenarios."}`,
+    insights: [],
+    recommendations: [
+      { impact: 'high' as const, text: `Weakest step: "${steps[weakestStep]?.label ?? 'Step ' + weakestStep}" at ${((currentRates[weakestStep] ?? 0) * 100).toFixed(1)}% step-to-step rate. A 10% improvement here adds ~${fmtCurrency(Math.round(funnelCounts[0] * currentRates.slice(1, weakestStep).reduce((p, r) => p * r, 1) * (currentRates[weakestStep] ?? 0) * 0.1 * dailyFactor * 30) * aov)} in monthly revenue.` },
+      { impact: 'medium' as const, text: `Current cost per conversion: ${fmtCurrency(curCpc)}. Each percentage point of overall conversion rate improvement reduces this proportionally. Simulated: ${fmtCurrency(simCpc)}.` },
+      { impact: 'low' as const, text: `Monthly uplift of ${fmtCurrency(anyImproved ? revUplift : 0)} annualizes to ${fmtCurrency((anyImproved ? revUplift : 0) * 12)} — use this to frame the ROI of any engineering investment in funnel optimization.` },
+    ],
+  }), [curConvPct, curCpc, curMonthlyConv, weakestStep, steps, currentRates, anyImproved, addlConv, revUplift, dailyFactor, funnelCounts, aov, simCpc]));
+
+  if (isLoading) return <Flex justifyContent="center" alignItems="center" style={{ padding: 48 }}><ProgressCircle size="large" /></Flex>;
+  if (!funnelCounts.length || !funnelCounts[0]) return <Flex justifyContent="center" alignItems="center" style={{ padding: 48, opacity: 0.5 }}><Text>No funnel data available for the selected timeframe.</Text></Flex>;
+
+  const maxCount = Math.max(funnelCounts[0], simCounts[0], 1);
+  const BAR_W = 60, BAR_GAP = 12, SLOT = BAR_W * 2 + BAR_GAP + 36, CHART_H = 160;
+
+  return (
+    <Flex flexDirection="column" gap={20}>
+      {aiPanel}
+      <SectionHeader title="Current Funnel Baseline" />
+      <Flex gap={16} flexWrap="wrap">
+        <KpiCard label="Entries (period)" value={(funnelCounts[0] ?? 0).toLocaleString()} rawValue={funnelCounts[0] ?? 0} color={BLUE} />
+        <KpiCard label="Conversions (period)" value={(funnelCounts[lastIdx] ?? 0).toLocaleString()} rawValue={funnelCounts[lastIdx] ?? 0} color={GREEN} />
+        <KpiCard label="Overall Conv. Rate" value={`${curConvPct.toFixed(1)}%`} rawValue={curConvPct} color={GREEN} />
+        <KpiCard label="Monthly Conv. (est.)" value={curMonthlyConv.toLocaleString()} rawValue={curMonthlyConv} color={BLUE} />
+        <KpiCard label="Cost per Conversion" value={fmtCurrency(curCpc)} rawValue={curCpc} color={ORANGE} />
+      </Flex>
+
+      <SectionHeader title="Improvement Simulator" />
+      <div className="uj-table-tile" style={{ padding: '16px 20px' }}>
+        {steps.map((step, i) => {
+          if (i === 0) return null;
+          const rate = (currentRates[i] ?? 0) * 100;
+          const simRate = Math.min(100, rate * (1 + (improvements[i] ?? 0) / 100));
+          const addl = (simCounts[i] ?? 0) - (funnelCounts[i] ?? 0);
+          return (
+            <div key={i} style={{ marginBottom: 18 }}>
+              <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 4 }}>
+                <Text style={{ fontSize: 13, fontWeight: 600 }}>Step {i} → {i + 1}: <span style={{ opacity: 0.7 }}>{steps[i - 1]?.label}</span> → {step.label}</Text>
+                <Flex gap={12} alignItems="center">
+                  <Text style={{ fontSize: 12, opacity: 0.5 }}>Current: {rate.toFixed(1)}%</Text>
+                  <Text style={{ fontSize: 13, fontWeight: 700, color: (improvements[i] ?? 0) > 0 ? GREEN : 'inherit' }}>Sim: {simRate.toFixed(1)}%</Text>
+                  {addl > 0 && <Text style={{ fontSize: 12, color: GREEN }}>+{addl.toLocaleString()} sessions</Text>}
+                </Flex>
+              </Flex>
+              <Flex gap={12} alignItems="center">
+                <input type="range" min={0} max={50} step={1} value={improvements[i] ?? 0}
+                  onChange={e => setImprovements(prev => { const n = [...prev]; n[i] = Number(e.target.value); return n; })}
+                  style={{ flex: 1, accentColor: BLUE }} />
+                <Text style={{ fontSize: 13, fontWeight: 700, minWidth: 42, textAlign: 'right', color: (improvements[i] ?? 0) > 0 ? GREEN : 'inherit' }}>+{improvements[i] ?? 0}%</Text>
+              </Flex>
+            </div>
+          );
+        })}
+        <div style={{ textAlign: 'right', marginTop: 4 }}>
+          <button onClick={() => setImprovements(steps.map(() => 0))} style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Reset all</button>
+        </div>
+      </div>
+
+      <SectionHeader title="Projected Impact" />
+      <Flex gap={16} flexWrap="wrap">
+        <KpiCard label="Simulated Conv. Rate" value={`${simConvPct.toFixed(1)}%`} rawValue={simConvPct} color={anyImproved && simConvPct > curConvPct ? GREEN : BLUE} />
+        <KpiCard label="Additional Conv. / Mo" value={anyImproved ? `+${addlConv.toLocaleString()}` : "—"} rawValue={addlConv} color={anyImproved && addlConv > 0 ? GREEN : BLUE} />
+        <KpiCard label="Revenue Uplift / Mo" value={anyImproved && revUplift > 0 ? fmtCurrency(revUplift) : "—"} rawValue={revUplift} color={anyImproved && revUplift > 0 ? GREEN : BLUE} />
+        <KpiCard label="Revenue Uplift / Yr" value={anyImproved && revUplift > 0 ? fmtCurrency(revUplift * 12) : "—"} rawValue={revUplift * 12} color={anyImproved && revUplift > 0 ? GREEN : BLUE} />
+        <KpiCard label="New Cost / Conv." value={anyImproved && simCpc > 0 ? fmtCurrency(simCpc) : "—"} rawValue={simCpc} color={simCpc > 0 && simCpc < curCpc ? GREEN : BLUE} />
+      </Flex>
+
+      <SectionHeader title="Funnel Comparison" />
+      <div className="uj-table-tile" style={{ padding: '16px 16px 8px', overflowX: 'auto' }}>
+        <svg width={steps.length * SLOT + 8} height={CHART_H + 32} style={{ display: 'block' }}>
+          {steps.map((step, i) => {
+            const x = i * SLOT + 4;
+            const curH = Math.max(4, ((funnelCounts[i] ?? 0) / maxCount) * (CHART_H - 24));
+            const simH = Math.max(4, ((simCounts[i] ?? 0) / maxCount) * (CHART_H - 24));
+            const gained = anyImproved && (simCounts[i] ?? 0) > (funnelCounts[i] ?? 0);
+            return (
+              <g key={i}>
+                <rect x={x} y={CHART_H - curH - 20} width={BAR_W} height={curH} fill={BLUE} opacity={0.38} rx={3} />
+                <text x={x + BAR_W / 2} y={CHART_H - curH - 23} textAnchor="middle" fontSize={9} fill="rgba(255,255,255,0.4)">{(funnelCounts[i] ?? 0).toLocaleString()}</text>
+                <rect x={x + BAR_W + BAR_GAP} y={CHART_H - simH - 20} width={BAR_W} height={simH} fill={gained ? GREEN : BLUE} opacity={0.82} rx={3} />
+                <text x={x + BAR_W + BAR_GAP + BAR_W / 2} y={CHART_H - simH - 23} textAnchor="middle" fontSize={9} fill={gained ? GREEN : "rgba(255,255,255,0.6)"}>{(simCounts[i] ?? 0).toLocaleString()}</text>
+                <text x={x + BAR_W + BAR_GAP / 2} y={CHART_H + 14} textAnchor="middle" fontSize={10} fill="rgba(255,255,255,0.42)">{step.label.length > 12 ? step.label.slice(0, 10) + '…' : step.label}</text>
+              </g>
+            );
+          })}
+        </svg>
+        <Flex gap={20} justifyContent="center" style={{ marginTop: 4 }}>
+          <Flex gap={6} alignItems="center"><div style={{ width: 12, height: 12, background: BLUE, opacity: 0.38, borderRadius: 2 }} /><Text style={{ fontSize: 11, opacity: 0.55 }}>Current</Text></Flex>
+          <Flex gap={6} alignItems="center"><div style={{ width: 12, height: 12, background: GREEN, opacity: 0.82, borderRadius: 2 }} /><Text style={{ fontSize: 11, opacity: 0.55 }}>Simulated</Text></Flex>
+        </Flex>
       </div>
     </Flex>
   );
