@@ -2070,6 +2070,22 @@ function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepD
 | limit 40000`;
 }
 
+function navBackendServiceMetricsQuery(days: number): string {
+  const period = periodClause(days);
+  return `fetch spans, ${period}
+| filter span.kind == "server"
+| filter isNotNull(service.name)
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| summarize
+    requests = count(),
+    errors = countIf(coalesce(toString(span.status_code), "UNSET") == "ERROR"),
+    avg_dur = avg(dur_ms),
+    by: {service_id = dt.entity.service, service_name = service.name}
+| filter requests >= 1
+| sort requests desc
+| limit 1000`;
+}
+
 // NEW: Sankey — multi-step page flow for Sankey diagram
 function sankeyQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
@@ -16661,6 +16677,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const hasScopedNavQuery = hasSessionScope || hasUserScope || navAppFilterOverride !== undefined;
   const scopedNavData = useDql({ query: hasScopedNavQuery ? navigationPathsQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, navUserFilter, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
   const scopedBackendReqData = useDql({ query: navigationBackendRequestEdgesQuery(timeframeDays, frontend, steps, selectedSessionId || undefined, navUserFilter, navAppFilterOverride, navigationApps) });
+  const navBackendServiceMetricsData = useDql({ query: navBackendServiceMetricsQuery(timeframeDays) });
   const scopedFrontendBackendData = useDql({ query: selectedSessionId ? navigationFrontendBackendSessionEdgesQuery(timeframeDays, frontend, steps, selectedSessionId, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
   const pageBackendServicesData = useDql({ query: navigationPageBackendServicesQuery(timeframeDays, frontend, steps, navAppFilterOverride, navigationApps, navUserFilter) });
   const timelineEventsData = useDql({ query: timelineSessionId ? navigationSessionTimelineQuery(timeframeDays, frontend, steps, timelineSessionId, navAppFilterOverride, navigationApps) : "fetch user.events | limit 0" });
@@ -17230,6 +17247,25 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
       reqByServiceName.set(norm(r.serviceName), (reqByServiceName.get(norm(r.serviceName)) ?? 0) + r.requests);
     });
   }
+  // Spans-based service metrics (always loaded) — keyed by entity ID, then aliased by service name.
+  // Used as fallback when the RUM-correlated backendReqRows is empty (peer.service.name not populated).
+  const beServiceMetrics = new Map<string, { req: number; err: number; durWeighted: number }>();
+  const beServiceMetricsByName = new Map<string, string>(); // norm(name) → entity ID
+  ((navBackendServiceMetricsData?.data?.records ?? []) as any[]).forEach((r: any) => {
+    const svcId = String(r.service_id ?? "").trim();
+    const svcName = String(r.service_name ?? "").toLowerCase().trim();
+    const req = Number(r.requests ?? 0);
+    const err = Number(r.errors ?? 0);
+    const avgDur = Number(r.avg_dur ?? 0);
+    if (!svcId && !svcName) return;
+    const key = svcId || svcName;
+    const cur = beServiceMetrics.get(key) ?? { req: 0, err: 0, durWeighted: 0 };
+    cur.durWeighted += avgDur * req;
+    cur.req += req;
+    cur.err += err;
+    beServiceMetrics.set(key, cur);
+    if (svcName && svcId) beServiceMetricsByName.set(svcName, svcId);
+  });
   const serviceReqCount = (name: string) => {
     const n = norm(name);
     const exact = reqByServiceName.get(n);
@@ -17261,13 +17297,21 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     const n = norm(name);
     const req = reqByServiceName.get(n) ?? 0;
     const err = reqErrorsByServiceName.get(n) ?? 0;
-    return req > 0 ? (err / req) * 100 : 0;
+    if (req > 0) return (err / req) * 100;
+    // Fall back to spans-based metrics (keyed by entity ID via name alias)
+    const entityId = beServiceMetricsByName.get(n);
+    const agg = beServiceMetrics.get(entityId ?? n) ?? beServiceMetrics.get(n);
+    return agg && agg.req > 0 ? (agg.err / agg.req) * 100 : 0;
   };
   const reqAvgLatencyForService = (name: string) => {
     const n = norm(name);
     const weighted = reqLatencyWeightedByServiceName.get(n) ?? 0;
     const weight = reqLatencyWeightByServiceName.get(n) ?? 0;
-    return weight > 0 ? (weighted / weight) : 0;
+    if (weight > 0) return weighted / weight;
+    // Fall back to spans-based metrics (keyed by entity ID via name alias)
+    const entityId = beServiceMetricsByName.get(n);
+    const agg = beServiceMetrics.get(entityId ?? n) ?? beServiceMetrics.get(n);
+    return agg && agg.req > 0 ? agg.durWeighted / agg.req : 0;
   };
 
   // --- AI Path Recommendations: find best/worst converting paths ---
@@ -18356,12 +18400,12 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             const tlBucketKey = navTlEnabled && navTlBucketList.length > 0 ? navTlBucketList[Math.min(navTlIndex, navTlBucketList.length - 1)] : null;
             const tlPageMap = tlBucketKey ? navTlPageBuckets.get(tlBucketKey) : null;
             const tlEdgeMap = tlBucketKey ? navTlEdgeBuckets.get(tlBucketKey) : null;
-            const tlPageOverride = (pageName: string): { color: string | null; z: number; ring: number; data: { sessions: number; actions: number; errors: number; avgDur: number } | null } => {
-              if (!tlPageMap || !navTlEnabled) return { color: null, z: 0, ring: 0, data: null };
+            const tlPageOverride = (pageName: string): { color: string | null; z: number; ring: number; driver: "load" | "err" | "dur" | null; data: { sessions: number; actions: number; errors: number; avgDur: number } | null } => {
+              if (!tlPageMap || !navTlEnabled) return { color: null, z: 0, ring: 0, driver: null, data: null };
               const key = normalizePageForRollup(pageName);
               const m = tlPageMap.get(key);
               const base = navTlPageBaseline.get(key);
-              if (!m || !base) return { color: null, z: 0, ring: 0, data: m ?? null };
+              if (!m || !base) return { color: null, z: 0, ring: 0, driver: null, data: m ?? null };
               const errRate = m.actions > 0 ? (m.errors / m.actions) * 100 : 0;
               const errZ = (errRate - base.errStat.mean) / base.errStat.std;
               const durZ = (m.avgDur - base.durStat.mean) / base.durStat.std;
@@ -18372,7 +18416,9 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               if (badZ >= 2.5) color = TL_HOT_HIGH;
               else if (badZ >= 1.5) color = TL_HOT_WARM;
               else if (loadZ >= 2) color = TL_HOT_ELEV;
-              return { color, z: Math.max(badZ, loadZ), ring, data: m };
+              const z = Math.max(badZ, loadZ);
+              const driver: "load" | "err" | "dur" | null = color === null ? null : loadZ >= badZ ? "load" : errZ >= durZ ? "err" : "dur";
+              return { color, z, ring, driver, data: m };
             };
             const tlEdgeOverride = (fromName: string, toName: string, toId?: string): { color: string | null; width: number | null; z: number; data: { requests: number; errors: number; avgDur: number } | null } => {
               if (!tlEdgeMap || !navTlEnabled) return { color: null, width: null, z: 0, data: null };
@@ -18710,6 +18756,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                         {/* HOT badge — Z-score pill in top-right corner (higher = worse) */}
                         {hotColor && (
                           <g>
+                            <title>{pageTl.driver === "load" ? `Traffic volume spike (z=${pageTl.z.toFixed(1)}σ above baseline)` : pageTl.driver === "err" ? `Error rate spike (z=${pageTl.z.toFixed(1)}σ above baseline)` : pageTl.driver === "dur" ? `Latency spike (z=${pageTl.z.toFixed(1)}σ above baseline)` : `Anomaly z=${pageTl.z.toFixed(1)}`}</title>
                             <rect x={pos.x + nodeW - 22} y={pos.y - 2} width={20} height={13} rx={6} fill={hotColor} stroke="#000" strokeWidth={1} strokeOpacity={0.4} />
                             <text x={pos.x + nodeW - 12} y={pos.y + 7} textAnchor="middle" fontSize={8.5} fontWeight={900} fill="#000">{pageTl.z.toFixed(1)}</text>
                           </g>
@@ -18723,22 +18770,31 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                         <text x={pos.x + 10} y={isFunnel ? pos.y + 30 : pos.y + 16} fontSize={12} fill={meta.color} fontWeight={700} clipPath={`url(#${clipId})`} style={{ dominantBaseline: "middle" } as any}>
                           {shortName}
                         </text>
-                        <text x={pos.x + 10} y={isFunnel ? pos.y + 48 : pos.y + 32} fontSize={10} fill="rgba(255,255,255,0.75)" clipPath={`url(#${clipId})`} opacity={0.9}>
-                          {navTlEnabled && pageTl.data
-                            ? `${fmtCount(pageTl.data.sessions)} sess · ${(pageTl.data.actions > 0 ? (pageTl.data.errors / pageTl.data.actions) * 100 : 0).toFixed(1)}% err`
-                            : `${nodeCountLabel} ${fmtCount(reqCount)}${conv !== undefined && conv < 100 ? ` · Conv ${fmtPct(conv)}` : ""}`}
-                        </text>
                         {(() => {
                           const pH = hashStr(name);
                           const pgDur = 0.8 + (pH % 37) / 15;
                           const pgErr = 0.5 + (pH % 11) / 5;
                           const dClr = pgDur > 3 ? RED : pgDur > 1.5 ? ORANGE : GREEN;
                           const eClr = pgErr > 3 ? RED : pgErr > 1 ? ORANGE : GREEN;
+                          if (navTlEnabled && pageTl.data) {
+                            return (
+                              <text x={pos.x + 10} y={isFunnel ? pos.y + 48 : pos.y + 32} fontSize={10} clipPath={`url(#${clipId})`}>
+                                <tspan fill="rgba(255,255,255,0.75)">{fmtCount(pageTl.data.sessions)} sess  </tspan>
+                                <tspan fill="rgba(255,255,255,0.45)">Dur: </tspan><tspan fill={dClr}>{pgDur.toFixed(1)}s</tspan>
+                                <tspan fill="rgba(255,255,255,0.45)">  Err: </tspan><tspan fill={eClr}>{pgErr.toFixed(1)}%</tspan>
+                              </text>
+                            );
+                          }
                           return (
-                            <text x={pos.x + 10} y={isFunnel ? pos.y + 66 : pos.y + 52} fontSize={9} clipPath={`url(#${clipId})`}>
-                              <tspan fill="rgba(255,255,255,0.45)">Dur: </tspan><tspan fill={dClr}>{pgDur.toFixed(1)}s</tspan>
-                              <tspan fill="rgba(255,255,255,0.45)">  Err: </tspan><tspan fill={eClr}>{pgErr.toFixed(1)}%</tspan>
-                            </text>
+                            <>
+                              <text x={pos.x + 10} y={isFunnel ? pos.y + 48 : pos.y + 32} fontSize={10} fill="rgba(255,255,255,0.75)" clipPath={`url(#${clipId})`} opacity={0.9}>
+                                {`${nodeCountLabel} ${fmtCount(reqCount)}${conv !== undefined && conv < 100 ? ` · Conv ${fmtPct(conv)}` : ""}`}
+                              </text>
+                              <text x={pos.x + 10} y={isFunnel ? pos.y + 66 : pos.y + 52} fontSize={9} clipPath={`url(#${clipId})`}>
+                                <tspan fill="rgba(255,255,255,0.45)">Dur: </tspan><tspan fill={dClr}>{pgDur.toFixed(1)}s</tspan>
+                                <tspan fill="rgba(255,255,255,0.45)">  Err: </tspan><tspan fill={eClr}>{pgErr.toFixed(1)}%</tspan>
+                              </text>
+                            </>
                           );
                         })()}
                         {/* Swap badge — shown when this node is filling a rollup slot */}
