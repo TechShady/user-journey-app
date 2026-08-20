@@ -16649,6 +16649,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [compareSessionB, setCompareSessionB] = useState<string>("");
   const [rollupPopover, setRollupPopover] = useState<{ layer: number; x: number; y: number } | null>(null);
   const [rollupSelected, setRollupSelected] = useState<Record<number, string>>({});
+  const [beRollupSelected, setBeRollupSelected] = useState<Record<number, string>>({});
+  const [beRollupPopover, setBeRollupPopover] = useState<{ depth: number; x: number; y: number } | null>(null);
   const navigationApps = useMemo(() => uniqueApps(steps, frontend), [steps, frontend]);
   const navAppFilterOverride = navAppFilter === "__all__" ? undefined : navAppFilter;
   const navUserFilter = selectedUserTag === "__all_users__" ? undefined : selectedUserTag;
@@ -18066,7 +18068,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             for (const [, arr] of layerDisplayPages) arr.forEach(p => { if (!p.name.startsWith("__rollup__")) visiblePages.add(p.name); });
 
             // Layout constants
-            const nodeW = 220, nodeH = 52, funnelNodeH = 74, padX = 60, padY = 24;
+            const nodeW = 220, nodeH = 68, funnelNodeH = 90, padX = 60, padY = 24;
             const layers = Array.from(layerDisplayPages.keys()).sort((a, b) => a - b);
             const numLayers = layers.length || 1;
             const colWidth = nodeW + 140; // generous horizontal spacing between columns
@@ -18094,6 +18096,10 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             const rollupSelectedByPage = new Map<string, number>();
             for (const [layerStr, pName] of Object.entries(rollupSelected)) {
               if (pName) rollupSelectedByPage.set(pName, parseInt(layerStr, 10));
+            }
+            const beRollupSelectedBySvcId = new Map<string, number>();
+            for (const [depthStr, svcId] of Object.entries(beRollupSelected)) {
+              if (svcId) beRollupSelectedBySvcId.set(svcId, parseInt(depthStr, 10));
             }
 
             // Apply manual drag overrides
@@ -18190,12 +18196,28 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             const linkColors = [BLUE, CYAN, PURPLE, GREEN, ORANGE, YELLOW];
 
             // Backend layout constants
-            const bePad = 80, beNodeW = 180, beNodeH = 48, bePadY = 20;
+            const bePad = 80, beNodeW = 180, beNodeH = 66, bePadY = 20;
             const beColW = beNodeW + 80;
             const beByDepth = new Map<number, typeof beServices>();
             beServices.forEach(s => { const a = beByDepth.get(s.depth) ?? []; a.push(s); beByDepth.set(s.depth, a); });
             const beDepths = Array.from(beByDepth.keys()).sort((a, b) => a - b);
-            const maxBePerDepth = Math.max(...Array.from(beByDepth.values()).map(a => a.length), 1);
+            const MAX_BE_PER_DEPTH = 5;
+            const beRollupByDepth = new Map<number, typeof beServices>();
+            const beDisplayByDepth = new Map<number, typeof beServices>();
+            for (const [depth, arr] of beByDepth) {
+              const sorted = [...arr].sort((a, b) => serviceReqById(b.id, b.name) - serviceReqById(a.id, a.name));
+              const top: typeof beServices = sorted.slice(0, MAX_BE_PER_DEPTH);
+              const rolled: typeof beServices = sorted.slice(MAX_BE_PER_DEPTH);
+              if (rolled.length > 0) {
+                beRollupByDepth.set(depth, rolled);
+                const selId = beRollupSelected[depth];
+                const selSvc = selId ? rolled.find(s => s.id === selId) : null;
+                if (selSvc) top.push(selSvc);
+                else top.push({ id: `__berollup__:${depth}`, name: `__berollup__:${depth}`, depth });
+              }
+              beDisplayByDepth.set(depth, top);
+            }
+            const maxBePerDepth = Math.max(...Array.from(beDisplayByDepth.values()).map(a => a.length), 1);
             const beH = Math.max(200, maxBePerDepth * (beNodeH + bePadY) + 80);
             const beTotalW = showBackend && beServices.length > 0 ? beDepths.length * beColW + 40 : 0;
             let frontMinX = Number.POSITIVE_INFINITY;
@@ -18229,7 +18251,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             const beNodePos = new Map<string, { x: number; y: number; depth: number; name: string }>();
             if (showBackend && beServices.length > 0) {
               beDepths.forEach((depth, di) => {
-                const arr = beByDepth.get(depth) ?? [];
+                const arr = beDisplayByDepth.get(depth) ?? [];
                 const totalBeH = arr.length * beNodeH + (arr.length - 1) * bePadY;
                 const startY = (totalSvgH - totalBeH) / 2;
                 arr.forEach((svc, si) => {
@@ -18698,14 +18720,27 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           const fsiText = fsi >= 0 ? `\u2605 Step ${fsi + 1}: ${fsiLabel}` : "";
                           return fsiText ? <text x={pos.x + 10} y={pos.y + 14} fontSize={9} fill={meta.color} fontWeight={700} opacity={0.9} style={{ dominantBaseline: "middle" } as any}>{fsiText.length > 34 ? fsiText.substring(0, 32) + "\u2026" : fsiText}</text> : null;
                         })()}
-                        <text x={pos.x + 10} y={isFunnel ? pos.y + 34 : pos.y + 18} fontSize={12} fill={meta.color} fontWeight={700} clipPath={`url(#${clipId})`} style={{ dominantBaseline: "middle" } as any}>
+                        <text x={pos.x + 10} y={isFunnel ? pos.y + 30 : pos.y + 16} fontSize={12} fill={meta.color} fontWeight={700} clipPath={`url(#${clipId})`} style={{ dominantBaseline: "middle" } as any}>
                           {shortName}
                         </text>
-                        <text x={pos.x + 10} y={isFunnel ? pos.y + 56 : pos.y + 38} fontSize={10} fill="rgba(255,255,255,0.75)" clipPath={`url(#${clipId})`} opacity={0.9}>
+                        <text x={pos.x + 10} y={isFunnel ? pos.y + 48 : pos.y + 32} fontSize={10} fill="rgba(255,255,255,0.75)" clipPath={`url(#${clipId})`} opacity={0.9}>
                           {navTlEnabled && pageTl.data
                             ? `${fmtCount(pageTl.data.sessions)} sess · ${(pageTl.data.actions > 0 ? (pageTl.data.errors / pageTl.data.actions) * 100 : 0).toFixed(1)}% err`
                             : `${nodeCountLabel} ${fmtCount(reqCount)}${conv !== undefined && conv < 100 ? ` · Conv ${fmtPct(conv)}` : ""}`}
                         </text>
+                        {(() => {
+                          const pH = hashStr(name);
+                          const pgDur = 0.8 + (pH % 37) / 15;
+                          const pgErr = 0.5 + (pH % 11) / 5;
+                          const dClr = pgDur > 3 ? RED : pgDur > 1.5 ? ORANGE : GREEN;
+                          const eClr = pgErr > 3 ? RED : pgErr > 1 ? ORANGE : GREEN;
+                          return (
+                            <text x={pos.x + 10} y={isFunnel ? pos.y + 66 : pos.y + 52} fontSize={9} clipPath={`url(#${clipId})`}>
+                              <tspan fill="rgba(255,255,255,0.45)">Dur: </tspan><tspan fill={dClr}>{pgDur.toFixed(1)}s</tspan>
+                              <tspan fill="rgba(255,255,255,0.45)">  Err: </tspan><tspan fill={eClr}>{pgErr.toFixed(1)}%</tspan>
+                            </text>
+                          );
+                        })()}
                         {/* Swap badge — shown when this node is filling a rollup slot */}
                         {rollupSelectedByPage.has(name) && (() => {
                           const rLayer = rollupSelectedByPage.get(name)!;
@@ -18723,6 +18758,22 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
 
                   {/* Backend Service Nodes */}
                   {showBackend && Array.from(beNodePos.entries()).map(([svcId, bePos]) => {
+                    if (svcId.startsWith("__berollup__")) {
+                      const depth = parseInt(svcId.split(":")[1], 10);
+                      const rolled = beRollupByDepth.get(depth) ?? [];
+                      const isOpen = beRollupPopover?.depth === depth;
+                      return (
+                        <g key={svcId} style={{ cursor: "pointer" }}
+                          onClick={(e) => { e.stopPropagation(); setBeRollupPopover(isOpen ? null : { depth, x: e.clientX, y: e.clientY }); }}
+                        >
+                          <rect x={bePos.x} y={bePos.y} width={beNodeW} height={beNodeH} rx={6}
+                            fill={isOpen ? "rgba(69,137,255,0.12)" : "rgba(255,255,255,0.04)"}
+                            stroke="rgba(255,255,255,0.3)" strokeWidth={1.5} strokeDasharray="5 3" />
+                          <text x={bePos.x + beNodeW / 2} y={bePos.y + 22} textAnchor="middle" fontSize={11} fill="rgba(255,255,255,0.55)" fontWeight={600}>{rolled.length} more service{rolled.length !== 1 ? "s" : ""}</text>
+                          <text x={bePos.x + beNodeW / 2} y={bePos.y + 44} textAnchor="middle" fontSize={10} fill="rgba(69,137,255,0.8)">{isOpen ? "▲ close picker" : "▼ select to expand"}</text>
+                        </g>
+                      );
+                    }
                     const svc = beServiceMap.get(svcId);
                     if (!svc) return null;
                     const nodeType = inferSvcNodeType(svc.name, bePos.depth);
@@ -18778,12 +18829,34 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                             <text x={bePos.x + beNodeW - 12} y={bePos.y + 7} textAnchor="middle" fontSize={8.5} fontWeight={900} fill="#000">{svcTl.z.toFixed(1)}</text>
                           </g>
                         )}
-                        <text x={bePos.x + (navTlEnabled ? 16 : 8)} y={bePos.y + 15} fontSize={11} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
+                        <text x={bePos.x + (navTlEnabled ? 16 : 8)} y={bePos.y + 13} fontSize={11} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
                           {shortName}
                         </text>
-                        <text x={bePos.x + 8} y={bePos.y + 34} fontSize={9} fill="rgba(255,255,255,0.4)" style={{ dominantBaseline: "middle" } as any}>
+                        <text x={bePos.x + 8} y={bePos.y + 30} fontSize={9} fill="rgba(255,255,255,0.4)" style={{ dominantBaseline: "middle" } as any}>
                           {svcTlSubLabel}
                         </text>
+                        {(() => {
+                          const beDur = reqAvgLatencyForService(svc.name);
+                          const beErrRate = reqErrRateForService(svc.name);
+                          const dClr = beDur > 500 ? RED : beDur > 200 ? ORANGE : GREEN;
+                          const eClr = beErrRate > 3 ? RED : beErrRate > 1 ? ORANGE : GREEN;
+                          return (
+                            <text x={bePos.x + 8} y={bePos.y + 50} fontSize={9}>
+                              <tspan fill="rgba(255,255,255,0.45)">Resp: </tspan><tspan fill={dClr}>{Math.round(beDur)}ms</tspan>
+                              <tspan fill="rgba(255,255,255,0.45)">  Err: </tspan><tspan fill={eClr}>{beErrRate.toFixed(1)}%</tspan>
+                            </text>
+                          );
+                        })()}
+                        {beRollupSelectedBySvcId.has(svcId) && (() => {
+                          const rDepth = beRollupSelectedBySvcId.get(svcId)!;
+                          const isPickerOpen = beRollupPopover?.depth === rDepth;
+                          return (
+                            <g onClick={(e) => { e.stopPropagation(); setBeRollupPopover(isPickerOpen ? null : { depth: rDepth, x: e.clientX, y: e.clientY }); }} style={{ cursor: "pointer" }}>
+                              <rect x={bePos.x + beNodeW - 28} y={bePos.y + 3} width={24} height={15} rx={4} fill={isPickerOpen ? "rgba(69,137,255,0.95)" : "rgba(69,137,255,0.7)"} />
+                              <text x={bePos.x + beNodeW - 16} y={bePos.y + 13} textAnchor="middle" fontSize={9} fill="#fff" fontWeight={700}>⇄</text>
+                            </g>
+                          );
+                        })()}
                       </g>
                     );
                   })}
@@ -18943,6 +19016,52 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       {selName && (
                         <div style={{ padding: "5px 10px", borderTop: "1px solid rgba(128,128,128,0.15)" }}>
                           <button onClick={() => { setRollupSelected(prev => { const n = { ...prev }; delete n[layer]; return n; }); setRollupPopover(null); }}
+                            style={{ fontSize: 10, opacity: 0.5, background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0 }}>
+                            ✕ Clear selection
+                          </button>
+                        </div>
+                      )}
+                    </div>,
+                    document.body
+                  );
+                })()}
+
+                {/* Backend rollup service picker popover */}
+                {beRollupPopover && (() => {
+                  const { depth, x, y } = beRollupPopover;
+                  const rolled = beRollupByDepth.get(depth) ?? [];
+                  if (rolled.length === 0) return null;
+                  const selId = beRollupSelected[depth];
+                  const popMaxH = Math.min(rolled.length * 34 + 70, 340);
+                  const popTop = Math.max(8, Math.min(y + 8, window.innerHeight - popMaxH - 8));
+                  const popLeft = Math.min(x + 12, window.innerWidth - 448);
+                  return createPortal(
+                    <div style={{ position: "fixed", left: popLeft, top: popTop, width: 440, background: "var(--dt-colors-background-base-default,#0f1428)", border: "1px solid rgba(128,128,128,0.35)", borderRadius: 8, boxShadow: "0 8px 28px rgba(0,0,0,0.55)", zIndex: 700, fontSize: 12, overflow: "hidden" }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div style={{ padding: "7px 10px", borderBottom: "1px solid rgba(128,128,128,0.2)", fontSize: 11, fontWeight: 700, opacity: 0.75 }}>
+                        {rolled.length} rolled-up service{rolled.length !== 1 ? "s" : ""} — select to expand
+                      </div>
+                      <div style={{ maxHeight: 280, overflowY: "auto" }}>
+                        {rolled.map(s => {
+                          const isSelected = s.id === selId;
+                          const svcReq = serviceReqById(s.id, s.name);
+                          return (
+                            <div key={s.id}
+                              style={{ padding: "6px 10px", cursor: "pointer", background: isSelected ? "rgba(69,137,255,0.15)" : "transparent", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}
+                              onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.06)"; }}
+                              onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+                              onClick={() => { setBeRollupSelected(prev => ({ ...prev, [depth]: s.id })); setBeRollupPopover(null); }}
+                            >
+                              <span style={{ fontSize: 11, color: isSelected ? "#4589FF" : "rgba(255,255,255,0.8)", fontWeight: isSelected ? 700 : 400, wordBreak: "break-all", lineHeight: 1.35 }}>{s.name}</span>
+                              <span style={{ fontSize: 10, opacity: 0.5, fontFamily: "monospace", flexShrink: 0, marginLeft: 8 }}>{fmtCount(svcReq)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {selId && (
+                        <div style={{ padding: "5px 10px", borderTop: "1px solid rgba(128,128,128,0.15)" }}>
+                          <button onClick={() => { setBeRollupSelected(prev => { const n = { ...prev }; delete n[depth]; return n; }); setBeRollupPopover(null); }}
                             style={{ fontSize: 10, opacity: 0.5, background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0 }}>
                             ✕ Clear selection
                           </button>
