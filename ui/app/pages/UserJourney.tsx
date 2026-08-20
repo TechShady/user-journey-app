@@ -18892,8 +18892,10 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           {svcTlSubLabel}
                         </text>
                         {(() => {
-                          const beDur = reqAvgLatencyForService(svc.name);
-                          const beErrRate = reqErrRateForService(svc.name);
+                          // Prefer direct entity-ID lookup (spans-based), fall back to name-based RUM lookup.
+                          const beAgg = beServiceMetrics.get(svcId);
+                          const beDur = beAgg && beAgg.req > 0 ? beAgg.durWeighted / beAgg.req : reqAvgLatencyForService(svc.name);
+                          const beErrRate = beAgg && beAgg.req > 0 ? (beAgg.err / beAgg.req) * 100 : reqErrRateForService(svc.name);
                           const dClr = beDur > 500 ? RED : beDur > 200 ? ORANGE : GREEN;
                           const eClr = beErrRate > 3 ? RED : beErrRate > 1 ? ORANGE : GREEN;
                           return (
