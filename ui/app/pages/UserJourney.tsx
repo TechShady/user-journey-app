@@ -17249,8 +17249,9 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   }
   // Spans-based service metrics (always loaded) — keyed by entity ID, then aliased by service name.
   // Used as fallback when the RUM-correlated backendReqRows is empty (peer.service.name not populated).
+  // Dual-indexed: by entity ID (dt.entity.service) and by norm(service.name).
+  // EasyTravel spans may lack dt.entity.service, so name is the only reliable key.
   const beServiceMetrics = new Map<string, { req: number; err: number; durWeighted: number }>();
-  const beServiceMetricsByName = new Map<string, string>(); // norm(name) → entity ID
   ((navBackendServiceMetricsData?.data?.records ?? []) as any[]).forEach((r: any) => {
     const svcId = String(r.service_id ?? "").trim();
     const svcName = String(r.service_name ?? "").toLowerCase().trim();
@@ -17258,13 +17259,15 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     const err = Number(r.errors ?? 0);
     const avgDur = Number(r.avg_dur ?? 0);
     if (!svcId && !svcName) return;
-    const key = svcId || svcName;
-    const cur = beServiceMetrics.get(key) ?? { req: 0, err: 0, durWeighted: 0 };
-    cur.durWeighted += avgDur * req;
-    cur.req += req;
-    cur.err += err;
-    beServiceMetrics.set(key, cur);
-    if (svcName && svcId) beServiceMetricsByName.set(svcName, svcId);
+    const update = (key: string) => {
+      const cur = beServiceMetrics.get(key) ?? { req: 0, err: 0, durWeighted: 0 };
+      cur.durWeighted += avgDur * req;
+      cur.req += req;
+      cur.err += err;
+      beServiceMetrics.set(key, cur);
+    };
+    if (svcId) update(svcId);
+    if (svcName) update(svcName);
   });
   const serviceReqCount = (name: string) => {
     const n = norm(name);
@@ -17298,9 +17301,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     const req = reqByServiceName.get(n) ?? 0;
     const err = reqErrorsByServiceName.get(n) ?? 0;
     if (req > 0) return (err / req) * 100;
-    // Fall back to spans-based metrics (keyed by entity ID via name alias)
-    const entityId = beServiceMetricsByName.get(n);
-    const agg = beServiceMetrics.get(entityId ?? n) ?? beServiceMetrics.get(n);
+    const agg = beServiceMetrics.get(n);
     return agg && agg.req > 0 ? (agg.err / agg.req) * 100 : 0;
   };
   const reqAvgLatencyForService = (name: string) => {
@@ -17308,9 +17309,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     const weighted = reqLatencyWeightedByServiceName.get(n) ?? 0;
     const weight = reqLatencyWeightByServiceName.get(n) ?? 0;
     if (weight > 0) return weighted / weight;
-    // Fall back to spans-based metrics (keyed by entity ID via name alias)
-    const entityId = beServiceMetricsByName.get(n);
-    const agg = beServiceMetrics.get(entityId ?? n) ?? beServiceMetrics.get(n);
+    const agg = beServiceMetrics.get(n);
     return agg && agg.req > 0 ? agg.durWeighted / agg.req : 0;
   };
 
@@ -18892,8 +18891,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           {svcTlSubLabel}
                         </text>
                         {(() => {
-                          // Prefer direct entity-ID lookup (spans-based), fall back to name-based RUM lookup.
-                          const beAgg = beServiceMetrics.get(svcId);
+                          // Spans-based lookup: try entity ID then norm(name), fall back to RUM-based.
+                          const beAgg = beServiceMetrics.get(svcId) ?? beServiceMetrics.get(norm(svc.name));
                           const beDur = beAgg && beAgg.req > 0 ? beAgg.durWeighted / beAgg.req : reqAvgLatencyForService(svc.name);
                           const beErrRate = beAgg && beAgg.req > 0 ? (beAgg.err / beAgg.req) * 100 : reqErrRateForService(svc.name);
                           const dClr = beDur > 500 ? RED : beDur > 200 ? ORANGE : GREEN;
