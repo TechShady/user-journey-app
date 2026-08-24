@@ -69,6 +69,24 @@ export interface IndustryBenchmark {
   label: string;
 }
 
+export type GradeWeights = {
+  apdex: number;
+  conversion: number;
+  errorRate: number;
+  avgDuration: number;
+  lcp: number;
+  cls: number;
+};
+
+export const DEFAULT_GRADE_WEIGHTS: GradeWeights = {
+  apdex: 30,
+  conversion: 25,
+  errorRate: 20,
+  avgDuration: 10,
+  lcp: 10,
+  cls: 5,
+};
+
 export const INDUSTRY_BENCHMARKS: Record<IndustryType, IndustryBenchmark> = {
   ecommerce: { costPerConvLow: 0.5, costPerConvHigh: 5, revCostRatioTarget: 7, infraPctRevenueLow: 2, infraPctRevenueHigh: 5, errorRateTarget: 1, cdnRoiTarget: 10, latencyImpactPerSec: 7, idleUtilTarget: 70, breakEvenHoursTarget: 160, convRateTarget: 3.5, apdexTarget: 0.85, avgDurationTarget: 2500, bounceRateTarget: 40, frustratedPctTarget: 8, lcpTarget: 2500, clsTarget: 0.1, inpTarget: 200, sessionDepthTarget: 4.5, retentionD7Target: 25, thirdPartyBudgetMs: 800, mobileShareExpected: 65, label: "E-Commerce / Retail" },
   saas: { costPerConvLow: 50, costPerConvHigh: 500, revCostRatioTarget: 4, infraPctRevenueLow: 10, infraPctRevenueHigh: 20, errorRateTarget: 0.5, cdnRoiTarget: 3, latencyImpactPerSec: 3, idleUtilTarget: 60, breakEvenHoursTarget: 320, convRateTarget: 7, apdexTarget: 0.9, avgDurationTarget: 1500, bounceRateTarget: 30, frustratedPctTarget: 5, lcpTarget: 2000, clsTarget: 0.05, inpTarget: 150, sessionDepthTarget: 8, retentionD7Target: 60, thirdPartyBudgetMs: 500, mobileShareExpected: 25, label: "SaaS / B2B" },
@@ -90,6 +108,7 @@ const COMPUTE_COST_PER_HOUR_STATE_KEY = "uj-compute-cost-per-hour";
 const COST_PER_GB_STATE_KEY = "uj-cost-per-gb";
 const ENGINEER_HOURLY_RATE_STATE_KEY = "uj-engineer-hourly-rate";
 const INDUSTRY_STATE_KEY = "uj-industry";
+const GRADE_WEIGHTS_STATE_KEY = "uj-grade-weights";
 
 // ---------------------------------------------------------------------------
 // Context shape
@@ -122,6 +141,8 @@ interface SettingsContextValue {
   setEngineerHourlyRate: (v: number) => void;
   industry: IndustryType;
   setIndustry: (v: IndustryType) => void;
+  gradeWeights: GradeWeights;
+  saveGradeWeights: (v: GradeWeights) => void;
   saveAov: (v: number) => void;
   saveMonthlyInfraCost: (v: number) => void;
   saveCdnMonthlyCost: (v: number) => void;
@@ -139,6 +160,7 @@ const SettingsContext = createContext<SettingsContextValue | null>(null);
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [funnels, setFunnels] = useState<FunnelDef[]>(DEFAULT_FUNNELS);
   const [activeFunnelIndex, setActiveFunnelIndex] = useState<number>(0);
+  const [gradeWeights, setGradeWeights] = useState<GradeWeights>(DEFAULT_GRADE_WEIGHTS);
 
   // Global (app-scoped) reads — shared across every user of this app in the Dynatrace environment.
   const savedFunnels = useAppState({ key: FUNNELS_STATE_KEY });
@@ -151,6 +173,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const savedCostPerGb = useAppState({ key: COST_PER_GB_STATE_KEY });
   const savedEngineerHourlyRate = useAppState({ key: ENGINEER_HOURLY_RATE_STATE_KEY });
   const savedIndustry = useAppState({ key: INDUSTRY_STATE_KEY });
+  const savedGradeWeights = useAppState({ key: GRADE_WEIGHTS_STATE_KEY });
   // Per-user fallbacks — pre-migration these keys were stored per-user. Fall back to those values
   // when the global bucket has not been written yet, so nothing is lost on first load after upgrade.
   const userLegacyFunnels = useUserAppState({ key: FUNNELS_STATE_KEY });
@@ -230,6 +253,21 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     saveState({ key: ACTIVE_FUNNEL_STATE_KEY, body: { value: String(v) } });
   };
 
+  useEffect(() => {
+    const raw = savedGradeWeights.data?.value as string | undefined;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") setGradeWeights({ ...DEFAULT_GRADE_WEIGHTS, ...parsed });
+      } catch { /* ignore */ }
+    }
+  }, [savedGradeWeights.data?.value]);
+
+  const saveGradeWeights = (v: GradeWeights) => {
+    setGradeWeights(v);
+    saveState({ key: GRADE_WEIGHTS_STATE_KEY, body: { value: JSON.stringify(v) } });
+  };
+
   // ---------------------------------------------------------------------------
   // Derived values from active funnel (backward compat for all consumers)
   // ---------------------------------------------------------------------------
@@ -301,7 +339,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const saveIndustry = (v: IndustryType) => persistActiveFunnel({ industry: v });
 
   return (
-    <SettingsContext.Provider value={{ frontend, funnels, setFunnels, activeFunnelIndex, setActiveFunnelIndex, saveFunnels, saveActiveFunnelIndex, steps, setSteps, saveSteps, aov, setAov, monthlyInfraCost, setMonthlyInfraCost, cdnMonthlyCost, setCdnMonthlyCost, computeCostPerHour, setComputeCostPerHour, costPerGb, setCostPerGb, engineerHourlyRate, setEngineerHourlyRate, industry, setIndustry, saveAov, saveMonthlyInfraCost, saveCdnMonthlyCost, saveComputeCostPerHour, saveCostPerGb, saveEngineerHourlyRate, saveIndustry }}>
+    <SettingsContext.Provider value={{ frontend, funnels, setFunnels, activeFunnelIndex, setActiveFunnelIndex, saveFunnels, saveActiveFunnelIndex, steps, setSteps, saveSteps, aov, setAov, monthlyInfraCost, setMonthlyInfraCost, cdnMonthlyCost, setCdnMonthlyCost, computeCostPerHour, setComputeCostPerHour, costPerGb, setCostPerGb, engineerHourlyRate, setEngineerHourlyRate, industry, setIndustry, gradeWeights, saveGradeWeights, saveAov, saveMonthlyInfraCost, saveCdnMonthlyCost, saveComputeCostPerHour, saveCostPerGb, saveEngineerHourlyRate, saveIndustry }}>
       {children}
     </SettingsContext.Provider>
   );
