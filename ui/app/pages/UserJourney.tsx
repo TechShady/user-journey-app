@@ -1039,15 +1039,18 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
   const showProgressBar = hasSpark && !customContent && rawValue != null && THRESHOLD_COLORS.has(color ?? "");
   let progressPct = 50;
   if (showProgressBar && sparkline && sparkline.length >= 2) {
-    const sMin = Math.min(...sparkline);
-    const sMax = Math.max(...sparkline);
-    const range = sMax - sMin;
-    if (range > 0) {
-      // normalized: 0 = min of history, 1 = max of history
-      // bar left=bad/right=good for higher-is-better, left=good/right=bad for lower-is-better
-      // in both cases progressPct = (rawValue - sMin) / range maps correctly to left→right
-      progressPct = Math.max(2, Math.min(98, ((rawValue - sMin) / range) * 100));
-    }
+    // Rank rawValue within sparkline history (0 = lowest, 1 = highest).
+    const sorted = [...sparkline].sort((a, b) => a - b);
+    const rank = sorted.filter(v => v <= rawValue).length;
+    const quantile = rank / sorted.length; // 0–1
+    // Map quantile into the color zone so tick always sits inside the correct band.
+    // Bar layout: effectiveHigherIsBetter → red(left)…green(right); else green(left)…red(right).
+    // Zone boundaries (pct): green 67–98, yellow 33–67, red 2–33 (flipped for !effectiveHigherIsBetter).
+    let zoneMin: number, zoneMax: number;
+    if (color === GREEN)       { zoneMin = effectiveHigherIsBetter ? 67 : 2;  zoneMax = effectiveHigherIsBetter ? 98 : 33; }
+    else if (color === RED)    { zoneMin = effectiveHigherIsBetter ? 2  : 67; zoneMax = effectiveHigherIsBetter ? 33 : 98; }
+    else                       { zoneMin = 33; zoneMax = 67; } // YELLOW always middle
+    progressPct = zoneMin + quantile * (zoneMax - zoneMin);
   }
 
   const doForecast = () => {
@@ -13801,7 +13804,7 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
       {aiPanel}
       <Flex gap={16} flexWrap="wrap" alignItems="center">
         <KpiCard label={tlShared ? "Performance Health (bucket)" : "Performance Health"} value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label={tlShared ? "Load Event End (bucket)" : "Load Event End"} value={fmt(effV.load)} color={effV.load > 3000 ? RED : effV.load > 1500 ? YELLOW : GREEN} rawValue={effV.load} prevRawValue={syntheticPrev(effV.load, "Load Event End")} sparkline={syntheticSparkline(effV.load, 8, "Load Event End")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Load Event End (bucket)" : "Load Event End"} value={fmt(effV.load)} color={effV.load > 3000 ? RED : effV.load > 1500 ? YELLOW : GREEN} rawValue={effV.load} prevRawValue={syntheticPrev(effV.load, "Load Event End")} sparkline={syntheticSparkline(effV.load, 8, "Load Event End")} inverted onDrillToForecast={onDrillToForecast} />
         <KpiCard label={tlShared ? "Failing Vitals (bucket)" : "Failing Vitals"} value={`${remediations.length}/4`} color={remediations.length > 2 ? RED : remediations.length > 0 ? YELLOW : GREEN} rawValue={remediations.length} prevRawValue={syntheticPrev(remediations.length, "Failing Vitals")} inverted sparkline={syntheticSparkline(remediations.length, 8, "Failing Vitals")} onDrillToForecast={onDrillToForecast} />
       </Flex>
 
