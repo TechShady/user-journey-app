@@ -1352,39 +1352,50 @@ fetch user.events, ${period}
 
 function cwvQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
+  // Match Frontend Overview pattern: filter by frontend.name (app-level, not step pages)
+  // so all page CWV events are captured, not just step-specific pages.
+  // Use isNotNull guards on each fieldsAdd to keep nulls as null (not 0) for correct avg().
+  const appNames = [...new Set([frontend, ...steps.map(s => s.app)].filter(Boolean))];
+  const appFilter = appNames.length === 1
+    ? `frontend.name == "${appNames[0]}"`
+    : `in(frontend.name, {${appNames.map(a => `"${a}"`).join(", ")}})`;
   return `fetch user.events, ${period}
-| filter ${frontendFilter(steps, frontend)}
-| filter isNotNull(web_vitals.largest_contentful_paint) or isNotNull(web_vitals.interaction_to_next_paint) or isNotNull(web_vitals.cumulative_layout_shift) or isNotNull(web_vitals.time_to_first_byte)
+| filter isNotNull(frontend.name) and ${appFilter}
+| filter isNotNull(web_vitals.largest_contentful_paint) or isNotNull(web_vitals.interaction_to_next_paint) or isNotNull(web_vitals.cumulative_layout_shift) or isNotNull(web_vitals.time_to_first_byte) or isNotNull(web_vitals.first_contentful_paint)
 | fieldsAdd
-    lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
-    cls_val = toDouble(web_vitals.cumulative_layout_shift),
-    inp_ms = toDouble(web_vitals.interaction_to_next_paint) / 1000000.0,
-    ttfb_ms = toDouble(web_vitals.time_to_first_byte) / 1000000.0,
-    load_ms = toDouble(web_vitals.first_contentful_paint) / 1000000.0
+    lcp_ms  = if(isNotNull(web_vitals.largest_contentful_paint),  toDouble(web_vitals.largest_contentful_paint)  / 1000000.0, null),
+    cls_val = if(isNotNull(web_vitals.cumulative_layout_shift),    toDouble(web_vitals.cumulative_layout_shift),                null),
+    inp_ms  = if(isNotNull(web_vitals.interaction_to_next_paint),  toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0, null),
+    ttfb_ms = if(isNotNull(web_vitals.time_to_first_byte),         toDouble(web_vitals.time_to_first_byte)         / 1000000.0, null),
+    load_ms = if(isNotNull(web_vitals.first_contentful_paint),     toDouble(web_vitals.first_contentful_paint)     / 1000000.0, null)
 | summarize
-    lcp_avg = avg(lcp_ms),
-    cls_avg = avg(cls_val),
-    inp_avg = avg(inp_ms),
+    lcp_avg  = avg(lcp_ms),
+    cls_avg  = avg(cls_val),
+    inp_avg  = avg(inp_ms),
     ttfb_avg = avg(ttfb_ms),
     load_avg = avg(load_ms)`;
 }
 
 function cwvByPageQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
+  const appNames = [...new Set([frontend, ...steps.map(s => s.app)].filter(Boolean))];
+  const appFilter = appNames.length === 1
+    ? `frontend.name == "${appNames[0]}"`
+    : `in(frontend.name, {${appNames.map(a => `"${a}"`).join(", ")}})`;
   return `fetch user.events, ${period}
-| filter ${frontendFilter(steps, frontend)}
-| filter isNotNull(web_vitals.largest_contentful_paint) or isNotNull(web_vitals.interaction_to_next_paint) or isNotNull(web_vitals.cumulative_layout_shift) or isNotNull(web_vitals.time_to_first_byte)
+| filter isNotNull(frontend.name) and ${appFilter}
+| filter isNotNull(web_vitals.largest_contentful_paint) or isNotNull(web_vitals.interaction_to_next_paint) or isNotNull(web_vitals.cumulative_layout_shift) or isNotNull(web_vitals.time_to_first_byte) or isNotNull(web_vitals.first_contentful_paint)
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | fieldsAdd
-    lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
-    cls_val = toDouble(web_vitals.cumulative_layout_shift),
-    inp_ms = toDouble(web_vitals.interaction_to_next_paint) / 1000000.0,
-    ttfb_ms = toDouble(web_vitals.time_to_first_byte) / 1000000.0,
-    fcp_ms = toDouble(web_vitals.first_contentful_paint) / 1000000.0
+    lcp_ms  = if(isNotNull(web_vitals.largest_contentful_paint),  toDouble(web_vitals.largest_contentful_paint)  / 1000000.0, null),
+    cls_val = if(isNotNull(web_vitals.cumulative_layout_shift),    toDouble(web_vitals.cumulative_layout_shift),                null),
+    inp_ms  = if(isNotNull(web_vitals.interaction_to_next_paint),  toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0, null),
+    ttfb_ms = if(isNotNull(web_vitals.time_to_first_byte),         toDouble(web_vitals.time_to_first_byte)         / 1000000.0, null),
+    fcp_ms  = if(isNotNull(web_vitals.first_contentful_paint),     toDouble(web_vitals.first_contentful_paint)     / 1000000.0, null)
 | summarize
-    lcp_avg = avg(lcp_ms),
-    cls_avg = avg(cls_val),
-    inp_avg = avg(inp_ms),
+    lcp_avg  = avg(lcp_ms),
+    cls_avg  = avg(cls_val),
+    inp_avg  = avg(inp_ms),
     ttfb_avg = avg(ttfb_ms),
     load_avg = avg(fcp_ms),
     by: {pageName}
@@ -8149,7 +8160,9 @@ function analyzeFunnelOverview(overallConv: number, overallApdex: number, qualit
     recs.push({ impact: "medium", text: "Hover over any KPI card and click the ⟷ button to discover Related Metrics — see which other metrics are statistically correlated and may be contributing factors to the degradation." });
   }
 
-  const summary = `Funnel Overview is the primary command center for understanding end-to-end user conversion. It visualizes how ${fmtCount(quality.sessions)} sessions progress through your defined funnel steps, tracking where users advance, where they abandon, and why. KPI cards now feature inline sparklines showing metric trends over time, comparison arrows showing % change vs. the previous period, and one-click Forecast Modal popup with 6 statistical models. This tab is designed for Product Managers evaluating conversion effectiveness, UX Designers identifying friction points, and Performance Engineers correlating speed with business outcomes. It answers: What is my overall conversion rate (currently ${fmtPct(overallConv)} against an industry average of 2-5%)? How satisfied are users with performance (Apdex ${overallApdex.toFixed(2)}, where ≥0.85 is excellent)? Where is the biggest drop-off in my funnel? ${worstDrop > 30 ? `The steepest abandonment occurs at "${worstStep}" where ${fmtPct(worstDrop)} of users leave — this is your highest-leverage optimization target.` : "Funnel progression is relatively smooth with no severe drop-off points."} ${errorRate > 1 ? `Error rate of ${fmtPct(errorRate)} exceeds the <1% industry benchmark and may be suppressing conversion.` : "Error rate is within healthy bounds."} ${hasNegativeTrend ? "One or more metrics show concerning trends — click any KPI card to open the Forecast Modal and compare projections across 6 models." : ""} The tab is organized into 4 sub-tabs: (1) Conversion Funnel — Apdex satisfaction breakdown, 5 visualization styles (Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split), and Compare mode to overlay the previous period; (2) Predictive Model — linear regression on today's hourly conversion rates projects where the conversion rate will land by 23:59, with hourly velocity and confidence score; (3) Step Analysis — sortable table of all funnel steps with sessions, avg/P90 duration, Apdex, conversion %, abandons, and errors per step; (4) Per-Page Breakdown — per-page metrics for steps with multiple page identifiers. Revenue-lost annotations are shown when AOV is configured.`;
+  const summary = cwv != null
+    ? `Executive Summary for this funnel: ${fmtCount(quality.sessions)} sessions over the period with ${fmtPct(overallConv)} conversion and Apdex ${overallApdex.toFixed(2)}. Error rate: ${fmtPct(errorRate)}. ${worstDrop > 30 ? `Highest drop-off at "${worstStep}" (${fmtPct(worstDrop)}).` : "No severe funnel drop-offs."} Core Web Vitals — LCP: ${cwv.lcp > 0 ? fmt(cwv.lcp) : "no data"}, CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "no data"}, INP: ${cwv.inp > 0 ? fmt(cwv.inp) : "no data"}, TTFB: ${cwv.ttfb > 0 ? fmt(cwv.ttfb) : "no data"}. ${hasNegativeTrend ? "One or more key metrics show areas for improvement — see Insights below for prioritized recommendations." : "All key metrics are within healthy ranges."} Use the Grade Breakdown to understand which metrics are driving the score. The What Changed section highlights funnel steps with significant drop-off shifts vs. the prior period. Copy Text or Export PDF to share with stakeholders.`
+    : `Funnel Overview is the primary command center for understanding end-to-end user conversion. It visualizes how ${fmtCount(quality.sessions)} sessions progress through your defined funnel steps, tracking where users advance, where they abandon, and why. KPI cards now feature inline sparklines showing metric trends over time, comparison arrows showing % change vs. the previous period, and one-click Forecast Modal popup with 6 statistical models. This tab is designed for Product Managers evaluating conversion effectiveness, UX Designers identifying friction points, and Performance Engineers correlating speed with business outcomes. It answers: What is my overall conversion rate (currently ${fmtPct(overallConv)} against an industry average of 2-5%)? How satisfied are users with performance (Apdex ${overallApdex.toFixed(2)}, where ≥0.85 is excellent)? Where is the biggest drop-off in my funnel? ${worstDrop > 30 ? `The steepest abandonment occurs at "${worstStep}" where ${fmtPct(worstDrop)} of users leave — this is your highest-leverage optimization target.` : "Funnel progression is relatively smooth with no severe drop-off points."} ${errorRate > 1 ? `Error rate of ${fmtPct(errorRate)} exceeds the <1% industry benchmark and may be suppressing conversion.` : "Error rate is within healthy bounds."} ${hasNegativeTrend ? "One or more metrics show concerning trends — click any KPI card to open the Forecast Modal and compare projections across 6 models." : ""} The tab is organized into 4 sub-tabs: (1) Conversion Funnel — Apdex satisfaction breakdown, 5 visualization styles (Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split), and Compare mode to overlay the previous period; (2) Predictive Model — linear regression on today's hourly conversion rates projects where the conversion rate will land by 23:59, with hourly velocity and confidence score; (3) Step Analysis — sortable table of all funnel steps with sessions, avg/P90 duration, Apdex, conversion %, abandons, and errors per step; (4) Per-Page Breakdown — per-page metrics for steps with multiple page identifiers. Revenue-lost annotations are shown when AOV is configured.`;
 
   return { summary, insights, recommendations: recs };
 }
@@ -20701,7 +20714,7 @@ ${whatChanged.length > 0 ? `<h2>What Changed vs Prior Period</h2><table><tr><th>
                   ? (isFinite(displayScore) ? `${displayScore.toFixed(0)}/100` : "—")
                   : fqLoading ? "loading…"
                   : hasGrade ? `${displayScore.toFixed(0)}/100`
-                  : "—"}
+                  : "no sessions"}
               </div>
               {hasGrade && (
                 <div style={{ width: "100%", height: 4, borderRadius: 2, overflow: "hidden", display: "flex", marginTop: 2 }}>
