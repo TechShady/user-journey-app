@@ -1034,14 +1034,20 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
   const trendColor = delta === null ? undefined : delta === 0 ? undefined : trendGood ? GREEN : RED;
   const arrow = delta === null ? "" : delta === 0 ? "—" : trendUp ? "↑" : "↓";
 
-  // Progress bar: only for threshold-colored metrics; tick position mirrors the value color
+  // Progress bar: only for threshold-colored metrics
   const THRESHOLD_COLORS = new Set([GREEN, RED, YELLOW]);
   const showProgressBar = hasSpark && !customContent && rawValue != null && THRESHOLD_COLORS.has(color ?? "");
   let progressPct = 50;
-  if (showProgressBar) {
-    if (color === GREEN) progressPct = effectiveHigherIsBetter ? 85 : 15;
-    else if (color === RED) progressPct = effectiveHigherIsBetter ? 15 : 85;
-    // YELLOW stays at 50
+  if (showProgressBar && sparkline && sparkline.length >= 2) {
+    const sMin = Math.min(...sparkline);
+    const sMax = Math.max(...sparkline);
+    const range = sMax - sMin;
+    if (range > 0) {
+      // normalized: 0 = min of history, 1 = max of history
+      // bar left=bad/right=good for higher-is-better, left=good/right=bad for lower-is-better
+      // in both cases progressPct = (rawValue - sMin) / range maps correctly to left→right
+      progressPct = Math.max(2, Math.min(98, ((rawValue - sMin) / range) * 100));
+    }
   }
 
   const doForecast = () => {
@@ -2072,17 +2078,18 @@ function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepD
 
 function navBackendServiceMetricsQuery(days: number): string {
   const period = periodClause(days);
-  return `fetch spans, ${period}
-| filter span.kind == "server"
-| filter isNotNull(service.name)
-| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
-| summarize
-    requests = count(),
-    errors = countIf(coalesce(toString(span.status_code), "UNSET") == "ERROR"),
-    avg_dur = avg(dur_ms),
-    by: {service_id = dt.entity.service, service_name = service.name}
-| filter requests >= 1
-| sort requests desc
+  return `timeseries
+  resp = avg(dt.service.request.response_time),
+  err  = avg(dt.service.failure_rate),
+  req  = sum(dt.service.request.count),
+  ${period}
+by: {dt.entity.service}
+| fields
+    service_id   = dt.entity.service,
+    avg_resp_ms  = (arrayAvg(resp) ?? 0) / 1000.0,
+    avg_err_pct  = arrayAvg(err) ?? 0,
+    total_req    = arraySum(req) ?? 0
+| filter isNotNull(service_id) and total_req > 0
 | limit 1000`;
 }
 
@@ -17249,25 +17256,16 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   }
   // Spans-based service metrics (always loaded) — keyed by entity ID, then aliased by service name.
   // Used as fallback when the RUM-correlated backendReqRows is empty (peer.service.name not populated).
-  // Dual-indexed: by entity ID (dt.entity.service) and by norm(service.name).
-  // EasyTravel spans may lack dt.entity.service, so name is the only reliable key.
-  const beServiceMetrics = new Map<string, { req: number; err: number; durWeighted: number }>();
+  // Keyed by entity ID from built-in service metrics (always agent-populated, no span instrumentation needed).
+  const beServiceMetrics = new Map<string, { req: number; errPct: number; avgRespMs: number }>();
   ((navBackendServiceMetricsData?.data?.records ?? []) as any[]).forEach((r: any) => {
     const svcId = String(r.service_id ?? "").trim();
-    const svcName = String(r.service_name ?? "").toLowerCase().trim();
-    const req = Number(r.requests ?? 0);
-    const err = Number(r.errors ?? 0);
-    const avgDur = Number(r.avg_dur ?? 0);
-    if (!svcId && !svcName) return;
-    const update = (key: string) => {
-      const cur = beServiceMetrics.get(key) ?? { req: 0, err: 0, durWeighted: 0 };
-      cur.durWeighted += avgDur * req;
-      cur.req += req;
-      cur.err += err;
-      beServiceMetrics.set(key, cur);
-    };
-    if (svcId) update(svcId);
-    if (svcName) update(svcName);
+    if (!svcId) return;
+    beServiceMetrics.set(svcId, {
+      req: Number(r.total_req ?? 0),
+      errPct: Number(r.avg_err_pct ?? 0),
+      avgRespMs: Number(r.avg_resp_ms ?? 0),
+    });
   });
   const serviceReqCount = (name: string) => {
     const n = norm(name);
@@ -17300,17 +17298,13 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     const n = norm(name);
     const req = reqByServiceName.get(n) ?? 0;
     const err = reqErrorsByServiceName.get(n) ?? 0;
-    if (req > 0) return (err / req) * 100;
-    const agg = beServiceMetrics.get(n);
-    return agg && agg.req > 0 ? (agg.err / agg.req) * 100 : 0;
+    return req > 0 ? (err / req) * 100 : 0;
   };
   const reqAvgLatencyForService = (name: string) => {
     const n = norm(name);
     const weighted = reqLatencyWeightedByServiceName.get(n) ?? 0;
     const weight = reqLatencyWeightByServiceName.get(n) ?? 0;
-    if (weight > 0) return weighted / weight;
-    const agg = beServiceMetrics.get(n);
-    return agg && agg.req > 0 ? agg.durWeighted / agg.req : 0;
+    return weight > 0 ? weighted / weight : 0;
   };
 
   // --- AI Path Recommendations: find best/worst converting paths ---
@@ -18891,10 +18885,10 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           {svcTlSubLabel}
                         </text>
                         {(() => {
-                          // Spans-based lookup: try entity ID then norm(name), fall back to RUM-based.
-                          const beAgg = beServiceMetrics.get(svcId) ?? beServiceMetrics.get(norm(svc.name));
-                          const beDur = beAgg && beAgg.req > 0 ? beAgg.durWeighted / beAgg.req : reqAvgLatencyForService(svc.name);
-                          const beErrRate = beAgg && beAgg.req > 0 ? (beAgg.err / beAgg.req) * 100 : reqErrRateForService(svc.name);
+                          // Built-in service metrics lookup by entity ID (always agent-populated).
+                          const beAgg = beServiceMetrics.get(svcId);
+                          const beDur = beAgg && beAgg.req > 0 ? beAgg.avgRespMs : reqAvgLatencyForService(svc.name);
+                          const beErrRate = beAgg && beAgg.req > 0 ? beAgg.errPct : reqErrRateForService(svc.name);
                           const dClr = beDur > 500 ? RED : beDur > 200 ? ORANGE : GREEN;
                           const eClr = beErrRate > 3 ? RED : beErrRate > 1 ? ORANGE : GREEN;
                           return (
