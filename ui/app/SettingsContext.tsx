@@ -76,6 +76,8 @@ export type GradeWeights = {
   avgDuration: number;
   lcp: number;
   cls: number;
+  inp: number;
+  ttfb: number;
 };
 
 export const DEFAULT_GRADE_WEIGHTS: GradeWeights = {
@@ -83,8 +85,10 @@ export const DEFAULT_GRADE_WEIGHTS: GradeWeights = {
   conversion: 25,
   errorRate: 20,
   avgDuration: 10,
-  lcp: 10,
-  cls: 5,
+  lcp: 7,
+  cls: 3,
+  inp: 3,
+  ttfb: 2,
 };
 
 export const INDUSTRY_BENCHMARKS: Record<IndustryType, IndustryBenchmark> = {

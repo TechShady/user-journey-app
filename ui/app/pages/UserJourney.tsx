@@ -1354,7 +1354,7 @@ function cwvQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
   return `fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend)}
-| filter characteristics.has_page_summary == true
+| filter isNotNull(web_vitals.largest_contentful_paint) or isNotNull(web_vitals.interaction_to_next_paint) or isNotNull(web_vitals.cumulative_layout_shift) or isNotNull(web_vitals.time_to_first_byte)
 | fieldsAdd
     lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
     cls_val = toDouble(web_vitals.cumulative_layout_shift),
@@ -1373,7 +1373,7 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[]): strin
   const period = periodClause(days);
   return `fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend)}
-| filter characteristics.has_page_summary == true
+| filter isNotNull(web_vitals.largest_contentful_paint) or isNotNull(web_vitals.interaction_to_next_paint) or isNotNull(web_vitals.cumulative_layout_shift) or isNotNull(web_vitals.time_to_first_byte)
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | fieldsAdd
     lcp_ms = toDouble(web_vitals.largest_contentful_paint) / 1000000.0,
@@ -5733,6 +5733,19 @@ export function UserJourney() {
   const qualityDataPrev = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, true) }, lazyOpts(["Funnel Overview"]));
   const sparklineData = useDql({ query: trendsSparklineQuery(timeframeDays, frontend, steps) }, lazyOpts(["Funnel Overview"]));
   const convSparklineData = useDql({ query: trendsConvSparklineQuery(timeframeDays, frontend, steps) }, lazyOpts(["Funnel Overview"]));
+
+  // Per-funnel quality queries — run all funnels in parallel for Executive Summary grade cards
+  const funnelGradeOpts = lazyOpts(["Executive Summary"]);
+  const fqDisabled = { ...funnelGradeOpts, enabled: false };
+  const fqQ0 = useDql({ query: funnels[0] ? sessionQualityQuery(timeframeDays, frontend, funnels[0].steps) : "fetch user.events | limit 0" }, funnels[0] ? funnelGradeOpts : fqDisabled);
+  const fqQ1 = useDql({ query: funnels[1] ? sessionQualityQuery(timeframeDays, frontend, funnels[1].steps) : "fetch user.events | limit 0" }, funnels[1] ? funnelGradeOpts : fqDisabled);
+  const fqQ2 = useDql({ query: funnels[2] ? sessionQualityQuery(timeframeDays, frontend, funnels[2].steps) : "fetch user.events | limit 0" }, funnels[2] ? funnelGradeOpts : fqDisabled);
+  const fqQ3 = useDql({ query: funnels[3] ? sessionQualityQuery(timeframeDays, frontend, funnels[3].steps) : "fetch user.events | limit 0" }, funnels[3] ? funnelGradeOpts : fqDisabled);
+  const fqQ4 = useDql({ query: funnels[4] ? sessionQualityQuery(timeframeDays, frontend, funnels[4].steps) : "fetch user.events | limit 0" }, funnels[4] ? funnelGradeOpts : fqDisabled);
+  const fqQ5 = useDql({ query: funnels[5] ? sessionQualityQuery(timeframeDays, frontend, funnels[5].steps) : "fetch user.events | limit 0" }, funnels[5] ? funnelGradeOpts : fqDisabled);
+  const fqQ6 = useDql({ query: funnels[6] ? sessionQualityQuery(timeframeDays, frontend, funnels[6].steps) : "fetch user.events | limit 0" }, funnels[6] ? funnelGradeOpts : fqDisabled);
+  const fqQ7 = useDql({ query: funnels[7] ? sessionQualityQuery(timeframeDays, frontend, funnels[7].steps) : "fetch user.events | limit 0" }, funnels[7] ? funnelGradeOpts : fqDisabled);
+  const allFunnelQualities = [fqQ0, fqQ1, fqQ2, fqQ3, fqQ4, fqQ5, fqQ6, fqQ7];
   const stepSparklineData = useDql({ query: stepSparklineQuery(timeframeDays, frontend, steps) }, lazyOpts(["Step Details"]));
 
   // Today's hourly funnel data for predictive EOD model
@@ -6910,7 +6923,7 @@ export function UserJourney() {
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Executive Summary Grade Weights</Paragraph>
           <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Adjust how each metric contributes to the overall journey grade. Values should sum to 100%.</Paragraph>
           {(() => {
-            const total = gradeWeights.apdex + gradeWeights.conversion + gradeWeights.errorRate + gradeWeights.avgDuration + gradeWeights.lcp + gradeWeights.cls;
+            const total = gradeWeights.apdex + gradeWeights.conversion + gradeWeights.errorRate + gradeWeights.avgDuration + gradeWeights.lcp + gradeWeights.cls + (gradeWeights.inp ?? 0) + (gradeWeights.ttfb ?? 0);
             const totalColor = Math.abs(total - 100) < 1 ? "#0D9C29" : "#C21930";
             const gwFields: { key: keyof GradeWeights; label: string }[] = [
               { key: "apdex", label: "Apdex" },
@@ -6919,6 +6932,8 @@ export function UserJourney() {
               { key: "avgDuration", label: "Avg Duration" },
               { key: "lcp", label: "CWV — LCP" },
               { key: "cls", label: "CWV — CLS" },
+              { key: "inp", label: "CWV — INP" },
+              { key: "ttfb", label: "CWV — TTFB" },
             ];
             return (
               <div style={{ marginBottom: 16 }}>
@@ -7125,7 +7140,7 @@ export function UserJourney() {
             case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} onDrillToForecast={openForecast} timelapseData={sankeyTimelapseData} hotnessMode={hotnessMode} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov}  davisProblemsData={davisProblemsData} onDrillToForecast={openForecast} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} steps={steps} />; break;
-            case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnels={funnels} activeFunnelIndex={activeFunnelIndex} saveActiveFunnelIndex={saveActiveFunnelIndex} timeframeDays={timeframeDays} />; break;
+            case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnels={funnels} activeFunnelIndex={activeFunnelIndex} saveActiveFunnelIndex={saveActiveFunnelIndex} timeframeDays={timeframeDays} allFunnelQualities={allFunnelQualities} />; break;
             case "Segmentation": /* enhanced */ content = <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} osVersions={(osVersionData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading || osVersionData.isLoading} aov={aov} overallConv={overallConv} />; break;
             case "Errors & Drop-offs": content = <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} steps={steps} aov={aov} stepDropData={rootCauseStepDropData} />; break;
             case "What-If Analysis": content = <WhatIfTab hostMetricsData={hostMetricsData} funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} aov={aov} onDrillToForecast={openForecast} />; break;
@@ -8034,7 +8049,7 @@ export function useAIInsights(analysisFn: () => AIInsightsData, subTabKey?: TabK
 // ---------------------------------------------------------------------------
 // Per-tab analysis functions — industry-standard benchmarks
 // ---------------------------------------------------------------------------
-function analyzeFunnelOverview(overallConv: number, overallApdex: number, quality: any, funnelCounts: number[], steps: StepDef[], stepMap: Map<string, any>, aov: number, pageMap?: Map<string, any>): AIInsightsData {
+function analyzeFunnelOverview(overallConv: number, overallApdex: number, quality: any, funnelCounts: number[], steps: StepDef[], stepMap: Map<string, any>, aov: number, pageMap?: Map<string, any>, cwv?: { lcp: number; cls: number; inp: number; ttfb: number }): AIInsightsData {
   const insights: InsightItem[] = [];
   const recs: RecommendationItem[] = [];
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -8101,6 +8116,31 @@ function analyzeFunnelOverview(overallConv: number, overallApdex: number, qualit
   if (quality.avg > 3000) { insights.push({ severity: "critical", icon: "🔴", text: `Average action duration of ${fmt(quality.avg)} exceeds 3s. Google recommends pages load within 2.5s.` }); recs.push({ impact: "high", text: "Optimize critical rendering path: defer non-essential JavaScript, compress images, use CDN caching." }); }
   else if (quality.avg > 1000) insights.push({ severity: "info", icon: "📊", text: `Average action duration of ${fmt(quality.avg)} is acceptable but has room for improvement.` });
   else insights.push({ severity: "good", icon: "✅", text: `Average action duration of ${fmt(quality.avg)} is fast, meeting the <1s best practice.` });
+
+  // CWV insights
+  if (cwv) {
+    const { lcp, cls, inp, ttfb } = cwv;
+    if (isFinite(lcp) && lcp > 0) {
+      if (lcp > 4000) { insights.push({ severity: "critical", icon: "🔴", text: `LCP of ${fmt(lcp)} is Poor (>4s). Core Web Vitals target is ≤2.5s.` }); recs.push({ impact: "high", text: "Reduce Largest Contentful Paint: optimize hero images (WebP/AVIF), preload critical resources, and eliminate render-blocking scripts." }); }
+      else if (lcp > 2500) { insights.push({ severity: "warning", icon: "⚠️", text: `LCP of ${fmt(lcp)} needs improvement (2.5–4s). Target ≤2.5s for Good status.` }); recs.push({ impact: "medium", text: "Improve LCP: lazy-load below-fold images, use an image CDN, and ensure main content is server-rendered or preloaded." }); }
+      else insights.push({ severity: "good", icon: "✅", text: `LCP of ${fmt(lcp)} is Good (≤2.5s). Meets Core Web Vitals threshold.` });
+    }
+    if (isFinite(cls) && cls >= 0) {
+      if (cls > 0.25) { insights.push({ severity: "critical", icon: "🔴", text: `CLS of ${cls.toFixed(3)} is Poor (>0.25). Layout shifts are severely degrading user experience.` }); recs.push({ impact: "high", text: "Fix layout shifts: add explicit width/height to images and iframes, avoid inserting content above existing elements." }); }
+      else if (cls > 0.1) { insights.push({ severity: "warning", icon: "⚠️", text: `CLS of ${cls.toFixed(3)} needs improvement (>0.1). Target ≤0.1 for Good status.` }); recs.push({ impact: "medium", text: "Reduce CLS by reserving space for ads and dynamic content using CSS aspect-ratio or min-height." }); }
+      else insights.push({ severity: "good", icon: "✅", text: `CLS of ${cls.toFixed(3)} is Good (≤0.1). Layout is visually stable.` });
+    }
+    if (isFinite(inp) && inp > 0) {
+      if (inp > 500) { insights.push({ severity: "critical", icon: "🔴", text: `INP of ${fmt(inp)} is Poor (>500ms). Interactions feel severely delayed.` }); recs.push({ impact: "high", text: "Reduce Interaction to Next Paint: break up long tasks, minimize main-thread blocking, and defer non-critical JavaScript." }); }
+      else if (inp > 200) { insights.push({ severity: "warning", icon: "⚠️", text: `INP of ${fmt(inp)} needs improvement (200–500ms). Target ≤200ms for Good status.` }); recs.push({ impact: "medium", text: "Improve INP: use web workers for heavy computation, prioritize user-event handling, and reduce synchronous JavaScript." }); }
+      else insights.push({ severity: "good", icon: "✅", text: `INP of ${fmt(inp)} is Good (≤200ms). Interactions feel responsive.` });
+    }
+    if (isFinite(ttfb) && ttfb > 0) {
+      if (ttfb > 1800) { insights.push({ severity: "warning", icon: "⚠️", text: `TTFB of ${fmt(ttfb)} is Poor (>1.8s). Slow server response delays all subsequent loading.` }); recs.push({ impact: "high", text: "Improve Time to First Byte: optimize server-side processing, add CDN edge caching, and enable HTTP/2 or HTTP/3." }); }
+      else if (ttfb > 800) insights.push({ severity: "info", icon: "📊", text: `TTFB of ${fmt(ttfb)} could be improved (>800ms). Target ≤800ms for Good status.` });
+      else insights.push({ severity: "good", icon: "✅", text: `TTFB of ${fmt(ttfb)} is Good (≤800ms). Server is responding quickly.` });
+    }
+  }
 
   // Drill-to-forecast recommendation when negative trends detected
   const hasNegativeTrend = overallConv < 5 || overallApdex < 0.7 || errorRate > 3 || quality.avg > 2000;
@@ -20238,10 +20278,10 @@ const ExecGradeRow: React.FC<{
 // ===========================================================================
 // TAB: Executive Summary
 // ===========================================================================
-function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps, aov, sparklineRecords, convSparklineRecords, onDrillToForecast, funnels, activeFunnelIndex, saveActiveFunnelIndex, timeframeDays }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[]; aov: number; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnels: FunnelDef[]; activeFunnelIndex: number; saveActiveFunnelIndex: (v: number) => void; timeframeDays: number }) {
+function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps, aov, sparklineRecords, convSparklineRecords, onDrillToForecast, funnels, activeFunnelIndex, saveActiveFunnelIndex, timeframeDays, allFunnelQualities }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[]; aov: number; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnels: FunnelDef[]; activeFunnelIndex: number; saveActiveFunnelIndex: (v: number) => void; timeframeDays: number; allFunnelQualities: any[] }) {
   const { gradeWeights } = useSettings();
   const [copied, setCopied] = useState(false);
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, undefined, cwvMetrics), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, cwvMetrics]));
   const tl = useTimelapse();
 
   // All hooks must be before early returns (Rules of Hooks)
@@ -20323,6 +20363,8 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
     { label: "Avg Duration",weight: gradeWeights.avgDuration,  score: scoreLB(effAvgDur, 1500, 5000),        value: fmt(effAvgDur),                                                  color: effAvgDur < 2000 ? GREEN : effAvgDur < 3500 ? YELLOW : RED, indent: false },
     { label: "CWV — LCP",  weight: gradeWeights.lcp,          score: scoreLB(effLcp, 2500, 4000),           value: fmt(effLcp),                                                     color: cwvClr(effLcp, "lcp"),                 indent: false },
     { label: "CWV — CLS",  weight: gradeWeights.cls,          score: scoreLB(effCls, 0.1, 0.25),            value: isFinite(effCls) ? effCls.toFixed(3) : "—",                      color: cwvClr(effCls, "cls"),                 indent: false },
+    { label: "CWV — INP",  weight: gradeWeights.inp,          score: scoreLB(effInp, 200, 500),             value: fmt(effInp),                                                     color: cwvClr(effInp, "inp"),                 indent: false },
+    { label: "CWV — TTFB", weight: gradeWeights.ttfb,         score: scoreLB(effTtfb, 800, 1800),           value: fmt(effTtfb),                                                    color: cwvClr(effTtfb, "ttfb"),               indent: false },
   ];
 
   const weightedRows = gradeMetricRows.filter(m => m.weight != null && isFinite(m.score));
@@ -20380,7 +20422,13 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
       `USER JOURNEY & EXPERIENCE — EXECUTIVE REPORT`,
       `Funnel: ${funnelName} | ${frontend} | Generated: ${new Date().toLocaleString()}`,
       ``,
-      `GRADE: ${grade.letter} (${isFinite(overallScore) ? overallScore.toFixed(0) : "—"}/100)`,
+      `OVERALL GRADE: ${grade.letter} (${isFinite(overallScore) ? overallScore.toFixed(0) : "—"}/100)`,
+      ``,
+      `GRADE BREAKDOWN`,
+      ...gradeMetricRows.map(m =>
+        `  ${m.indent ? "  " : ""}${m.label}: ${m.value}` +
+        (m.weight != null ? ` — score ${isFinite(m.score) ? m.score.toFixed(0) : "—"}/100 (weight ${m.weight}%)` : "")
+      ),
       ``,
       `NARRATIVE`,
       ...narrativeLines.map(l => `  ${l}`),
@@ -20391,17 +20439,28 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
         return `  ${s.label}: ${s.value} ${s.delta ? arrow + " " + s.delta.label : ""}  [${s.subtext}]`;
       }),
       ``,
+      `CORE WEB VITALS`,
+      `  LCP: ${fmt(effLcp)} (${cwvLabel(effLcp, "lcp")})`,
+      `  CLS: ${isFinite(effCls) ? effCls.toFixed(3) : "—"} (${cwvLabel(effCls, "cls")})`,
+      `  INP: ${fmt(effInp)} (${cwvLabel(effInp, "inp")})`,
+      `  TTFB: ${fmt(effTtfb)} (${cwvLabel(effTtfb, "ttfb")})`,
+      ``,
       `FUNNEL STEPS`,
       ...steps.map((step, i) => {
         const conv = i > 0 && funnelCounts[i - 1] > 0 ? ` (${fmtPct((funnelCounts[i] / funnelCounts[i - 1]) * 100)} conv)` : "";
         return `  ${i + 1}. ${step.label} — ${fmtCount(funnelCounts[i])} sessions${conv}`;
       }),
       ``,
-      `CORE WEB VITALS`,
-      `  LCP: ${fmt(effLcp)} (${cwvLabel(effLcp, "lcp")})`,
-      `  CLS: ${isFinite(effCls) ? effCls.toFixed(3) : "—"} (${cwvLabel(effCls, "cls")})`,
-      `  INP: ${fmt(effInp)} (${cwvLabel(effInp, "inp")})`,
-      `  TTFB: ${fmt(effTtfb)} (${cwvLabel(effTtfb, "ttfb")})`,
+      ...(whatChanged.length > 0 ? [
+        `WHAT CHANGED (vs prior period)`,
+        ...whatChanged.map(w => `  ${w.from} → ${w.to}: drop-off ${w.currDrop.toFixed(1)}% vs prior ${w.prevDrop.toFixed(1)}% (${w.delta > 0 ? "+" : ""}${w.delta.toFixed(1)}pp)`),
+        ``,
+      ] : []),
+      `FUNNEL REPORT CARDS`,
+      ...funnels.map((f, fi) => {
+        const isAct = fi === activeFunnelIndex;
+        return `  ${f.name || `Funnel ${fi + 1}`}: ${isAct ? `${grade.letter} (${isFinite(overallScore) ? overallScore.toFixed(0) : "—"}/100, full grade)` : "see app for grade"}`;
+      }),
     ];
     navigator.clipboard.writeText(lines.join("\n")).catch(() => {});
     setCopied(true);
@@ -20416,31 +20475,46 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
   @media print { body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } @page { margin: 0.6in; size: A4; } .no-print { display: none !important; } }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a2e; padding: 32px; max-width: 900px; margin: 0 auto; line-height: 1.5; }
   h2 { font-size: 16px; margin: 24px 0 10px; border-bottom: 2px solid #eee; padding-bottom: 6px; }
-  .kpi-grid { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0 24px; }
+  .kpi-grid { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0 16px; }
   .kpi-card { padding: 14px 18px; border-radius: 10px; border: 1px solid #e0e0e0; min-width: 130px; flex: 1 1 130px; }
   .kpi-label { font-size: 11px; color: #888; margin-bottom: 4px; }
   .kpi-value { font-size: 22px; font-weight: 800; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+  th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid #eee; font-size: 13px; }
+  th { background: #f5f5f7; font-size: 12px; font-weight: 600; }
 </style></head><body>
 <div class="no-print" style="text-align:right;margin-bottom:16px"><button onclick="window.print()" style="background:#4589FF;color:#fff;border:none;padding:8px 20px;border-radius:6px;font-size:13px;cursor:pointer">Print / Save PDF</button></div>
 <h1 style="margin:0 0 4px">User Journey & Experience — Executive Report</h1>
 <div style="font-size:12px;color:#888;margin-bottom:20px">Funnel: <b>${funnelName}</b> · ${frontend} · Generated ${ts}</div>
-<div style="display:flex;align-items:center;gap:24px;padding:20px;border:2px solid ${gradeClr}55;border-radius:14px;background:${gradeClr}11;margin-bottom:24px">
+<div style="display:flex;align-items:center;gap:24px;padding:20px;border:2px solid ${gradeClr}55;border-radius:14px;background:${gradeClr}11;margin-bottom:20px">
   <div style="font-size:80px;font-weight:900;color:${gradeClr};line-height:1">${grade.letter}</div>
   <div><div style="font-size:18px;font-weight:700">Overall Journey Grade</div><div style="font-size:13px;opacity:.7">Weighted score: ${isFinite(overallScore) ? overallScore.toFixed(1) : "—"} / 100</div></div>
 </div>
+<h2>Grade Breakdown</h2>
+<table><tr><th>Metric</th><th style="text-align:right">Value</th><th style="text-align:right">Score /100</th><th style="text-align:right">Weight</th></tr>
+${gradeMetricRows.map(m => `<tr><td style="padding-left:${m.indent ? 28 : 12}px;color:#555">${m.label}</td><td style="text-align:right;font-weight:600;color:${m.color}">${m.value}</td><td style="text-align:right">${isFinite(m.score) ? m.score.toFixed(0) : "—"}</td><td style="text-align:right;color:#888">${m.weight != null ? m.weight + "%" : "—"}</td></tr>`).join("")}
+</table>
 <h2>Narrative</h2>
-<div style="padding:14px;background:#f6f7fb;border-left:4px solid #A56EFF;margin-bottom:24px">${narrativeLines.map(l => `<p style="margin:4px 0;font-size:14px">${l}</p>`).join("")}</div>
+<div style="padding:14px;background:#f6f7fb;border-left:4px solid #A56EFF;margin-bottom:20px">${narrativeLines.map(l => `<p style="margin:4px 0;font-size:14px">${l}</p>`).join("")}</div>
 <h2>Business Impact</h2>
 <div class="kpi-grid">${impactStats.map(s => {
   const dColor = s.delta == null || s.delta.neutral ? "#888" : s.delta.positive ? "#0D9C29" : "#C21930";
   const arrow = s.delta == null || s.delta.neutral ? "=" : s.delta.positive ? "↑" : "↓";
   return `<div class="kpi-card"><div class="kpi-label">${s.label}</div><div class="kpi-value">${s.value}</div>${s.delta ? `<div style="font-size:11px;font-weight:600;color:${dColor};margin-top:3px">${arrow} ${s.delta.label}</div>` : ""}<div style="font-size:10px;color:#aaa;margin-top:2px">${s.subtext}</div></div>`;
 }).join("")}</div>
+<h2>Core Web Vitals</h2>
+<div class="kpi-grid">
+  <div class="kpi-card"><div class="kpi-label">LCP</div><div class="kpi-value" style="color:${cwvClr(effLcp,"lcp")}">${fmt(effLcp)}</div><div style="font-size:10px;color:#aaa;margin-top:2px">${cwvLabel(effLcp,"lcp")}</div></div>
+  <div class="kpi-card"><div class="kpi-label">CLS</div><div class="kpi-value" style="color:${cwvClr(effCls,"cls")}">${isFinite(effCls) ? effCls.toFixed(3) : "—"}</div><div style="font-size:10px;color:#aaa;margin-top:2px">${cwvLabel(effCls,"cls")}</div></div>
+  <div class="kpi-card"><div class="kpi-label">INP</div><div class="kpi-value" style="color:${cwvClr(effInp,"inp")}">${fmt(effInp)}</div><div style="font-size:10px;color:#aaa;margin-top:2px">${cwvLabel(effInp,"inp")}</div></div>
+  <div class="kpi-card"><div class="kpi-label">TTFB</div><div class="kpi-value" style="color:${cwvClr(effTtfb,"ttfb")}">${fmt(effTtfb)}</div><div style="font-size:10px;color:#aaa;margin-top:2px">${cwvLabel(effTtfb,"ttfb")}</div></div>
+</div>
 <h2>Funnel Steps</h2>
-<table style="border-collapse:collapse;width:100%"><tr><th style="text-align:left;padding:8px 12px;background:#f5f5f7;border-bottom:1px solid #e0e0e0">Step</th><th style="text-align:right;padding:8px 12px;background:#f5f5f7;border-bottom:1px solid #e0e0e0">Sessions</th><th style="text-align:right;padding:8px 12px;background:#f5f5f7;border-bottom:1px solid #e0e0e0">Conv from Prev</th></tr>${steps.map((step, i) => {
+<table><tr><th>Step</th><th style="text-align:right">Sessions</th><th style="text-align:right">Conv from Prev</th></tr>${steps.map((step, i) => {
   const conv = i > 0 && funnelCounts[i - 1] > 0 ? fmtPct((funnelCounts[i] / funnelCounts[i - 1]) * 100) : "—";
-  return `<tr><td style="padding:6px 12px">${step.label}</td><td style="padding:6px 12px;text-align:right;font-weight:700">${fmtCount(funnelCounts[i])}</td><td style="padding:6px 12px;text-align:right">${conv}</td></tr>`;
+  return `<tr><td>${step.label}</td><td style="text-align:right;font-weight:700">${fmtCount(funnelCounts[i])}</td><td style="text-align:right">${conv}</td></tr>`;
 }).join("")}</table>
+${whatChanged.length > 0 ? `<h2>What Changed vs Prior Period</h2><table><tr><th>From Step</th><th>To Step</th><th style="text-align:right">Current Drop</th><th style="text-align:right">Prior Drop</th><th style="text-align:right">Delta</th></tr>${whatChanged.map(w => `<tr><td>${w.from}</td><td>${w.to}</td><td style="text-align:right">${w.currDrop.toFixed(1)}%</td><td style="text-align:right">${w.prevDrop.toFixed(1)}%</td><td style="text-align:right;font-weight:700;color:${w.delta > 0 ? "#C21930" : "#0D9C29"}">${w.delta > 0 ? "+" : ""}${w.delta.toFixed(1)}pp</td></tr>`).join("")}</table>` : ""}
 </body></html>`;
     const win = window.open("", "_blank");
     if (win) { win.document.write(html); win.document.close(); }
@@ -20577,42 +20651,63 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
       <div style={{ padding: "0 20px 20px", display: "flex", flexWrap: "wrap", gap: 10 }}>
         {funnels.map((funnel, fi) => {
           const isActive = fi === activeFunnelIndex;
-          const funnelGrade = isActive ? grade : { letter: "—", color: "rgba(128,128,128,0.4)" };
-          const funnelScore = isActive ? overallScore : NaN;
-          const funnelConv = isActive ? overallConv : NaN;
-          const g = funnelGrade;
+          // Per-funnel quality data for grade computation
+          const fqResult = allFunnelQualities[fi] as any;
+          const fqRaw = fqResult?.data?.records?.[0] as any;
+          const fqLoading = fqResult?.isLoading ?? false;
+          const fqTotal = Number(fqRaw?.total ?? 0);
+          const fqSat   = Number(fqRaw?.satisfied ?? 0);
+          const fqTol   = Number(fqRaw?.tolerating ?? 0);
+          const fqErr   = Number(fqRaw?.errors ?? 0);
+          const fqDur   = Number(fqRaw?.avg_dur ?? 0);
+          const fqHasData = fqTotal > 0;
+          const fqApdex   = fqTotal > 0 ? (fqSat + fqTol * 0.5) / fqTotal : NaN;
+          const fqErrRate = fqTotal > 0 ? (fqErr / fqTotal) * 100 : NaN;
+          const fqScoreA  = scoreHB(fqApdex, 0.5, 0.94);
+          const fqScoreE  = scoreLB(fqErrRate, 0.5, 5);
+          const fqScoreD  = scoreLB(fqDur, 1500, 5000);
+          const fqWTotal  = gradeWeights.apdex + gradeWeights.errorRate + gradeWeights.avgDuration;
+          const fqScore   = fqWTotal > 0 && isFinite(fqScoreA) && isFinite(fqScoreE) && isFinite(fqScoreD)
+            ? (fqScoreA * gradeWeights.apdex + fqScoreE * gradeWeights.errorRate + fqScoreD * gradeWeights.avgDuration) / fqWTotal
+            : NaN;
+          const fqSatPct = fqTotal > 0 ? (fqSat / fqTotal) * 100 : 0;
+          const fqTolPct = fqTotal > 0 ? (fqTol / fqTotal) * 100 : 0;
+          const fqFruPct = fqTotal > 0 ? Math.max(0, 100 - fqSatPct - fqTolPct) : 0;
+          const g = isActive ? grade : journeyGradeFromScore(fqScore);
+          const displayScore = isActive ? overallScore : fqScore;
+          const hasGrade = isActive ? isFinite(overallScore) : fqHasData && isFinite(fqScore);
           return (
             <div
               key={fi}
               onClick={() => { if (!isActive) saveActiveFunnelIndex(fi); }}
               style={{
                 cursor: isActive ? "default" : "pointer",
-                padding: "12px 16px",
-                borderRadius: 12,
-                border: `2px solid ${isActive ? g.color : "rgba(128,128,128,0.25)"}`,
-                background: isActive ? `${g.color}18` : "rgba(128,128,128,0.05)",
-                minWidth: 130,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 4,
-                transition: "border-color .15s ease, background .15s ease",
-                userSelect: "none",
-                opacity: isActive ? 1 : 0.75,
+                padding: "12px 16px", borderRadius: 12,
+                border: `2px solid ${hasGrade ? (isActive ? g.color : g.color + "99") : "rgba(128,128,128,0.25)"}`,
+                background: hasGrade ? (isActive ? `${g.color}18` : `${g.color}0a`) : "rgba(128,128,128,0.05)",
+                minWidth: 130, display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                transition: "border-color .15s ease, background .15s ease", userSelect: "none",
               }}
             >
-              <div style={{ fontSize: 40, fontWeight: 900, color: g.color, lineHeight: 1 }}>{g.letter}</div>
+              {fqLoading && !isActive
+                ? <div style={{ fontSize: 28, opacity: 0.35, lineHeight: 1.4 }}>…</div>
+                : <div style={{ fontSize: 40, fontWeight: 900, color: g.color, lineHeight: 1 }}>{g.letter}</div>
+              }
               <div style={{ fontSize: 11, fontWeight: 600, textAlign: "center", opacity: 0.85, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {funnel.name || `Funnel ${fi + 1}`}
               </div>
               <div style={{ fontSize: 10, opacity: 0.5, fontFamily: "monospace" }}>
-                {isFinite(funnelScore) ? `${funnelScore.toFixed(0)}/100` : isActive ? "—" : "click to load"}
+                {isActive
+                  ? (isFinite(displayScore) ? `${displayScore.toFixed(0)}/100` : "—")
+                  : fqLoading ? "loading…"
+                  : hasGrade ? `${displayScore.toFixed(0)}/100`
+                  : "—"}
               </div>
-              {isActive && isFinite(funnelConv) && (
+              {hasGrade && (
                 <div style={{ width: "100%", height: 4, borderRadius: 2, overflow: "hidden", display: "flex", marginTop: 2 }}>
-                  <div style={{ width: `${Math.min(100, satPct)}%`, background: GREEN }} />
-                  <div style={{ width: `${Math.min(100, tolPct)}%`, background: YELLOW }} />
-                  <div style={{ width: `${Math.min(100, fruPct)}%`, background: RED }} />
+                  <div style={{ width: `${Math.min(100, isActive ? satPct : fqSatPct)}%`, background: GREEN }} />
+                  <div style={{ width: `${Math.min(100, isActive ? tolPct : fqTolPct)}%`, background: YELLOW }} />
+                  <div style={{ width: `${Math.min(100, isActive ? fruPct : fqFruPct)}%`, background: RED }} />
                 </div>
               )}
             </div>
