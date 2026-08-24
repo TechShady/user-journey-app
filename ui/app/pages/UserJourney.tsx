@@ -13404,41 +13404,110 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
       {funnelSubTab === "predictive" && (
         <Flex flexDirection="column" gap={20}>
       {predN >= 2 ? (() => {
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        const actualTs = buildTimeseries("Conversion Rate", hourlyPoints.map(p => ({
-          time: new Date(today.getTime() + p.min * 60000),
-          value: p.rate,
-        })), "percent");
-        const last = hourlyPoints[hourlyPoints.length - 1];
-        const projTs = buildTimeseries("Projected", [
-          { time: new Date(today.getTime() + last.min * 60000), value: last.rate },
-          { time: new Date(today.getTime() + 1425 * 60000), value: projectedEod },
-        ], "percent");
+        const lastPt = hourlyPoints[hourlyPoints.length - 1];
+        const nowMin = lastPt.min;
+        const eodMin = 1425;
+        const fClr = statusClr(projectedEod);
+        const SVG_W = 900, SVG_H = 220;
+        const PAD = { top: 24, right: 80, bottom: 36, left: 52 };
+        const plotW = SVG_W - PAD.left - PAD.right;
+        const plotH = SVG_H - PAD.top - PAD.bottom;
+        const allRates = hourlyPoints.map(p => p.rate);
+        const yMax = Math.max(...allRates, projectedEod) * 1.25 || 25;
+        const xS = (m: number) => PAD.left + (m / 1440) * plotW;
+        const yS = (r: number) => PAD.top + plotH - Math.max(0, Math.min(r / yMax, 1)) * plotH;
+        // Historical path
+        const histPts = hourlyPoints.map(p => `${xS(p.min).toFixed(1)},${yS(p.rate).toFixed(1)}`).join(' L ');
+        const histLine = `M ${histPts}`;
+        const histArea = `${histLine} L ${xS(lastPt.min).toFixed(1)},${yS(0).toFixed(1)} L ${xS(0).toFixed(1)},${yS(0).toFixed(1)} Z`;
+        // Forecast: 60 interpolated points from lastPt to EOD
+        const fcPts = Array.from({ length: 61 }, (_, i) => {
+          const t = i / 60;
+          return { min: nowMin + t * (eodMin - nowMin), rate: lastPt.rate + t * (projectedEod - lastPt.rate) };
+        });
+        const fcLine = fcPts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xS(p.min).toFixed(1)},${yS(p.rate).toFixed(1)}`).join(' ');
+        const fcArea = `${fcLine} L ${xS(eodMin).toFixed(1)},${yS(0).toFixed(1)} L ${xS(nowMin).toFixed(1)},${yS(0).toFixed(1)} Z`;
+        // Confidence band: grows linearly from 0 at nowMin to spread at eodMin
+        const spread = Math.max(1.5, Math.abs(projectedEod) * (1 - predConfidence / 100) * 2.5);
+        const bandUp = fcPts.map(p => { const t = (p.min - nowMin) / Math.max(1, eodMin - nowMin); return { min: p.min, rate: p.rate + spread * t }; });
+        const bandDn = fcPts.map(p => { const t = (p.min - nowMin) / Math.max(1, eodMin - nowMin); return { min: p.min, rate: Math.max(0, p.rate - spread * t) }; });
+        const bandPath = [
+          ...bandUp.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xS(p.min).toFixed(1)},${yS(p.rate).toFixed(1)}`),
+          ...[...bandDn].reverse().map(p => `L ${xS(p.min).toFixed(1)},${yS(p.rate).toFixed(1)}`),
+          'Z',
+        ].join(' ');
+        // Axes
+        const xTicks = [0, 180, 360, 540, 720, 900, 1080, 1260, 1440];
+        const xLabel = (m: number) => { const h = m / 60; return h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`; };
+        const yTicks = Array.from({ length: 5 }, (_, i) => Math.round((i / 4) * yMax));
+        const nowX = xS(nowMin);
+        const eodX = xS(eodMin);
+        const eodY = yS(projectedEod);
         return (
-          <ChartTile title="Predictive Funnel Model" description="Today's conversion trajectory to EOD">
-            <Flex alignItems="center" justifyContent="flex-end" style={{ marginBottom: 12 }}>
-              <Text style={{ fontSize: 12, opacity: 0.35 }}>{predConfidence}% confidence · {predN} data point{predN !== 1 ? "s" : ""}</Text>
+          <ChartTile title="Predictive Funnel Model" description="Today's conversion trajectory with confidence band to EOD">
+            <Flex alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={8} style={{ marginBottom: 16 }}>
+              <Flex gap={20} alignItems="center">
+                <Flex gap={6} alignItems="center"><div style={{ width: 12, height: 12, borderRadius: 3, background: "rgba(69,137,255,0.8)" }} /><Text style={{ fontSize: 12, opacity: 0.7 }}>Actual</Text></Flex>
+                <Flex gap={6} alignItems="center"><div style={{ width: 12, height: 12, borderRadius: 3, background: fClr, opacity: 0.75 }} /><Text style={{ fontSize: 12, opacity: 0.7 }}>Forecast</Text></Flex>
+                <Flex gap={6} alignItems="center"><div style={{ width: 12, height: 12, borderRadius: 3, border: `1px solid ${fClr}`, opacity: 0.5 }} /><Text style={{ fontSize: 12, opacity: 0.7 }}>Confidence band</Text></Flex>
+              </Flex>
+              <Text style={{ fontSize: 12, opacity: 0.4 }}>{predConfidence}% confidence · {predN} data point{predN !== 1 ? 's' : ''}</Text>
             </Flex>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, marginBottom: 20 }}>
-              <KpiCard label="Projected EOD" value={fmtPct(projectedEod)} color={statusClr(projectedEod)} rawValue={projectedEod} prevRawValue={syntheticPrev(projectedEod, "Projected EOD")} sparkline={syntheticSparkline(projectedEod, 8, "Projected EOD")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label="Projected EOD" value={fmtPct(projectedEod)} color={fClr} rawValue={projectedEod} prevRawValue={syntheticPrev(projectedEod, "Projected EOD")} sparkline={syntheticSparkline(projectedEod, 8, "Projected EOD")} onDrillToForecast={onDrillToForecast} />
               <KpiCard label="Velocity" value={`${velocitySlope >= 0 ? "+" : ""}${velocitySlope.toFixed(2)}%/h`} color={velocityClr} rawValue={velocitySlope} prevRawValue={syntheticPrev(velocitySlope, "Velocity")} sparkline={syntheticSparkline(velocitySlope, 8, "Velocity")} onDrillToForecast={onDrillToForecast} />
               <KpiCard label="Hours Remaining" value={`${23 - currentHour}h`} color={BLUE} rawValue={23 - currentHour} prevRawValue={syntheticPrev((23 - currentHour), "Hours Remaining")} sparkline={syntheticSparkline(23 - currentHour, 8, "Hours Remaining")} onDrillToForecast={onDrillToForecast} />
             </div>
-            {(() => {
-              const forecastStart = new Date(new Date().setHours(0, 0, 0, 0) + hourlyPoints[hourlyPoints.length - 1].min * 60000);
-              return (
-                <TimeseriesChart gapPolicy="connect" curve="linear">
-                  <TimeseriesChart.Area data={actualTs} color={BLUE} />
-                  <TimeseriesChart.Line data={projTs} color={velocityClr} />
-                  <TimeseriesChart.Legend hidden />
-                  <TimeseriesChart.Annotations>
-                    <TimeseriesAnnotations.Track>
-                      <TimeseriesAnnotations.Marker start={forecastStart} title="Forecast" symbol="▸" />
-                    </TimeseriesAnnotations.Track>
-                  </TimeseriesChart.Annotations>
-                </TimeseriesChart>
-              );
-            })()}
+            <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+              <defs>
+                <linearGradient id="pfHistGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="rgba(69,137,255,0.75)" />
+                  <stop offset="85%" stopColor="rgba(69,137,255,0.08)" />
+                  <stop offset="100%" stopColor="rgba(69,137,255,0)" />
+                </linearGradient>
+                <linearGradient id="pfFcGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={fClr} stopOpacity={0.55} />
+                  <stop offset="85%" stopColor={fClr} stopOpacity={0.04} />
+                  <stop offset="100%" stopColor={fClr} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              {/* Horizontal grid lines + Y labels */}
+              {yTicks.map((v, i) => (
+                <g key={i}>
+                  <line x1={PAD.left} y1={yS(v)} x2={SVG_W - PAD.right} y2={yS(v)} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+                  <text x={PAD.left - 8} y={yS(v)} textAnchor="end" fontSize={10} fill="rgba(255,255,255,0.3)" dominantBaseline="middle">{v.toFixed(0)}%</text>
+                </g>
+              ))}
+              {/* Confidence band */}
+              <path d={bandPath} fill={fClr} fillOpacity={0.12} />
+              {/* Historical area fill */}
+              <path d={histArea} fill="url(#pfHistGrad)" />
+              {/* Forecast area fill */}
+              <path d={fcArea} fill="url(#pfFcGrad)" />
+              {/* Historical line — crisp top edge */}
+              <path d={histLine} fill="none" stroke="rgba(69,137,255,1)" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+              {/* Forecast center line — dashed */}
+              <path d={fcLine} fill="none" stroke={fClr} strokeWidth={2} strokeDasharray="7 4" strokeLinejoin="round" strokeLinecap="round" />
+              {/* "Now" vertical divider */}
+              <line x1={nowX} y1={PAD.top} x2={nowX} y2={PAD.top + plotH} stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} strokeDasharray="5 3" />
+              <text x={nowX + 6} y={PAD.top + 2} fontSize={10} fill="rgba(255,255,255,0.45)" dominantBaseline="hanging">▸ Forecast</text>
+              {/* Historical data dots */}
+              {hourlyPoints.map((p, i) => (
+                <circle key={i} cx={xS(p.min)} cy={yS(p.rate)} r={3} fill={BLUE} stroke="rgba(255,255,255,0.5)" strokeWidth={1.5} />
+              ))}
+              {/* EOD projected dot + label */}
+              <circle cx={eodX} cy={eodY} r={5} fill={fClr} stroke="rgba(255,255,255,0.5)" strokeWidth={2} />
+              <text x={eodX + 8} y={eodY} fontSize={12} fontWeight={700} fill={fClr} dominantBaseline="middle">{projectedEod.toFixed(1)}%</text>
+              {/* X axis baseline */}
+              <line x1={PAD.left} y1={PAD.top + plotH} x2={SVG_W - PAD.right} y2={PAD.top + plotH} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
+              {/* X axis ticks + labels */}
+              {xTicks.map((m, i) => (
+                <g key={i}>
+                  <line x1={xS(m)} y1={PAD.top + plotH} x2={xS(m)} y2={PAD.top + plotH + 4} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+                  <text x={xS(m)} y={PAD.top + plotH + 16} textAnchor="middle" fontSize={10} fill="rgba(255,255,255,0.35)">{xLabel(m)}</text>
+                </g>
+              ))}
+            </svg>
           </ChartTile>
         );
       })() : (
