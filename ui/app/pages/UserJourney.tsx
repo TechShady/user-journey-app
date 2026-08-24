@@ -2081,19 +2081,18 @@ function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepD
 
 function navBackendServiceMetricsQuery(days: number): string {
   const period = periodClause(days);
-  return `timeseries
-  resp = avg(dt.service.request.response_time),
-  err  = avg(dt.service.failure_rate),
-  req  = sum(dt.service.request.count),
-  ${period}
-by: {dt.entity.service}
-| fields
-    service_id   = dt.entity.service,
-    avg_resp_ms  = (arrayAvg(resp) ?? 0) / 1000.0,
-    avg_err_pct  = arrayAvg(err) ?? 0,
-    total_req    = arraySum(req) ?? 0
-| filter isNotNull(service_id) and total_req > 0
-| limit 1000`;
+  return `fetch spans, ${period}
+| filter span.kind == "server"
+| filter isNotNull(service.name)
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| summarize
+    requests = count(),
+    errors = countIf(coalesce(toString(span.status_code), "UNSET") == "ERROR"),
+    avg_dur = avg(dur_ms),
+    by: {service_id = dt.entity.service, service_name = service.name}
+| filter requests >= 1
+| sort requests desc
+| limit 500`;
 }
 
 // NEW: Sankey — multi-step page flow for Sankey diagram
@@ -17259,16 +17258,20 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   }
   // Spans-based service metrics (always loaded) — keyed by entity ID, then aliased by service name.
   // Used as fallback when the RUM-correlated backendReqRows is empty (peer.service.name not populated).
-  // Keyed by entity ID from built-in service metrics (always agent-populated, no span instrumentation needed).
+  // Spans-based service metrics — dual-indexed by entity ID and norm(service.name).
+  // Dynatrace Java agent may not populate dt.entity.service in all spans, so name is the fallback key.
   const beServiceMetrics = new Map<string, { req: number; errPct: number; avgRespMs: number }>();
   ((navBackendServiceMetricsData?.data?.records ?? []) as any[]).forEach((r: any) => {
     const svcId = String(r.service_id ?? "").trim();
-    if (!svcId) return;
-    beServiceMetrics.set(svcId, {
-      req: Number(r.total_req ?? 0),
-      errPct: Number(r.avg_err_pct ?? 0),
-      avgRespMs: Number(r.avg_resp_ms ?? 0),
-    });
+    const svcName = String(r.service_name ?? "").toLowerCase().trim();
+    const req = Number(r.requests ?? 0);
+    if (!req) return;
+    const errors = Number(r.errors ?? 0);
+    const avgRespMs = Number(r.avg_dur ?? 0);
+    const errPct = req > 0 ? (errors / req) * 100 : 0;
+    const entry = { req, errPct, avgRespMs };
+    if (svcId) beServiceMetrics.set(svcId, entry);
+    if (svcName) beServiceMetrics.set(svcName, entry);
   });
   const serviceReqCount = (name: string) => {
     const n = norm(name);
@@ -18888,8 +18891,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           {svcTlSubLabel}
                         </text>
                         {(() => {
-                          // Built-in service metrics lookup by entity ID (always agent-populated).
-                          const beAgg = beServiceMetrics.get(svcId);
+                          // Spans-based lookup: entity ID first, then norm(service name) fallback.
+                          const beAgg = beServiceMetrics.get(svcId) ?? beServiceMetrics.get(norm(svc.name));
                           const beDur = beAgg && beAgg.req > 0 ? beAgg.avgRespMs : reqAvgLatencyForService(svc.name);
                           const beErrRate = beAgg && beAgg.req > 0 ? beAgg.errPct : reqErrRateForService(svc.name);
                           const dClr = beDur > 500 ? RED : beDur > 200 ? ORANGE : GREEN;
