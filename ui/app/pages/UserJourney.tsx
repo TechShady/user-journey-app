@@ -2081,18 +2081,19 @@ function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepD
 
 function navBackendServiceMetricsQuery(days: number): string {
   const period = periodClause(days);
-  return `timeseries
-    avg_resp = avg(builtin:service.response.time),
-    total_req = sum(builtin:service.requestCount.total),
-    err_rate = avg(builtin:service.errors.total.rate),
-    ${period},
-    by: {dt.entity.service}
+  return `timeseries {
+  avg_resp = avg(dt.service.request.response_time),
+  total_req = sum(dt.service.request.count),
+  failures = sum(dt.service.request.failure_count)
+}, by:{dt.entity.service}, ${period}
 | fieldsAdd
     avg_dur = arrayAvg(avg_resp) / 1000.0,
     requests = arraySum(total_req),
-    errPct = arrayAvg(err_rate)
-| filter isNotNull(dt.entity.service)
-| fields service_id = dt.entity.service, avg_dur, requests, errPct
+    errs = arraySum(failures)
+| fieldsAdd errPct = if(requests > 0, (errs / requests) * 100, else: 0)
+| filter isNotNull(dt.entity.service) and requests > 0
+| lookup [fetch dt.entity.service | fields id, entity.name], sourceField:dt.entity.service, lookupField:id, prefix:"svc."
+| fields service_id = dt.entity.service, service_name = coalesce(svc.entity.name, toString(dt.entity.service)), avg_dur, requests, errPct
 | limit 500`;
 }
 
@@ -7112,7 +7113,7 @@ export function UserJourney() {
             case "Performance Tax": content = <PerformanceTaxTab funnelCounts={funnelCounts} quality={quality} qualityPrev={qualityPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} steps={steps} aov={aov} monthlyInfraCost={monthlyInfraCost} engineerHourlyRate={engineerHourlyRate} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
             case "Idle Capacity": content = <IdleCapacityTab quality={quality} hostMetricsData={hostMetricsData} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} isLoading={isLoading || hostMetricsData.isLoading} onDrillToForecast={openForecast} />; break;
             case "CDN ROI": content = <CdnRoiTab thirdPartyData={thirdPartyData} quality={quality} cdnMonthlyCost={cdnMonthlyCost} costPerGb={costPerGb} aov={aov} overallConv={overallConv} funnelCounts={funnelCounts} isLoading={thirdPartyData.isLoading} onDrillToForecast={openForecast} />; break;
-            case "Cost per Transaction": content = <CostPerTransactionTab quality={quality} qualityPrev={qualityPrev} funnelCounts={funnelCounts} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} aov={aov} overallConv={overallConv} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
+            case "Cost per Transaction": content = <CostPerTransactionTab quality={quality} qualityPrev={qualityPrev} funnelCounts={funnelCounts} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} aov={aov} overallConv={overallConv} timeframeDays={timeframeDays} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
             case "SLO Cost Trade-offs": content = <SloCostTradeoffsTab quality={quality} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
             case "Budget Impact Simulator": content = <BudgetImpactSimulatorTab funnelCounts={funnelCounts} steps={steps} aov={aov} monthlyInfraCost={monthlyInfraCost} timeframeDays={timeframeDays} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
                   }
@@ -27724,7 +27725,7 @@ function CdnRoiTab({ thirdPartyData, quality, cdnMonthlyCost, costPerGb, aov, ov
   );
 }
 
-function CostPerTransactionTab({ quality, qualityPrev, funnelCounts, monthlyInfraCost, computeCostPerHour, aov, overallConv, isLoading, onDrillToForecast }: { quality: any; qualityPrev: any; funnelCounts: number[]; monthlyInfraCost: number; computeCostPerHour: number; aov: number; overallConv: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
+function CostPerTransactionTab({ quality, qualityPrev, funnelCounts, monthlyInfraCost, computeCostPerHour, aov, overallConv, timeframeDays, isLoading, onDrillToForecast }: { quality: any; qualityPrev: any; funnelCounts: number[]; monthlyInfraCost: number; computeCostPerHour: number; aov: number; overallConv: number; timeframeDays: number; isLoading: boolean; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { industry } = useSettings();
   const tl = useTimelapse();
   const sessions = quality.sessions ?? 10000;
@@ -27738,14 +27739,28 @@ function CostPerTransactionTab({ quality, qualityPrev, funnelCounts, monthlyInfr
   const revenuePerDollarInfra = (conversions * aov) / Math.max(1, monthlyInfraCost);
   const prevCostPerSession = dailyCost / Math.max(1, prevSessions / 30);
   const costEfficiency = costPerSession > 0 ? aov * (overallConv / 100) / costPerSession : 0;
-  const services = [
-    { name: 'Checkout Service', requests: Math.round(requests * 0.15), cost: monthlyInfraCost * 0.25, revenue: conversions * aov * 0.6 },
-    { name: 'Product Catalog', requests: Math.round(requests * 0.35), cost: monthlyInfraCost * 0.15, revenue: conversions * aov * 0.2 },
-    { name: 'User Auth', requests: Math.round(requests * 0.2), cost: monthlyInfraCost * 0.1, revenue: 0 },
-    { name: 'Search API', requests: Math.round(requests * 0.12), cost: monthlyInfraCost * 0.18, revenue: conversions * aov * 0.15 },
-    { name: 'Recommendation Engine', requests: Math.round(requests * 0.08), cost: monthlyInfraCost * 0.2, revenue: conversions * aov * 0.05 },
-    { name: 'Media Service', requests: Math.round(requests * 0.1), cost: monthlyInfraCost * 0.12, revenue: 0 },
-  ];
+  const svcMetricsResult = useDql({ query: navBackendServiceMetricsQuery(timeframeDays) });
+  const liveRows = (svcMetricsResult.data?.records ?? []) as any[];
+  const totalLiveReq = liveRows.reduce((s: number, r: any) => s + Number(r.requests ?? 0), 0);
+  const totalRevenue = conversions * aov;
+  const services = liveRows.length > 0
+    ? liveRows
+        .sort((a: any, b: any) => Number(b.requests) - Number(a.requests))
+        .slice(0, 10)
+        .map((r: any) => {
+          const name = String(r.service_name ?? r.service_id ?? 'Unknown');
+          const req = Number(r.requests ?? 0);
+          const share = totalLiveReq > 0 ? req / totalLiveReq : 0;
+          return { name, requests: req, cost: monthlyInfraCost * share, revenue: totalRevenue * share };
+        })
+    : [
+        { name: 'Checkout Service', requests: Math.round(requests * 0.15), cost: monthlyInfraCost * 0.25, revenue: conversions * aov * 0.6 },
+        { name: 'Product Catalog', requests: Math.round(requests * 0.35), cost: monthlyInfraCost * 0.15, revenue: conversions * aov * 0.2 },
+        { name: 'User Auth', requests: Math.round(requests * 0.2), cost: monthlyInfraCost * 0.1, revenue: 0 },
+        { name: 'Search API', requests: Math.round(requests * 0.12), cost: monthlyInfraCost * 0.18, revenue: conversions * aov * 0.15 },
+        { name: 'Recommendation Engine', requests: Math.round(requests * 0.08), cost: monthlyInfraCost * 0.2, revenue: conversions * aov * 0.05 },
+        { name: 'Media Service', requests: Math.round(requests * 0.1), cost: monthlyInfraCost * 0.12, revenue: 0 },
+      ];
   const sparkCPS = Array.from({ length: 12 }, (_, i) => costPerSession * (0.85 + ((i * 7 + 2) % 11) / 11 * 0.3));
   const sparkROI = Array.from({ length: 12 }, (_, i) => revenuePerDollarInfra * (0.9 + ((i * 5 + 1) % 9) / 9 * 0.2));
 
