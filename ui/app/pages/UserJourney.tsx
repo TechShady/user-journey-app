@@ -101,7 +101,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.81";
+const APP_VERSION_LABEL = "4.76.82";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1647,28 +1647,39 @@ fetch user.events, ${period}
 // Per-funnel quality query for grade cards — mirrors sessionQualityQuery exactly.
 // Derives its own frontend from funnelSteps[0].app (same formula as SettingsContext) so
 // the grade is independent of whichever funnel happens to be active in the outer component.
+// Two-stage query mirroring sessionFlowQuery: aggregate events per session first,
+// then re-aggregate across sessions — giving session-level conversion + event-level quality.
 function funnelGradeQuery(days: number, funnelSteps: StepDef[]): string {
   const period = periodClause(days);
   if (funnelSteps.length === 0) return "fetch user.events | limit 0";
   const funnelFrontend = funnelSteps[0]?.app || DEFAULT_FRONTEND;
-  const firstStepFilter = stepFilter(funnelSteps[0]);
-  const lastStepFilter = stepFilter(funnelSteps[funnelSteps.length - 1]);
+  const n = funnelSteps.length;
+  const tagExpr = stepTagExpr(funnelSteps, funnelSteps.map((_, i) => `step${i + 1}`));
   return `fetch user.events, ${period}
 | filter ${frontendFilter(funnelSteps, funnelFrontend)}
 | filter ${anyStepFilter(funnelSteps)}
+| fieldsAdd step_tag = ${tagExpr}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | summarize
-    total = count(),
-    sessions = countDistinct(dt.rum.session.id),
-    avg_dur = avg(dur_ms),
-    p50_dur = percentile(dur_ms, 50),
-    p90_dur = percentile(dur_ms, 90),
-    errors = countIf(characteristics.has_error == true),
-    satisfied = countIf(dur_ms <= ${APDEX_T}.0),
-    tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
-    frustrated = countIf(dur_ms > ${APDEX_4T}.0),
-    first_step_events = countIf(${firstStepFilter}),
-    last_step_events = countIf(${lastStepFilter})`;
+    steps = collectDistinct(step_tag),
+    s_total = count(),
+    s_dur = avg(dur_ms),
+    s_errors = countIf(characteristics.has_error == true),
+    s_sat = countIf(dur_ms <= ${APDEX_T}.0),
+    s_tol = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
+    by: {dt.rum.session.id}
+| fieldsAdd
+    reached_step1 = iAny(steps[] == "step1"),
+    reached_last = iAny(steps[] == "step${n}")
+| summarize
+    total = sum(s_total),
+    sessions = count(),
+    avg_dur = avg(s_dur),
+    errors = sum(s_errors),
+    satisfied = sum(s_sat),
+    tolerating = sum(s_tol),
+    at_step1 = countIf(reached_step1 == true),
+    converted = countIf(reached_step1 == true and reached_last == true)`;
 }
 
 // Hourly funnel conversion for today — used by predictive EOD model
@@ -20874,12 +20885,12 @@ ${whatChanged.length > 0 ? `<h2>Funnel Drop-off Shifts</h2><table><tr><th>From S
           const fqTol   = Number(fqRaw?.tolerating ?? 0);
           const fqErr   = Number(fqRaw?.errors ?? 0);
           const fqDur   = fqTotal > 0 ? Number(fqRaw?.avg_dur ?? 0) : NaN;
-          const fqFirstEvents = Number(fqRaw?.first_step_events ?? 0);
-          const fqLastEvents  = Number(fqRaw?.last_step_events ?? 0);
+          const fqAtStep1   = Number(fqRaw?.at_step1 ?? 0);
+          const fqConverted = Number(fqRaw?.converted ?? 0);
           const fqHasData = fqTotal > 0;
           const fqApdex   = fqTotal > 0 ? (fqSat + fqTol * 0.5) / fqTotal : NaN;
           const fqErrRate = fqTotal > 0 ? (fqErr / fqTotal) * 100 : NaN;
-          const fqConvRate = fqFirstEvents > 0 ? (fqLastEvents / fqFirstEvents) * 100 : NaN;
+          const fqConvRate = fqAtStep1 > 0 ? (fqConverted / fqAtStep1) * 100 : NaN;
           const fqMetrics = [
             { score: scoreHB(fqApdex, 0.5, 0.94),   weight: gradeWeights.apdex },
             { score: scoreHB(fqConvRate, 1, 25),     weight: gradeWeights.conversion },
