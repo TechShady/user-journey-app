@@ -101,7 +101,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.73";
+const APP_VERSION_LABEL = "4.76.74";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1352,19 +1352,20 @@ fetch user.events, ${period}
 
 function cwvQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
-  // Filter by the first step's app name — identical to Frontend Overview's approach.
-  // Use isNotNull guards on each fieldsAdd so null fields stay null in avg() rather than becoming 0.
-  const appName = steps[0]?.app || frontend;
-  const appFilter = appName ? `frontend.name == "${appName}"` : "isNotNull(frontend.name)";
+  // Mirror sloCwvTrendQuery which works: filter by frontend.name, use has_page_summary,
+  // and plain toDouble() (no if(isNotNull()) guards). steps[0].app may not match
+  // frontend.name format in user.events, so prefer the global frontend setting.
+  const appName = frontend || steps[0]?.app || "";
+  const appFiltClause = appName ? ` and frontend.name == "${appName}"` : "";
   return `fetch user.events, ${period}
-| filter ${appFilter}
-| filter isNotNull(web_vitals.largest_contentful_paint) or isNotNull(web_vitals.interaction_to_next_paint) or isNotNull(web_vitals.cumulative_layout_shift) or isNotNull(web_vitals.time_to_first_byte) or isNotNull(web_vitals.first_contentful_paint)
+| filter isNotNull(frontend.name)${appFiltClause}
+| filter characteristics.has_page_summary == true
 | fieldsAdd
-    lcp_ms  = if(isNotNull(web_vitals.largest_contentful_paint),  toDouble(web_vitals.largest_contentful_paint)  / 1000000.0, null),
-    cls_val = if(isNotNull(web_vitals.cumulative_layout_shift),    toDouble(web_vitals.cumulative_layout_shift),                null),
-    inp_ms  = if(isNotNull(web_vitals.interaction_to_next_paint),  toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0, null),
-    ttfb_ms = if(isNotNull(web_vitals.time_to_first_byte),         toDouble(web_vitals.time_to_first_byte)         / 1000000.0, null),
-    load_ms = if(isNotNull(web_vitals.first_contentful_paint),     toDouble(web_vitals.first_contentful_paint)     / 1000000.0, null)
+    lcp_ms  = toDouble(web_vitals.largest_contentful_paint)  / 1000000.0,
+    cls_val = toDouble(web_vitals.cumulative_layout_shift),
+    inp_ms  = toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0,
+    ttfb_ms = toDouble(web_vitals.time_to_first_byte)         / 1000000.0,
+    load_ms = toDouble(web_vitals.first_contentful_paint)     / 1000000.0
 | summarize
     lcp_avg  = avg(lcp_ms),
     cls_avg  = avg(cls_val),
@@ -1375,20 +1376,18 @@ function cwvQuery(days: number, frontend: string, steps: StepDef[]): string {
 
 function cwvByPageQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
-  const appNames = [...new Set([frontend, ...steps.map(s => s.app)].filter(Boolean))];
-  const appFilter = appNames.length === 1
-    ? `frontend.name == "${appNames[0]}"`
-    : `in(frontend.name, {${appNames.map(a => `"${a}"`).join(", ")}})`;
+  const appName = frontend || steps[0]?.app || "";
+  const appFiltClause = appName ? ` and frontend.name == "${appName}"` : "";
   return `fetch user.events, ${period}
-| filter isNotNull(frontend.name) and ${appFilter}
-| filter isNotNull(web_vitals.largest_contentful_paint) or isNotNull(web_vitals.interaction_to_next_paint) or isNotNull(web_vitals.cumulative_layout_shift) or isNotNull(web_vitals.time_to_first_byte) or isNotNull(web_vitals.first_contentful_paint)
+| filter isNotNull(frontend.name)${appFiltClause}
+| filter characteristics.has_page_summary == true
 | fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
 | fieldsAdd
-    lcp_ms  = if(isNotNull(web_vitals.largest_contentful_paint),  toDouble(web_vitals.largest_contentful_paint)  / 1000000.0, null),
-    cls_val = if(isNotNull(web_vitals.cumulative_layout_shift),    toDouble(web_vitals.cumulative_layout_shift),                null),
-    inp_ms  = if(isNotNull(web_vitals.interaction_to_next_paint),  toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0, null),
-    ttfb_ms = if(isNotNull(web_vitals.time_to_first_byte),         toDouble(web_vitals.time_to_first_byte)         / 1000000.0, null),
-    fcp_ms  = if(isNotNull(web_vitals.first_contentful_paint),     toDouble(web_vitals.first_contentful_paint)     / 1000000.0, null)
+    lcp_ms  = toDouble(web_vitals.largest_contentful_paint)  / 1000000.0,
+    cls_val = toDouble(web_vitals.cumulative_layout_shift),
+    inp_ms  = toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0,
+    ttfb_ms = toDouble(web_vitals.time_to_first_byte)         / 1000000.0,
+    fcp_ms  = toDouble(web_vitals.first_contentful_paint)     / 1000000.0
 | summarize
     lcp_avg  = avg(lcp_ms),
     cls_avg  = avg(cls_val),
@@ -1649,13 +1648,13 @@ fetch user.events, ${period}
 // frontend fallback) so non-active funnel cards don't accidentally pick up the active funnel's data.
 function funnelGradeQuery(days: number, funnelSteps: StepDef[]): string {
   const period = periodClause(days);
-  const apps = [...new Set(funnelSteps.map(s => s.app).filter(Boolean))];
-  if (apps.length === 0) return "fetch user.events | limit 0";
-  const appFilt = apps.length === 1
-    ? `frontend.name == "${apps[0]}"`
-    : `in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
+  // Use step identifiers (not s.app) — s.app may not match frontend.name format in user.events.
+  // Each funnel's step paths are unique, so the step filter alone differentiates funnels.
+  const validSteps = funnelSteps.filter(s => s.identifiers.some(id => id.trim() !== ""));
+  if (validSteps.length === 0) return "fetch user.events | limit 0";
+  const stepFilt = anyStepFilter(validSteps);
   return `fetch user.events, ${period}
-| filter ${appFilt}
+| filter ${stepFilt}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | summarize
     total = count(),
