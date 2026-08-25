@@ -101,7 +101,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.74";
+const APP_VERSION_LABEL = "4.76.75";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1644,17 +1644,14 @@ fetch user.events, ${period}
     frustrated = countIf(dur_ms > ${APDEX_4T}.0)`;
 }
 
-// App-level quality for funnel grade cards — uses only the funnel's own steps' apps (no global
-// frontend fallback) so non-active funnel cards don't accidentally pick up the active funnel's data.
-function funnelGradeQuery(days: number, funnelSteps: StepDef[]): string {
+// Per-funnel quality query for grade cards — identical structure to sessionQualityQuery so each
+// funnel card matches the grade shown when that funnel is the active selection.
+function funnelGradeQuery(days: number, frontend: string, funnelSteps: StepDef[]): string {
   const period = periodClause(days);
-  // Use step identifiers (not s.app) — s.app may not match frontend.name format in user.events.
-  // Each funnel's step paths are unique, so the step filter alone differentiates funnels.
-  const validSteps = funnelSteps.filter(s => s.identifiers.some(id => id.trim() !== ""));
-  if (validSteps.length === 0) return "fetch user.events | limit 0";
-  const stepFilt = anyStepFilter(validSteps);
+  if (funnelSteps.length === 0) return "fetch user.events | limit 0";
   return `fetch user.events, ${period}
-| filter ${stepFilt}
+| filter ${frontendFilter(funnelSteps, frontend)}
+| filter ${anyStepFilter(funnelSteps)}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | summarize
     total = count(),
@@ -5768,14 +5765,14 @@ export function UserJourney() {
   // Per-funnel quality queries — run all funnels in parallel for Executive Summary grade cards
   const funnelGradeOpts = lazyOpts(["Executive Summary"]);
   const fqDisabled = { ...funnelGradeOpts, enabled: false };
-  const fqQ0 = useDql({ query: funnels[0] ? funnelGradeQuery(timeframeDays, funnels[0].steps) : "fetch user.events | limit 0" }, funnels[0] ? funnelGradeOpts : fqDisabled);
-  const fqQ1 = useDql({ query: funnels[1] ? funnelGradeQuery(timeframeDays, funnels[1].steps) : "fetch user.events | limit 0" }, funnels[1] ? funnelGradeOpts : fqDisabled);
-  const fqQ2 = useDql({ query: funnels[2] ? funnelGradeQuery(timeframeDays, funnels[2].steps) : "fetch user.events | limit 0" }, funnels[2] ? funnelGradeOpts : fqDisabled);
-  const fqQ3 = useDql({ query: funnels[3] ? funnelGradeQuery(timeframeDays, funnels[3].steps) : "fetch user.events | limit 0" }, funnels[3] ? funnelGradeOpts : fqDisabled);
-  const fqQ4 = useDql({ query: funnels[4] ? funnelGradeQuery(timeframeDays, funnels[4].steps) : "fetch user.events | limit 0" }, funnels[4] ? funnelGradeOpts : fqDisabled);
-  const fqQ5 = useDql({ query: funnels[5] ? funnelGradeQuery(timeframeDays, funnels[5].steps) : "fetch user.events | limit 0" }, funnels[5] ? funnelGradeOpts : fqDisabled);
-  const fqQ6 = useDql({ query: funnels[6] ? funnelGradeQuery(timeframeDays, funnels[6].steps) : "fetch user.events | limit 0" }, funnels[6] ? funnelGradeOpts : fqDisabled);
-  const fqQ7 = useDql({ query: funnels[7] ? funnelGradeQuery(timeframeDays, funnels[7].steps) : "fetch user.events | limit 0" }, funnels[7] ? funnelGradeOpts : fqDisabled);
+  const fqQ0 = useDql({ query: funnels[0] ? funnelGradeQuery(timeframeDays, frontend, funnels[0].steps) : "fetch user.events | limit 0" }, funnels[0] ? funnelGradeOpts : fqDisabled);
+  const fqQ1 = useDql({ query: funnels[1] ? funnelGradeQuery(timeframeDays, frontend, funnels[1].steps) : "fetch user.events | limit 0" }, funnels[1] ? funnelGradeOpts : fqDisabled);
+  const fqQ2 = useDql({ query: funnels[2] ? funnelGradeQuery(timeframeDays, frontend, funnels[2].steps) : "fetch user.events | limit 0" }, funnels[2] ? funnelGradeOpts : fqDisabled);
+  const fqQ3 = useDql({ query: funnels[3] ? funnelGradeQuery(timeframeDays, frontend, funnels[3].steps) : "fetch user.events | limit 0" }, funnels[3] ? funnelGradeOpts : fqDisabled);
+  const fqQ4 = useDql({ query: funnels[4] ? funnelGradeQuery(timeframeDays, frontend, funnels[4].steps) : "fetch user.events | limit 0" }, funnels[4] ? funnelGradeOpts : fqDisabled);
+  const fqQ5 = useDql({ query: funnels[5] ? funnelGradeQuery(timeframeDays, frontend, funnels[5].steps) : "fetch user.events | limit 0" }, funnels[5] ? funnelGradeOpts : fqDisabled);
+  const fqQ6 = useDql({ query: funnels[6] ? funnelGradeQuery(timeframeDays, frontend, funnels[6].steps) : "fetch user.events | limit 0" }, funnels[6] ? funnelGradeOpts : fqDisabled);
+  const fqQ7 = useDql({ query: funnels[7] ? funnelGradeQuery(timeframeDays, frontend, funnels[7].steps) : "fetch user.events | limit 0" }, funnels[7] ? funnelGradeOpts : fqDisabled);
   const allFunnelQualities = [fqQ0, fqQ1, fqQ2, fqQ3, fqQ4, fqQ5, fqQ6, fqQ7];
   const stepSparklineData = useDql({ query: stepSparklineQuery(timeframeDays, frontend, steps) }, lazyOpts(["Step Details"]));
 
