@@ -101,7 +101,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.79";
+const APP_VERSION_LABEL = "4.76.80";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1667,8 +1667,8 @@ function funnelGradeQuery(days: number, funnelSteps: StepDef[]): string {
     satisfied = countIf(dur_ms <= ${APDEX_T}.0),
     tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
     frustrated = countIf(dur_ms > ${APDEX_4T}.0),
-    first_step_sessions = countDistinctIf(dt.rum.session.id, ${firstStepFilter}),
-    converted = countDistinctIf(dt.rum.session.id, ${lastStepFilter})`;
+    first_step_sessions = countDistinct(if(${firstStepFilter}, dt.rum.session.id)),
+    converted = countDistinct(if(${lastStepFilter}, dt.rum.session.id))`;
 }
 
 // Hourly funnel conversion for today — used by predictive EOD model
