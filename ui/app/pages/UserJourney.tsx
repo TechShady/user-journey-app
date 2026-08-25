@@ -101,7 +101,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.84";
+const APP_VERSION_LABEL = "4.76.85";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -7033,13 +7033,15 @@ export function UserJourney() {
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 0, background: "rgba(255,255,255,0.04)", borderBottom: "1px solid rgba(128,128,128,0.15)", padding: "4px 8px", fontSize: 10, fontWeight: 700, opacity: 0.6 }}>
                       <span>Page / Service pattern</span><span>Label</span><span />
                     </div>
-                    {entries.map(([key, lbl]) => (
-                      <div key={key} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 0, alignItems: "center", padding: "5px 8px", borderBottom: "1px solid rgba(128,128,128,0.1)", fontSize: 12 }}>
-                        <span style={{ fontFamily: "monospace", fontSize: 11, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{key}</span>
-                        <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lbl}</span>
-                        <button onClick={() => { const next = { ...pageLabels }; delete next[key]; savePageLabels(next); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#C21930", fontSize: 14, padding: "0 4px", lineHeight: 1 }} title="Remove">✕</button>
-                      </div>
-                    ))}
+                    <div style={{ maxHeight: 280, overflowY: "auto" }}>
+                      {entries.map(([key, lbl]) => (
+                        <div key={key} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 0, alignItems: "center", padding: "5px 8px", borderBottom: "1px solid rgba(128,128,128,0.1)", fontSize: 12 }}>
+                          <span style={{ fontFamily: "monospace", fontSize: 11, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{key}</span>
+                          <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lbl}</span>
+                          <button onClick={() => { const next = { ...pageLabels }; delete next[key]; savePageLabels(next); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#C21930", fontSize: 14, padding: "0 4px", lineHeight: 1 }} title="Remove">✕</button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6, alignItems: "center" }}>
@@ -21902,6 +21904,8 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
+  const [showLabels, setShowLabels] = useState(false);
+  const { pageLabels } = useSettings();
   const [expandPath, setExpandPath] = useState(false);
   React.useEffect(() => { if (!focusNodeId) setExpandPath(false); }, [focusNodeId]);
 
@@ -22792,6 +22796,10 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
   const scaleY = innerH / 500; // scale from layout space to SVG space
 
   const truncLabel = (s: string, max = 22) => s.length > max ? s.substring(0, max) + "\u2026" : s;
+  const getDisplayLabel = (rawLabel: string, max = 22) => {
+    if (showLabels) { const lbl = resolveLabel(rawLabel, pageLabels); if (lbl) return truncLabel(lbl, max); }
+    return truncLabel(rawLabel, max);
+  };
 
   // ---- Chart style selector + KPI header (shared across all styles) ----
   const chartHeader = (
@@ -22799,6 +22807,22 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
       <Flex alignItems="center" justifyContent="space-between">
         <SectionHeader title="Sankey Flow Diagram" />
         <Flex alignItems="center" gap={8}>
+          <button
+            style={{
+              background: showLabels ? "rgba(0, 206, 209, 0.2)" : "rgba(99, 130, 191, 0.15)",
+              border: showLabels ? "1px solid rgba(0, 206, 209, 0.55)" : "1px solid rgba(99, 130, 191, 0.3)",
+              borderRadius: 6,
+              padding: "4px 10px",
+              fontSize: 12,
+              color: showLabels ? CYAN : "rgba(128,128,128,0.8)",
+              cursor: "pointer",
+              fontWeight: showLabels ? 700 : 400,
+            }}
+            onClick={() => setShowLabels(v => !v)}
+            title={showLabels ? "Labels: ON — showing friendly names from Settings" : "Labels: OFF — showing raw page names"}
+          >
+            Labels: {showLabels ? "ON" : "OFF"}
+          </button>
           <button
             style={{
               background: focusMode ? "rgba(69, 137, 255, 0.25)" : "rgba(99, 130, 191, 0.15)",
@@ -22913,7 +22937,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
               </rect>
               {h > 8 && (
                 <text x={labelX} y={y + h / 2 + 3.5} textAnchor={anchor} fill={`rgba(255,255,255,${labelOpacity})`} fontSize={10} fontWeight={isFocused || inFunnel || isExit ? 700 : 400}>
-                  {isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(n.label)}
+                  {isExit ? "⛔ " : inFunnel ? "★ " : ""}{getDisplayLabel(n.label)}
                 </text>
               )}
             </g>
@@ -23133,7 +23157,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
                 <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={color} fillOpacity={nodeOpacity} stroke={isFocused ? "#fff" : color} strokeWidth={isFocused ? 3 : 2}>
                   <title>{buildLabelTooltip(n.label)}</title>
                 </circle>
-                <text x={pos.x} y={pos.y - 3} textAnchor="middle" fill="white" fontSize={8} fontWeight={600} opacity={labelVis}>{isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(n.label, 14)}</text>
+                <text x={pos.x} y={pos.y - 3} textAnchor="middle" fill="white" fontSize={8} fontWeight={600} opacity={labelVis}>{isExit ? "⛔ " : inFunnel ? "★ " : ""}{getDisplayLabel(n.label, 14)}</text>
                 <text x={pos.x} y={pos.y + 10} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={8} opacity={labelVis}>{fmtCount(n.totalValue)}</text>
               </g>
             );
@@ -23236,7 +23260,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
                   <title>{buildLabelTooltip(n.label)}</title>
                 </rect>
                 <text x={n.cx} y={n.y + n.h / 2 + 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={600} opacity={labelVis}>
-                  {isExit ? "⛔ " : inFunnel ? "★ " : ""}{truncLabel(n.label, 16)} — ${fmtCount(n.value)}
+                  {isExit ? "⛔ " : inFunnel ? "★ " : ""}{getDisplayLabel(n.label, 16)} — ${fmtCount(n.value)}
                 </text>
               </g>
             );
@@ -23362,7 +23386,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
                 <rect x={pos.x - nodeRectW / 2} y={pos.y - nodeRectH / 2} width={nodeRectW} height={nodeRectH} rx={6} fill={color} fillOpacity={nodeOpacity} stroke={isFocused ? "#fff" : (inFunnel ? "#FFD700" : "rgba(255,255,255,0.15)")} strokeWidth={isFocused ? 2.5 : 1}>
                   <title>{buildLabelTooltip(n.label)}</title>
                 </rect>
-                <text x={pos.x} y={pos.y - 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={700} opacity={labelVis}>{isExit ? "Exit" : (inFunnel ? "★ " : "") + truncLabel(n.label, 14)}</text>
+                <text x={pos.x} y={pos.y - 4} textAnchor="middle" fill="white" fontSize={10} fontWeight={700} opacity={labelVis}>{isExit ? "Exit" : (inFunnel ? "★ " : "") + getDisplayLabel(n.label, 14)}</text>
                 <text x={pos.x} y={pos.y + 12} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize={9} opacity={labelVis}>{fmtCount(n.value)} sessions</text>
               </g>
             );
