@@ -101,7 +101,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.80";
+const APP_VERSION_LABEL = "4.76.81";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1667,8 +1667,8 @@ function funnelGradeQuery(days: number, funnelSteps: StepDef[]): string {
     satisfied = countIf(dur_ms <= ${APDEX_T}.0),
     tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
     frustrated = countIf(dur_ms > ${APDEX_4T}.0),
-    first_step_sessions = countDistinct(if(${firstStepFilter}, dt.rum.session.id)),
-    converted = countDistinct(if(${lastStepFilter}, dt.rum.session.id))`;
+    first_step_events = countIf(${firstStepFilter}),
+    last_step_events = countIf(${lastStepFilter})`;
 }
 
 // Hourly funnel conversion for today — used by predictive EOD model
@@ -20874,14 +20874,12 @@ ${whatChanged.length > 0 ? `<h2>Funnel Drop-off Shifts</h2><table><tr><th>From S
           const fqTol   = Number(fqRaw?.tolerating ?? 0);
           const fqErr   = Number(fqRaw?.errors ?? 0);
           const fqDur   = fqTotal > 0 ? Number(fqRaw?.avg_dur ?? 0) : NaN;
-          const fqConverted       = Number(fqRaw?.converted ?? 0);
-          const fqFirstStepSess   = Number(fqRaw?.first_step_sessions ?? 0);
+          const fqFirstEvents = Number(fqRaw?.first_step_events ?? 0);
+          const fqLastEvents  = Number(fqRaw?.last_step_events ?? 0);
           const fqHasData = fqTotal > 0;
           const fqApdex   = fqTotal > 0 ? (fqSat + fqTol * 0.5) / fqTotal : NaN;
           const fqErrRate = fqTotal > 0 ? (fqErr / fqTotal) * 100 : NaN;
-          // Use first_step_sessions as denominator — matches how the active funnel computes
-          // conversion (sessions starting at step 1 vs sessions completing the last step).
-          const fqConvRate = fqFirstStepSess > 0 ? (fqConverted / fqFirstStepSess) * 100 : NaN;
+          const fqConvRate = fqFirstEvents > 0 ? (fqLastEvents / fqFirstEvents) * 100 : NaN;
           const fqMetrics = [
             { score: scoreHB(fqApdex, 0.5, 0.94),   weight: gradeWeights.apdex },
             { score: scoreHB(fqConvRate, 1, 25),     weight: gradeWeights.conversion },
