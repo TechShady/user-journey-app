@@ -441,8 +441,10 @@ const BUDGET_THRESHOLDS_STATE_KEY = "uj-budget-thresholds";
 const SLO_TARGETS_STATE_KEY = "uj-slo-targets";
 const HOTNESS_MODE_STATE_KEY = "uj-hotness-mode";
 const FUNNEL_ANALYSIS_WATCH_STATE_KEY = "uj-funnel-analysis-watchlist";
+const NAV_TL_EDGES_LIMIT_STATE_KEY = "uj-nav-tl-edges-limit";
+const DEFAULT_NAV_TL_EDGES_LIMIT = 1_000_000;
 // Keys whose values are shared across ALL users of this app. Every other saveState call is per-user.
-const GLOBAL_STATE_KEYS = new Set<string>([BUDGET_THRESHOLDS_STATE_KEY, SLO_TARGETS_STATE_KEY]);
+const GLOBAL_STATE_KEYS = new Set<string>([BUDGET_THRESHOLDS_STATE_KEY, SLO_TARGETS_STATE_KEY, NAV_TL_EDGES_LIMIT_STATE_KEY]);
 const DEFAULT_TAB_ORDER: TabKey[] = [...TAB_KEYS];
 
 type HotnessMode = "shared" | "tab-specific";
@@ -2077,7 +2079,7 @@ ${userFilter}
 }
 
 // Navigation Flow Time-Lapse — per-bucket backend service telemetry from service metrics.
-function navFlowTimelapseEdgesQuery(days: number, _frontend: string, _steps: StepDef[], bucket: TlBucket, _appFilter?: string, _appFilters?: string[], _sessionId?: string, _userId?: string): string {
+function navFlowTimelapseEdgesQuery(days: number, _frontend: string, _steps: StepDef[], bucket: TlBucket, _appFilter?: string, _appFilters?: string[], _sessionId?: string, _userId?: string, limit: number = DEFAULT_NAV_TL_EDGES_LIMIT): string {
   const period = periodClause(days);
   return `timeseries {
   total_req = sum(dt.service.request.count, default:0),
@@ -2093,8 +2095,8 @@ function navFlowTimelapseEdgesQuery(days: number, _frontend: string, _steps: Ste
 | fieldsAdd avg_dur = coalesce(avg_resp, 0.0) / 1000.0
 | filter requests > 0
 | fields bucket, service_id = dt.entity.service, service_name, requests, errors, avg_dur
-| sort bucket asc
-| limit 40000`;
+| sort service_id asc, bucket asc
+| limit ${limit}`;
 }
 
 function navBackendServiceMetricsQuery(days: number): string {
@@ -5510,6 +5512,14 @@ export function UserJourney() {
   const savedHotnessMode = useUserAppState({ key: HOTNESS_MODE_STATE_KEY });
   // Perf-budget thresholds and SLO targets are now shared with every user of this app.
   // Fall back to any pre-migration per-user value so nothing is lost.
+  const savedNavTlEdgesLimitGlobal = useAppState({ key: NAV_TL_EDGES_LIMIT_STATE_KEY });
+  const [navTlEdgesLimit, setNavTlEdgesLimit] = React.useState<number>(DEFAULT_NAV_TL_EDGES_LIMIT);
+  React.useEffect(() => {
+    if (savedNavTlEdgesLimitGlobal.data?.value) {
+      const v = parseInt(savedNavTlEdgesLimitGlobal.data.value as string, 10);
+      if (!isNaN(v) && v > 0) setNavTlEdgesLimit(v);
+    }
+  }, [savedNavTlEdgesLimitGlobal.data?.value]);
   const savedBudgetThresholdsGlobal = useAppState({ key: BUDGET_THRESHOLDS_STATE_KEY });
   const savedSloTargetsGlobal = useAppState({ key: SLO_TARGETS_STATE_KEY });
   const savedBudgetThresholdsLegacy = useUserAppState({ key: BUDGET_THRESHOLDS_STATE_KEY });
@@ -7031,6 +7041,31 @@ export function UserJourney() {
               </div>
             );
           })()}
+
+          {/* Nav Flow Timelapse Row Limit */}
+          <div style={{ marginTop: 18 }}>
+            <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Nav Flow Timelapse Row Limit</Paragraph>
+            <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Maximum rows returned by the backend service timelapse query. Increase for environments with many services and high query volumes. Default: 1,000,000.</Paragraph>
+            <Flex alignItems="center" gap={8}>
+              <input
+                type="number"
+                value={navTlEdgesLimit}
+                min={10000}
+                max={5000000}
+                step={100000}
+                onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v > 0) setNavTlEdgesLimit(v); }}
+                style={{ fontSize: 12, padding: "5px 8px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 4, color: "inherit", width: 140 }}
+              />
+              <button
+                onClick={() => saveGlobalState({ key: NAV_TL_EDGES_LIMIT_STATE_KEY, body: { value: String(navTlEdgesLimit) } })}
+                style={{ padding: "5px 12px", borderRadius: 4, border: "1px solid rgba(69,137,255,0.4)", background: "rgba(69,137,255,0.12)", color: "#4589FF", cursor: "pointer", fontSize: 12, fontWeight: 700 }}
+              >Save</button>
+              <button
+                onClick={() => { setNavTlEdgesLimit(DEFAULT_NAV_TL_EDGES_LIMIT); saveGlobalState({ key: NAV_TL_EDGES_LIMIT_STATE_KEY, body: { value: String(DEFAULT_NAV_TL_EDGES_LIMIT) } }); }}
+                style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid rgba(128,128,128,0.3)", background: "none", color: "inherit", cursor: "pointer", fontSize: 11 }}
+              >Reset</button>
+            </Flex>
+          </div>
               </div>
             )}
           </div>
@@ -17088,7 +17123,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const navFlowTimelapsePagesData = useDql({ query: navTlEnabled ? navFlowTimelapsePagesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps, selectedSessionId || undefined, navUserFilter) : "fetch user.events | limit 0" });
   // Hotness intentionally does NOT filter by selectedSessionId or navUserFilter — the whole point is to see
   // whether the selected session lands on a fleet-wide spike or a calm period. Only tf/app/frontend/steps apply.
-  const navFlowTimelapseEdgesData = useDql({ query: navTlEnabled ? navFlowTimelapseEdgesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps, undefined, undefined) : "fetch user.events | limit 0" });
+  const navFlowTimelapseEdgesData = useDql({ query: navTlEnabled ? navFlowTimelapseEdgesQuery(timeframeDays, frontend, steps, navTlBucket, navAppFilterOverride, navigationApps, undefined, undefined, navTlEdgesLimit) : "fetch user.events | limit 0" });
 
   // Reset play position on filter changes (bucket/enabled resets are handled by the provider).
   React.useEffect(() => {
@@ -19151,7 +19186,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       ? (svcTl.data
                           ? `Tier ${bePos.depth} · ${fmtCount(svcTl.data.req)} req · ${svcTl.data.req > 0 ? ((svcTl.data.err / svcTl.data.req) * 100).toFixed(1) : "0.0"}% err · ${Math.round(svcTl.data.avgDur)}ms`
                           : `Tier ${bePos.depth} · idle this bucket`)
-                      : `Tier ${bePos.depth} · ${strictSessionMode ? (isSessionContextOnly ? "ScopeCtx" : `SessHits ${fmtCount(svcReq)}`) : `ReqEvt ${fmtCount(svcReq)}`}`;
+                      : `Tier ${bePos.depth}${strictSessionMode ? ` · ${isSessionContextOnly ? "ScopeCtx" : `SessHits ${fmtCount(svcReq)}`}` : ""}`;
                     return (
                       <g key={svcId}
                         style={{ cursor: draggingNode === `be:${svcId}` ? "grabbing" : "grab", transition: draggingNode === `be:${svcId}` ? "none" : "opacity 0.2s", opacity: focusedSvcId ? (svcFocusSet.has(svcId) ? 1 : 0.1) : focusedPageName ? (pageSvcFocusSet.size > 0 ? (pageSvcFocusSet.has(svcId) ? 1 : 0.1) : 0.15) : 1 }}
