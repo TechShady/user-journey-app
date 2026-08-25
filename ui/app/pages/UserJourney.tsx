@@ -101,7 +101,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.54";
+const APP_VERSION_LABEL = "4.76.73";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1352,11 +1352,12 @@ fetch user.events, ${period}
 
 function cwvQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
-  // Use anyStepFilter so we match real funnel page events (avoids frontend.name format mismatch).
+  // Filter by the first step's app name — identical to Frontend Overview's approach.
   // Use isNotNull guards on each fieldsAdd so null fields stay null in avg() rather than becoming 0.
-  const stepFilt = anyStepFilter(steps);
+  const appName = steps[0]?.app || frontend;
+  const appFilter = appName ? `frontend.name == "${appName}"` : "isNotNull(frontend.name)";
   return `fetch user.events, ${period}
-| filter ${stepFilt}
+| filter ${appFilter}
 | filter isNotNull(web_vitals.largest_contentful_paint) or isNotNull(web_vitals.interaction_to_next_paint) or isNotNull(web_vitals.cumulative_layout_shift) or isNotNull(web_vitals.time_to_first_byte) or isNotNull(web_vitals.first_contentful_paint)
 | fieldsAdd
     lcp_ms  = if(isNotNull(web_vitals.largest_contentful_paint),  toDouble(web_vitals.largest_contentful_paint)  / 1000000.0, null),
@@ -1631,6 +1632,30 @@ function sessionQualityQuery(days: number, frontend: string, steps: StepDef[], p
 fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend)}
 | filter ${anyStepFilter(steps)}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
+| summarize
+    total = count(),
+    sessions = countDistinct(dt.rum.session.id),
+    avg_dur = avg(dur_ms),
+    p50_dur = percentile(dur_ms, 50),
+    p90_dur = percentile(dur_ms, 90),
+    errors = countIf(characteristics.has_error == true),
+    satisfied = countIf(dur_ms <= ${APDEX_T}.0),
+    tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
+    frustrated = countIf(dur_ms > ${APDEX_4T}.0)`;
+}
+
+// App-level quality for funnel grade cards — uses only the funnel's own steps' apps (no global
+// frontend fallback) so non-active funnel cards don't accidentally pick up the active funnel's data.
+function funnelGradeQuery(days: number, funnelSteps: StepDef[]): string {
+  const period = periodClause(days);
+  const apps = [...new Set(funnelSteps.map(s => s.app).filter(Boolean))];
+  if (apps.length === 0) return "fetch user.events | limit 0";
+  const appFilt = apps.length === 1
+    ? `frontend.name == "${apps[0]}"`
+    : `in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
+  return `fetch user.events, ${period}
+| filter ${appFilt}
 | fieldsAdd dur_ms = toDouble(duration) / 1000000.0
 | summarize
     total = count(),
@@ -5744,14 +5769,14 @@ export function UserJourney() {
   // Per-funnel quality queries — run all funnels in parallel for Executive Summary grade cards
   const funnelGradeOpts = lazyOpts(["Executive Summary"]);
   const fqDisabled = { ...funnelGradeOpts, enabled: false };
-  const fqQ0 = useDql({ query: funnels[0] ? sessionQualityQuery(timeframeDays, frontend, funnels[0].steps) : "fetch user.events | limit 0" }, funnels[0] ? funnelGradeOpts : fqDisabled);
-  const fqQ1 = useDql({ query: funnels[1] ? sessionQualityQuery(timeframeDays, frontend, funnels[1].steps) : "fetch user.events | limit 0" }, funnels[1] ? funnelGradeOpts : fqDisabled);
-  const fqQ2 = useDql({ query: funnels[2] ? sessionQualityQuery(timeframeDays, frontend, funnels[2].steps) : "fetch user.events | limit 0" }, funnels[2] ? funnelGradeOpts : fqDisabled);
-  const fqQ3 = useDql({ query: funnels[3] ? sessionQualityQuery(timeframeDays, frontend, funnels[3].steps) : "fetch user.events | limit 0" }, funnels[3] ? funnelGradeOpts : fqDisabled);
-  const fqQ4 = useDql({ query: funnels[4] ? sessionQualityQuery(timeframeDays, frontend, funnels[4].steps) : "fetch user.events | limit 0" }, funnels[4] ? funnelGradeOpts : fqDisabled);
-  const fqQ5 = useDql({ query: funnels[5] ? sessionQualityQuery(timeframeDays, frontend, funnels[5].steps) : "fetch user.events | limit 0" }, funnels[5] ? funnelGradeOpts : fqDisabled);
-  const fqQ6 = useDql({ query: funnels[6] ? sessionQualityQuery(timeframeDays, frontend, funnels[6].steps) : "fetch user.events | limit 0" }, funnels[6] ? funnelGradeOpts : fqDisabled);
-  const fqQ7 = useDql({ query: funnels[7] ? sessionQualityQuery(timeframeDays, frontend, funnels[7].steps) : "fetch user.events | limit 0" }, funnels[7] ? funnelGradeOpts : fqDisabled);
+  const fqQ0 = useDql({ query: funnels[0] ? funnelGradeQuery(timeframeDays, funnels[0].steps) : "fetch user.events | limit 0" }, funnels[0] ? funnelGradeOpts : fqDisabled);
+  const fqQ1 = useDql({ query: funnels[1] ? funnelGradeQuery(timeframeDays, funnels[1].steps) : "fetch user.events | limit 0" }, funnels[1] ? funnelGradeOpts : fqDisabled);
+  const fqQ2 = useDql({ query: funnels[2] ? funnelGradeQuery(timeframeDays, funnels[2].steps) : "fetch user.events | limit 0" }, funnels[2] ? funnelGradeOpts : fqDisabled);
+  const fqQ3 = useDql({ query: funnels[3] ? funnelGradeQuery(timeframeDays, funnels[3].steps) : "fetch user.events | limit 0" }, funnels[3] ? funnelGradeOpts : fqDisabled);
+  const fqQ4 = useDql({ query: funnels[4] ? funnelGradeQuery(timeframeDays, funnels[4].steps) : "fetch user.events | limit 0" }, funnels[4] ? funnelGradeOpts : fqDisabled);
+  const fqQ5 = useDql({ query: funnels[5] ? funnelGradeQuery(timeframeDays, funnels[5].steps) : "fetch user.events | limit 0" }, funnels[5] ? funnelGradeOpts : fqDisabled);
+  const fqQ6 = useDql({ query: funnels[6] ? funnelGradeQuery(timeframeDays, funnels[6].steps) : "fetch user.events | limit 0" }, funnels[6] ? funnelGradeOpts : fqDisabled);
+  const fqQ7 = useDql({ query: funnels[7] ? funnelGradeQuery(timeframeDays, funnels[7].steps) : "fetch user.events | limit 0" }, funnels[7] ? funnelGradeOpts : fqDisabled);
   const allFunnelQualities = [fqQ0, fqQ1, fqQ2, fqQ3, fqQ4, fqQ5, fqQ6, fqQ7];
   const stepSparklineData = useDql({ query: stepSparklineQuery(timeframeDays, frontend, steps) }, lazyOpts(["Step Details"]));
 
@@ -7128,8 +7153,8 @@ export function UserJourney() {
           if (subTabs.length === 0) return null;
           return (
             <Tab key={parentLabel} title={parentLabel}>
-              <Tabs selectedIndex={Math.max(0, subTabs.indexOf(activeSubTabKey as TabKey))} onChange={(idx: number) => { if (subTabs[idx]) setActiveSubTabKey(subTabs[idx]); }}>
-                {subTabs.map(tabId => {
+              {(() => {
+                const rendered = subTabs.map(tabId => {
                   let content: React.ReactNode = null;
                   switch (tabId) {
             case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} timeframeDays={timeframeDays} frontend={frontend} hotnessMode={hotnessMode} />; break;
@@ -7172,9 +7197,20 @@ export function UserJourney() {
             case "SLO Cost Trade-offs": content = <SloCostTradeoffsTab quality={quality} monthlyInfraCost={monthlyInfraCost} computeCostPerHour={computeCostPerHour} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
             case "Budget Impact Simulator": content = <BudgetImpactSimulatorTab funnelCounts={funnelCounts} steps={steps} aov={aov} monthlyInfraCost={monthlyInfraCost} timeframeDays={timeframeDays} isLoading={isLoading} onDrillToForecast={openForecast} />; break;
                   }
-                  return <Tab key={tabId} title={tabId}><TabTlBanner tabId={tabId} />{content}</Tab>;
-                })}
-              </Tabs>
+                  return { tabId, content };
+                });
+                if (rendered.length === 1) {
+                  const { tabId, content } = rendered[0];
+                  return <><TabTlBanner tabId={tabId} />{content}</>;
+                }
+                return (
+                  <Tabs selectedIndex={Math.max(0, subTabs.indexOf(activeSubTabKey as TabKey))} onChange={(idx: number) => { if (subTabs[idx]) setActiveSubTabKey(subTabs[idx]); }}>
+                    {rendered.map(({ tabId, content }) => (
+                      <Tab key={tabId} title={tabId}><TabTlBanner tabId={tabId} />{content}</Tab>
+                    ))}
+                  </Tabs>
+                );
+              })()}
             </Tab>
           );
         })}
@@ -8056,7 +8092,7 @@ export function useAIInsights(analysisFn: () => AIInsightsData, subTabKey?: TabK
 // ---------------------------------------------------------------------------
 // Per-tab analysis functions — industry-standard benchmarks
 // ---------------------------------------------------------------------------
-function analyzeFunnelOverview(overallConv: number, overallApdex: number, quality: any, funnelCounts: number[], steps: StepDef[], stepMap: Map<string, any>, aov: number, pageMap?: Map<string, any>, cwv?: { lcp: number; cls: number; inp: number; ttfb: number }): AIInsightsData {
+function analyzeFunnelOverview(overallConv: number, overallApdex: number, quality: any, funnelCounts: number[], steps: StepDef[], stepMap: Map<string, any>, aov: number, pageMap?: Map<string, any>, cwv?: { lcp: number; cls: number; inp: number; ttfb: number }, qualityPrev?: any): AIInsightsData {
   const insights: InsightItem[] = [];
   const recs: RecommendationItem[] = [];
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -8147,6 +8183,33 @@ function analyzeFunnelOverview(overallConv: number, overallApdex: number, qualit
       else if (ttfb > 800) insights.push({ severity: "info", icon: "📊", text: `TTFB of ${fmt(ttfb)} could be improved (>800ms). Target ≤800ms for Good status.` });
       else insights.push({ severity: "good", icon: "✅", text: `TTFB of ${fmt(ttfb)} is Good (≤800ms). Server is responding quickly.` });
     }
+  }
+
+  // Regression Watchlist — metrics outside healthy thresholds
+  if (overallApdex < 0.7 && isFinite(overallApdex))
+    insights.push({ severity: overallApdex < 0.5 ? "critical" : "warning", icon: overallApdex < 0.5 ? "🔴" : "⚠️", text: `Regression Watchlist: Apdex ${overallApdex.toFixed(2)} is below the 0.7 threshold. Users are experiencing significant performance degradation.` });
+  if (errorRate > 5)
+    insights.push({ severity: errorRate > 10 ? "critical" : "warning", icon: errorRate > 10 ? "🔴" : "⚠️", text: `Regression Watchlist: Error Rate ${fmtPct(errorRate)} exceeds the 5% critical threshold. Investigate Exceptions and Errors tabs immediately.` });
+  if (quality.avg_dur > 5000 && isFinite(quality.avg_dur))
+    insights.push({ severity: quality.avg_dur > 8000 ? "critical" : "warning", icon: "⚠️", text: `Regression Watchlist: Avg Duration ${fmt(quality.avg_dur)} exceeds 5s. Users are experiencing slow page loads — review Resource Waterfall and Third-Party Impact tabs.` });
+  if (overallConv < 1 && quality.sessions > 100)
+    insights.push({ severity: "warning", icon: "⚠️", text: `Regression Watchlist: Conversion rate ${fmtPct(overallConv)} is below 1%. This is significantly below industry average (2–5%). Check funnel steps for critical drop-off points.` });
+
+  // What Changed — period-over-period metric shifts (when qualityPrev is provided)
+  if (qualityPrev && qualityPrev.sessions >= 5) {
+    const prevErr = qualityPrev.total > 0 ? (qualityPrev.errors / qualityPrev.total) * 100 : 0;
+    const apdexDelta = overallApdex - (qualityPrev.total > 0 ? (qualityPrev.satisfied + qualityPrev.tolerating * 0.5) / qualityPrev.total : 0);
+    const errDelta = errorRate - prevErr;
+    const convDeltaAI = overallConv - (qualityPrev.sessions > 0 ? (funnelCounts[funnelCounts.length - 1] / qualityPrev.sessions) * 100 : 0);
+    if (Math.abs(apdexDelta) >= 0.05)
+      insights.push({ severity: apdexDelta > 0 ? "good" : "warning", icon: apdexDelta > 0 ? "📈" : "📉", text: `What Changed: Apdex shifted ${apdexDelta > 0 ? "+" : ""}${(apdexDelta * 100).toFixed(1)}pts vs prior period — ${apdexDelta > 0 ? "performance is improving" : "performance is degrading"}.` });
+    if (Math.abs(errDelta) >= 0.5)
+      insights.push({ severity: errDelta < 0 ? "good" : "warning", icon: errDelta < 0 ? "✅" : "⚠️", text: `What Changed: Error rate ${errDelta > 0 ? "increased" : "decreased"} ${Math.abs(errDelta).toFixed(1)}pp (${fmtPct(prevErr)} → ${fmtPct(errorRate)}).` });
+    if (Math.abs(convDeltaAI) >= 0.5 && overallConv > 0)
+      insights.push({ severity: convDeltaAI > 0 ? "good" : "warning", icon: convDeltaAI > 0 ? "📈" : "📉", text: `What Changed: Conversion rate ${convDeltaAI > 0 ? "improved" : "declined"} ${Math.abs(convDeltaAI).toFixed(1)}pp vs the prior period.` });
+    const sessChange = qualityPrev.sessions > 0 ? ((quality.sessions - qualityPrev.sessions) / qualityPrev.sessions) * 100 : 0;
+    if (Math.abs(sessChange) >= 10)
+      insights.push({ severity: sessChange > 0 ? "info" : "warning", icon: sessChange > 0 ? "📈" : "📉", text: `What Changed: Traffic ${sessChange > 0 ? "grew" : "declined"} ${Math.abs(sessChange).toFixed(0)}% vs the prior period (${fmtCount(qualityPrev.sessions)} → ${fmtCount(quality.sessions)} sessions).` });
   }
 
   // Drill-to-forecast recommendation when negative trends detected
@@ -20290,7 +20353,7 @@ const ExecGradeRow: React.FC<{
 function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps, aov, sparklineRecords, convSparklineRecords, onDrillToForecast, funnels, activeFunnelIndex, saveActiveFunnelIndex, timeframeDays, allFunnelQualities }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[]; aov: number; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnels: FunnelDef[]; activeFunnelIndex: number; saveActiveFunnelIndex: (v: number) => void; timeframeDays: number; allFunnelQualities: any[] }) {
   const { gradeWeights } = useSettings();
   const [copied, setCopied] = useState(false);
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, undefined, cwvMetrics), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, cwvMetrics]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, undefined, cwvMetrics, qualityPrev), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, cwvMetrics, qualityPrev]));
   const tl = useTimelapse();
 
   // All hooks must be before early returns (Rules of Hooks)
@@ -20406,6 +20469,49 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
     ...(aov > 0 ? [{ label: "Revenue", value: fmtCurrency(currRevenue), delta: mkDelta(currRevenue, prevRevenue, v => fmtCurrency(Math.abs(v)), true), subtext: hasPrev ? `vs ${fmtCurrency(prevRevenue)} prior` : "this period" }] : []),
   ];
 
+  // ---------- What Changed (metric-level vs prior period) ----------
+  const metricChanges = !hasPrev ? [] : (() => {
+    const items: Array<{ label: string; curr: string; prev: string; improved: boolean; summary: string }> = [];
+    const apdexDelta = overallApdex - overallApdexPrev;
+    if (Math.abs(apdexDelta) >= 0.05 && isFinite(overallApdexPrev) && overallApdexPrev > 0)
+      items.push({ label: "Apdex", curr: overallApdex.toFixed(2), prev: overallApdexPrev.toFixed(2), improved: apdexDelta > 0, summary: `${apdexDelta > 0 ? "+" : ""}${(apdexDelta * 100).toFixed(1)}pts` });
+    const errDelta = effErrorRate - errorRatePrev;
+    if (Math.abs(errDelta) >= 0.5 && isFinite(errorRatePrev))
+      items.push({ label: "Error Rate", curr: fmtPct(effErrorRate), prev: fmtPct(errorRatePrev), improved: errDelta < 0, summary: `${errDelta > 0 ? "+" : ""}${errDelta.toFixed(1)}pp` });
+    const convDeltaM = overallConv - overallConvPrev;
+    if (Math.abs(convDeltaM) >= 0.5 && overallConvPrev > 0)
+      items.push({ label: "Conversion", curr: fmtPct(overallConv), prev: fmtPct(overallConvPrev), improved: convDeltaM > 0, summary: `${convDeltaM > 0 ? "+" : ""}${convDeltaM.toFixed(1)}pp` });
+    const durDelta = (quality.avg_dur ?? 0) - (qualityPrev.avg_dur ?? 0);
+    if (Math.abs(durDelta) >= 200 && isFinite(durDelta) && (qualityPrev.avg_dur ?? 0) > 0)
+      items.push({ label: "Avg Duration", curr: fmt(quality.avg_dur), prev: fmt(qualityPrev.avg_dur), improved: durDelta < 0, summary: `${durDelta > 0 ? "+" : ""}${Math.round(durDelta)}ms` });
+    const sessPct = qualityPrev.sessions > 0 ? ((quality.sessions - qualityPrev.sessions) / qualityPrev.sessions) * 100 : 0;
+    if (Math.abs(sessPct) >= 10)
+      items.push({ label: "Sessions", curr: fmtCount(quality.sessions), prev: fmtCount(qualityPrev.sessions), improved: sessPct > 0, summary: `${sessPct > 0 ? "+" : ""}${sessPct.toFixed(0)}%` });
+    return items;
+  })();
+
+  // ---------- Regression Watchlist ----------
+  const regressions = (() => {
+    const items: Array<{ label: string; value: string; threshold: string; severity: "warning" | "critical" }> = [];
+    if (isFinite(overallApdex) && overallApdex < 0.7)
+      items.push({ label: "Apdex", value: overallApdex.toFixed(2), threshold: "< 0.7", severity: overallApdex < 0.5 ? "critical" : "warning" });
+    if (effErrorRate > 5)
+      items.push({ label: "Error Rate", value: fmtPct(effErrorRate), threshold: "> 5%", severity: effErrorRate > 10 ? "critical" : "warning" });
+    if (isFinite(quality.avg_dur) && quality.avg_dur > 5000)
+      items.push({ label: "Avg Duration", value: fmt(quality.avg_dur), threshold: "> 5s", severity: quality.avg_dur > 8000 ? "critical" : "warning" });
+    if (overallConv < 1 && quality.sessions > 100)
+      items.push({ label: "Conversion", value: fmtPct(overallConv), threshold: "< 1%", severity: "warning" });
+    if (isFinite(effLcp) && effLcp > 4000)
+      items.push({ label: "LCP", value: fmt(effLcp), threshold: "> 4s (Poor)", severity: effLcp > 6000 ? "critical" : "warning" });
+    if (isFinite(effCls) && effCls > 0.25)
+      items.push({ label: "CLS", value: effCls.toFixed(3), threshold: "> 0.25 (Poor)", severity: effCls > 0.4 ? "critical" : "warning" });
+    if (isFinite(effInp) && effInp > 500)
+      items.push({ label: "INP", value: fmt(effInp), threshold: "> 500ms (Poor)", severity: effInp > 1000 ? "critical" : "warning" });
+    if (isFinite(effTtfb) && effTtfb > 1800)
+      items.push({ label: "TTFB", value: fmt(effTtfb), threshold: "> 1.8s (Poor)", severity: effTtfb > 3000 ? "critical" : "warning" });
+    return items;
+  })();
+
   // ---------- Narrative (funnel-focused, multi-line) ----------
   const periodLabel = timeframeDays >= 1 ? `${timeframeDays} day${timeframeDays === 1 ? "" : "s"}` : `${Math.round(timeframeDays * 24)}h`;
   const funnelName = funnels[activeFunnelIndex]?.name ?? "this funnel";
@@ -20460,15 +20566,35 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
         return `  ${i + 1}. ${step.label} — ${fmtCount(funnelCounts[i])} sessions${conv}`;
       }),
       ``,
-      ...(whatChanged.length > 0 ? [
+      ...(metricChanges.length > 0 ? [
         `WHAT CHANGED (vs prior period)`,
+        ...metricChanges.map(m => `  ${m.label}: ${m.prev} → ${m.curr}  (${m.improved ? "▲" : "▼"} ${m.summary})`),
+        ``,
+      ] : []),
+      ...(regressions.length > 0 ? [
+        `REGRESSION WATCHLIST`,
+        ...regressions.map(r => `  [${r.severity.toUpperCase()}] ${r.label}: ${r.value}  (threshold ${r.threshold})`),
+        ``,
+      ] : []),
+      ...(whatChanged.length > 0 ? [
+        `FUNNEL DROP-OFF SHIFTS (vs prior period)`,
         ...whatChanged.map(w => `  ${w.from} → ${w.to}: drop-off ${w.currDrop.toFixed(1)}% vs prior ${w.prevDrop.toFixed(1)}% (${w.delta > 0 ? "+" : ""}${w.delta.toFixed(1)}pp)`),
         ``,
       ] : []),
       `FUNNEL REPORT CARDS`,
       ...funnels.map((f, fi) => {
         const isAct = fi === activeFunnelIndex;
-        return `  ${f.name || `Funnel ${fi + 1}`}: ${isAct ? `${grade.letter} (${isFinite(overallScore) ? overallScore.toFixed(0) : "—"}/100, full grade)` : "see app for grade"}`;
+        if (isAct) return `  ${f.name || `Funnel ${fi + 1}`}: ${grade.letter} (${isFinite(overallScore) ? overallScore.toFixed(0) : "—"}/100) ← active`;
+        const fqRawC = (allFunnelQualities[fi] as any)?.data?.records?.[0] as any;
+        const fqTotC = Number(fqRawC?.total ?? 0);
+        if (fqTotC === 0) return `  ${f.name || `Funnel ${fi + 1}`}: no sessions`;
+        const fqSatC = Number(fqRawC?.satisfied ?? 0); const fqTolC = Number(fqRawC?.tolerating ?? 0);
+        const fqApdexC = (fqSatC + fqTolC * 0.5) / fqTotC;
+        const fqErrC = (Number(fqRawC?.errors ?? 0) / fqTotC) * 100;
+        const fqDurC = Number(fqRawC?.avg_dur ?? 0);
+        const fqScC = ((scoreHB(fqApdexC, 0.5, 0.94) * gradeWeights.apdex + scoreLB(fqErrC, 0.5, 5) * gradeWeights.errorRate + scoreLB(fqDurC, 1500, 5000) * gradeWeights.avgDuration) / (gradeWeights.apdex + gradeWeights.errorRate + gradeWeights.avgDuration));
+        const fqGrC = journeyGradeFromScore(fqScC);
+        return `  ${f.name || `Funnel ${fi + 1}`}: ${fqGrC.letter} (${isFinite(fqScC) ? fqScC.toFixed(0) : "—"}/100)`;
       }),
     ];
     navigator.clipboard.writeText(lines.join("\n")).catch(() => {});
@@ -20523,7 +20649,29 @@ ${gradeMetricRows.map(m => `<tr><td style="padding-left:${m.indent ? 28 : 12}px;
   const conv = i > 0 && funnelCounts[i - 1] > 0 ? fmtPct((funnelCounts[i] / funnelCounts[i - 1]) * 100) : "—";
   return `<tr><td>${step.label}</td><td style="text-align:right;font-weight:700">${fmtCount(funnelCounts[i])}</td><td style="text-align:right">${conv}</td></tr>`;
 }).join("")}</table>
-${whatChanged.length > 0 ? `<h2>What Changed vs Prior Period</h2><table><tr><th>From Step</th><th>To Step</th><th style="text-align:right">Current Drop</th><th style="text-align:right">Prior Drop</th><th style="text-align:right">Delta</th></tr>${whatChanged.map(w => `<tr><td>${w.from}</td><td>${w.to}</td><td style="text-align:right">${w.currDrop.toFixed(1)}%</td><td style="text-align:right">${w.prevDrop.toFixed(1)}%</td><td style="text-align:right;font-weight:700;color:${w.delta > 0 ? "#C21930" : "#0D9C29"}">${w.delta > 0 ? "+" : ""}${w.delta.toFixed(1)}pp</td></tr>`).join("")}</table>` : ""}
+${metricChanges.length > 0 ? `<h2>What Changed vs Prior Period</h2><table><tr><th>Metric</th><th style="text-align:right">Previous</th><th style="text-align:right">Current</th><th style="text-align:right">Change</th></tr>${metricChanges.map(m => `<tr><td>${m.label}</td><td style="text-align:right;color:#888">${m.prev}</td><td style="text-align:right;font-weight:700">${m.curr}</td><td style="text-align:right;font-weight:700;color:${m.improved ? "#0D9C29" : "#C21930"}">${m.improved ? "▲" : "▼"} ${m.summary}</td></tr>`).join("")}</table>` : ""}
+${regressions.length > 0 ? `<h2>Regression Watchlist</h2><table><tr><th>Metric</th><th style="text-align:right">Current Value</th><th>Threshold</th><th style="text-align:right">Severity</th></tr>${regressions.map(r => `<tr><td style="font-weight:600">${r.label}</td><td style="text-align:right;font-weight:700;color:${r.severity === "critical" ? "#C21930" : "#D68000"}">${r.value}</td><td style="color:#888">${r.threshold}</td><td style="text-align:right;color:${r.severity === "critical" ? "#C21930" : "#D68000"};font-weight:700;text-transform:uppercase;font-size:11px">${r.severity}</td></tr>`).join("")}</table>` : ""}
+${whatChanged.length > 0 ? `<h2>Funnel Drop-off Shifts</h2><table><tr><th>From Step</th><th>To Step</th><th style="text-align:right">Current Drop</th><th style="text-align:right">Prior Drop</th><th style="text-align:right">Delta</th></tr>${whatChanged.map(w => `<tr><td>${w.from}</td><td>${w.to}</td><td style="text-align:right">${w.currDrop.toFixed(1)}%</td><td style="text-align:right">${w.prevDrop.toFixed(1)}%</td><td style="text-align:right;font-weight:700;color:${w.delta > 0 ? "#C21930" : "#0D9C29"}">${w.delta > 0 ? "+" : ""}${w.delta.toFixed(1)}pp</td></tr>`).join("")}</table>` : ""}
+<h2>Funnel Report Cards</h2>
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">${funnels.map((f, fi) => {
+  const isAct = fi === activeFunnelIndex;
+  let gLetter = "—"; let gColor = "#888"; let scoreStr = "—";
+  if (isAct) { gLetter = grade.letter; gColor = grade.color; scoreStr = isFinite(overallScore) ? overallScore.toFixed(0) : "—"; }
+  else {
+    const fqRawE = (allFunnelQualities[fi] as any)?.data?.records?.[0] as any;
+    const fqTotE = Number(fqRawE?.total ?? 0);
+    if (fqTotE > 0) {
+      const fqSatE = Number(fqRawE?.satisfied ?? 0); const fqTolE = Number(fqRawE?.tolerating ?? 0);
+      const fqApdexE = (fqSatE + fqTolE * 0.5) / fqTotE;
+      const fqErrE = (Number(fqRawE?.errors ?? 0) / fqTotE) * 100;
+      const fqDurE = Number(fqRawE?.avg_dur ?? 0);
+      const fqScE = ((scoreHB(fqApdexE, 0.5, 0.94) * gradeWeights.apdex + scoreLB(fqErrE, 0.5, 5) * gradeWeights.errorRate + scoreLB(fqDurE, 1500, 5000) * gradeWeights.avgDuration) / (gradeWeights.apdex + gradeWeights.errorRate + gradeWeights.avgDuration));
+      const fqGrE = journeyGradeFromScore(fqScE);
+      gLetter = fqGrE.letter; gColor = fqGrE.color; scoreStr = isFinite(fqScE) ? fqScE.toFixed(0) : "—";
+    }
+  }
+  return `<div style="padding:12px 16px;border-radius:10px;border:2px solid ${gColor}55;background:${gColor}11;min-width:110px;text-align:center"><div style="font-size:36px;font-weight:900;color:${gColor};line-height:1">${gLetter}</div><div style="font-size:11px;font-weight:600;margin-top:4px">${f.name || `Funnel ${fi + 1}`}${isAct ? " ★" : ""}</div><div style="font-size:10px;color:#888;margin-top:2px">${scoreStr}/100</div></div>`;
+}).join("")}</div>
 </body></html>`;
     const win = window.open("", "_blank");
     if (win) { win.document.write(html); win.document.close(); }
@@ -20559,7 +20707,7 @@ ${whatChanged.length > 0 ? `<h2>What Changed vs Prior Period</h2><table><tr><th>
           <div style={{ fontSize: 20, fontWeight: 700 }}>Overall Journey Grade</div>
           <div style={{ fontSize: 13, opacity: 0.75, marginTop: 4 }}>Weighted score: <b>{isFinite(overallScore) ? overallScore.toFixed(1) : "—"}</b> / 100</div>
           <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6 }}>
-            Blend of Apdex ({gradeWeights.apdex}%), Conversion ({gradeWeights.conversion}%), Error Rate ({gradeWeights.errorRate}%), Avg Duration ({gradeWeights.avgDuration}%), LCP ({gradeWeights.lcp}%), CLS ({gradeWeights.cls}%). Adjust weights in Settings.
+            Blend of Apdex ({gradeWeights.apdex}%), Conversion ({gradeWeights.conversion}%), Error Rate ({gradeWeights.errorRate}%), Avg Duration ({gradeWeights.avgDuration}%), LCP ({gradeWeights.lcp}%), CLS ({gradeWeights.cls}%), INP ({gradeWeights.inp ?? 0}%), TTFB ({gradeWeights.ttfb ?? 0}%). Adjust weights in Settings.
           </div>
         </div>
       </div>
@@ -20611,10 +20759,55 @@ ${whatChanged.length > 0 ? `<h2>What Changed vs Prior Period</h2><table><tr><th>
         })}
       </div>
 
-      {/* What Changed */}
-      {whatChanged.length > 0 && (
+      {/* What Changed — metric level */}
+      {metricChanges.length > 0 && (
         <>
           <div style={{ margin: "0 20px 8px", fontSize: 15, fontWeight: 700, padding: "18px 0 6px" }}>What Changed
+            <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.55, marginLeft: 8 }}>Key metrics shifted significantly vs the prior period.</span>
+          </div>
+          <div style={{ margin: "0 20px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
+            {metricChanges.map(m => (
+              <div key={m.label} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderRadius: 8, background: m.improved ? `${GREEN}0a` : `${RED}0a`, border: `1px solid ${m.improved ? GREEN : RED}33` }}>
+                <div style={{ minWidth: 120, fontSize: 12, fontWeight: 700 }}>{m.label}</div>
+                <div style={{ fontSize: 11, opacity: 0.6, fontFamily: "monospace", minWidth: 160 }}>{m.prev} → {m.curr}</div>
+                <div style={{ fontSize: 12, fontFamily: "monospace", color: m.improved ? GREEN : RED, fontWeight: 700 }}>
+                  {m.improved ? "▲" : "▼"} {m.summary}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Regression Watchlist */}
+      {regressions.length > 0 && (
+        <>
+          <div style={{ margin: "0 20px 8px", fontSize: 15, fontWeight: 700, padding: "18px 0 6px" }}>Regression Watchlist
+            <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.55, marginLeft: 8 }}>Metrics currently outside healthy thresholds.</span>
+          </div>
+          <div style={{ margin: "0 20px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
+            {regressions.map(r => {
+              const rc = r.severity === "critical" ? RED : ORANGE;
+              return (
+                <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderRadius: 8, background: `${rc}0d`, border: `1px solid ${rc}44` }}>
+                  <div style={{ minWidth: 20, width: 20, height: 20, borderRadius: "50%", background: rc, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>!</span>
+                  </div>
+                  <div style={{ minWidth: 120, fontSize: 12, fontWeight: 700 }}>{r.label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: rc, minWidth: 80, fontFamily: "monospace" }}>{r.value}</div>
+                  <div style={{ fontSize: 11, opacity: 0.6 }}>threshold: {r.threshold}</div>
+                  <div style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, color: rc, textTransform: "uppercase", letterSpacing: 0.5 }}>{r.severity}</div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Funnel Drop-off Shifts (step-level, vs prior period) */}
+      {whatChanged.length > 0 && (
+        <>
+          <div style={{ margin: "0 20px 8px", fontSize: 15, fontWeight: 700, padding: "18px 0 6px" }}>Funnel Drop-off Shifts
             <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.55, marginLeft: 8 }}>Steps with the largest drop-off shift vs the prior period.</span>
           </div>
           <div style={{ margin: "0 20px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
