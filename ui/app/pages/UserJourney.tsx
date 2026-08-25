@@ -1352,15 +1352,11 @@ fetch user.events, ${period}
 
 function cwvQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
-  // Match Frontend Overview pattern: filter by frontend.name (app-level, not step pages)
-  // so all page CWV events are captured, not just step-specific pages.
-  // Use isNotNull guards on each fieldsAdd to keep nulls as null (not 0) for correct avg().
-  const appNames = [...new Set([frontend, ...steps.map(s => s.app)].filter(Boolean))];
-  const appFilter = appNames.length === 1
-    ? `frontend.name == "${appNames[0]}"`
-    : `in(frontend.name, {${appNames.map(a => `"${a}"`).join(", ")}})`;
+  // Use anyStepFilter so we match real funnel page events (avoids frontend.name format mismatch).
+  // Use isNotNull guards on each fieldsAdd so null fields stay null in avg() rather than becoming 0.
+  const stepFilt = anyStepFilter(steps);
   return `fetch user.events, ${period}
-| filter isNotNull(frontend.name) and ${appFilter}
+| filter ${stepFilt}
 | filter isNotNull(web_vitals.largest_contentful_paint) or isNotNull(web_vitals.interaction_to_next_paint) or isNotNull(web_vitals.cumulative_layout_shift) or isNotNull(web_vitals.time_to_first_byte) or isNotNull(web_vitals.first_contentful_paint)
 | fieldsAdd
     lcp_ms  = if(isNotNull(web_vitals.largest_contentful_paint),  toDouble(web_vitals.largest_contentful_paint)  / 1000000.0, null),
