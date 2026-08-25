@@ -101,7 +101,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.76";
+const APP_VERSION_LABEL = "4.76.78";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1651,6 +1651,7 @@ function funnelGradeQuery(days: number, funnelSteps: StepDef[]): string {
   const period = periodClause(days);
   if (funnelSteps.length === 0) return "fetch user.events | limit 0";
   const funnelFrontend = funnelSteps[0]?.app || DEFAULT_FRONTEND;
+  const lastStepFilter = stepFilter(funnelSteps[funnelSteps.length - 1]);
   return `fetch user.events, ${period}
 | filter ${frontendFilter(funnelSteps, funnelFrontend)}
 | filter ${anyStepFilter(funnelSteps)}
@@ -1664,7 +1665,8 @@ function funnelGradeQuery(days: number, funnelSteps: StepDef[]): string {
     errors = countIf(characteristics.has_error == true),
     satisfied = countIf(dur_ms <= ${APDEX_T}.0),
     tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
-    frustrated = countIf(dur_ms > ${APDEX_4T}.0)`;
+    frustrated = countIf(dur_ms > ${APDEX_4T}.0),
+    converted = countDistinctIf(dt.rum.session.id, ${lastStepFilter})`;
 }
 
 // Hourly funnel conversion for today — used by predictive EOD model
@@ -6279,6 +6281,17 @@ export function UserJourney() {
   const getVisibleSubTabs = React.useCallback((parent: ParentTabKey) => {
     return (subTabOrder[parent] || TAB_GROUPS.find(g => g.label === parent)?.subTabs || []).filter(t => tabVisibility[t] !== false);
   }, [subTabOrder, tabVisibility]);
+
+  // Auto-initialize activeSubTabKey to the first visible sub-tab so lazy queries
+  // fire on initial load regardless of which tab the user has set as first.
+  useEffect(() => {
+    if (activeSubTabKey !== null) return;
+    const firstParent = visibleParentTabs[0];
+    if (!firstParent) return;
+    const firstSubs = getVisibleSubTabs(firstParent);
+    if (firstSubs.length > 0) setActiveSubTabKey(firstSubs[0]);
+  }, [visibleParentTabs, getVisibleSubTabs, activeSubTabKey]);
+
   const navigateToTab = React.useCallback((tabName: TabKey) => {
     const idx = visibleTabs.indexOf(tabName);
     if (idx < 0) return;
@@ -20860,15 +20873,21 @@ ${whatChanged.length > 0 ? `<h2>Funnel Drop-off Shifts</h2><table><tr><th>From S
           const fqTol   = Number(fqRaw?.tolerating ?? 0);
           const fqErr   = Number(fqRaw?.errors ?? 0);
           const fqDur   = Number(fqRaw?.avg_dur ?? 0);
+          const fqConverted = Number(fqRaw?.converted ?? 0);
+          const fqSessions  = Number(fqRaw?.sessions ?? 0);
           const fqHasData = fqTotal > 0;
           const fqApdex   = fqTotal > 0 ? (fqSat + fqTol * 0.5) / fqTotal : NaN;
           const fqErrRate = fqTotal > 0 ? (fqErr / fqTotal) * 100 : NaN;
-          const fqScoreA  = scoreHB(fqApdex, 0.5, 0.94);
-          const fqScoreE  = scoreLB(fqErrRate, 0.5, 5);
-          const fqScoreD  = scoreLB(fqDur, 1500, 5000);
-          const fqWTotal  = gradeWeights.apdex + gradeWeights.errorRate + gradeWeights.avgDuration;
-          const fqScore   = fqWTotal > 0 && isFinite(fqScoreA) && isFinite(fqScoreE) && isFinite(fqScoreD)
-            ? (fqScoreA * gradeWeights.apdex + fqScoreE * gradeWeights.errorRate + fqScoreD * gradeWeights.avgDuration) / fqWTotal
+          const fqConvRate = fqSessions > 0 ? (fqConverted / fqSessions) * 100 : NaN;
+          const fqMetrics = [
+            { score: scoreHB(fqApdex, 0.5, 0.94),   weight: gradeWeights.apdex },
+            { score: scoreHB(fqConvRate, 1, 25),     weight: gradeWeights.conversion },
+            { score: scoreLB(fqErrRate, 0.5, 5),     weight: gradeWeights.errorRate },
+            { score: scoreLB(fqDur, 1500, 5000),     weight: gradeWeights.avgDuration },
+          ].filter(m => isFinite(m.score));
+          const fqWTotal = fqMetrics.reduce((s, m) => s + m.weight, 0);
+          const fqScore  = fqWTotal > 0
+            ? fqMetrics.reduce((s, m) => s + m.score * m.weight, 0) / fqWTotal
             : NaN;
           const fqSatPct = fqTotal > 0 ? (fqSat / fqTotal) * 100 : 0;
           const fqTolPct = fqTotal > 0 ? (fqTol / fqTotal) * 100 : 0;
