@@ -2076,65 +2076,23 @@ ${userFilter}
 | limit 40000`;
 }
 
-// NEW: Navigation Flow Time-Lapse — per-bucket backend service telemetry (from server spans).
-// Rationale: RUM peer.service.name is unreliable in many envs; spans data always resolves service.name.
-// For session/user filters, restrict spans to trace IDs originating from the scoped RUM sessions.
-function navFlowTimelapseEdgesQuery(days: number, frontend: string, steps: StepDef[], bucket: TlBucket, appFilter?: string, appFilters?: string[], sessionId?: string, userId?: string): string {
+// Navigation Flow Time-Lapse — per-bucket backend service telemetry from service metrics.
+function navFlowTimelapseEdgesQuery(days: number, _frontend: string, _steps: StepDef[], bucket: TlBucket, _appFilter?: string, _appFilters?: string[], _sessionId?: string, _userId?: string): string {
   const period = periodClause(days);
-  const scoped = !!(sessionId || userId);
-  if (!scoped) {
-    // Unfiltered: cover ALL server spans for the timeframe.
-    return `fetch spans, ${period}
-| filter span.kind == "server"
-| filter isNotNull(service.name)
-| fieldsAdd bucket_ts = bin(start_time, ${bucket})
-| fieldsAdd bucket = formatTimestamp(bucket_ts, format: "yyyy-MM-dd HH:mm")
-| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
-| summarize
-    requests = count(),
-    errors = countIf(coalesce(toString(span.status_code), "UNSET") == "ERROR"),
-    avg_dur = avg(dur_ms),
-    by: {bucket, service_id = dt.entity.service, service_name = service.name}
-| filter requests >= 1
-| sort bucket asc
-| limit 40000`;
-  }
-  // Filtered: restrict spans to trace IDs from scoped RUM events.
-  const sessionFilter = sessionId ? `| filter dt.rum.session.id == "${sessionId}"` : "";
-  const userFilter = !sessionId && userId ? `| filter effective_user_id == "${userId}"` : "";
-  const userLookup = !sessionId && userId ? `
-| fieldsAdd nav_user_id = ${NAV_USER_ID_EXPR}
-| fieldsAdd sid = dt.rum.session.id
-| lookup [
-    fetch user.sessions, ${period}
-    | filter dt.system.bucket != "default_synthetic_user_sessions"
-    | fields sid = coalesce(dt.rum.session.id, id), session_user_id = ${NAV_SESSION_USER_ID_EXPR}
-    | filter not(isNull(sid))
-    | fields sid, session_user_id
-  ], sourceField:sid, lookupField:sid, prefix:"sess."
-| fieldsAdd effective_user_id = coalesce(sess.session_user_id, nav_user_id, concat("session:", substring(sid, from: 0, to: 16)))` : "";
-  return `fetch spans, ${period}
-| filter span.kind == "server"
-| filter isNotNull(service.name)
-| fieldsAdd bucket_ts = bin(start_time, ${bucket})
-| fieldsAdd bucket = formatTimestamp(bucket_ts, format: "yyyy-MM-dd HH:mm")
-| fieldsAdd dur_ms = toDouble(duration) / 1000000.0
-| lookup [
-    fetch user.events, ${period}
-    | filter ${frontendFilter(steps, frontend, appFilter, appFilters)}
-    | filter isNotNull(dt.rum.trace_id)${userLookup}
-    ${sessionFilter}
-    ${userFilter}
-    | fields tid = dt.rum.trace_id
-    | dedup tid
-  ], sourceField:trace.id, lookupField:tid, prefix:"rum."
-| filter isNotNull(rum.tid)
-| summarize
-    requests = count(),
-    errors = countIf(coalesce(toString(span.status_code), "UNSET") == "ERROR"),
-    avg_dur = avg(dur_ms),
-    by: {bucket, service_id = dt.entity.service, service_name = service.name}
-| filter requests >= 1
+  return `timeseries {
+  total_req = sum(dt.service.request.count, default:0),
+  failures = sum(dt.service.request.failure_count, default:0),
+  avg_resp = avg(dt.service.request.response_time)
+}, by:{dt.entity.service}, interval:${bucket}, ${period}
+| lookup [fetch dt.entity.service | fields id, entity.name], sourceField:dt.entity.service, lookupField:id, prefix:"svc."
+| fieldsAdd service_name = coalesce(svc.entity.name, toString(dt.entity.service))
+| expand timeframe, total_req, failures, avg_resp
+| fieldsAdd bucket = formatTimestamp(timeframe, format: "yyyy-MM-dd HH:mm")
+| fieldsAdd requests = toLong(coalesce(total_req, 0))
+| fieldsAdd errors = toLong(coalesce(failures, 0))
+| fieldsAdd avg_dur = coalesce(avg_resp, 0.0) / 1000.0
+| filter requests > 0
+| fields bucket, service_id = dt.entity.service, service_name, requests, errors, avg_dur
 | sort bucket asc
 | limit 40000`;
 }
