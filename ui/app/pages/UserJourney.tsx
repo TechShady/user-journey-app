@@ -101,7 +101,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.82";
+const APP_VERSION_LABEL = "4.76.83";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -414,6 +414,7 @@ const UJ_PERSONAS: PersonaDef[] = [
   { id: "executive", label: "Executive",        icon: "🏢", description: "High-level business metrics only",         tabSummary: "Executive Summary · Engagement & Revenue" },
   { id: "product",   label: "Product Manager",  icon: "🎯", description: "User journeys, funnels & engagement",      tabSummary: "Funnel & Conversion · Executive Summary · Navigation & Flows · Engagement & Revenue" },
   { id: "finops",    label: "FinOps",           icon: "💰", description: "Cost attribution & optimization",          tabSummary: "FinOps · Executive Summary · Funnel & Conversion" },
+  { id: "director", label: "Director",         icon: "📋", description: "Business overview, funnels & user flows",   tabSummary: "Executive Summary · Funnel & Conversion · Navigation & Flows" },
 ];
 
 const UJ_PERSONA_PARENT_TABS: Record<string, Record<ParentTabKey, boolean>> = {
@@ -424,6 +425,7 @@ const UJ_PERSONA_PARENT_TABS: Record<string, Record<ParentTabKey, boolean>> = {
   executive: { "Funnel & Conversion": false, "Executive Summary": true,  "User Experience": false, "Navigation & Flows": false, "Intelligence & AI": false, "Engagement & Revenue": true,  "Errors & Reliability": false, "FinOps": false },
   product:   { "Funnel & Conversion": true,  "Executive Summary": true,  "User Experience": false, "Navigation & Flows": true,  "Intelligence & AI": false, "Engagement & Revenue": true,  "Errors & Reliability": false, "FinOps": false },
   finops:    { "Funnel & Conversion": true,  "Executive Summary": true,  "User Experience": false, "Navigation & Flows": false, "Intelligence & AI": false, "Engagement & Revenue": false, "Errors & Reliability": false, "FinOps": true  },
+  director:  { "Funnel & Conversion": true,  "Executive Summary": true,  "User Experience": false, "Navigation & Flows": true,  "Intelligence & AI": false, "Engagement & Revenue": false, "Errors & Reliability": false, "FinOps": false },
 };
 
 const UJ_WHATS_NEW = [
