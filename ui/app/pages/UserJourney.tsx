@@ -101,7 +101,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.83";
+const APP_VERSION_LABEL = "4.76.84";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -600,6 +600,15 @@ function identifierMatchesLabel(id: string, label: string): boolean {
   if (endsW) return label.startsWith(id.slice(0, -1));
   if (startsW) return label.endsWith(id.slice(1));
   return label === id;
+}
+
+function resolveLabel(name: string, labels: Record<string, string>): string | undefined {
+  if (labels[name]) return labels[name];
+  let best = "", bestLabel = "";
+  for (const [key, lbl] of Object.entries(labels)) {
+    if (name.startsWith(key) && key.length > best.length) { best = key; bestLabel = lbl; }
+  }
+  return bestLabel || undefined;
 }
 
 function normalizePageForRollup(page: string): string {
@@ -5411,6 +5420,8 @@ export function UserJourney() {
   const [settingsExpandedGroup, setSettingsExpandedGroup] = useState<ParentTabKey | null>(null);
   const [globalSettingsExpanded, setGlobalSettingsExpanded] = useState(true);
   const [userSettingsExpanded, setUserSettingsExpanded] = useState(true);
+  const [newLabelKey, setNewLabelKey] = useState("");
+  const [newLabelValue, setNewLabelValue] = useState("");
   const [activeSubTabKey, setActiveSubTabKey] = useState<TabKey | null>(null);
   const [visitedTabs, setVisitedTabs] = useState<Set<TabKey>>(new Set<TabKey>(["Funnel Overview"]));
   const [tlDiagPanel, setTlDiagPanel] = useState<{ pos: { x: number; y: number } } | null>(null);
@@ -5424,7 +5435,7 @@ export function UserJourney() {
   const [aiOpen, setAiOpen] = useState(false);
   const closeAiInsights = React.useCallback(() => setAiOpen(false), []);
   const aiContextValue = React.useMemo(() => ({ open: aiOpen, close: closeAiInsights, activeSubTab: activeSubTabKey }), [aiOpen, closeAiInsights, activeSubTabKey]);
-  const { frontend, steps, funnels, activeFunnelIndex, saveFunnels, saveActiveFunnelIndex, saveSteps, aov, saveAov, monthlyInfraCost, saveMonthlyInfraCost, cdnMonthlyCost, saveCdnMonthlyCost, computeCostPerHour, saveComputeCostPerHour, costPerGb, saveCostPerGb, engineerHourlyRate, saveEngineerHourlyRate, industry, saveIndustry, gradeWeights, saveGradeWeights } = useSettings();
+  const { frontend, steps, funnels, activeFunnelIndex, saveFunnels, saveActiveFunnelIndex, saveSteps, aov, saveAov, monthlyInfraCost, saveMonthlyInfraCost, cdnMonthlyCost, saveCdnMonthlyCost, computeCostPerHour, saveComputeCostPerHour, costPerGb, saveCostPerGb, engineerHourlyRate, saveEngineerHourlyRate, industry, saveIndustry, gradeWeights, saveGradeWeights, pageLabels, savePageLabels } = useSettings();
   const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
   const [funnelStyle, setFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState<number>(0);
@@ -7006,6 +7017,54 @@ export function UserJourney() {
                   {Math.abs(total - 100) >= 1 && <Text style={{ fontSize: 11, color: "#C21930" }}>— should equal 100%</Text>}
                   <button onClick={() => saveGradeWeights(DEFAULT_GRADE_WEIGHTS)} style={{ marginLeft: "auto", fontSize: 11, padding: "2px 8px", borderRadius: 4, border: "1px solid rgba(128,128,128,0.3)", background: "none", color: "inherit", cursor: "pointer" }}>Reset</button>
                 </Flex>
+              </div>
+            );
+          })()}
+
+          {/* Page & Service Labels */}
+          {(() => {
+            const entries = Object.entries(pageLabels);
+            return (
+              <div style={{ marginTop: 18 }}>
+                <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Page &amp; Service Labels</Paragraph>
+                <Paragraph style={{ marginBottom: 10, opacity: 0.6, fontSize: 12 }}>Assign friendly names to pages or services shown in Navigation &amp; Flows. Use a prefix like <code style={{ fontSize: 11, background: "rgba(255,255,255,0.08)", padding: "1px 4px", borderRadius: 3 }}>/product</code> to label all matching pages.</Paragraph>
+                {entries.length > 0 && (
+                  <div style={{ marginBottom: 10, border: "1px solid rgba(128,128,128,0.2)", borderRadius: 6, overflow: "hidden" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 0, background: "rgba(255,255,255,0.04)", borderBottom: "1px solid rgba(128,128,128,0.15)", padding: "4px 8px", fontSize: 10, fontWeight: 700, opacity: 0.6 }}>
+                      <span>Page / Service pattern</span><span>Label</span><span />
+                    </div>
+                    {entries.map(([key, lbl]) => (
+                      <div key={key} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 0, alignItems: "center", padding: "5px 8px", borderBottom: "1px solid rgba(128,128,128,0.1)", fontSize: 12 }}>
+                        <span style={{ fontFamily: "monospace", fontSize: 11, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{key}</span>
+                        <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lbl}</span>
+                        <button onClick={() => { const next = { ...pageLabels }; delete next[key]; savePageLabels(next); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#C21930", fontSize: 14, padding: "0 4px", lineHeight: 1 }} title="Remove">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6, alignItems: "center" }}>
+                  <input
+                    value={newLabelKey}
+                    onChange={(e) => setNewLabelKey(e.target.value)}
+                    placeholder="/page or service-name"
+                    style={{ fontSize: 12, padding: "5px 8px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 4, color: "inherit", fontFamily: "monospace" }}
+                  />
+                  <input
+                    value={newLabelValue}
+                    onChange={(e) => setNewLabelValue(e.target.value)}
+                    placeholder="Friendly label"
+                    style={{ fontSize: 12, padding: "5px 8px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 4, color: "inherit" }}
+                  />
+                  <button
+                    onClick={() => {
+                      const k = newLabelKey.trim(), v = newLabelValue.trim();
+                      if (!k || !v) return;
+                      savePageLabels({ ...pageLabels, [k]: v });
+                      setNewLabelKey(""); setNewLabelValue("");
+                    }}
+                    style={{ padding: "5px 12px", borderRadius: 4, border: "1px solid rgba(69,137,255,0.4)", background: "rgba(69,137,255,0.12)", color: "#4589FF", cursor: "pointer", fontSize: 12, fontWeight: 700 }}
+                  >Add</button>
+                </div>
               </div>
             );
           })()}
@@ -16919,6 +16978,7 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
 // ===========================================================================
 function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvData, backendServicesData, serviceToServiceData, frontend, timeframeDays, onDrillToForecast, hotnessMode = "shared", tlFrontendDiagPos = null }: { data: any; isLoading: boolean; appEntityId: string; steps: StepDef[]; navPathConvData?: any; backendServicesData?: any; serviceToServiceData?: any; frontend: string; timeframeDays: number; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; hotnessMode?: HotnessMode; tlFrontendDiagPos?: { x: number; y: number } | null }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeNavigationPaths(data, [], steps), [data, steps]));
+  const { pageLabels } = useSettings();
   const savedNavSession = useUserAppState({ key: NAV_FILTER_SESSION_STATE_KEY });
   const savedNavPreset = useUserAppState({ key: NAV_FILTER_PRESET_STATE_KEY });
   const savedNavUserTag = useUserAppState({ key: NAV_FILTER_USER_TAG_STATE_KEY });
@@ -18386,7 +18446,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             const colWidth = nodeW + 140; // generous horizontal spacing between columns
             const W = padX * 2 + numLayers * colWidth;
             // Funnel pages get a taller box; rollup node uses standard height
-            const getPageNodeH = (pageName: string): number => pageName.startsWith("__rollup__") ? nodeH : steps.some(s => s.identifiers.some(id => identifierMatchesLabel(id, pageName))) ? funnelNodeH : nodeH;
+            const getPageNodeH = (pageName: string): number => pageName.startsWith("__rollup__") ? nodeH : (steps.some(s => s.identifiers.some(id => identifierMatchesLabel(id, pageName))) || !!resolveLabel(pageName, pageLabels)) ? funnelNodeH : nodeH;
             const maxLayerH = Math.max(...Array.from(layerDisplayPages.values()).map(arr => arr.reduce((a, p) => a + getPageNodeH(p.name) + padY, 0) - padY), nodeH);
             const H = Math.max(450, maxLayerH + 100);
 
@@ -19029,16 +19089,28 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                             <text x={pos.x + nodeW - 12} y={pos.y + 7} textAnchor="middle" fontSize={8.5} fontWeight={900} fill="#000">{pageTl.z.toFixed(1)}</text>
                           </g>
                         )}
-                        {isFunnel && (() => {
-                          const fsi = steps.findIndex(s => s.identifiers.some(id => identifierMatchesLabel(id, name)));
-                          const fsiLabel = fsi >= 0 ? steps[fsi].label : "";
-                          const fsiText = fsi >= 0 ? `\u2605 Step ${fsi + 1}: ${fsiLabel}` : "";
-                          return fsiText ? <text x={pos.x + 10} y={pos.y + 14} fontSize={9} fill={meta.color} fontWeight={700} opacity={0.9} style={{ dominantBaseline: "middle" } as any}>{fsiText.length > 34 ? fsiText.substring(0, 32) + "\u2026" : fsiText}</text> : null;
-                        })()}
-                        <text x={pos.x + 10} y={isFunnel ? pos.y + 30 : pos.y + 16} fontSize={12} fill={meta.color} fontWeight={700} clipPath={`url(#${clipId})`} style={{ dominantBaseline: "middle" } as any}>
-                          {shortName}
-                        </text>
                         {(() => {
+                          const customLabel = !isFunnel ? resolveLabel(name, pageLabels) : undefined;
+                          const hasTopLabel = isFunnel || !!customLabel;
+                          const fsi = isFunnel ? steps.findIndex(s => s.identifiers.some(id => identifierMatchesLabel(id, name))) : -1;
+                          const fsiText = fsi >= 0 ? `\u2605 Step ${fsi + 1}: ${steps[fsi].label}` : "";
+                          const topText = isFunnel ? fsiText : (customLabel ?? "");
+                          return (
+                            <>
+                              {hasTopLabel && topText && (
+                                <text x={pos.x + 10} y={pos.y + 14} fontSize={9} fill={meta.color} fontWeight={700} opacity={0.9} style={{ dominantBaseline: "middle" } as any}>
+                                  {topText.length > 34 ? topText.substring(0, 32) + "\u2026" : topText}
+                                </text>
+                              )}
+                              <text x={pos.x + 10} y={hasTopLabel ? pos.y + 30 : pos.y + 16} fontSize={12} fill={meta.color} fontWeight={700} clipPath={`url(#${clipId})`} style={{ dominantBaseline: "middle" } as any}>
+                                {shortName}
+                              </text>
+                            </>
+                          );
+                        })()}
+                        {(() => {
+                          const customLabel2 = !isFunnel ? resolveLabel(name, pageLabels) : undefined;
+                          const hasTopLabel2 = isFunnel || !!customLabel2;
                           const pH = hashStr(name);
                           const pgDur = 0.8 + (pH % 37) / 15;
                           const pgErr = 0.5 + (pH % 11) / 5;
@@ -19046,7 +19118,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           const eClr = pgErr > 3 ? RED : pgErr > 1 ? ORANGE : GREEN;
                           if (navTlEnabled && pageTl.data) {
                             return (
-                              <text x={pos.x + 10} y={isFunnel ? pos.y + 48 : pos.y + 32} fontSize={10} clipPath={`url(#${clipId})`}>
+                              <text x={pos.x + 10} y={hasTopLabel2 ? pos.y + 48 : pos.y + 32} fontSize={10} clipPath={`url(#${clipId})`}>
                                 <tspan fill="rgba(255,255,255,0.75)">{fmtCount(pageTl.data.sessions)} sess  </tspan>
                                 <tspan fill="rgba(255,255,255,0.45)">Dur: </tspan><tspan fill={dClr}>{pgDur.toFixed(1)}s</tspan>
                                 <tspan fill="rgba(255,255,255,0.45)">  Err: </tspan><tspan fill={eClr}>{pgErr.toFixed(1)}%</tspan>
@@ -19055,10 +19127,10 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                           }
                           return (
                             <>
-                              <text x={pos.x + 10} y={isFunnel ? pos.y + 48 : pos.y + 32} fontSize={10} fill="rgba(255,255,255,0.75)" clipPath={`url(#${clipId})`} opacity={0.9}>
+                              <text x={pos.x + 10} y={hasTopLabel2 ? pos.y + 48 : pos.y + 32} fontSize={10} fill="rgba(255,255,255,0.75)" clipPath={`url(#${clipId})`} opacity={0.9}>
                                 {`${nodeCountLabel} ${fmtCount(reqCount)}${conv !== undefined && conv < 100 ? ` · Conv ${fmtPct(conv)}` : ""}`}
                               </text>
-                              <text x={pos.x + 10} y={isFunnel ? pos.y + 66 : pos.y + 52} fontSize={9} clipPath={`url(#${clipId})`}>
+                              <text x={pos.x + 10} y={hasTopLabel2 ? pos.y + 66 : pos.y + 52} fontSize={9} clipPath={`url(#${clipId})`}>
                                 <tspan fill="rgba(255,255,255,0.45)">Dur: </tspan><tspan fill={dClr}>{pgDur.toFixed(1)}s</tspan>
                                 <tspan fill="rgba(255,255,255,0.45)">  Err: </tspan><tspan fill={eClr}>{pgErr.toFixed(1)}%</tspan>
                               </text>
@@ -19153,20 +19225,44 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                             <text x={bePos.x + beNodeW - 12} y={bePos.y + 7} textAnchor="middle" fontSize={8.5} fontWeight={900} fill="#000">{svcTl.z.toFixed(1)}</text>
                           </g>
                         )}
-                        <text x={bePos.x + (navTlEnabled ? 16 : 8)} y={bePos.y + 13} fontSize={11} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
-                          {shortName}
-                        </text>
-                        <text x={bePos.x + 8} y={bePos.y + 30} fontSize={9} fill="rgba(255,255,255,0.4)" style={{ dominantBaseline: "middle" } as any}>
-                          {svcTlSubLabel}
-                        </text>
                         {(() => {
+                          const svcCustomLabel = resolveLabel(svc.name, pageLabels);
+                          const svcShortN = svc.name.length > 26 ? svc.name.substring(0, 24) + "…" : svc.name;
+                          if (svcCustomLabel) {
+                            return (
+                              <>
+                                <text x={bePos.x + (navTlEnabled ? 16 : 8)} y={bePos.y + 13} fontSize={10} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
+                                  {svcCustomLabel.length > 28 ? svcCustomLabel.substring(0, 26) + "…" : svcCustomLabel}
+                                </text>
+                                <text x={bePos.x + 8} y={bePos.y + 27} fontSize={9} fill={meta.color} opacity={0.7} style={{ dominantBaseline: "middle" } as any}>
+                                  {svcShortN}
+                                </text>
+                                <text x={bePos.x + 8} y={bePos.y + 41} fontSize={9} fill="rgba(255,255,255,0.4)" style={{ dominantBaseline: "middle" } as any}>
+                                  {svcTlSubLabel}
+                                </text>
+                              </>
+                            );
+                          }
+                          return (
+                            <>
+                              <text x={bePos.x + (navTlEnabled ? 16 : 8)} y={bePos.y + 13} fontSize={11} fill={meta.color} fontWeight={700} style={{ dominantBaseline: "middle" } as any}>
+                                {svcShortN}
+                              </text>
+                              <text x={bePos.x + 8} y={bePos.y + 30} fontSize={9} fill="rgba(255,255,255,0.4)" style={{ dominantBaseline: "middle" } as any}>
+                                {svcTlSubLabel}
+                              </text>
+                            </>
+                          );
+                        })()}
+                        {(() => {
+                          const svcCustomLabel = resolveLabel(svc.name, pageLabels);
                           const beAgg = beServiceMetrics.get(svcId);
                           const beDur = beAgg ? beAgg.avgRespMs : reqAvgLatencyForService(svc.name);
                           const beErrRate = beAgg ? beAgg.errPct : reqErrRateForService(svc.name);
                           const dClr = beDur > 500 ? RED : beDur > 200 ? ORANGE : GREEN;
                           const eClr = beErrRate > 3 ? RED : beErrRate > 1 ? ORANGE : GREEN;
                           return (
-                            <text x={bePos.x + 8} y={bePos.y + 50} fontSize={9}>
+                            <text x={bePos.x + 8} y={svcCustomLabel ? bePos.y + 57 : bePos.y + 50} fontSize={9}>
                               <tspan fill="rgba(255,255,255,0.45)">Resp: </tspan><tspan fill={dClr}>{Math.round(beDur)}ms</tspan>
                               <tspan fill="rgba(255,255,255,0.45)">  Err: </tspan><tspan fill={eClr}>{beErrRate.toFixed(1)}%</tspan>
                             </text>
@@ -19197,6 +19293,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     let ttSessions = 0, ttThroughput = 0, ttErrRate = 0, ttDur = 0;
                     let isSvc = false;
 
+                    let ttCustomLabel = "";
                     if (activeTooltip.startsWith("page:")) {
                       const pname = activeTooltip.slice(5);
                       const pos = nodePos.get(pname);
@@ -19204,6 +19301,11 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       const isFunnel = steps.some(s => s.identifiers.some(id => identifierMatchesLabel(id, pname)));
                       const meta = FLOW_NODE_META[inferPageNodeType(pname, isFunnel, entryPages, exitPages)];
                       tNode = { x: pos.x, y: pos.y, w: nodeW, h: nodeH };
+                      ttCustomLabel = resolveLabel(pname, pageLabels) ?? "";
+                      if (isFunnel) {
+                        const fsi = steps.findIndex(s => s.identifiers.some(id => identifierMatchesLabel(id, pname)));
+                        if (fsi >= 0) ttCustomLabel = `★ Step ${fsi + 1}: ${steps[fsi].label}`;
+                      }
                       ttTitle = pname.length > 40 ? pname.substring(0, 38) + "…" : pname;
                       ttSub = meta.label; ttColor = meta.color;
                       const vol = paths.reduce((a: number, p: any) => a + (String(p.step1) === pname || String(p.step2) === pname ? Number(p.occurrences ?? 0) : 0), 0);
@@ -19228,6 +19330,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       if (!bePos) return null;
                       const meta = FLOW_NODE_META[inferSvcNodeType(svc.name, bePos.depth)];
                       tNode = { x: bePos.x, y: bePos.y, w: beNodeW, h: beNodeH };
+                      ttCustomLabel = resolveLabel(svc.name, pageLabels) ?? "";
                       ttTitle = svc.name.length > 40 ? svc.name.substring(0, 38) + "…" : svc.name;
                       const isMappedEntity = !svcId.startsWith("REQ:");
                       ttSub = isMappedEntity ? `${meta.label} · Tier ${bePos.depth}` : `Observed endpoint · Tier ${bePos.depth}`;
@@ -19261,7 +19364,8 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                     return createPortal(
                         <div style={{ position: "fixed", left: vx, top: vy, zIndex: 9999, background: "rgba(14,14,24,0.97)", border: `1.5px solid ${ttColor}`, borderRadius: 8, padding: "10px 12px", fontSize: 11, color: "#e0e0e0", boxShadow: "0 4px 24px rgba(0,0,0,0.65)", fontFamily: "inherit", width: TW, boxSizing: "border-box" } as any}
                           onClick={(e) => e.stopPropagation()}>
-                          <div style={{ fontWeight: 700, fontSize: 12, color: ttColor, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ttTitle}</div>
+                          {ttCustomLabel && <div style={{ fontWeight: 800, fontSize: 13, color: ttColor, marginBottom: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ttCustomLabel}</div>}
+                          <div style={{ fontWeight: ttCustomLabel ? 400 : 700, fontSize: ttCustomLabel ? 10 : 12, color: ttCustomLabel ? "rgba(255,255,255,0.6)" : ttColor, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ttTitle}</div>
                           <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>{ttSub}</div>
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px", marginBottom: 8 }}>
                             <div><div style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, marginBottom: 1 }}>{isSvc ? "Observed req events" : "Sessions"}</div><div style={{ fontWeight: 700 }}>{fmtCount(ttSessions)}</div></div>

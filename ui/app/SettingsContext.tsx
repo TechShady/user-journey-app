@@ -113,6 +113,7 @@ const COST_PER_GB_STATE_KEY = "uj-cost-per-gb";
 const ENGINEER_HOURLY_RATE_STATE_KEY = "uj-engineer-hourly-rate";
 const INDUSTRY_STATE_KEY = "uj-industry";
 const GRADE_WEIGHTS_STATE_KEY = "uj-grade-weights";
+export const PAGE_LABELS_STATE_KEY = "uj-page-labels";
 
 // ---------------------------------------------------------------------------
 // Context shape
@@ -147,6 +148,8 @@ interface SettingsContextValue {
   setIndustry: (v: IndustryType) => void;
   gradeWeights: GradeWeights;
   saveGradeWeights: (v: GradeWeights) => void;
+  pageLabels: Record<string, string>;
+  savePageLabels: (v: Record<string, string>) => void;
   saveAov: (v: number) => void;
   saveMonthlyInfraCost: (v: number) => void;
   saveCdnMonthlyCost: (v: number) => void;
@@ -165,6 +168,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [funnels, setFunnels] = useState<FunnelDef[]>(DEFAULT_FUNNELS);
   const [activeFunnelIndex, setActiveFunnelIndex] = useState<number>(0);
   const [gradeWeights, setGradeWeights] = useState<GradeWeights>(DEFAULT_GRADE_WEIGHTS);
+  const [pageLabels, setPageLabels] = useState<Record<string, string>>({});
 
   // Global (app-scoped) reads — shared across every user of this app in the Dynatrace environment.
   const savedFunnels = useAppState({ key: FUNNELS_STATE_KEY });
@@ -178,6 +182,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const savedEngineerHourlyRate = useAppState({ key: ENGINEER_HOURLY_RATE_STATE_KEY });
   const savedIndustry = useAppState({ key: INDUSTRY_STATE_KEY });
   const savedGradeWeights = useAppState({ key: GRADE_WEIGHTS_STATE_KEY });
+  const savedPageLabels = useAppState({ key: PAGE_LABELS_STATE_KEY });
   // Per-user fallbacks — pre-migration these keys were stored per-user. Fall back to those values
   // when the global bucket has not been written yet, so nothing is lost on first load after upgrade.
   const userLegacyFunnels = useUserAppState({ key: FUNNELS_STATE_KEY });
@@ -272,6 +277,21 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     saveState({ key: GRADE_WEIGHTS_STATE_KEY, body: { value: JSON.stringify(v) } });
   };
 
+  useEffect(() => {
+    const raw = savedPageLabels.data?.value as string | undefined;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) setPageLabels(parsed as Record<string, string>);
+      } catch { /* ignore */ }
+    }
+  }, [savedPageLabels.data?.value]);
+
+  const savePageLabels = (v: Record<string, string>) => {
+    setPageLabels(v);
+    saveState({ key: PAGE_LABELS_STATE_KEY, body: { value: JSON.stringify(v) } });
+  };
+
   // ---------------------------------------------------------------------------
   // Derived values from active funnel (backward compat for all consumers)
   // ---------------------------------------------------------------------------
@@ -343,7 +363,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const saveIndustry = (v: IndustryType) => persistActiveFunnel({ industry: v });
 
   return (
-    <SettingsContext.Provider value={{ frontend, funnels, setFunnels, activeFunnelIndex, setActiveFunnelIndex, saveFunnels, saveActiveFunnelIndex, steps, setSteps, saveSteps, aov, setAov, monthlyInfraCost, setMonthlyInfraCost, cdnMonthlyCost, setCdnMonthlyCost, computeCostPerHour, setComputeCostPerHour, costPerGb, setCostPerGb, engineerHourlyRate, setEngineerHourlyRate, industry, setIndustry, gradeWeights, saveGradeWeights, saveAov, saveMonthlyInfraCost, saveCdnMonthlyCost, saveComputeCostPerHour, saveCostPerGb, saveEngineerHourlyRate, saveIndustry }}>
+    <SettingsContext.Provider value={{ frontend, funnels, setFunnels, activeFunnelIndex, setActiveFunnelIndex, saveFunnels, saveActiveFunnelIndex, steps, setSteps, saveSteps, aov, setAov, monthlyInfraCost, setMonthlyInfraCost, cdnMonthlyCost, setCdnMonthlyCost, computeCostPerHour, setComputeCostPerHour, costPerGb, setCostPerGb, engineerHourlyRate, setEngineerHourlyRate, industry, setIndustry, gradeWeights, saveGradeWeights, pageLabels, savePageLabels, saveAov, saveMonthlyInfraCost, saveCdnMonthlyCost, saveComputeCostPerHour, saveCostPerGb, saveEngineerHourlyRate, saveIndustry }}>
       {children}
     </SettingsContext.Provider>
   );
