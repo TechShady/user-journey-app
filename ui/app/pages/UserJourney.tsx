@@ -7038,6 +7038,55 @@ export function UserJourney() {
                     style={{ padding: "5px 12px", borderRadius: 4, border: "1px solid rgba(69,137,255,0.4)", background: "rgba(69,137,255,0.12)", color: "#4589FF", cursor: "pointer", fontSize: 12, fontWeight: 700 }}
                   >Add</button>
                 </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 8, justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => {
+                      const input = document.createElement("input");
+                      input.type = "file";
+                      input.accept = ".csv,text/csv";
+                      input.onchange = (e) => {
+                        const file = (e.target as HTMLInputElement).files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          const text = ev.target?.result as string;
+                          const imported: Record<string, string> = {};
+                          for (const line of text.split(/\r?\n/)) {
+                            const trimmed = line.trim();
+                            if (!trimmed) continue;
+                            const commaIdx = trimmed.indexOf(",");
+                            if (commaIdx < 1) continue;
+                            const k = trimmed.slice(0, commaIdx).trim();
+                            const v = trimmed.slice(commaIdx + 1).trim();
+                            if (k.toLowerCase() === "pattern" && v.toLowerCase() === "label") continue;
+                            if (k && v) imported[k] = v;
+                          }
+                          if (Object.keys(imported).length > 0) savePageLabels({ ...pageLabels, ...imported });
+                        };
+                        reader.readAsText(file);
+                      };
+                      input.click();
+                    }}
+                    title="Upload a CSV with columns: pattern,label"
+                    style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid rgba(128,128,128,0.3)", background: "rgba(255,255,255,0.06)", color: "inherit", cursor: "pointer", fontSize: 11 }}
+                  >Upload CSV</button>
+                  {entries.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const rows = ["pattern,label", ...Object.entries(pageLabels).map(([k, v]) => `${k},${v}`)];
+                        const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = "page-service-labels.csv";
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                      title="Export current labels as CSV"
+                      style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid rgba(128,128,128,0.3)", background: "rgba(255,255,255,0.06)", color: "inherit", cursor: "pointer", fontSize: 11 }}
+                    >Export CSV</button>
+                  )}
+                </div>
               </div>
             );
           })()}
