@@ -102,7 +102,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.95";
+const APP_VERSION_LABEL = "4.76.96";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -17033,6 +17033,55 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
   );
 }
 
+function MultiSelectDropdown({ options, selected, onChange, placeholder, accentColor = BLUE, emptyMessage }: { options: string[]; selected: string[]; onChange: (v: string[]) => void; placeholder: string; accentColor?: string; emptyMessage?: string }) {
+  const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState("");
+  const ref = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!open) { setSearch(""); return; }
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  const filtered = search ? options.filter(o => o.toLowerCase().includes(search.toLowerCase())) : options;
+  const triggerLabel = selected.length === 0 ? placeholder : `${selected.length} selected`;
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen(v => !v)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", height: 32, padding: "0 10px", fontSize: 12, borderRadius: 4, border: `1px solid ${open ? accentColor : "rgba(255,255,255,0.2)"}`, background: "rgba(0,0,0,0.25)", color: "inherit", cursor: "pointer", gap: 8 }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: selected.length === 0 ? 0.5 : 1 }}>{triggerLabel}</span>
+        <span style={{ fontSize: 10, opacity: 0.6, flexShrink: 0 }}>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && createPortal(
+        <div style={{ position: "fixed", top: (ref.current?.getBoundingClientRect().bottom ?? 100) + 4, left: ref.current?.getBoundingClientRect().left ?? 0, width: Math.max(ref.current?.getBoundingClientRect().width ?? 0, 300), zIndex: 9999, background: "#1e2025", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", maxHeight: 320, display: "flex", flexDirection: "column" }} onMouseDown={e => e.stopPropagation()}>
+          <div style={{ padding: "6px 8px", borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
+            <input autoFocus type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: "100%", height: 26, padding: "0 8px", fontSize: 12, borderRadius: 4, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "inherit", outline: "none", boxSizing: "border-box" }} />
+          </div>
+          {selected.length > 0 && <div onClick={() => onChange([])} style={{ padding: "5px 12px", fontSize: 11, color: accentColor, cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>✕ Clear selection</div>}
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {options.length === 0 && emptyMessage
+              ? <div style={{ padding: "10px 12px", fontSize: 11, opacity: 0.45 }}>{emptyMessage}</div>
+              : filtered.length === 0
+                ? <div style={{ padding: "10px 12px", fontSize: 11, opacity: 0.45 }}>No matches</div>
+                : filtered.map(o => {
+                    const isSel = selected.includes(o);
+                    return (
+                      <div key={o} onClick={() => onChange(isSel ? selected.filter(x => x !== o) : [...selected, o])} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12, background: isSel ? `${accentColor}18` : undefined }}>
+                        <span style={{ width: 14, height: 14, borderRadius: 3, border: `1.5px solid ${isSel ? accentColor : "rgba(255,255,255,0.3)"}`, background: isSel ? accentColor : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          {isSel && <span style={{ fontSize: 9, fontWeight: 900, color: "#000", lineHeight: 1 }}>✓</span>}
+                        </span>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o}</span>
+                      </div>
+                    );
+                  })
+            }
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
 // ===========================================================================
 // TAB: Navigation Paths — NEW
 // ===========================================================================
@@ -18308,34 +18357,18 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
       <div className="uj-table-tile" style={{ padding: 12 }}>
         <Text style={{ fontSize: 12, fontWeight: 700, marginBottom: 10, display: "block" }}>Graph View Filters</Text>
         <Flex alignItems="flex-end" gap={12} flexWrap="wrap">
-          {allNavLabelOptions.length > 0 && (
-            <div style={{ minWidth: 240, flex: 1 }}>
-              <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Label Filter ({navLabelFilter.length === 0 ? "all" : `${navLabelFilter.length} selected`})</Text>
-              <Select value={navLabelFilter.length > 0 ? navLabelFilter[0] : "__lbl_none__"} onChange={(val) => { if (val === "__lbl_none__") { setNavLabelFilter([]); return; } const v = String(val ?? ""); setNavLabelFilter(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]); setNavFocusNode(null); }}>
-                <Select.Trigger />
-                <Select.Content style={{ minWidth: 300, maxWidth: 460 }}>
-                  <Select.Filter />
-                  <Select.Option value="__lbl_none__">All labels (no filter)</Select.Option>
-                  {allNavLabelOptions.map(lbl => (<Select.Option key={lbl} value={lbl}>{navLabelFilter.includes(lbl) ? `✓ ${lbl}` : lbl}</Select.Option>))}
-                </Select.Content>
-              </Select>
-              {navLabelFilter.length > 0 && (
-                <Flex gap={4} style={{ marginTop: 6, flexWrap: "wrap" }}>
-                  {navLabelFilter.map(lbl => (<span key={lbl} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: `${GREEN}22`, border: `1px solid ${GREEN}55`, color: GREEN, cursor: "pointer" }} onClick={() => setNavLabelFilter(prev => prev.filter(x => x !== lbl))}>{lbl.length > 30 ? lbl.slice(0, 28) + "…" : lbl} ×</span>))}
-                </Flex>
-              )}
-            </div>
-          )}
+          <div style={{ minWidth: 240, flex: 1 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Label Filter ({navLabelFilter.length === 0 ? "all" : `${navLabelFilter.length} selected`})</Text>
+            <MultiSelectDropdown options={allNavLabelOptions} selected={navLabelFilter} onChange={(v) => { setNavLabelFilter(v); setNavFocusNode(null); }} placeholder="All labels (no filter)" accentColor={GREEN} emptyMessage="No labels configured — add them in Page & Service Labels settings" />
+            {navLabelFilter.length > 0 && (
+              <Flex gap={4} style={{ marginTop: 6, flexWrap: "wrap" }}>
+                {navLabelFilter.map(lbl => (<span key={lbl} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: `${GREEN}22`, border: `1px solid ${GREEN}55`, color: GREEN, cursor: "pointer" }} onClick={() => setNavLabelFilter(prev => prev.filter(x => x !== lbl))}>{lbl.length > 30 ? lbl.slice(0, 28) + "…" : lbl} ×</span>))}
+              </Flex>
+            )}
+          </div>
           <div style={{ minWidth: 280, flex: 1 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Page Filter ({navPageFilter.length === 0 ? "all" : `${navPageFilter.length} selected`})</Text>
-            <Select value={navPageFilter.length > 0 ? navPageFilter[0] : "__pg_none__"} onChange={(val) => { if (val === "__pg_none__") { setNavPageFilter([]); return; } const v = String(val ?? ""); setNavPageFilter(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]); setNavFocusNode(null); }}>
-              <Select.Trigger />
-              <Select.Content style={{ minWidth: 360, maxWidth: 500 }}>
-                <Select.Filter />
-                <Select.Option value="__pg_none__">All pages (no filter)</Select.Option>
-                {allNavPageOptions.map(p => (<Select.Option key={p} value={p}>{navPageFilter.includes(p) ? `✓ ${p}` : p}</Select.Option>))}
-              </Select.Content>
-            </Select>
+            <MultiSelectDropdown options={allNavPageOptions} selected={navPageFilter} onChange={(v) => { setNavPageFilter(v); setNavFocusNode(null); }} placeholder="All pages (no filter)" accentColor={BLUE} />
             {navPageFilter.length > 0 && (
               <Flex gap={4} style={{ marginTop: 6, flexWrap: "wrap" }}>
                 {navPageFilter.map(p => (<span key={p} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: `${BLUE}22`, border: `1px solid ${BLUE}55`, color: BLUE, cursor: "pointer" }} onClick={() => setNavPageFilter(prev => prev.filter(x => x !== p))}>{p.length > 30 ? p.slice(0, 28) + "…" : p} ×</span>))}
@@ -18344,14 +18377,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
           </div>
           <div style={{ minWidth: 280, flex: 1 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Service Filter ({navServiceFilter.length === 0 ? "all" : `${navServiceFilter.length} selected`})</Text>
-            <Select value={navServiceFilter.length > 0 ? navServiceFilter[0] : "__svc_none__"} onChange={(val) => { if (val === "__svc_none__") { setNavServiceFilter([]); return; } const v = String(val ?? ""); setNavServiceFilter(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]); }}>
-              <Select.Trigger />
-              <Select.Content style={{ minWidth: 360, maxWidth: 500 }}>
-                <Select.Filter />
-                <Select.Option value="__svc_none__">All services (no filter)</Select.Option>
-                {allNavServiceNames.map(n => (<Select.Option key={n} value={n}>{navServiceFilter.includes(n) ? `✓ ${n}` : n}</Select.Option>))}
-              </Select.Content>
-            </Select>
+            <MultiSelectDropdown options={allNavServiceNames} selected={navServiceFilter} onChange={setNavServiceFilter} placeholder="All services (no filter)" accentColor={PURPLE} />
             {navServiceFilter.length > 0 && (
               <Flex gap={4} style={{ marginTop: 6, flexWrap: "wrap" }}>
                 {navServiceFilter.map(n => (<span key={n} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: `${PURPLE}22`, border: `1px solid ${PURPLE}55`, color: PURPLE, cursor: "pointer" }} onClick={() => setNavServiceFilter(prev => prev.filter(x => x !== n))}>{n.length > 30 ? n.slice(0, 28) + "…" : n} ×</span>))}
