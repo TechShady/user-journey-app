@@ -102,7 +102,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.93";
+const APP_VERSION_LABEL = "4.76.95";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -17072,6 +17072,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [rollupSelected, setRollupSelected] = useState<Record<number, string>>({});
   const [beRollupSelected, setBeRollupSelected] = useState<Record<number, string>>({});
   const [beRollupPopover, setBeRollupPopover] = useState<{ depth: number; x: number; y: number } | null>(null);
+  const [navLabelFilter, setNavLabelFilter] = useState<string[]>([]);
   const [navPageFilter, setNavPageFilter] = useState<string[]>([]);
   const [navServiceFilter, setNavServiceFilter] = useState<string[]>([]);
   const [navMinEdgeThreshold, setNavMinEdgeThreshold] = useState(1);
@@ -17474,12 +17475,15 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
     return Array.from(agg.values()).sort((a, b) => b.occurrences - a.occurrences);
   })() : paths;
   if (navMinEdgeThreshold > 1) navDisplayPaths = navDisplayPaths.filter(p => p.occurrences >= navMinEdgeThreshold);
-  if (navPageFilter.length > 0) {
-    const fs = new Set(navPageFilter); const exp = new Set<string>(navPageFilter);
-    navDisplayPaths.forEach(p => { if (fs.has(p.step1) || fs.has(p.step2)) { exp.add(p.step1); exp.add(p.step2); } });
+  const allNavPageOptions = (() => { const s = new Set<string>(); paths.forEach(p => { s.add(p.step1); s.add(p.step2); }); return Array.from(s).sort((a, b) => a.localeCompare(b)); })();
+  const allNavLabelOptions = (() => { const s = new Set<string>(); allNavPageOptions.forEach(p => { const lbl = resolveLabel(p, pageLabels); if (lbl) s.add(lbl); }); return Array.from(s).sort((a, b) => a.localeCompare(b)); })();
+  if (navLabelFilter.length > 0 || navPageFilter.length > 0) {
+    const labelPages = navLabelFilter.length > 0 ? allNavPageOptions.filter(p => { const lbl = resolveLabel(p, pageLabels); return lbl != null && navLabelFilter.includes(lbl); }) : [];
+    const effectivePages = new Set<string>([...navPageFilter, ...labelPages]);
+    const exp = new Set<string>(effectivePages);
+    navDisplayPaths.forEach(p => { if (effectivePages.has(p.step1) || effectivePages.has(p.step2)) { exp.add(p.step1); exp.add(p.step2); } });
     navDisplayPaths = navDisplayPaths.filter(p => exp.has(p.step1) && exp.has(p.step2));
   }
-  const allNavPageOptions = (() => { const s = new Set<string>(); paths.forEach(p => { s.add(p.step1); s.add(p.step2); }); return Array.from(s).sort((a, b) => a.localeCompare(b)); })();
   const totalTransitions = paths.reduce((a: number, p: any) => a + Number(p.occurrences ?? 0), 0);
   const uniquePaths = paths.length;
   const avgDepth = sessionPaths.length > 0 ? sessionPaths.reduce((a, s) => a + s.pathLen, 0) / sessionPaths.length : 0;
@@ -18304,6 +18308,24 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
       <div className="uj-table-tile" style={{ padding: 12 }}>
         <Text style={{ fontSize: 12, fontWeight: 700, marginBottom: 10, display: "block" }}>Graph View Filters</Text>
         <Flex alignItems="flex-end" gap={12} flexWrap="wrap">
+          {allNavLabelOptions.length > 0 && (
+            <div style={{ minWidth: 240, flex: 1 }}>
+              <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Label Filter ({navLabelFilter.length === 0 ? "all" : `${navLabelFilter.length} selected`})</Text>
+              <Select value={navLabelFilter.length > 0 ? navLabelFilter[0] : "__lbl_none__"} onChange={(val) => { if (val === "__lbl_none__") { setNavLabelFilter([]); return; } const v = String(val ?? ""); setNavLabelFilter(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]); setNavFocusNode(null); }}>
+                <Select.Trigger />
+                <Select.Content style={{ minWidth: 300, maxWidth: 460 }}>
+                  <Select.Filter />
+                  <Select.Option value="__lbl_none__">All labels (no filter)</Select.Option>
+                  {allNavLabelOptions.map(lbl => (<Select.Option key={lbl} value={lbl}>{navLabelFilter.includes(lbl) ? `✓ ${lbl}` : lbl}</Select.Option>))}
+                </Select.Content>
+              </Select>
+              {navLabelFilter.length > 0 && (
+                <Flex gap={4} style={{ marginTop: 6, flexWrap: "wrap" }}>
+                  {navLabelFilter.map(lbl => (<span key={lbl} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: `${GREEN}22`, border: `1px solid ${GREEN}55`, color: GREEN, cursor: "pointer" }} onClick={() => setNavLabelFilter(prev => prev.filter(x => x !== lbl))}>{lbl.length > 30 ? lbl.slice(0, 28) + "…" : lbl} ×</span>))}
+                </Flex>
+              )}
+            </div>
+          )}
           <div style={{ minWidth: 280, flex: 1 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Page Filter ({navPageFilter.length === 0 ? "all" : `${navPageFilter.length} selected`})</Text>
             <Select value={navPageFilter.length > 0 ? navPageFilter[0] : "__pg_none__"} onChange={(val) => { if (val === "__pg_none__") { setNavPageFilter([]); return; } const v = String(val ?? ""); setNavPageFilter(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]); setNavFocusNode(null); }}>
@@ -18342,6 +18364,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               <input type="range" min={1} max={500} step={1} value={navMinEdgeThreshold} onChange={e => setNavMinEdgeThreshold(Number(e.target.value))} style={{ flex: 1, cursor: "pointer" }} />
               <Text style={{ fontSize: 11, minWidth: 35 }}>{navMinEdgeThreshold}</Text>
             </Flex>
+            <Text style={{ fontSize: 10, opacity: 0.4, marginTop: 3, display: "block" }}>Hides flow arrows where fewer than this many sessions took that path — cuts visual noise from rare transitions.</Text>
           </div>
           <div style={{ minWidth: 200 }}>
             <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Top N Pages</Text>
@@ -18365,10 +18388,10 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             {navParsedPatterns.length > 0 && <Text style={{ fontSize: 11, color: GREEN }}>{navParsedPatterns.length} pattern{navParsedPatterns.length !== 1 ? "s" : ""} active</Text>}
           </Flex>
         </div>
-        {(navPageFilter.length > 0 || navServiceFilter.length > 0 || navMinEdgeThreshold > 1 || navTopNPages > 0 || navFocusMode || !!navUrlPatterns) && (
+        {(navLabelFilter.length > 0 || navPageFilter.length > 0 || navServiceFilter.length > 0 || navMinEdgeThreshold > 1 || navTopNPages > 0 || navFocusMode || !!navUrlPatterns) && (
           <Flex alignItems="center" gap={8} style={{ marginTop: 8 }}>
-            <Text style={{ fontSize: 11, opacity: 0.55 }}>Active:{navPageFilter.length > 0 ? ` pages(${navPageFilter.length})` : ""}{navServiceFilter.length > 0 ? ` services(${navServiceFilter.length})` : ""}{navMinEdgeThreshold > 1 ? ` min-edge(${navMinEdgeThreshold})` : ""}{navTopNPages > 0 ? ` top-${navTopNPages}` : ""}{navFocusMode ? " focus-mode" : ""}{navUrlPatterns ? " url-patterns" : ""}</Text>
-            <Button variant="default" onClick={() => { setNavPageFilter([]); setNavServiceFilter([]); setNavMinEdgeThreshold(1); setNavTopNPages(0); setNavFocusMode(false); setNavFocusNode(null); setNavUrlPatterns(""); }} style={{ height: 26, fontSize: 11 }}>Clear All Graph Filters</Button>
+            <Text style={{ fontSize: 11, opacity: 0.55 }}>Active:{navLabelFilter.length > 0 ? ` labels(${navLabelFilter.length})` : ""}{navPageFilter.length > 0 ? ` pages(${navPageFilter.length})` : ""}{navServiceFilter.length > 0 ? ` services(${navServiceFilter.length})` : ""}{navMinEdgeThreshold > 1 ? ` min-edge(${navMinEdgeThreshold})` : ""}{navTopNPages > 0 ? ` top-${navTopNPages}` : ""}{navFocusMode ? " focus-mode" : ""}{navUrlPatterns ? " url-patterns" : ""}</Text>
+            <Button variant="default" onClick={() => { setNavLabelFilter([]); setNavPageFilter([]); setNavServiceFilter([]); setNavMinEdgeThreshold(1); setNavTopNPages(0); setNavFocusMode(false); setNavFocusNode(null); setNavUrlPatterns(""); }} style={{ height: 26, fontSize: 11 }}>Clear All Graph Filters</Button>
           </Flex>
         )}
       </div>
