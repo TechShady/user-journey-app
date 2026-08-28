@@ -102,7 +102,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.96";
+const APP_VERSION_LABEL = "4.76.97";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -17525,7 +17525,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   })() : paths;
   if (navMinEdgeThreshold > 1) navDisplayPaths = navDisplayPaths.filter(p => p.occurrences >= navMinEdgeThreshold);
   const allNavPageOptions = (() => { const s = new Set<string>(); paths.forEach(p => { s.add(p.step1); s.add(p.step2); }); return Array.from(s).sort((a, b) => a.localeCompare(b)); })();
-  const allNavLabelOptions = (() => { const s = new Set<string>(); allNavPageOptions.forEach(p => { const lbl = resolveLabel(p, pageLabels); if (lbl) s.add(lbl); }); return Array.from(s).sort((a, b) => a.localeCompare(b)); })();
+  const allNavLabelOptions = (() => { const s = new Set<string>(); Object.values(pageLabels).forEach(lbl => { if (lbl) s.add(lbl); }); return Array.from(s).sort((a, b) => a.localeCompare(b)); })();
   if (navLabelFilter.length > 0 || navPageFilter.length > 0) {
     const labelPages = navLabelFilter.length > 0 ? allNavPageOptions.filter(p => { const lbl = resolveLabel(p, pageLabels); return lbl != null && navLabelFilter.includes(lbl); }) : [];
     const effectivePages = new Set<string>([...navPageFilter, ...labelPages]);
