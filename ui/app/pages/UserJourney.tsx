@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
 import { createPortal } from "react-dom";
 import { useDql, useUserAppState, useSetUserAppState, useAppState, useSetAppState } from "@dynatrace-sdk/react-hooks";
 import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment";
+import { sendIntent } from "@dynatrace-sdk/navigation";
 import { queryExecutionClient } from "@dynatrace-sdk/client-query";
 import { Flex } from "@dynatrace/strato-components/layouts";
 import { Heading, Text, Strong, Paragraph, Link } from "@dynatrace/strato-components/typography";
@@ -101,7 +102,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.91";
+const APP_VERSION_LABEL = "4.76.92";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -977,6 +978,7 @@ interface KpiCardProps {
   customContent?: React.ReactNode;
   isLoading?: boolean;
   style?: React.CSSProperties;
+  query?: string;
 }
 
 // Time-Lapse effective-value helper. When TL is playing, returns per-bucket shared metrics
@@ -1018,7 +1020,7 @@ function useEffectiveTL(baseSessions: number | undefined = undefined) {
   };
 }
 
-function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, inverted = false, sparkline, onDrillToForecast, customContent, isLoading, style }: KpiCardProps) {
+function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, inverted = false, sparkline, onDrillToForecast, customContent, isLoading, style, query }: KpiCardProps) {
   const forecastOpener = useContext(ForecastContext);
   const correlationsCtx = useContext(CorrelationsContext);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -1081,6 +1083,10 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
     setMenuOpen(false);
     if (correlationsCtx && hasSpark) correlationsCtx.open({ label, sparkline: sparkline!, color, inverted: !effectiveHigherIsBetter });
   };
+  const doOpenNotebook = () => {
+    setMenuOpen(false);
+    if (query) sendIntent({ 'dt.query': query }, { recommendedAppId: 'dynatrace.notebooks', recommendedIntentId: 'open-with-dql' });
+  };
 
   return (
     <div
@@ -1136,6 +1142,7 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
           >
             <button className="kpi-action-btn" onClick={doForecast}>📈 Forecast</button>
             <button className="kpi-action-btn" onClick={doRelated}>⟷ Related Metrics</button>
+            {query && <button className="kpi-action-btn" onClick={doOpenNotebook}>📓 Open With Notebook</button>}
             <div className="kpi-action-sep" />
             <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("impact"); }}>👥 Impact</button>
             <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("anomaly"); }}>🔍 Anomaly</button>
@@ -7292,7 +7299,7 @@ export function UserJourney() {
             case "Funnel Analysis": content = <FunnelAnalysisTab frontend={frontend} funnels={funnels} saveFunnels={saveFunnels} saveActiveFunnelIndex={saveActiveFunnelIndex} aov={aov} onJumpToTab={(t) => setActiveSubTabKey(t)} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} />; break;
-            case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} />; break;
+            case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} stepQuery={stepMetricsQuery(timeframeDays, frontend, steps)} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} onDrillToForecast={openForecast} />; break;
             case "Exceptions": content = <JSErrorsTab data={jsErrorsData} prevData={jsErrorsPrevData} isLoading={jsErrorsData.isLoading} frontend={frontend} onDrillToForecast={openForecast} />; break;
             case "Click Issues": content = <ClickIssuesTab data={clickIssuesData} replayData={clickReplayData} isLoading={clickIssuesData.isLoading} frontend={frontend} onDrillToForecast={openForecast} />; break;
@@ -7300,7 +7307,7 @@ export function UserJourney() {
             case "Geo Heatmap": content = <GeoHeatmapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} networkData={geoNetworkData} conversionData={geoConversionData} onDrillToForecast={openForecast} />; break;
             case "Maps": content = <WorldMapTab data={geoPerformanceData} isLoading={geoPerformanceData.isLoading} frontend={frontend} defaultView={mapViewDefault} aov={aov} overallConv={overallConv} timelapseData={mapTimelapseData} conversionData={geoConversionData} funnelBounceData={geoFunnelBounceData} onDrillToForecast={openForecast} priorData={geoPriorPerformanceData} hotnessMode={hotnessMode} />; break;
             case "Navigation Paths": content = <NavigationPathsTab data={navigationPathsData} navPathConvData={navPathConvData} isLoading={navigationPathsData.isLoading} appEntityId={appEntityId} steps={steps} backendServicesData={backendServicesData} serviceToServiceData={serviceToServiceData} frontend={funnelDrillFrontend} timeframeDays={timeframeDays} onDrillToForecast={openForecast} hotnessMode={hotnessMode} tlFrontendDiagPos={tlDiagPanel?.pos ?? null} navTlEdgesLimit={navTlEdgesLimit} />; break;
-            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} onDrillToForecast={openForecast} timelapseData={sankeyTimelapseData} hotnessMode={hotnessMode} />; break;
+            case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} onDrillToForecast={openForecast} timelapseData={sankeyTimelapseData} hotnessMode={hotnessMode} navQuery={navigationPathsQuery(timeframeDays, frontend, steps)} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov}  davisProblemsData={davisProblemsData} onDrillToForecast={openForecast} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} steps={steps} />; break;
             case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnels={funnels} activeFunnelIndex={activeFunnelIndex} saveActiveFunnelIndex={saveActiveFunnelIndex} timeframeDays={timeframeDays} allFunnelQualities={allFunnelQualities} />; break;
@@ -13461,6 +13468,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
                 prevRawValue={funnelCountsPrev[0] ?? null}
                 sparkline={sparkSeries.sessions}
                 onDrillToForecast={onDrillToForecast}
+                query={sessionFlowQuery(timeframeDays, frontend, steps, false)}
               />
               <KpiCard
                 label={funnelTlEnabled ? "Conversions (bucket)" : "Conversions"}
@@ -13470,6 +13478,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
                 prevRawValue={funnelCountsPrev[funnelCountsPrev.length - 1] ?? null}
                 sparkline={sparkSeries.conversions}
                 onDrillToForecast={onDrillToForecast}
+                query={sessionFlowQuery(timeframeDays, frontend, steps, false)}
               />
               <KpiCard
                 label={funnelTlEnabled ? "Conversion Rate (bucket)" : "Conversion Rate"}
@@ -13479,6 +13488,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
                 prevRawValue={overallConvPrev}
                 sparkline={sparkSeries.convRate}
                 onDrillToForecast={onDrillToForecast}
+                query={sessionFlowQuery(timeframeDays, frontend, steps, false)}
               />
               <KpiCard
                 label={funnelTlEnabled ? "Overall Apdex (bucket)" : "Overall Apdex"}
@@ -13489,6 +13499,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
                 sparkline={sparkSeries.apdex}
                 onDrillToForecast={onDrillToForecast}
                 customContent={<ApdexGauge score={effApdex} size={72} />}
+                query={sessionQualityQuery(timeframeDays, frontend, steps, false)}
               />
               <KpiCard
                 label={funnelTlEnabled ? "Error Rate (bucket)" : "Error Rate"}
@@ -13499,6 +13510,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
                 inverted={true}
                 sparkline={sparkSeries.errorRate}
                 onDrillToForecast={onDrillToForecast}
+                query={sessionQualityQuery(timeframeDays, frontend, steps, false)}
               />
               <KpiCard
                 label={funnelTlEnabled ? "Avg Duration (bucket)" : "Avg Duration"}
@@ -13509,6 +13521,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
                 inverted={true}
                 sparkline={sparkSeries.avgDur}
                 onDrillToForecast={onDrillToForecast}
+                query={sessionQualityQuery(timeframeDays, frontend, steps, false)}
               />
             </Flex>
 
@@ -14351,7 +14364,7 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
 // ===========================================================================
 // TAB: Step Details
 // ===========================================================================
-function StepDetailsTab({ stepMap, stepMapPrev, stepSparklines, pageMap, pageMapPrev, pageSparklines, cwvByPage, isLoading, appEntityId, steps, aov = 0, funnelCounts = [], onDrillToForecast }: { stepMap: Map<string, any>; stepMapPrev: Map<string, any>; stepSparklines: Map<string, { avgDur: number[]; p50: number[]; p90: number[]; p99: number[]; total: number[]; errors: number[]; errRate: number[] }>; pageMap: Map<string, any>; pageMapPrev: Map<string, any>; pageSparklines: Map<string, { avgDur: number[]; p50: number[]; p90: number[]; p99: number[]; total: number[]; errors: number[]; errRate: number[] }>; cwvByPage: any; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov?: number; funnelCounts?: number[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
+function StepDetailsTab({ stepMap, stepMapPrev, stepSparklines, pageMap, pageMapPrev, pageSparklines, cwvByPage, isLoading, appEntityId, steps, aov = 0, funnelCounts = [], onDrillToForecast, stepQuery }: { stepMap: Map<string, any>; stepMapPrev: Map<string, any>; stepSparklines: Map<string, { avgDur: number[]; p50: number[]; p90: number[]; p99: number[]; total: number[]; errors: number[]; errRate: number[] }>; pageMap: Map<string, any>; pageMapPrev: Map<string, any>; pageSparklines: Map<string, { avgDur: number[]; p50: number[]; p90: number[]; p99: number[]; total: number[]; errors: number[]; errRate: number[] }>; cwvByPage: any; isLoading: boolean; appEntityId?: string; steps: StepDef[]; aov?: number; funnelCounts?: number[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; stepQuery?: string }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeStepDetails(stepMap, steps, funnelCounts), [stepMap, steps, funnelCounts]));
   const [compareSteps, setCompareSteps] = React.useState<Set<number>>(new Set());
   const [cwvSteps, setCwvSteps] = React.useState<Set<number>>(new Set());
@@ -14410,7 +14423,7 @@ function StepDetailsTab({ stepMap, stepMapPrev, stepSparklines, pageMap, pageMap
     return <span style={{ fontSize: 11, color: clr, fontWeight: 600, marginLeft: 4 }}>{arrow}{Math.abs(pct).toFixed(1)}%{suffix}</span>;
   };
 
-  const renderMetricRow = (label: string, met: ReturnType<typeof extractMetrics>, primaryMet?: ReturnType<typeof extractMetrics>, isPrimary = false, sparklines?: { avgDur: number[]; p50: number[]; p90: number[]; p99: number[]; total: number[]; errors: number[]; errRate: number[] }, prevMet?: ReturnType<typeof extractMetrics>) => {
+  const renderMetricRow = (label: string, met: ReturnType<typeof extractMetrics>, primaryMet?: ReturnType<typeof extractMetrics>, isPrimary = false, sparklines?: { avgDur: number[]; p50: number[]; p90: number[]; p99: number[]; total: number[]; errors: number[]; errRate: number[] }, prevMet?: ReturnType<typeof extractMetrics>, query?: string) => {
     // TL effective values — override with tlShared when active
     const durF = eff.on && eff.avgDurationMs != null && met.avg > 0 ? eff.avgDurationMs / met.avg : 1;
     const p50F = eff.on && eff.p50Ms != null && met.p50 > 0 ? eff.p50Ms / met.p50 : durF;
@@ -14426,13 +14439,13 @@ function StepDetailsTab({ stepMap, stepMapPrev, stepSparklines, pageMap, pageMap
     return (
     <>
       <Flex gap={12} flexWrap="wrap">
-        <KpiCard label={eff.label("Avg Duration")} value={fmt(effAvg)} color={effAvg > 3000 ? RED : effAvg > 1000 ? YELLOW : GREEN} rawValue={effAvg} prevRawValue={prevMet ? prevMet.avg : (primaryMet && !isPrimary ? primaryMet.avg : null)} sparkline={sparklines?.avgDur} inverted={true} />
-        <KpiCard label={eff.label("P50")} value={fmt(effP50)} color={BLUE} rawValue={effP50} prevRawValue={prevMet ? prevMet.p50 : (primaryMet && !isPrimary ? primaryMet.p50 : null)} sparkline={sparklines?.p50} inverted={true} />
-        <KpiCard label={eff.label("P90")} value={fmt(effP90)} color={effP90 > 3000 ? RED : effP90 > 1500 ? YELLOW : GREEN} rawValue={effP90} prevRawValue={prevMet ? prevMet.p90 : (primaryMet && !isPrimary ? primaryMet.p90 : null)} sparkline={sparklines?.p90} inverted={true} />
-        <KpiCard label={eff.label("P99")} value={fmt(effP99)} color={effP99 > 5000 ? RED : GREEN} rawValue={effP99} prevRawValue={prevMet ? prevMet.p99 : (primaryMet && !isPrimary ? primaryMet.p99 : null)} sparkline={sparklines?.p99} inverted={true} />
-        <KpiCard label={eff.label("Events")} value={fmtCount(effTotal)} color={BLUE} rawValue={effTotal} prevRawValue={prevMet ? prevMet.total : (primaryMet && !isPrimary ? primaryMet.total : null)} sparkline={sparklines?.total} higherIsBetter={true} />
-        <KpiCard label={eff.label("Errors")} value={fmtCount(effErrors)} color={effErrors > 0 ? RED : GREEN} rawValue={effErrors} prevRawValue={prevMet ? prevMet.errors : null} sparkline={sparklines?.errors} inverted={true} />
-        <KpiCard label={eff.label("Error Rate")} value={fmtPct(errRateEff)} color={errRateEff > 5 ? RED : errRateEff > 1 ? YELLOW : GREEN} rawValue={errRateEff} prevRawValue={prevMet ? prevMet.errRate : (primaryMet && !isPrimary ? primaryMet.errRate : null)} sparkline={sparklines?.errRate} inverted={true} />
+        <KpiCard label={eff.label("Avg Duration")} value={fmt(effAvg)} color={effAvg > 3000 ? RED : effAvg > 1000 ? YELLOW : GREEN} rawValue={effAvg} prevRawValue={prevMet ? prevMet.avg : (primaryMet && !isPrimary ? primaryMet.avg : null)} sparkline={sparklines?.avgDur} inverted={true} query={query} />
+        <KpiCard label={eff.label("P50")} value={fmt(effP50)} color={BLUE} rawValue={effP50} prevRawValue={prevMet ? prevMet.p50 : (primaryMet && !isPrimary ? primaryMet.p50 : null)} sparkline={sparklines?.p50} inverted={true} query={query} />
+        <KpiCard label={eff.label("P90")} value={fmt(effP90)} color={effP90 > 3000 ? RED : effP90 > 1500 ? YELLOW : GREEN} rawValue={effP90} prevRawValue={prevMet ? prevMet.p90 : (primaryMet && !isPrimary ? primaryMet.p90 : null)} sparkline={sparklines?.p90} inverted={true} query={query} />
+        <KpiCard label={eff.label("P99")} value={fmt(effP99)} color={effP99 > 5000 ? RED : GREEN} rawValue={effP99} prevRawValue={prevMet ? prevMet.p99 : (primaryMet && !isPrimary ? primaryMet.p99 : null)} sparkline={sparklines?.p99} inverted={true} query={query} />
+        <KpiCard label={eff.label("Events")} value={fmtCount(effTotal)} color={BLUE} rawValue={effTotal} prevRawValue={prevMet ? prevMet.total : (primaryMet && !isPrimary ? primaryMet.total : null)} sparkline={sparklines?.total} higherIsBetter={true} query={query} />
+        <KpiCard label={eff.label("Errors")} value={fmtCount(effErrors)} color={effErrors > 0 ? RED : GREEN} rawValue={effErrors} prevRawValue={prevMet ? prevMet.errors : null} sparkline={sparklines?.errors} inverted={true} query={query} />
+        <KpiCard label={eff.label("Error Rate")} value={fmtPct(errRateEff)} color={errRateEff > 5 ? RED : errRateEff > 1 ? YELLOW : GREEN} rawValue={errRateEff} prevRawValue={prevMet ? prevMet.errRate : (primaryMet && !isPrimary ? primaryMet.errRate : null)} sparkline={sparklines?.errRate} inverted={true} query={query} />
       </Flex>
       <Flex gap={12} alignItems="center" style={{ marginTop: 8 }}>
         <Text style={{ fontSize: 12, color: GREEN }}>Satisfied: {fmtCount(met.sat)}</Text>
@@ -14495,7 +14508,7 @@ function StepDetailsTab({ stepMap, stepMapPrev, stepSparklines, pageMap, pageMap
             </Flex>
 
             {/* Aggregate step metrics */}
-            {renderMetricRow(step.label, met, undefined, true, spark, prevMet)}
+            {renderMetricRow(step.label, met, undefined, true, spark, prevMet, stepQuery)}
             {revenueAtRisk > 0 && <Flex gap={16} style={{ marginTop: 4 }}><div className="uj-metric-box"><Text className="uj-metric-label">Revenue at Risk</Text><Strong className="uj-metric-value" style={{ color: RED }}>{fmtCurrency(revenueAtRisk)}</Strong><Text style={{ fontSize: 13, opacity: 0.4 }}>{fmtCount(dropOff)} drop-offs</Text></div></Flex>}
 
             {/* Page-level drop-off funnel (for multi-page steps) */}
@@ -14578,7 +14591,7 @@ function StepDetailsTab({ stepMap, stepMapPrev, stepSparklines, pageMap, pageMap
                         )}
                         <div style={{ marginLeft: "auto" }}><ApdexGauge score={pm.metrics.apdex} size={48} label="" /></div>
                       </Flex>
-                      {renderMetricRow(pm.id, pm.metrics, isPrimary ? undefined : primaryMetrics, isPrimary, pageSparklines.get(pm.id), (() => { const prev = pageMapPrev.get(pm.id); return prev ? extractMetrics(prev) : undefined; })())}
+                      {renderMetricRow(pm.id, pm.metrics, isPrimary ? undefined : primaryMetrics, isPrimary, pageSparklines.get(pm.id), (() => { const prev = pageMapPrev.get(pm.id); return prev ? extractMetrics(prev) : undefined; })(), stepQuery)}
                       {pageCwv && (
                         <Flex gap={16} style={{ marginTop: 8 }}>
                           <div className="uj-metric-box">
@@ -22015,7 +22028,7 @@ function buildSankey(records: any[]): { nodes: SankeyNode[]; links: SankeyLink[]
   return { nodes, links, maxDepth };
 }
 
-function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData, frontend, durationData, prevPathsData, velocityData, onDrillToForecast, timelapseData, hotnessMode = "shared" }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any; frontend: string; durationData: any; prevPathsData: any; velocityData: any; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; timelapseData?: any; hotnessMode?: HotnessMode }) {
+function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, steps, aov, cwvData, errorData, pathsData, frontend, durationData, prevPathsData, velocityData, onDrillToForecast, timelapseData, hotnessMode = "shared", navQuery }: { data: any; isLoading: boolean; appEntityId: string; chartStyle: SankeyStyle; onStyleChange: (v: SankeyStyle) => void; steps: StepDef[]; aov: number; cwvData: any; errorData: any; pathsData: any; frontend: string; durationData: any; prevPathsData: any; velocityData: any; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; timelapseData?: any; hotnessMode?: HotnessMode; navQuery?: string }) {
   const [sankeySubTab, setSankeySubTab] = useState<"flow" | "convPaths" | "loops" | "timing" | "endpoints" | "revPaths" | "pathTrends" | "leakage" | "velocity">("flow");
   // Funnel Velocity what-if state (declared at component level so it survives re-renders)
   const [velImprovePct, setVelImprovePct] = useState<number>(50);
@@ -23043,12 +23056,12 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
       </Flex>
       <Text style={{ fontSize: 12, opacity: 0.5 }}>{SANKEY_STYLE_OPTIONS.find(o => o.value === chartStyle)?.label}: User navigation flows. Top {nodes.length} page nodes shown.{sankeyTlActive && tl.currentBucketKey ? ` · Time-Lapse bucket ${tl.currentBucketKey} (${tl.index + 1}/${tl.totalBuckets})` : ""}</Text>
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Total Sessions" value={fmtCount(totalSessions)} color={BLUE} rawValue={totalSessions} prevRawValue={syntheticPrev(totalSessions, "Total Sessions")} sparkline={syntheticSparkline(totalSessions, 8, "Total Sessions")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Unique Pages" value={uniquePages} color={PURPLE} rawValue={uniquePages} prevRawValue={syntheticPrev(uniquePages, "Unique Pages")} sparkline={syntheticSparkline(uniquePages, 8, "Unique Pages")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Flow Transitions" value={links.length} color={CYAN} rawValue={links.length} prevRawValue={syntheticPrev(links.length, "Flow Transitions")} sparkline={syntheticSparkline(links.length, 8, "Flow Transitions")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Max Depth" value={`${maxDepth + 1} pages`} color={GREEN} rawValue={maxDepth + 1} prevRawValue={syntheticPrev((maxDepth + 1), "Max Depth")} sparkline={syntheticSparkline(maxDepth + 1, 8, "Max Depth")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Funnel Completion" value={fmtPct(pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0)} color={pathAnalysis.totalPaths > 0 && (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) < 0.3 ? RED : GREEN} rawValue={pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0} prevRawValue={syntheticPrev((pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0), "Funnel Completion")} sparkline={syntheticSparkline(pathAnalysis.funnelCompletions, 8, "Funnel Completion")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Funnel Exits" value={fmtCount(pathAnalysis.funnelExits)} color={RED} rawValue={pathAnalysis.funnelExits} prevRawValue={syntheticPrev(pathAnalysis.funnelExits, "Funnel Exits")} sparkline={syntheticSparkline(pathAnalysis.funnelExits, 8, "Funnel Exits")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label="Total Sessions" value={fmtCount(totalSessions)} color={BLUE} rawValue={totalSessions} prevRawValue={syntheticPrev(totalSessions, "Total Sessions")} sparkline={syntheticSparkline(totalSessions, 8, "Total Sessions")} onDrillToForecast={onDrillToForecast} query={navQuery} />
+        <KpiCard label="Unique Pages" value={uniquePages} color={PURPLE} rawValue={uniquePages} prevRawValue={syntheticPrev(uniquePages, "Unique Pages")} sparkline={syntheticSparkline(uniquePages, 8, "Unique Pages")} onDrillToForecast={onDrillToForecast} query={navQuery} />
+        <KpiCard label="Flow Transitions" value={links.length} color={CYAN} rawValue={links.length} prevRawValue={syntheticPrev(links.length, "Flow Transitions")} sparkline={syntheticSparkline(links.length, 8, "Flow Transitions")} onDrillToForecast={onDrillToForecast} query={navQuery} />
+        <KpiCard label="Max Depth" value={`${maxDepth + 1} pages`} color={GREEN} rawValue={maxDepth + 1} prevRawValue={syntheticPrev((maxDepth + 1), "Max Depth")} sparkline={syntheticSparkline(maxDepth + 1, 8, "Max Depth")} onDrillToForecast={onDrillToForecast} query={navQuery} />
+        <KpiCard label="Funnel Completion" value={fmtPct(pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0)} color={pathAnalysis.totalPaths > 0 && (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) < 0.3 ? RED : GREEN} rawValue={pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0} prevRawValue={syntheticPrev((pathAnalysis.totalPaths > 0 ? (pathAnalysis.funnelCompletions / pathAnalysis.totalPaths) * 100 : 0), "Funnel Completion")} sparkline={syntheticSparkline(pathAnalysis.funnelCompletions, 8, "Funnel Completion")} onDrillToForecast={onDrillToForecast} query={navQuery} />
+        <KpiCard label="Funnel Exits" value={fmtCount(pathAnalysis.funnelExits)} color={RED} rawValue={pathAnalysis.funnelExits} prevRawValue={syntheticPrev(pathAnalysis.funnelExits, "Funnel Exits")} sparkline={syntheticSparkline(pathAnalysis.funnelExits, 8, "Funnel Exits")} onDrillToForecast={onDrillToForecast} query={navQuery} />
       </Flex>
       <Flex gap={12} alignItems="center" style={{ padding: "4px 0", flexWrap: "wrap" }}>
         <Flex gap={4} alignItems="center"><span style={{ width: 12, height: 12, borderRadius: 2, background: "#FFD700", display: "inline-block", border: "1px dashed rgba(255,215,0,0.6)" }} /><Text style={{ fontSize: 11, opacity: 0.6 }}>Funnel Page</Text></Flex>
