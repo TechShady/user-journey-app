@@ -101,7 +101,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.76.86";
+const APP_VERSION_LABEL = "4.76.91";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -17059,6 +17059,13 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [rollupSelected, setRollupSelected] = useState<Record<number, string>>({});
   const [beRollupSelected, setBeRollupSelected] = useState<Record<number, string>>({});
   const [beRollupPopover, setBeRollupPopover] = useState<{ depth: number; x: number; y: number } | null>(null);
+  const [navPageFilter, setNavPageFilter] = useState<string[]>([]);
+  const [navServiceFilter, setNavServiceFilter] = useState<string[]>([]);
+  const [navMinEdgeThreshold, setNavMinEdgeThreshold] = useState(1);
+  const [navTopNPages, setNavTopNPages] = useState(0);
+  const [navFocusMode, setNavFocusMode] = useState(false);
+  const [navFocusNode, setNavFocusNode] = useState<string | null>(null);
+  const [navUrlPatterns, setNavUrlPatterns] = useState<string>("");
   const navigationApps = useMemo(() => uniqueApps(steps, frontend), [steps, frontend]);
   const navAppFilterOverride = navAppFilter === "__all__" ? undefined : navAppFilter;
   const navUserFilter = selectedUserTag === "__all_users__" ? undefined : selectedUserTag;
@@ -17159,6 +17166,18 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   React.useEffect(() => { saveState({ key: NAV_FILTER_USER_TAG_STATE_KEY, body: { value: selectedUserTag } }); }, [selectedUserTag, saveState]);
   React.useEffect(() => { saveState({ key: NAV_COMPARE_A_STATE_KEY, body: { value: compareSessionA } }); }, [compareSessionA, saveState]);
   React.useEffect(() => { saveState({ key: NAV_COMPARE_B_STATE_KEY, body: { value: compareSessionB } }); }, [compareSessionB, saveState]);
+  const navParsedPatterns = React.useMemo(() => {
+    if (!navUrlPatterns.trim()) return [] as { pattern: RegExp; label: string }[];
+    return navUrlPatterns.split(',').flatMap((entry): { pattern: RegExp; label: string }[] => {
+      const colonIdx = entry.lastIndexOf(':');
+      if (colonIdx < 0) return [];
+      const pat = entry.slice(0, colonIdx).trim();
+      const lbl = entry.slice(colonIdx + 1).trim();
+      if (!pat || !lbl) return [];
+      try { return [{ pattern: new RegExp('^' + pat.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i'), label: lbl }]; }
+      catch { return []; }
+    });
+  }, [navUrlPatterns]);
 
   // === Navigation Flow Time-Lapse — driven by the global TimelapseContext ===
   const tl = useTimelapse();
@@ -17429,6 +17448,25 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const paths = Array.from(transitionAgg.values())
     .map((t) => ({ step1: t.step1, step2: t.step2, occurrences: t.occurrences, avg_depth: t.depthN > 0 ? t.depthSum / t.depthN : 0 }))
     .sort((a, b) => b.occurrences - a.occurrences);
+  // Build display-filtered paths for graph rendering. `paths` stays unfiltered for conv probability computation.
+  const applyNavPattern = (name: string): string => { for (const { pattern, label } of navParsedPatterns) { if (pattern.test(name)) return label; } return name; };
+  let navDisplayPaths: typeof paths = navParsedPatterns.length > 0 ? (() => {
+    const agg = new Map<string, { step1: string; step2: string; occurrences: number; avg_depth: number }>();
+    paths.forEach(p => {
+      const s = applyNavPattern(p.step1); const t = applyNavPattern(p.step2);
+      if (s === t) return;
+      const k = `${s} ${t}`; const cur = agg.get(k) ?? { step1: s, step2: t, occurrences: 0, avg_depth: 0 };
+      cur.occurrences += p.occurrences; agg.set(k, cur);
+    });
+    return Array.from(agg.values()).sort((a, b) => b.occurrences - a.occurrences);
+  })() : paths;
+  if (navMinEdgeThreshold > 1) navDisplayPaths = navDisplayPaths.filter(p => p.occurrences >= navMinEdgeThreshold);
+  if (navPageFilter.length > 0) {
+    const fs = new Set(navPageFilter); const exp = new Set<string>(navPageFilter);
+    navDisplayPaths.forEach(p => { if (fs.has(p.step1) || fs.has(p.step2)) { exp.add(p.step1); exp.add(p.step2); } });
+    navDisplayPaths = navDisplayPaths.filter(p => exp.has(p.step1) && exp.has(p.step2));
+  }
+  const allNavPageOptions = (() => { const s = new Set<string>(); paths.forEach(p => { s.add(p.step1); s.add(p.step2); }); return Array.from(s).sort((a, b) => a.localeCompare(b)); })();
   const totalTransitions = paths.reduce((a: number, p: any) => a + Number(p.occurrences ?? 0), 0);
   const uniquePaths = paths.length;
   const avgDepth = sessionPaths.length > 0 ? sessionPaths.reduce((a, s) => a + s.pathLen, 0) / sessionPaths.length : 0;
@@ -17946,6 +17984,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
       allBeServices.forEach((s) => beServiceMap.set(s.id, s));
     }
   }
+  const allNavServiceNames = allBeServices.map(s => s.name).sort((a, b) => a.localeCompare(b));
   const edgeReqById = new Map<string, number>();
   allBeServices.forEach((s) => edgeReqById.set(s.id, 0));
   for (const e of s2sEdges) {
@@ -18106,11 +18145,20 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
       : (scopedAcrossTiers.length > 0 ? scopedAcrossTiers : backendVisibleByDepth.filter(s => s.depth === 1)))
     : backendVisibleByDepth);
   const beServices = (() => {
-    if (strictSessionMode) return tierScopedServices.slice(0, 1000);
-    const withReq = tierScopedServices.filter(s => serviceReqById(s.id, s.name) > 0);
-    // Fallback: envs that don't populate RUM peer.service.name will strip all services here.
-    // Show the tier-scoped Smartscape topology so the diagram isn't empty.
-    return (withReq.length > 0 ? withReq : tierScopedServices).slice(0, 1000);
+    let services: typeof tierScopedServices;
+    if (strictSessionMode) services = tierScopedServices.slice(0, 1000);
+    else {
+      const withReq = tierScopedServices.filter(s => serviceReqById(s.id, s.name) > 0);
+      // Fallback: envs that don't populate RUM peer.service.name will strip all services here.
+      // Show the tier-scoped Smartscape topology so the diagram isn't empty.
+      services = (withReq.length > 0 ? withReq : tierScopedServices).slice(0, 1000);
+    }
+    if (navServiceFilter.length > 0) {
+      const fl = navServiceFilter.map(f => f.toLowerCase());
+      const flt = services.filter(s => fl.some(f => s.name.toLowerCase().includes(f)));
+      if (flt.length > 0) services = flt;
+    }
+    return services;
   })();
   const db1All = allBeServices.filter(s => norm(s.name).includes("db1"));
   const db1Shown = beServices.filter(s => norm(s.name).includes("db1"));
@@ -18236,6 +18284,79 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
           <Text style={{ fontSize: 11, opacity: 0.55, marginTop: 4, display: "block" }}>
             Backend scope fallback: no exact scoped service-name matches found, showing tier-1 backend services.
           </Text>
+        )}
+      </div>
+
+      {/* Graph View Filters */}
+      <div className="uj-table-tile" style={{ padding: 12 }}>
+        <Text style={{ fontSize: 12, fontWeight: 700, marginBottom: 10, display: "block" }}>Graph View Filters</Text>
+        <Flex alignItems="flex-end" gap={12} flexWrap="wrap">
+          <div style={{ minWidth: 280, flex: 1 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Page Filter ({navPageFilter.length === 0 ? "all" : `${navPageFilter.length} selected`})</Text>
+            <Select value={navPageFilter.length > 0 ? navPageFilter[0] : "__pg_none__"} onChange={(val) => { if (val === "__pg_none__") { setNavPageFilter([]); return; } const v = String(val ?? ""); setNavPageFilter(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]); setNavFocusNode(null); }}>
+              <Select.Trigger />
+              <Select.Content style={{ minWidth: 360, maxWidth: 500 }}>
+                <Select.Filter />
+                <Select.Option value="__pg_none__">All pages (no filter)</Select.Option>
+                {allNavPageOptions.map(p => (<Select.Option key={p} value={p}>{navPageFilter.includes(p) ? `✓ ${p}` : p}</Select.Option>))}
+              </Select.Content>
+            </Select>
+            {navPageFilter.length > 0 && (
+              <Flex gap={4} style={{ marginTop: 6, flexWrap: "wrap" }}>
+                {navPageFilter.map(p => (<span key={p} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: `${BLUE}22`, border: `1px solid ${BLUE}55`, color: BLUE, cursor: "pointer" }} onClick={() => setNavPageFilter(prev => prev.filter(x => x !== p))}>{p.length > 30 ? p.slice(0, 28) + "…" : p} ×</span>))}
+              </Flex>
+            )}
+          </div>
+          <div style={{ minWidth: 280, flex: 1 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Service Filter ({navServiceFilter.length === 0 ? "all" : `${navServiceFilter.length} selected`})</Text>
+            <Select value={navServiceFilter.length > 0 ? navServiceFilter[0] : "__svc_none__"} onChange={(val) => { if (val === "__svc_none__") { setNavServiceFilter([]); return; } const v = String(val ?? ""); setNavServiceFilter(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]); }}>
+              <Select.Trigger />
+              <Select.Content style={{ minWidth: 360, maxWidth: 500 }}>
+                <Select.Filter />
+                <Select.Option value="__svc_none__">All services (no filter)</Select.Option>
+                {allNavServiceNames.map(n => (<Select.Option key={n} value={n}>{navServiceFilter.includes(n) ? `✓ ${n}` : n}</Select.Option>))}
+              </Select.Content>
+            </Select>
+            {navServiceFilter.length > 0 && (
+              <Flex gap={4} style={{ marginTop: 6, flexWrap: "wrap" }}>
+                {navServiceFilter.map(n => (<span key={n} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: `${PURPLE}22`, border: `1px solid ${PURPLE}55`, color: PURPLE, cursor: "pointer" }} onClick={() => setNavServiceFilter(prev => prev.filter(x => x !== n))}>{n.length > 30 ? n.slice(0, 28) + "…" : n} ×</span>))}
+              </Flex>
+            )}
+          </div>
+          <div style={{ minWidth: 220 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Min Edge Sessions: {navMinEdgeThreshold === 1 ? "1 (off)" : navMinEdgeThreshold}</Text>
+            <Flex alignItems="center" gap={8}>
+              <input type="range" min={1} max={500} step={1} value={navMinEdgeThreshold} onChange={e => setNavMinEdgeThreshold(Number(e.target.value))} style={{ flex: 1, cursor: "pointer" }} />
+              <Text style={{ fontSize: 11, minWidth: 35 }}>{navMinEdgeThreshold}</Text>
+            </Flex>
+          </div>
+          <div style={{ minWidth: 200 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Top N Pages</Text>
+            <Flex gap={4}>
+              {([0, 10, 25, 50] as number[]).map(n => (<Button key={n} variant="default" onClick={() => setNavTopNPages(n)} style={{ height: 28, fontSize: 11, padding: "0 8px", borderColor: navTopNPages === n ? BLUE : undefined, background: navTopNPages === n ? `${BLUE}20` : undefined }}>{n === 0 ? "All" : `Top ${n}`}</Button>))}
+            </Flex>
+          </div>
+          <div style={{ minWidth: 200 }}>
+            <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>Focus Mode {navFocusMode && navFocusNode ? `— ${navFocusNode.length > 16 ? navFocusNode.slice(0, 15) + "…" : navFocusNode}` : ""}</Text>
+            <Flex gap={6} alignItems="center">
+              <Button variant="default" onClick={() => { setNavFocusMode(f => !f); if (navFocusMode) setNavFocusNode(null); }} style={{ height: 28, fontSize: 11, borderColor: navFocusMode ? CYAN : undefined, background: navFocusMode ? `${CYAN}20` : undefined }}>{navFocusMode ? "Focus ON — click node" : "Focus OFF"}</Button>
+              {navFocusNode && <Button variant="default" onClick={() => setNavFocusNode(null)} style={{ height: 28, fontSize: 11 }}>Clear</Button>}
+            </Flex>
+          </div>
+        </Flex>
+        <div style={{ marginTop: 10 }}>
+          <Text style={{ fontSize: 11, opacity: 0.5, marginBottom: 4, display: "block" }}>URL Pattern Groups — collapse pages into groups (e.g. /product/*:Products, /order/*:Orders)</Text>
+          <Flex gap={8} alignItems="center">
+            <input type="text" value={navUrlPatterns} onChange={e => setNavUrlPatterns(e.target.value)} placeholder="/product/*:Products, /order/*:Orders" style={{ flex: 1, height: 30, padding: "0 8px", fontSize: 12, borderRadius: 4, border: "1px solid rgba(255,255,255,0.2)", background: "rgba(0,0,0,0.3)", color: "inherit" }} />
+            {navUrlPatterns && <Button variant="default" onClick={() => setNavUrlPatterns("")} style={{ height: 30, fontSize: 11 }}>Clear</Button>}
+            {navParsedPatterns.length > 0 && <Text style={{ fontSize: 11, color: GREEN }}>{navParsedPatterns.length} pattern{navParsedPatterns.length !== 1 ? "s" : ""} active</Text>}
+          </Flex>
+        </div>
+        {(navPageFilter.length > 0 || navServiceFilter.length > 0 || navMinEdgeThreshold > 1 || navTopNPages > 0 || navFocusMode || !!navUrlPatterns) && (
+          <Flex alignItems="center" gap={8} style={{ marginTop: 8 }}>
+            <Text style={{ fontSize: 11, opacity: 0.55 }}>Active:{navPageFilter.length > 0 ? ` pages(${navPageFilter.length})` : ""}{navServiceFilter.length > 0 ? ` services(${navServiceFilter.length})` : ""}{navMinEdgeThreshold > 1 ? ` min-edge(${navMinEdgeThreshold})` : ""}{navTopNPages > 0 ? ` top-${navTopNPages}` : ""}{navFocusMode ? " focus-mode" : ""}{navUrlPatterns ? " url-patterns" : ""}</Text>
+            <Button variant="default" onClick={() => { setNavPageFilter([]); setNavServiceFilter([]); setNavMinEdgeThreshold(1); setNavTopNPages(0); setNavFocusMode(false); setNavFocusNode(null); setNavUrlPatterns(""); }} style={{ height: 26, fontSize: 11 }}>Clear All Graph Filters</Button>
+          </Flex>
         )}
       </div>
 
@@ -18415,7 +18536,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
           {(() => {
             // Build layered graph for Sankey visualization — show ALL pages
             const allPages = new Set<string>();
-            paths.forEach((p: any) => { allPages.add(String(p.step1 ?? "")); allPages.add(String(p.step2 ?? "")); });
+            navDisplayPaths.forEach((p: any) => { allPages.add(String(p.step1 ?? "")); allPages.add(String(p.step2 ?? "")); });
             allPages.delete("");
 
             // Assign layers based on funnel step order
@@ -18432,7 +18553,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
               for (const page of allPages) {
                 if (pageLayer.has(page)) continue;
                 const srcLayers: number[] = []; const tgtLayers: number[] = [];
-                paths.forEach((p: any) => {
+                navDisplayPaths.forEach((p: any) => {
                   if (String(p.step2) === page && pageLayer.has(String(p.step1))) srcLayers.push(pageLayer.get(String(p.step1))!);
                   if (String(p.step1) === page && pageLayer.has(String(p.step2))) tgtLayers.push(pageLayer.get(String(p.step2))!);
                 });
@@ -18454,12 +18575,39 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             // Group pages by layer, sort by traffic volume
             const layerPages = new Map<number, { name: string; volume: number }[]>();
             for (const [page, layer] of pageLayer) {
-              const vol = paths.reduce((a: number, p: any) => a + (String(p.step1) === page || String(p.step2) === page ? Number(p.occurrences ?? 0) : 0), 0);
+              const vol = navDisplayPaths.reduce((a: number, p: any) => a + (String(p.step1) === page || String(p.step2) === page ? Number(p.occurrences ?? 0) : 0), 0);
               const arr = layerPages.get(layer) ?? [];
               arr.push({ name: page, volume: vol });
               layerPages.set(layer, arr);
             }
             for (const [, arr] of layerPages) arr.sort((a, b) => b.volume - a.volume);
+
+            // Top-N pages filter: keep only the N highest-volume pages across all layers
+            if (navTopNPages > 0) {
+              const allByVol = Array.from(layerPages.values()).flat()
+                .sort((a, b) => b.volume - a.volume)
+                .slice(0, navTopNPages)
+                .map(p => p.name);
+              const topSet = new Set(allByVol);
+              for (const [l, arr] of layerPages) {
+                const f = arr.filter(p => topSet.has(p.name));
+                if (f.length > 0) layerPages.set(l, f); else layerPages.delete(l);
+              }
+              for (const page of allPages) { if (!topSet.has(page)) allPages.delete(page); }
+            }
+            // Focus mode: only show navFocusNode and its direct neighbors (1 hop)
+            if (navFocusMode && navFocusNode) {
+              const nb = new Set<string>([navFocusNode]);
+              navDisplayPaths.forEach((p: any) => {
+                if (String(p.step1) === navFocusNode) nb.add(String(p.step2));
+                if (String(p.step2) === navFocusNode) nb.add(String(p.step1));
+              });
+              for (const [l, arr] of layerPages) {
+                const f = arr.filter(p => nb.has(p.name));
+                if (f.length > 0) layerPages.set(l, f); else layerPages.delete(l);
+              }
+              for (const page of allPages) { if (!nb.has(page)) allPages.delete(page); }
+            }
 
             // Per-column cap: funnel step always on top, top 4 non-funnel by volume, 6th slot = rollup picker
             const MAX_NON_FUNNEL = 4;
@@ -18538,7 +18686,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
             // Build links (between visible nodes — forward and same-layer)
             const links: { src: string; tgt: string; value: number }[] = [];
             const allowBackwardFrontendLinks = hasSessionScope;
-            paths.forEach((p: any) => {
+            navDisplayPaths.forEach((p: any) => {
               const s = String(p.step1 ?? ""); const t = String(p.step2 ?? ""); const v = Number(p.occurrences ?? 0);
               if (visiblePages.has(s) && visiblePages.has(t) && s !== t) {
                 const sl = pageLayer.get(s) ?? 0; const tl = pageLayer.get(t) ?? 0;
@@ -19111,7 +19259,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       <g key={name}
                         style={{ opacity: nodeOpacity, transition: draggingNode === name ? "none" : "opacity 0.2s", cursor: draggingNode === name ? "grabbing" : "grab" }}
                         onMouseDown={(e) => { e.stopPropagation(); setDraggingNode(name); setDragStart({ mx: e.clientX, my: e.clientY, nx: pos.x, ny: pos.y }); setWasDragging(false); }}
-                        onClick={(e) => { e.stopPropagation(); if (!wasDragging) setActiveTooltip(prev => prev === `page:${name}` ? null : `page:${name}`); }}
+                        onClick={(e) => { e.stopPropagation(); if (!wasDragging) { setActiveTooltip(prev => prev === `page:${name}` ? null : `page:${name}`); if (navFocusMode) setNavFocusNode(prev => prev === name ? null : name); } }}
                       >
                         <defs><clipPath id={clipId}><rect x={pos.x + 8} y={pos.y - 2} width={nodeW - 16} height={pos.h + 4} /></clipPath></defs>
                         {/* TL halo — additive overlay, keeps tier color intact */}
@@ -19355,7 +19503,7 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
                       }
                       ttTitle = pname.length > 40 ? pname.substring(0, 38) + "…" : pname;
                       ttSub = meta.label; ttColor = meta.color;
-                      const vol = paths.reduce((a: number, p: any) => a + (String(p.step1) === pname || String(p.step2) === pname ? Number(p.occurrences ?? 0) : 0), 0);
+                      const vol = navDisplayPaths.reduce((a: number, p: any) => a + (String(p.step1) === pname || String(p.step2) === pname ? Number(p.occurrences ?? 0) : 0), 0);
                       ttSessions = vol;
                       ttThroughput = Math.max(1, Math.round(vol / 24));
                       const pHash = hashStr(pname);
