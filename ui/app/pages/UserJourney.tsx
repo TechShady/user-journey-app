@@ -102,7 +102,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.1";
+const APP_VERSION_LABEL = "4.77.2";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1388,13 +1388,15 @@ function cwvQuery(days: number, frontend: string, steps: StepDef[]): string {
     cls_val = toDouble(web_vitals.cumulative_layout_shift),
     inp_ms  = toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0,
     ttfb_ms = toDouble(web_vitals.time_to_first_byte)         / 1000000.0,
-    load_ms = toDouble(web_vitals.first_contentful_paint)     / 1000000.0
+    load_ms = toDouble(web_vitals.first_contentful_paint)     / 1000000.0,
+    dur_ms  = toDouble(duration)                              / 1000000.0
 | summarize
     lcp_avg  = avg(lcp_ms),
     cls_avg  = avg(cls_val),
     inp_avg  = avg(inp_ms),
     ttfb_avg = avg(ttfb_ms),
-    load_avg = avg(load_ms)`;
+    load_avg = avg(load_ms),
+    dur_avg  = avg(dur_ms)`;
 }
 
 function cwvByPageQuery(days: number, frontend: string, steps: StepDef[]): string {
@@ -1410,12 +1412,14 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[]): strin
     cls_val = toDouble(web_vitals.cumulative_layout_shift),
     inp_ms  = toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0,
     ttfb_ms = toDouble(web_vitals.time_to_first_byte)         / 1000000.0,
-    fcp_ms  = toDouble(web_vitals.first_contentful_paint)     / 1000000.0
+    fcp_ms  = toDouble(web_vitals.first_contentful_paint)     / 1000000.0,
+    dur_ms  = toDouble(duration)                              / 1000000.0
 | summarize
     lcp_avg  = avg(lcp_ms),
     cls_avg  = avg(cls_val),
     inp_avg  = avg(inp_ms),
     ttfb_avg = avg(ttfb_ms),
+    dur_avg  = avg(dur_ms),
     load_avg = avg(fcp_ms),
     by: {pageName}
 | sort lcp_avg desc
@@ -3739,8 +3743,8 @@ function ComparisonSplitFunnel({ steps, prevSteps, aov }: { steps: FunnelStep[];
       {/* Center axis */}
       <line x1={cx} y1={5} x2={cx} y2={H - 5} stroke="rgba(128,128,128,0.15)" strokeWidth={1} />
       {/* Headers */}
-      <text x={cx - maxBarW / 2} y={10} textAnchor="middle" fill={BLUE} fontSize={11} fontWeight={700}>Current Period</text>
-      <text x={cx + maxBarW / 2} y={10} textAnchor="middle" fill="rgba(128,128,128,0.6)" fontSize={11} fontWeight={700}>Previous Period</text>
+      <text x={cx - maxBarW / 2} y={10} textAnchor="middle" fill="rgba(128,128,128,0.6)" fontSize={11} fontWeight={700}>Previous Period</text>
+      <text x={cx + maxBarW / 2} y={10} textAnchor="middle" fill={BLUE} fontSize={11} fontWeight={700}>Current Period</text>
       {steps.map((step, i) => {
         const y = i * (stepH + gap) + 20;
         const w = Math.max(6, (step.count / maxCount) * maxBarW);
@@ -3757,10 +3761,10 @@ function ComparisonSplitFunnel({ steps, prevSteps, aov }: { steps: FunnelStep[];
 
         return (
           <g key={i} className="uj-funnel-segment" style={{ animationDelay: `${stagger}ms` }}>
-            {/* Current (left side) */}
-            <path d={segPath(w, nw, "left", y)} fill={color} fillOpacity={0.3} stroke={color} strokeWidth={1} strokeOpacity={0.5} />
-            {/* Previous (right side) */}
-            <path d={segPath(pw, pnw, "right", y)} fill={prevColor} fillOpacity={0.15} stroke={prevColor} strokeWidth={1} strokeOpacity={0.3} />
+            {/* Previous (left side) */}
+            <path d={segPath(pw, pnw, "left", y)} fill={prevColor} fillOpacity={0.15} stroke={prevColor} strokeWidth={1} strokeOpacity={0.3} />
+            {/* Current (right side) */}
+            <path d={segPath(w, nw, "right", y)} fill={color} fillOpacity={0.3} stroke={color} strokeWidth={1} strokeOpacity={0.5} />
             {/* Step label (center) */}
             <text x={cx} y={y + stepH / 2 - 6} textAnchor="middle" fill="rgba(255,255,255,0.9)" fontSize={12} fontWeight={700}>{step.label}</text>
             {/* Delta indicator */}
@@ -3769,18 +3773,18 @@ function ComparisonSplitFunnel({ steps, prevSteps, aov }: { steps: FunnelStep[];
                 {countDelta >= 0 ? "▲" : "▼"} {Math.abs(deltaPct).toFixed(1)}%
               </text>
             )}
-            {/* Left count */}
-            <CountUpText value={step.count} delay={stagger + 100} x={cx - w / 2} y={y + stepH / 2 + 4} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={11} />
-            {/* Right count */}
-            <text x={cx + pw / 2} y={y + stepH / 2 + 4} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={11}>{fmtCount(prevSteps[i].count)}</text>
+            {/* Left count (previous) */}
+            <text x={cx - pw / 2} y={y + stepH / 2 + 4} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={11}>{fmtCount(prevSteps[i].count)}</text>
+            {/* Right count (current) */}
+            <CountUpText value={step.count} delay={stagger + 100} x={cx + w / 2} y={y + stepH / 2 + 4} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={11} />
           </g>
         );
       })}
       {/* Legend */}
-      <rect x={10} y={H - 14} width={10} height={10} rx={2} fill={BLUE} fillOpacity={0.4} />
-      <text x={24} y={H - 5} fill="rgba(255,255,255,0.5)" fontSize={9}>Current</text>
-      <rect x={80} y={H - 14} width={10} height={10} rx={2} fill="rgba(128,128,128,0.4)" />
-      <text x={94} y={H - 5} fill="rgba(255,255,255,0.5)" fontSize={9}>Previous</text>
+      <rect x={10} y={H - 14} width={10} height={10} rx={2} fill="rgba(128,128,128,0.4)" />
+      <text x={24} y={H - 5} fill="rgba(255,255,255,0.5)" fontSize={9}>Previous</text>
+      <rect x={80} y={H - 14} width={10} height={10} rx={2} fill={BLUE} fillOpacity={0.4} />
+      <text x={94} y={H - 5} fill="rgba(255,255,255,0.5)" fontSize={9}>Current</text>
     </svg>
   );
 }
@@ -6224,8 +6228,8 @@ export function UserJourney() {
   // Parse CWV
   const cwv = useMemo(() => {
     const r = cwvResult.data?.records?.[0] as any;
-    if (!r) return { lcp: 0, cls: 0, inp: 0, ttfb: 0, load: 0 };
-    return { lcp: Number(r.lcp_avg ?? 0), cls: Number(r.cls_avg ?? 0), inp: Number(r.inp_avg ?? 0), ttfb: Number(r.ttfb_avg ?? 0), load: Number(r.load_avg ?? 0) };
+    if (!r) return { lcp: 0, cls: 0, inp: 0, ttfb: 0, load: 0, duration: 0 };
+    return { lcp: Number(r.lcp_avg ?? 0), cls: Number(r.cls_avg ?? 0), inp: Number(r.inp_avg ?? 0), ttfb: Number(r.ttfb_avg ?? 0), load: Number(r.load_avg ?? 0), duration: Number(r.dur_avg ?? 0) };
   }, [cwvResult.data]);
 
   // Parse quality (current + prev)
@@ -14325,7 +14329,7 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
 // ===========================================================================
 // TAB: Web Vitals
 // ===========================================================================
-function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onDrillToForecast }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; cwvByPage: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
+function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onDrillToForecast }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWebVitals(v), [v]));
   const tl = useTimelapse();
   if (isLoading) return <Loading />;
@@ -14334,11 +14338,12 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
   // for the current bucket are available. Falls back to aggregate `v` otherwise.
   const tlShared = tl.enabled ? tl.sharedMetrics : null;
   const effV = tlShared ? {
-    lcp:  tlShared.lcp  != null ? tlShared.lcp  : v.lcp,
-    cls:  tlShared.cls  != null ? tlShared.cls  : v.cls,
-    inp:  tlShared.inp  != null ? tlShared.inp  : v.inp,
-    ttfb: tlShared.ttfb != null ? tlShared.ttfb : v.ttfb,
-    load: tlShared.loadMs != null ? tlShared.loadMs : v.load,
+    lcp:      tlShared.lcp    != null ? tlShared.lcp    : v.lcp,
+    cls:      tlShared.cls    != null ? tlShared.cls    : v.cls,
+    inp:      tlShared.inp    != null ? tlShared.inp    : v.inp,
+    ttfb:     tlShared.ttfb   != null ? tlShared.ttfb   : v.ttfb,
+    load:     tlShared.loadMs != null ? tlShared.loadMs : v.load,
+    duration: v.duration,
   } : v;
 
   const pages = (cwvByPage.data?.records ?? []) as any[];
@@ -14409,6 +14414,7 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
       {aiPanel}
       <Flex gap={16} flexWrap="wrap" alignItems="center">
         <KpiCard label={tlShared ? "Performance Health (bucket)" : "Performance Health"} value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label="Duration" value={fmt(effV.duration)} color={effV.duration > 5000 ? RED : effV.duration > 2000 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} />
         <KpiCard label={tlShared ? "Load Event End (bucket)" : "Load Event End"} value={fmt(effV.load)} color={effV.load > 3000 ? RED : effV.load > 1500 ? YELLOW : GREEN} rawValue={effV.load} prevRawValue={syntheticPrev(effV.load, "Load Event End")} sparkline={syntheticSparkline(effV.load, 8, "Load Event End")} inverted onDrillToForecast={onDrillToForecast} />
         <KpiCard label={tlShared ? "Failing Vitals (bucket)" : "Failing Vitals"} value={`${remediations.length}/4`} color={remediations.length > 2 ? RED : remediations.length > 0 ? YELLOW : GREEN} rawValue={remediations.length} prevRawValue={syntheticPrev(remediations.length, "Failing Vitals")} inverted sparkline={syntheticSparkline(remediations.length, 8, "Failing Vitals")} onDrillToForecast={onDrillToForecast} />
       </Flex>
@@ -14535,12 +14541,14 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
       <SectionHeader title="Web Vitals by Page" />
       <div className="uj-table-tile">
         {pages.length === 0 ? <div style={{ padding: 20 }}><Text>No per-page data available</Text></div> : (
-          <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ Page: p["pageName"] ?? "Unknown", "LCP (ms)": Number(p.lcp_avg ?? 0), CLS: Number(p.cls_avg ?? 0), "TTFB (ms)": Number(p.ttfb_avg ?? 0), "Load (ms)": Number(p.load_avg ?? 0) }))}
+          <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ Page: p["pageName"] ?? "Unknown", "LCP (ms)": Number(p.lcp_avg ?? 0), CLS: Number(p.cls_avg ?? 0), "INP (ms)": Number(p.inp_avg ?? 0), "TTFB (ms)": Number(p.ttfb_avg ?? 0), "Duration (ms)": Number(p.dur_avg ?? 0), "Load (ms)": Number(p.load_avg ?? 0) }))}
             columns={[
               { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrl(appEntityId, value)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> },
               { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "lcp") }}>{fmt(value)}</Strong> },
               { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "cls") }}>{value.toFixed(3)}</Strong> },
+              { id: "INP (ms)", header: "INP", accessor: "INP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "inp") }}>{fmt(value)}</Strong> },
               { id: "TTFB (ms)", header: "TTFB", accessor: "TTFB (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "ttfb") }}>{fmt(value)}</Strong> },
+              { id: "Duration (ms)", header: "Duration", accessor: "Duration (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
               { id: "Load (ms)", header: "Load End", accessor: "Load (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
             ]}
           />
