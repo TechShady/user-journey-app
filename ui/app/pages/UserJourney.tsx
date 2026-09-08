@@ -102,7 +102,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.3";
+const APP_VERSION_LABEL = "4.77.4";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1373,15 +1373,26 @@ fetch user.events, ${period}
     by: {${field}}`;
 }
 
-function cwvQuery(days: number, frontend: string, steps: StepDef[]): string {
+type CwvMode = "actions" | "pages" | "views";
+function cwvModeFilter(mode: CwvMode): string {
+  if (mode === "pages") return "characteristics.has_page_summary == true";
+  if (mode === "views") return "isNotNull(view.name) and characteristics.has_page_summary != true";
+  return "isNotNull(useraction.name)";
+}
+function cwvModeGroupField(mode: CwvMode): string {
+  if (mode === "actions") return `coalesce(useraction.name, view.name, url.path, "unknown")`;
+  if (mode === "views") return `coalesce(view.name, url.path, "unknown")`;
+  return `coalesce(view.name, page.name, url.path, "unknown")`;
+}
+
+function cwvQuery(days: number, frontend: string, steps: StepDef[], mode: CwvMode = "actions"): string {
   const period = periodClause(days);
-  // Use user actions (not page summaries) so that duration = action response time.
-  // avg() ignores nulls, so web vitals average only over load actions where they are set.
+  // avg() ignores nulls so web vitals only factor in events where they are set.
   const appName = frontend || steps[0]?.app || "";
   const appFiltClause = appName ? ` and frontend.name == "${appName}"` : "";
   return `fetch user.events, ${period}
 | filter isNotNull(frontend.name)${appFiltClause}
-| filter isNotNull(useraction.name)
+| filter ${cwvModeFilter(mode)}
 | fieldsAdd
     lcp_ms  = toDouble(web_vitals.largest_contentful_paint)  / 1000000.0,
     cls_val = toDouble(web_vitals.cumulative_layout_shift),
@@ -1398,14 +1409,14 @@ function cwvQuery(days: number, frontend: string, steps: StepDef[]): string {
     dur_avg  = avg(dur_ms)`;
 }
 
-function cwvByPageQuery(days: number, frontend: string, steps: StepDef[]): string {
+function cwvByPageQuery(days: number, frontend: string, steps: StepDef[], mode: CwvMode = "actions"): string {
   const period = periodClause(days);
   const appName = frontend || steps[0]?.app || "";
   const appFiltClause = appName ? ` and frontend.name == "${appName}"` : "";
   return `fetch user.events, ${period}
 | filter isNotNull(frontend.name)${appFiltClause}
-| filter isNotNull(useraction.name)
-| fieldsAdd pageName = coalesce(useraction.name, view.name, url.path, "unknown")
+| filter ${cwvModeFilter(mode)}
+| fieldsAdd pageName = ${cwvModeGroupField(mode)}
 | fieldsAdd
     lcp_ms  = toDouble(web_vitals.largest_contentful_paint)  / 1000000.0,
     cls_val = toDouble(web_vitals.cumulative_layout_shift),
@@ -1421,7 +1432,7 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[]): strin
     dur_avg  = avg(dur_ms),
     load_avg = avg(fcp_ms),
     by: {pageName}
-| sort dur_avg desc
+| sort ${mode === "actions" ? "dur_avg" : "lcp_avg"} desc
 | limit 20`;
 }
 
@@ -5774,8 +5785,12 @@ export function UserJourney() {
   const pageMetrics = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, refetchOpts);
   const pageMetricsPrev = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps, 1, true) : "fetch user.events | limit 0" }, refetchOpts);
   const pageSparklineData = useDql({ query: hasMultiPageSteps ? pageSparklineQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, refetchOpts);
-  const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend, steps) }, lazyOpts(["Web Vitals", "Executive Summary", "SLO Tracker"]));
-  const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays, frontend, steps) }, lazyOpts(["Web Vitals", "Step Details"]));
+  const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend, steps, "actions") }, lazyOpts(["Web Vitals", "Executive Summary", "SLO Tracker"]));
+  const cwvResultPages = useDql({ query: cwvQuery(timeframeDays, frontend, steps, "pages") }, lazyOpts(["Web Vitals"]));
+  const cwvResultViews = useDql({ query: cwvQuery(timeframeDays, frontend, steps, "views") }, lazyOpts(["Web Vitals"]));
+  const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays, frontend, steps, "actions") }, lazyOpts(["Web Vitals", "Step Details"]));
+  const cwvByPagePages = useDql({ query: cwvByPageQuery(timeframeDays, frontend, steps, "pages") }, lazyOpts(["Web Vitals"]));
+  const cwvByPageViews = useDql({ query: cwvByPageQuery(timeframeDays, frontend, steps, "views") }, lazyOpts(["Web Vitals"]));
   const deviceData = useDql({ query: deviceQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
   const browserData = useDql({ query: browserQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
   const geoData = useDql({ query: geoQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
@@ -6225,11 +6240,14 @@ export function UserJourney() {
   }, [pageSparklineData.data]);
 
   // Parse CWV
-  const cwv = useMemo(() => {
-    const r = cwvResult.data?.records?.[0] as any;
+  const parseCwvRecord = (data: any) => {
+    const r = data?.records?.[0] as any;
     if (!r) return { lcp: 0, cls: 0, inp: 0, ttfb: 0, load: 0, duration: 0 };
     return { lcp: Number(r.lcp_avg ?? 0), cls: Number(r.cls_avg ?? 0), inp: Number(r.inp_avg ?? 0), ttfb: Number(r.ttfb_avg ?? 0), load: Number(r.load_avg ?? 0), duration: Number(r.dur_avg ?? 0) };
-  }, [cwvResult.data]);
+  };
+  const cwv = useMemo(() => parseCwvRecord(cwvResult.data), [cwvResult.data]);
+  const cwvPages = useMemo(() => parseCwvRecord(cwvResultPages.data), [cwvResultPages.data]);
+  const cwvViews = useMemo(() => parseCwvRecord(cwvResultViews.data), [cwvResultViews.data]);
 
   // Parse quality (current + prev)
   const parseQuality = (result: any) => {
@@ -7307,7 +7325,7 @@ export function UserJourney() {
             case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} timeframeDays={timeframeDays} frontend={frontend} hotnessMode={hotnessMode} />; break;
             case "Funnel Analysis": content = <FunnelAnalysisTab frontend={frontend} funnels={funnels} saveFunnels={saveFunnels} saveActiveFunnelIndex={saveActiveFunnelIndex} aov={aov} onJumpToTab={(t) => setActiveSubTabKey(t)} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
-            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvByPage={cwvByPage} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} />; break;
+            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvPages={cwvPages} cwvViews={cwvViews} cwvByPage={cwvByPage} cwvByPagePages={cwvByPagePages} cwvByPageViews={cwvByPageViews} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} stepQuery={stepMetricsQuery(timeframeDays, frontend, steps)} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} onDrillToForecast={openForecast} />; break;
             case "Exceptions": content = <JSErrorsTab data={jsErrorsData} prevData={jsErrorsPrevData} isLoading={jsErrorsData.isLoading} frontend={frontend} onDrillToForecast={openForecast} />; break;
@@ -14328,7 +14346,10 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
 // ===========================================================================
 // TAB: Web Vitals
 // ===========================================================================
-function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onDrillToForecast }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
+function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvByPage, cwvByPagePages, cwvByPageViews, cwvTrend, isLoading, appEntityId, onDrillToForecast }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvPages: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvViews: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvByPagePages: any; cwvByPageViews: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
+  const [cwvMode, setCwvMode] = React.useState<CwvMode>("actions");
+  const v = cwvMode === "pages" ? vPages : cwvMode === "views" ? vViews : vActions;
+  const activeByPage = cwvMode === "pages" ? cwvByPagePages : cwvMode === "views" ? cwvByPageViews : cwvByPage;
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWebVitals(v), [v]));
   const tl = useTimelapse();
   if (isLoading) return <Loading />;
@@ -14345,7 +14366,7 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
     duration: v.duration,
   } : v;
 
-  const pages = (cwvByPage.data?.records ?? []) as any[];
+  const pages = (activeByPage.data?.records ?? []) as any[];
   const trendRecords = (cwvTrend?.data?.records ?? []) as any[];
   const lcpScore = effV.lcp <= CWV.lcp.good ? 100 : effV.lcp <= CWV.lcp.poor ? 50 : 0;
   const clsScore = effV.cls <= CWV.cls.good ? 100 : effV.cls <= CWV.cls.poor ? 50 : 0;
@@ -14411,6 +14432,13 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
+      <Flex gap={8}>
+        {(["actions", "pages", "views"] as CwvMode[]).map(m => (
+          <button key={m} onClick={() => setCwvMode(m)} style={{ padding: "5px 14px", borderRadius: 20, border: `1px solid ${cwvMode === m ? BLUE : "rgba(255,255,255,0.15)"}`, background: cwvMode === m ? `${BLUE}22` : "transparent", color: cwvMode === m ? BLUE : "rgba(255,255,255,0.6)", fontSize: 13, cursor: "pointer", fontWeight: cwvMode === m ? 700 : 400 }}>
+            {m === "actions" ? "User Actions" : m === "pages" ? "Pages" : "Views"}
+          </button>
+        ))}
+      </Flex>
       <Flex gap={16} flexWrap="wrap" alignItems="center">
         <KpiCard label={tlShared ? "Performance Health (bucket)" : "Performance Health"} value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} />
         <KpiCard label="Duration" value={fmt(effV.duration)} color={effV.duration > 5000 ? RED : effV.duration > 2000 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} />
@@ -14537,12 +14565,12 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
         </div>
       )}
 
-      <SectionHeader title="Web Vitals by User Action" />
+      <SectionHeader title={`Web Vitals by ${cwvMode === "actions" ? "User Action" : cwvMode === "pages" ? "Page" : "View"}`} />
       <div className="uj-table-tile">
-        {pages.length === 0 ? <div style={{ padding: 20 }}><Text>No user action data available</Text></div> : (
-          <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ "User Action": p["pageName"] ?? "Unknown", "LCP (ms)": Number(p.lcp_avg ?? 0), CLS: Number(p.cls_avg ?? 0), "INP (ms)": Number(p.inp_avg ?? 0), "TTFB (ms)": Number(p.ttfb_avg ?? 0), "Duration (ms)": Number(p.dur_avg ?? 0), "Load (ms)": Number(p.load_avg ?? 0) }))}
+        {pages.length === 0 ? <div style={{ padding: 20 }}><Text>No data available</Text></div> : (
+          <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ "Name": p["pageName"] ?? "Unknown", "LCP (ms)": Number(p.lcp_avg ?? 0), CLS: Number(p.cls_avg ?? 0), "INP (ms)": Number(p.inp_avg ?? 0), "TTFB (ms)": Number(p.ttfb_avg ?? 0), "Duration (ms)": Number(p.dur_avg ?? 0), "Load (ms)": Number(p.load_avg ?? 0) }))}
             columns={[
-              { id: "User Action", header: "User Action", accessor: "User Action", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrl(appEntityId, value)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> },
+              { id: "Name", header: cwvMode === "actions" ? "User Action" : cwvMode === "pages" ? "Page" : "View", accessor: "Name", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrl(appEntityId, value)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> },
               { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "lcp") }}>{fmt(value)}</Strong> },
               { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "cls") }}>{value.toFixed(3)}</Strong> },
               { id: "INP (ms)", header: "INP", accessor: "INP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "inp") }}>{fmt(value)}</Strong> },
