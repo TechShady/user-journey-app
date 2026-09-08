@@ -102,7 +102,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.4";
+const APP_VERSION_LABEL = "4.77.6";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -718,6 +718,13 @@ function vitalsUrl(appEntityId: string, pageName: string): string {
   const days = CURRENT_TIMEFRAME_DAYS;
   const fromStr = days <= 1 ? `now()-${Math.max(1, Math.round(days * 24))}h` : `now()-${Math.max(1, Math.round(days))}d`;
   return `${ENV_URL}/ui/apps/dynatrace.experience.vitals/performance/web/${encodeURIComponent(appEntityId)}/views/${encodeURIComponent(encoded)}?from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent("now()")}`;
+}
+function vitalsUrlForMode(appEntityId: string, name: string, mode: CwvMode): string {
+  const encoded = btoa(name);
+  const days = CURRENT_TIMEFRAME_DAYS;
+  const fromStr = days <= 1 ? `now()-${Math.max(1, Math.round(days * 24))}h` : `now()-${Math.max(1, Math.round(days))}d`;
+  const segment = mode === "actions" ? "user-actions" : mode === "pages" ? "pages" : "views";
+  return `${ENV_URL}/ui/apps/dynatrace.experience.vitals/performance/web/${encodeURIComponent(appEntityId)}/${segment}/${encodeURIComponent(encoded)}?from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent("now()")}`;
 }
 
 function errorInspectorUrl(errorId: string, frontend: string): string {
@@ -1374,39 +1381,45 @@ fetch user.events, ${period}
 }
 
 type CwvMode = "actions" | "pages" | "views";
-function cwvModeFilter(mode: CwvMode): string {
-  if (mode === "pages") return "characteristics.has_page_summary == true";
-  if (mode === "views") return "isNotNull(view.name) and characteristics.has_page_summary != true";
-  return "isNotNull(useraction.name)";
+function cwvModeCharFilter(mode: CwvMode): string {
+  if (mode === "pages") return "characteristics.has_page_summary or characteristics.has_w3c_navigation_timings";
+  if (mode === "views") return "characteristics.has_view_summary or characteristics.has_w3c_navigation_timings";
+  return "characteristics.has_user_action == true";
+}
+function cwvModeNameFilter(mode: CwvMode): string {
+  if (mode === "pages") return "isNotNull(page.name)";
+  if (mode === "views") return "isNotNull(view.name)";
+  return "isNotNull(user_action.name)";
 }
 function cwvModeGroupField(mode: CwvMode): string {
-  if (mode === "actions") return `coalesce(useraction.name, view.name, url.path, "unknown")`;
+  if (mode === "pages") return `coalesce(page.name, url.path, "unknown")`;
   if (mode === "views") return `coalesce(view.name, url.path, "unknown")`;
-  return `coalesce(view.name, page.name, url.path, "unknown")`;
+  return `coalesce(user_action.name, url.path, "unknown")`;
 }
 
 function cwvQuery(days: number, frontend: string, steps: StepDef[], mode: CwvMode = "actions"): string {
   const period = periodClause(days);
-  // avg() ignores nulls so web vitals only factor in events where they are set.
   const appName = frontend || steps[0]?.app || "";
   const appFiltClause = appName ? ` and frontend.name == "${appName}"` : "";
   return `fetch user.events, ${period}
+| filterOut dt.rum.user_type == "synthetic" or isNull(dt.rum.user_type)
 | filter isNotNull(frontend.name)${appFiltClause}
-| filter ${cwvModeFilter(mode)}
+| filter ${cwvModeCharFilter(mode)}
+| filter ${cwvModeNameFilter(mode)}
 | fieldsAdd
     lcp_ms  = toDouble(web_vitals.largest_contentful_paint)  / 1000000.0,
     cls_val = toDouble(web_vitals.cumulative_layout_shift),
     inp_ms  = toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0,
     ttfb_ms = toDouble(web_vitals.time_to_first_byte)         / 1000000.0,
-    load_ms = toDouble(web_vitals.first_contentful_paint)     / 1000000.0,
+    load_ms = toDouble(performance.load_event_end)            / 1000000.0,
     dur_ms  = toDouble(duration)                              / 1000000.0
 | summarize
-    lcp_avg  = avg(lcp_ms),
-    cls_avg  = avg(cls_val),
-    inp_avg  = avg(inp_ms),
-    ttfb_avg = avg(ttfb_ms),
-    load_avg = avg(load_ms),
-    dur_avg  = avg(dur_ms)`;
+    lcp_avg  = percentile(lcp_ms,  75),
+    cls_avg  = percentile(cls_val, 75),
+    inp_avg  = percentile(inp_ms,  75),
+    ttfb_avg = percentile(ttfb_ms, 75),
+    load_avg = percentile(load_ms, 75),
+    dur_avg  = percentile(dur_ms,  75)`;
 }
 
 function cwvByPageQuery(days: number, frontend: string, steps: StepDef[], mode: CwvMode = "actions"): string {
@@ -1414,23 +1427,25 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[], mode: 
   const appName = frontend || steps[0]?.app || "";
   const appFiltClause = appName ? ` and frontend.name == "${appName}"` : "";
   return `fetch user.events, ${period}
+| filterOut dt.rum.user_type == "synthetic" or isNull(dt.rum.user_type)
 | filter isNotNull(frontend.name)${appFiltClause}
-| filter ${cwvModeFilter(mode)}
+| filter ${cwvModeCharFilter(mode)}
+| filter ${cwvModeNameFilter(mode)}
 | fieldsAdd pageName = ${cwvModeGroupField(mode)}
 | fieldsAdd
     lcp_ms  = toDouble(web_vitals.largest_contentful_paint)  / 1000000.0,
     cls_val = toDouble(web_vitals.cumulative_layout_shift),
     inp_ms  = toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0,
     ttfb_ms = toDouble(web_vitals.time_to_first_byte)         / 1000000.0,
-    fcp_ms  = toDouble(web_vitals.first_contentful_paint)     / 1000000.0,
+    load_ms = toDouble(performance.load_event_end)            / 1000000.0,
     dur_ms  = toDouble(duration)                              / 1000000.0
 | summarize
-    lcp_avg  = avg(lcp_ms),
-    cls_avg  = avg(cls_val),
-    inp_avg  = avg(inp_ms),
-    ttfb_avg = avg(ttfb_ms),
-    dur_avg  = avg(dur_ms),
-    load_avg = avg(fcp_ms),
+    lcp_avg  = percentile(lcp_ms,  75),
+    cls_avg  = percentile(cls_val, 75),
+    inp_avg  = percentile(inp_ms,  75),
+    ttfb_avg = percentile(ttfb_ms, 75),
+    dur_avg  = percentile(dur_ms,  75),
+    load_avg = percentile(load_ms, 75),
     by: {pageName}
 | sort ${mode === "actions" ? "dur_avg" : "lcp_avg"} desc
 | limit 20`;
@@ -14570,7 +14585,7 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
         {pages.length === 0 ? <div style={{ padding: 20 }}><Text>No data available</Text></div> : (
           <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ "Name": p["pageName"] ?? "Unknown", "LCP (ms)": Number(p.lcp_avg ?? 0), CLS: Number(p.cls_avg ?? 0), "INP (ms)": Number(p.inp_avg ?? 0), "TTFB (ms)": Number(p.ttfb_avg ?? 0), "Duration (ms)": Number(p.dur_avg ?? 0), "Load (ms)": Number(p.load_avg ?? 0) }))}
             columns={[
-              { id: "Name", header: cwvMode === "actions" ? "User Action" : cwvMode === "pages" ? "Page" : "View", accessor: "Name", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrl(appEntityId, value)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> },
+              { id: "Name", header: cwvMode === "actions" ? "User Action" : cwvMode === "pages" ? "Page" : "View", accessor: "Name", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrlForMode(appEntityId, value, cwvMode)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> },
               { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "lcp") }}>{fmt(value)}</Strong> },
               { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "cls") }}>{value.toFixed(3)}</Strong> },
               { id: "INP (ms)", header: "INP", accessor: "INP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "inp") }}>{fmt(value)}</Strong> },
