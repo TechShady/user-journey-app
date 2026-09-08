@@ -102,7 +102,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.2";
+const APP_VERSION_LABEL = "4.77.3";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1375,14 +1375,13 @@ fetch user.events, ${period}
 
 function cwvQuery(days: number, frontend: string, steps: StepDef[]): string {
   const period = periodClause(days);
-  // Mirror sloCwvTrendQuery which works: filter by frontend.name, use has_page_summary,
-  // and plain toDouble() (no if(isNotNull()) guards). steps[0].app may not match
-  // frontend.name format in user.events, so prefer the global frontend setting.
+  // Use user actions (not page summaries) so that duration = action response time.
+  // avg() ignores nulls, so web vitals average only over load actions where they are set.
   const appName = frontend || steps[0]?.app || "";
   const appFiltClause = appName ? ` and frontend.name == "${appName}"` : "";
   return `fetch user.events, ${period}
 | filter isNotNull(frontend.name)${appFiltClause}
-| filter characteristics.has_page_summary == true
+| filter isNotNull(useraction.name)
 | fieldsAdd
     lcp_ms  = toDouble(web_vitals.largest_contentful_paint)  / 1000000.0,
     cls_val = toDouble(web_vitals.cumulative_layout_shift),
@@ -1405,8 +1404,8 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[]): strin
   const appFiltClause = appName ? ` and frontend.name == "${appName}"` : "";
   return `fetch user.events, ${period}
 | filter isNotNull(frontend.name)${appFiltClause}
-| filter characteristics.has_page_summary == true
-| fieldsAdd pageName = coalesce(view.name, page.name, url.path, "unknown")
+| filter isNotNull(useraction.name)
+| fieldsAdd pageName = coalesce(useraction.name, view.name, url.path, "unknown")
 | fieldsAdd
     lcp_ms  = toDouble(web_vitals.largest_contentful_paint)  / 1000000.0,
     cls_val = toDouble(web_vitals.cumulative_layout_shift),
@@ -1422,7 +1421,7 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[]): strin
     dur_avg  = avg(dur_ms),
     load_avg = avg(fcp_ms),
     by: {pageName}
-| sort lcp_avg desc
+| sort dur_avg desc
 | limit 20`;
 }
 
@@ -14538,12 +14537,12 @@ function WebVitalsTab({ cwv: v, cwvByPage, cwvTrend, isLoading, appEntityId, onD
         </div>
       )}
 
-      <SectionHeader title="Web Vitals by Page" />
+      <SectionHeader title="Web Vitals by User Action" />
       <div className="uj-table-tile">
-        {pages.length === 0 ? <div style={{ padding: 20 }}><Text>No per-page data available</Text></div> : (
-          <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ Page: p["pageName"] ?? "Unknown", "LCP (ms)": Number(p.lcp_avg ?? 0), CLS: Number(p.cls_avg ?? 0), "INP (ms)": Number(p.inp_avg ?? 0), "TTFB (ms)": Number(p.ttfb_avg ?? 0), "Duration (ms)": Number(p.dur_avg ?? 0), "Load (ms)": Number(p.load_avg ?? 0) }))}
+        {pages.length === 0 ? <div style={{ padding: 20 }}><Text>No user action data available</Text></div> : (
+          <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ "User Action": p["pageName"] ?? "Unknown", "LCP (ms)": Number(p.lcp_avg ?? 0), CLS: Number(p.cls_avg ?? 0), "INP (ms)": Number(p.inp_avg ?? 0), "TTFB (ms)": Number(p.ttfb_avg ?? 0), "Duration (ms)": Number(p.dur_avg ?? 0), "Load (ms)": Number(p.load_avg ?? 0) }))}
             columns={[
-              { id: "Page", header: "Page", accessor: "Page", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrl(appEntityId, value)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> },
+              { id: "User Action", header: "User Action", accessor: "User Action", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrl(appEntityId, value)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> },
               { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "lcp") }}>{fmt(value)}</Strong> },
               { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "cls") }}>{value.toFixed(3)}</Strong> },
               { id: "INP (ms)", header: "INP", accessor: "INP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "inp") }}>{fmt(value)}</Strong> },
