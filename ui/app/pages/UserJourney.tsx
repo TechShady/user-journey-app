@@ -102,7 +102,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.6";
+const APP_VERSION_LABEL = "4.77.7";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1438,14 +1438,17 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[], mode: 
     inp_ms  = toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0,
     ttfb_ms = toDouble(web_vitals.time_to_first_byte)         / 1000000.0,
     load_ms = toDouble(performance.load_event_end)            / 1000000.0,
+    dom_ms  = toDouble(performance.dom_interactive)           / 1000000.0,
     dur_ms  = toDouble(duration)                              / 1000000.0
 | summarize
+    count    = count(),
     lcp_avg  = percentile(lcp_ms,  75),
     cls_avg  = percentile(cls_val, 75),
     inp_avg  = percentile(inp_ms,  75),
     ttfb_avg = percentile(ttfb_ms, 75),
-    dur_avg  = percentile(dur_ms,  75),
     load_avg = percentile(load_ms, 75),
+    dom_avg  = percentile(dom_ms,  75),
+    dur_avg  = percentile(dur_ms,  75),
     by: {pageName}
 | sort ${mode === "actions" ? "dur_avg" : "lcp_avg"} desc
 | limit 20`;
@@ -14582,19 +14585,35 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
 
       <SectionHeader title={`Web Vitals by ${cwvMode === "actions" ? "User Action" : cwvMode === "pages" ? "Page" : "View"}`} />
       <div className="uj-table-tile">
-        {pages.length === 0 ? <div style={{ padding: 20 }}><Text>No data available</Text></div> : (
-          <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ "Name": p["pageName"] ?? "Unknown", "LCP (ms)": Number(p.lcp_avg ?? 0), CLS: Number(p.cls_avg ?? 0), "INP (ms)": Number(p.inp_avg ?? 0), "TTFB (ms)": Number(p.ttfb_avg ?? 0), "Duration (ms)": Number(p.dur_avg ?? 0), "Load (ms)": Number(p.load_avg ?? 0) }))}
-            columns={[
-              { id: "Name", header: cwvMode === "actions" ? "User Action" : cwvMode === "pages" ? "Page" : "View", accessor: "Name", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrlForMode(appEntityId, value, cwvMode)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> },
-              { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "lcp") }}>{fmt(value)}</Strong> },
-              { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "cls") }}>{value.toFixed(3)}</Strong> },
-              { id: "INP (ms)", header: "INP", accessor: "INP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "inp") }}>{fmt(value)}</Strong> },
-              { id: "TTFB (ms)", header: "TTFB", accessor: "TTFB (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "ttfb") }}>{fmt(value)}</Strong> },
-              { id: "Duration (ms)", header: "Duration", accessor: "Duration (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
-              { id: "Load (ms)", header: "Load End", accessor: "Load (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
-            ]}
-          />
-        )}
+        {((): React.ReactNode => {
+          if (pages.length === 0) return <div style={{ padding: 20 }}><Text>No data available</Text></div>;
+          const nameHeader = cwvMode === "actions" ? "User Action" : cwvMode === "pages" ? "Page" : "View";
+          const nameCol = { id: "Name", header: nameHeader, accessor: "Name", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrlForMode(appEntityId, value, cwvMode)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> };
+          if (cwvMode === "actions") {
+            return (
+              <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ "Name": p["pageName"] ?? "Unknown", "Duration (ms)": Number(p.dur_avg ?? 0), "Count": Number(p.count ?? 0) }))}
+                columns={[
+                  nameCol,
+                  { id: "Duration (ms)", header: "Duration (p75)", accessor: "Duration (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 5000 ? RED : value > 2000 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
+                  { id: "Count", header: "Count", accessor: "Count", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
+                ]}
+              />
+            );
+          }
+          return (
+            <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ "Name": p["pageName"] ?? "Unknown", "LCP (ms)": Number(p.lcp_avg ?? 0), "CLS": Number(p.cls_avg ?? 0), "INP (ms)": Number(p.inp_avg ?? 0), "TTFB (ms)": Number(p.ttfb_avg ?? 0), "Load Event End (ms)": Number(p.load_avg ?? 0), "DOM Interactive (ms)": Number(p.dom_avg ?? 0) }))}
+              columns={[
+                nameCol,
+                { id: "LCP (ms)", header: "LCP", accessor: "LCP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "lcp") }}>{fmt(value)}</Strong> },
+                { id: "CLS", header: "CLS", accessor: "CLS", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "cls") }}>{value.toFixed(3)}</Strong> },
+                { id: "INP (ms)", header: "INP", accessor: "INP (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "inp") }}>{fmt(value)}</Strong> },
+                { id: "TTFB (ms)", header: "TTFB", accessor: "TTFB (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: cwvClr(value, "ttfb") }}>{fmt(value)}</Strong> },
+                { id: "Load Event End (ms)", header: "Load Event End", accessor: "Load Event End (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
+                { id: "DOM Interactive (ms)", header: "DOM Interactive", accessor: "DOM Interactive (ms)", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmt(value)}</Text> },
+              ]}
+            />
+          );
+        })()}
       </div>
 
       <SectionHeader title="Thresholds Reference" />
