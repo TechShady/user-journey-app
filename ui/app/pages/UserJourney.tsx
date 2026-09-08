@@ -1402,24 +1402,23 @@ function cwvQuery(days: number, frontend: string, steps: StepDef[], mode: CwvMod
   const appName = frontend || steps[0]?.app || "";
   const appFiltClause = appName ? ` and frontend.name == "${appName}"` : "";
   return `fetch user.events, ${period}
-| filterOut dt.rum.user_type == "synthetic" or isNull(dt.rum.user_type)
+| filterOut dt.rum.user_type == "synthetic"
 | filter isNotNull(frontend.name)${appFiltClause}
 | filter ${cwvModeCharFilter(mode)}
 | filter ${cwvModeNameFilter(mode)}
-| fieldsAdd
-    lcp_ms  = toDouble(web_vitals.largest_contentful_paint)  / 1000000.0,
-    cls_val = toDouble(web_vitals.cumulative_layout_shift),
-    inp_ms  = toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0,
-    ttfb_ms = toDouble(web_vitals.time_to_first_byte)         / 1000000.0,
-    load_ms = toDouble(performance.load_event_end)            / 1000000.0,
-    dur_ms  = toDouble(duration)                              / 1000000.0
 | summarize
-    lcp_avg  = percentile(lcp_ms,  75),
-    cls_avg  = percentile(cls_val, 75),
-    inp_avg  = percentile(inp_ms,  75),
-    ttfb_avg = percentile(ttfb_ms, 75),
-    load_avg = percentile(load_ms, 75),
-    dur_avg  = percentile(dur_ms,  75)`;
+    lcp_raw  = percentile(web_vitals.largest_contentful_paint,  75),
+    cls_avg  = percentile(web_vitals.cumulative_layout_shift,   75),
+    inp_raw  = percentile(web_vitals.interaction_to_next_paint, 75),
+    ttfb_raw = percentile(web_vitals.time_to_first_byte,        75),
+    load_raw = percentile(performance.load_event_end,           75),
+    dur_raw  = percentile(duration,                             75)
+| fieldsAdd
+    lcp_avg  = toDouble(lcp_raw)  / 1000000.0,
+    inp_avg  = toDouble(inp_raw)  / 1000000.0,
+    ttfb_avg = toDouble(ttfb_raw) / 1000000.0,
+    load_avg = toDouble(load_raw) / 1000000.0,
+    dur_avg  = toDouble(dur_raw)  / 1000000.0`;
 }
 
 function cwvByPageQuery(days: number, frontend: string, steps: StepDef[], mode: CwvMode = "actions"): string {
@@ -1427,29 +1426,28 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[], mode: 
   const appName = frontend || steps[0]?.app || "";
   const appFiltClause = appName ? ` and frontend.name == "${appName}"` : "";
   return `fetch user.events, ${period}
-| filterOut dt.rum.user_type == "synthetic" or isNull(dt.rum.user_type)
+| filterOut dt.rum.user_type == "synthetic"
 | filter isNotNull(frontend.name)${appFiltClause}
 | filter ${cwvModeCharFilter(mode)}
 | filter ${cwvModeNameFilter(mode)}
 | fieldsAdd pageName = ${cwvModeGroupField(mode)}
-| fieldsAdd
-    lcp_ms  = toDouble(web_vitals.largest_contentful_paint)  / 1000000.0,
-    cls_val = toDouble(web_vitals.cumulative_layout_shift),
-    inp_ms  = toDouble(web_vitals.interaction_to_next_paint)  / 1000000.0,
-    ttfb_ms = toDouble(web_vitals.time_to_first_byte)         / 1000000.0,
-    load_ms = toDouble(performance.load_event_end)            / 1000000.0,
-    dom_ms  = toDouble(performance.dom_interactive)           / 1000000.0,
-    dur_ms  = toDouble(duration)                              / 1000000.0
 | summarize
     count    = count(),
-    lcp_avg  = percentile(lcp_ms,  75),
-    cls_avg  = percentile(cls_val, 75),
-    inp_avg  = percentile(inp_ms,  75),
-    ttfb_avg = percentile(ttfb_ms, 75),
-    load_avg = percentile(load_ms, 75),
-    dom_avg  = percentile(dom_ms,  75),
-    dur_avg  = percentile(dur_ms,  75),
+    lcp_raw  = percentile(web_vitals.largest_contentful_paint,  75),
+    cls_avg  = percentile(web_vitals.cumulative_layout_shift,   75),
+    inp_raw  = percentile(web_vitals.interaction_to_next_paint, 75),
+    ttfb_raw = percentile(web_vitals.time_to_first_byte,        75),
+    load_raw = percentile(performance.load_event_end,           75),
+    dom_raw  = percentile(performance.dom_interactive,          75),
+    dur_raw  = percentile(duration,                             75),
     by: {pageName}
+| fieldsAdd
+    lcp_avg  = toDouble(lcp_raw)  / 1000000.0,
+    inp_avg  = toDouble(inp_raw)  / 1000000.0,
+    ttfb_avg = toDouble(ttfb_raw) / 1000000.0,
+    load_avg = toDouble(load_raw) / 1000000.0,
+    dom_avg  = toDouble(dom_raw)  / 1000000.0,
+    dur_avg  = toDouble(dur_raw)  / 1000000.0
 | sort ${mode === "actions" ? "dur_avg" : "lcp_avg"} desc
 | limit 20`;
 }
@@ -14585,7 +14583,7 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
 
       <SectionHeader title={`Web Vitals by ${cwvMode === "actions" ? "User Action" : cwvMode === "pages" ? "Page" : "View"}`} />
       <div className="uj-table-tile">
-        {((): React.ReactNode => {
+        {(() => {
           if (pages.length === 0) return <div style={{ padding: 20 }}><Text>No data available</Text></div>;
           const nameHeader = cwvMode === "actions" ? "User Action" : cwvMode === "pages" ? "Page" : "View";
           const nameCol = { id: "Name", header: nameHeader, accessor: "Name", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrlForMode(appEntityId, value, cwvMode)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> };
