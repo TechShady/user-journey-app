@@ -108,9 +108,8 @@
 
 /* Enhanced KPI Card with sparkline + arrow */
 .uj-kpi-card-enhanced {
-  flex: 1 1 140px;
-  min-width: 140px;
-  max-width: 260px;
+  flex: 1 1 160px;
+  min-width: 160px;
   min-height: auto;
   background: rgba(128, 128, 128, 0.06);
   border: 1px solid rgba(128, 128, 128, 0.2);
