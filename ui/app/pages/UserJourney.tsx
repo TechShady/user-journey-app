@@ -1426,7 +1426,6 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[], mode: 
   return `fetch user.events, ${period}
 | filterOut dt.rum.user_type == "synthetic"
 | filter isNotNull(frontend.name)${appFiltClause}
-| filter ${cwvModeCharFilter(mode)}
 | filter ${cwvModeNameFilter(mode)}
 | fieldsAdd pageName = ${cwvModeGroupField(mode)}
 | summarize
