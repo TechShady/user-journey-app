@@ -1404,7 +1404,7 @@ function cwvQuery(days: number, frontend: string, steps: StepDef[], mode: CwvMod
   return `fetch user.events, ${period}
 | filterOut dt.rum.user_type == "synthetic"
 | filter isNotNull(frontend.name)${appFiltClause}
-| filter characteristics.has_page_summary == true
+| filter characteristics.has_page_summary == true or characteristics.has_w3c_navigation_timings == true
 | summarize
     lcp_raw  = percentile(web_vitals.largest_contentful_paint,  75),
     cls_avg  = percentile(web_vitals.cumulative_layout_shift,   75),
