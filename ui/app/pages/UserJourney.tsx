@@ -14446,13 +14446,6 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
-      <Flex gap={8}>
-        {(["actions", "pages", "views"] as CwvMode[]).map(m => (
-          <button key={m} onClick={() => setCwvMode(m)} style={{ padding: "5px 14px", borderRadius: 20, border: `1px solid ${cwvMode === m ? BLUE : "rgba(255,255,255,0.15)"}`, background: cwvMode === m ? `${BLUE}22` : "transparent", color: cwvMode === m ? BLUE : "rgba(255,255,255,0.6)", fontSize: 13, cursor: "pointer", fontWeight: cwvMode === m ? 700 : 400 }}>
-            {m === "actions" ? "User Actions" : m === "pages" ? "Pages" : "Views"}
-          </button>
-        ))}
-      </Flex>
       <Flex gap={16} flexWrap="wrap" alignItems="center">
         <KpiCard label={tlShared ? "Performance Health (bucket)" : "Performance Health"} value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} />
         <KpiCard label="Duration" value={fmt(effV.duration)} color={effV.duration > 5000 ? RED : effV.duration > 2000 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} />
@@ -14579,6 +14572,13 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
         </div>
       )}
 
+      <Flex gap={8}>
+        {(["actions", "pages", "views"] as CwvMode[]).map(m => (
+          <button key={m} onClick={() => setCwvMode(m)} style={{ padding: "5px 14px", borderRadius: 20, border: `1px solid ${cwvMode === m ? BLUE : "rgba(255,255,255,0.15)"}`, background: cwvMode === m ? `${BLUE}22` : "transparent", color: cwvMode === m ? BLUE : "rgba(255,255,255,0.6)", fontSize: 13, cursor: "pointer", fontWeight: cwvMode === m ? 700 : 400 }}>
+            {m === "actions" ? "User Actions" : m === "pages" ? "Pages" : "Views"}
+          </button>
+        ))}
+      </Flex>
       <SectionHeader title={`Web Vitals by ${cwvMode === "actions" ? "User Action" : cwvMode === "pages" ? "Page" : "View"}`} />
       <div className="uj-table-tile">
         {(() => {
