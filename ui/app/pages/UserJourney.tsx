@@ -102,7 +102,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.7";
+const APP_VERSION_LABEL = "4.77.17";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -7737,10 +7737,18 @@ function HotnessAssistPanel({
     }).join("");
     const threshLines = [{ z: 0.75, c: "#FFF04D" }, { z: 1.5, c: "#FF3D9A" }, { z: 2.5, c: "#FF073A" }]
       .map(({ z, c }) => `<line x1="0" y1="${130 - (z / rMaxZ) * 106}" x2="${svgW}" y2="${130 - (z / rMaxZ) * 106}" stroke="${c}" stroke-width="0.5" stroke-dasharray="3,2" opacity="0.4"/>`).join("");
-    const worstMark = `<line x1="${data.worstIdx * 6 + 3}" y1="24" x2="${data.worstIdx * 6 + 3}" y2="130" stroke="#FF073A" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${data.worstIdx * 6 + 3}" y="17" font-size="10" fill="#FF073A" opacity="0.9" text-anchor="middle" font-weight="700">W1</text>`;
-    const worst2Mark = data.worst2Idx !== data.worstIdx ? `<line x1="${data.worst2Idx * 6 + 3}" y1="24" x2="${data.worst2Idx * 6 + 3}" y2="130" stroke="#FF8C69" stroke-width="1" stroke-dasharray="3,2" opacity="0.6"/><text x="${data.worst2Idx * 6 + 3}" y="17" font-size="10" fill="#FF8C69" opacity="0.85" text-anchor="middle" font-weight="700">W2</text>` : "";
-    const bestMark = data.bestIdx !== data.worstIdx ? `<line x1="${data.bestIdx * 6 + 3}" y1="24" x2="${data.bestIdx * 6 + 3}" y2="130" stroke="#0D9C29" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.75"/><text x="${data.bestIdx * 6 + 3}" y="17" font-size="10" fill="#0D9C29" opacity="0.9" text-anchor="middle" font-weight="700">B1</text>` : "";
-    const best2Mark = data.best2Idx !== data.bestIdx && data.best2Idx !== data.worstIdx ? `<line x1="${data.best2Idx * 6 + 3}" y1="24" x2="${data.best2Idx * 6 + 3}" y2="130" stroke="#7FD99A" stroke-width="1" stroke-dasharray="3,2" opacity="0.6"/><text x="${data.best2Idx * 6 + 3}" y="17" font-size="10" fill="#7FD99A" opacity="0.85" text-anchor="middle" font-weight="700">B2</text>` : "";
+    // Build markers sorted by x, then stagger y rows (y=11 / y=21) when buckets are adjacent to avoid label overlap
+    const rAllMarkers = [
+      { label: "W1", x: data.worstIdx * 6 + 3, fill: "#FF073A", op: 0.9, sw: 1.5, sc: "#FF073A", sop: 0.75 },
+      ...(data.worst2Idx !== data.worstIdx ? [{ label: "W2", x: data.worst2Idx * 6 + 3, fill: "#FF8C69", op: 0.85, sw: 1, sc: "#FF8C69", sop: 0.6 }] : []),
+      ...(data.bestIdx !== data.worstIdx ? [{ label: "B1", x: data.bestIdx * 6 + 3, fill: "#0D9C29", op: 0.9, sw: 1.5, sc: "#0D9C29", sop: 0.75 }] : []),
+      ...(data.best2Idx !== data.bestIdx && data.best2Idx !== data.worstIdx ? [{ label: "B2", x: data.best2Idx * 6 + 3, fill: "#7FD99A", op: 0.85, sw: 1, sc: "#7FD99A", sop: 0.6 }] : []),
+    ].sort((a, b) => a.x - b.x);
+    const rMYs: number[] = [];
+    for (let i = 0; i < rAllMarkers.length; i++) rMYs.push(i > 0 && rAllMarkers[i].x - rAllMarkers[i - 1].x < 16 ? (rMYs[i - 1] === 11 ? 21 : 11) : 11);
+    const markersSvg = rAllMarkers.map((m, i) =>
+      `<line x1="${m.x}" y1="24" x2="${m.x}" y2="130" stroke="${m.sc}" stroke-width="${m.sw}" stroke-dasharray="3,2" opacity="${m.sop}"/><text x="${m.x}" y="${rMYs[i]}" font-size="9" fill="${m.fill}" opacity="${m.op}" text-anchor="middle" font-weight="700" font-family="system-ui,-apple-system,sans-serif">${m.label}</text>`
+    ).join("");
 
     const worstRows = [
       { l: "Sessions", v: rFmtCount(data.worstRow.sessions) },
@@ -7808,7 +7816,7 @@ function HotnessAssistPanel({
 
 <h2>Hotness Timeline — Full Period</h2>
 <div style="background:rgba(128,128,128,0.04);border:1px solid rgba(128,128,128,0.15);border-radius:8px;padding:8px 10px 6px;margin-bottom:20px">
-  <svg width="100%" height="130" viewBox="0 0 ${svgW} 130" preserveAspectRatio="none" style="display:block">${threshLines}${bars}${worstMark}${worst2Mark}${bestMark}${best2Mark}</svg>
+  <svg width="100%" height="130" viewBox="0 0 ${svgW} 130" preserveAspectRatio="none" style="display:block">${threshLines}${bars}${markersSvg}</svg>
   <div style="display:flex;gap:12px;margin-top:4px;font-size:10px;opacity:0.5">
     <span><span style="display:inline-block;width:7px;height:7px;background:#FFF04D;border-radius:1px;vertical-align:middle;margin-right:3px"></span>Elevated (Z≥0.75)</span>
     <span><span style="display:inline-block;width:7px;height:7px;background:#FF3D9A;border-radius:1px;vertical-align:middle;margin-right:3px"></span>Warm (Z≥1.5)</span>
@@ -7954,24 +7962,23 @@ ${problemsHtml}
                 const isBest = i === data.bestIdx;
                 return <rect key={i} x={i * 6 + 0.5} y={130 - h} width={5} height={h} fill={color} opacity={isWorst || isBest ? 1 : 0.65} rx={0.5} />;
               })}
-              {/* W1 marker */}
-              <line x1={data.worstIdx * 6 + 3} y1={24} x2={data.worstIdx * 6 + 3} y2={130} stroke={TL_HOT_HIGH} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
-              <text x={data.worstIdx * 6 + 3} y={17} fontSize={10} fill={TL_HOT_HIGH} opacity={0.9} textAnchor="middle" fontWeight="700">W1</text>
-              {/* W2 marker — only when different from W1 */}
-              {data.worst2Idx !== data.worstIdx && <>
-                <line x1={data.worst2Idx * 6 + 3} y1={24} x2={data.worst2Idx * 6 + 3} y2={130} stroke="#FF8C69" strokeWidth={1} strokeDasharray="3,2" opacity={0.6} />
-                <text x={data.worst2Idx * 6 + 3} y={17} fontSize={10} fill="#FF8C69" opacity={0.85} textAnchor="middle" fontWeight="700">W2</text>
-              </>}
-              {/* B1 marker */}
-              {data.bestIdx !== data.worstIdx && <>
-                <line x1={data.bestIdx * 6 + 3} y1={24} x2={data.bestIdx * 6 + 3} y2={130} stroke={GREEN} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.75} />
-                <text x={data.bestIdx * 6 + 3} y={17} fontSize={10} fill={GREEN} opacity={0.9} textAnchor="middle" fontWeight="700">B1</text>
-              </>}
-              {/* B2 marker — only when different from B1 */}
-              {data.best2Idx !== data.bestIdx && data.best2Idx !== data.worstIdx && <>
-                <line x1={data.best2Idx * 6 + 3} y1={24} x2={data.best2Idx * 6 + 3} y2={130} stroke="#7FD99A" strokeWidth={1} strokeDasharray="3,2" opacity={0.6} />
-                <text x={data.best2Idx * 6 + 3} y={17} fontSize={10} fill="#7FD99A" opacity={0.85} textAnchor="middle" fontWeight="700">B2</text>
-              </>}
+              {/* Marker labels — sorted by x, staggered y=11/y=21 when adjacent to avoid overlap */}
+              {(() => {
+                const mkrs = [
+                  { label: "W1", x: data.worstIdx * 6 + 3, fill: TL_HOT_HIGH, op: 0.9, sw: 1.5, sc: TL_HOT_HIGH, sop: 0.75 },
+                  ...(data.worst2Idx !== data.worstIdx ? [{ label: "W2", x: data.worst2Idx * 6 + 3, fill: "#FF8C69", op: 0.85, sw: 1, sc: "#FF8C69", sop: 0.6 }] : []),
+                  ...(data.bestIdx !== data.worstIdx ? [{ label: "B1", x: data.bestIdx * 6 + 3, fill: GREEN, op: 0.9, sw: 1.5, sc: GREEN, sop: 0.75 }] : []),
+                  ...(data.best2Idx !== data.bestIdx && data.best2Idx !== data.worstIdx ? [{ label: "B2", x: data.best2Idx * 6 + 3, fill: "#7FD99A", op: 0.85, sw: 1, sc: "#7FD99A", sop: 0.6 }] : []),
+                ].sort((a, b) => a.x - b.x);
+                const ys: number[] = [];
+                for (let i = 0; i < mkrs.length; i++) ys.push(i > 0 && mkrs[i].x - mkrs[i - 1].x < 16 ? (ys[i - 1] === 11 ? 21 : 11) : 11);
+                return mkrs.map((m, i) => (
+                  <g key={m.label}>
+                    <line x1={m.x} y1={24} x2={m.x} y2={130} stroke={m.sc} strokeWidth={m.sw} strokeDasharray="3,2" opacity={m.sop} />
+                    <text x={m.x} y={ys[i]} fontSize={9} fill={m.fill} opacity={m.op} textAnchor="middle" fontWeight="700" fontFamily="system-ui,-apple-system,sans-serif">{m.label}</text>
+                  </g>
+                ));
+              })()}
             </svg>
             <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: 9, opacity: 0.4 }}>
               <span><span style={{ display: "inline-block", width: 7, height: 7, background: TL_HOT_ELEV, borderRadius: 1, verticalAlign: "middle", marginRight: 3 }} />Elevated (Z≥0.75)</span>
