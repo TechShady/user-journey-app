@@ -7797,25 +7797,41 @@ function HotnessAssistPanel({
       `<line x1="${m.x}" y1="24" x2="${m.x}" y2="130" stroke="${m.sc}" stroke-width="${m.sw}" stroke-dasharray="3,2" opacity="${m.sop}"/><text x="${m.x}" y="${rMYs[i]}" font-size="9" fill="${m.fill}" opacity="${m.op}" text-anchor="middle" font-weight="700" font-family="system-ui,-apple-system,sans-serif">${m.label}</text>`
     ).join("");
 
-    const worstRows = [
-      { l: "Sessions", v: rFmtCount(data.worstRow.sessions) },
-      { l: "Error Rate", v: rFmtPct(data.worstRow.errorRate) },
-      { l: "Avg Load", v: `${Math.round(data.worstRow.avgDurationMs)}ms` },
-      { l: "Apdex", v: data.worstRow.apdex.toFixed(3) },
-      ...(data.worstRow.lcp != null ? [{ l: "LCP", v: `${Math.round(data.worstRow.lcp)}ms` }] : []),
-      { l: "Problems", v: String(data.worstProblems.length) },
-      { l: "Frustrated", v: data.worstRow.sessions > 0 ? rFmtPct(data.worstRow.frustrated / data.worstRow.sessions * 100) : "—" },
-    ].map(r => `<tr><td style="padding:3px 10px;opacity:0.7;font-size:12px">${r.l}</td><td style="padding:3px 10px;font-weight:600;font-size:12px;color:#FF073A">${r.v}</td></tr>`).join("");
+    const cmpMetricRows = (
+      metrics: { l: string; left: string; right: string; leftColor: string; rightColor: string }[]
+    ) => metrics.map(r =>
+      `<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">` +
+      `<td style="padding:4px 10px;font-size:11px;opacity:0.6">${r.l}</td>` +
+      `<td style="padding:4px 10px;font-size:11px;font-weight:600;text-align:right;color:${r.leftColor}">${r.left}</td>` +
+      `<td style="padding:4px 10px;font-size:11px;font-weight:600;text-align:right;color:${r.rightColor}">${r.right}</td>` +
+      `</tr>`
+    ).join("");
 
-    const bestRows = [
-      { l: "Sessions", v: rFmtCount(data.bestRow.sessions) },
-      { l: "Error Rate", v: rFmtPct(data.bestRow.errorRate) },
-      { l: "Avg Load", v: `${Math.round(data.bestRow.avgDurationMs)}ms` },
-      { l: "Apdex", v: data.bestRow.apdex.toFixed(3) },
-      ...(data.bestRow.lcp != null ? [{ l: "LCP", v: `${Math.round(data.bestRow.lcp)}ms` }] : []),
-      { l: "Problems", v: String(data.bestProblemsCount) },
-      { l: "Frustrated", v: data.bestRow.sessions > 0 ? rFmtPct(data.bestRow.frustrated / data.bestRow.sessions * 100) : "—" },
-    ].map(r => `<tr><td style="padding:3px 10px;opacity:0.7;font-size:12px">${r.l}</td><td style="padding:3px 10px;font-weight:600;font-size:12px;color:#0D9C29">${r.v}</td></tr>`).join("");
+    const cmpCard = (
+      leftLabel: string, leftColor: string, leftBg: string, leftBkt: number, leftKey: string, leftZ: number,
+      rightLabel: string, rightColor: string, rightBg: string, rightBkt: number, rightKey: string, rightZ: number,
+      rows: { l: string; left: string; right: string; leftColor: string; rightColor: string }[]
+    ) =>
+      `<div style="border:1px solid rgba(128,128,128,0.15);border-radius:8px;overflow:hidden;margin-bottom:16px">` +
+      `<div style="display:grid;grid-template-columns:1fr auto 1fr">` +
+      `<div style="padding:10px 12px;background:${leftBg}">` +
+      `<div style="font-size:11px;font-weight:700;color:${leftColor};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">${leftLabel} — Bkt ${leftBkt}</div>` +
+      `<div style="font-size:10px;opacity:0.35;font-family:monospace;margin-bottom:4px">${leftKey}</div>` +
+      `<div style="font-size:12px;font-weight:700;color:${leftColor}">Z = ${leftZ.toFixed(2)}</div>` +
+      `</div>` +
+      `<div style="display:flex;align-items:center;justify-content:center;padding:0 10px;background:rgba(128,128,128,0.04);font-size:9px;font-weight:800;opacity:0.35;letter-spacing:1px">VS</div>` +
+      `<div style="padding:10px 12px;background:${rightBg}">` +
+      `<div style="font-size:11px;font-weight:700;color:${rightColor};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">${rightLabel} — Bkt ${rightBkt}</div>` +
+      `<div style="font-size:10px;opacity:0.35;font-family:monospace;margin-bottom:4px">${rightKey}</div>` +
+      `<div style="font-size:12px;font-weight:700;color:${rightColor}">Z = ${rightZ.toFixed(2)}</div>` +
+      `</div></div>` +
+      `<div style="padding:6px 10px 4px;background:rgba(0,0,0,0.2)">` +
+      `<table style="border:none"><thead><tr>` +
+      `<th style="padding:3px 10px;font-size:10px;opacity:0.4;text-align:left;font-weight:400">Metric</th>` +
+      `<th style="padding:3px 10px;font-size:10px;opacity:0.6;text-align:right;color:${leftColor};font-weight:600">${leftLabel.split(" ")[0]}</th>` +
+      `<th style="padding:3px 10px;font-size:10px;opacity:0.6;text-align:right;color:${rightColor};font-weight:600">${rightLabel.split(" ")[0]}</th>` +
+      `</tr></thead><tbody>${cmpMetricRows(rows)}</tbody></table>` +
+      `</div></div>`;
 
     const gapRows = [
       { m: "Apdex", best: data.bestRow.apdex.toFixed(3), worst: data.worstRow.apdex.toFixed(3), gap: (data.bestRow.apdex - data.worstRow.apdex).toFixed(3), good: data.bestRow.apdex > data.worstRow.apdex },
@@ -7872,48 +7888,45 @@ function HotnessAssistPanel({
   </div>
 </div>
 
-<div class="card-grid">
-  <div class="card" style="background:rgba(255,7,58,0.05);border:1px solid rgba(255,7,58,0.2)">
-    <div style="font-size:11px;font-weight:700;color:#FF073A;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">🔥 Worst #1 — Bucket ${data.worstIdx + 1}</div>
-    <div style="font-size:10px;opacity:0.4;font-family:monospace;margin-bottom:6px">${data.worstBucketKey}</div>
-    <div style="font-size:13px;font-weight:700;color:#FF073A;margin-bottom:8px">Z = ${data.worstHotZ.toFixed(2)} · ${data.worstDriver}</div>
-    <table style="border:none"><tbody>${worstRows}</tbody></table>
-    ${data.worstEstimatedConvDrop > 0.1 ? `<div style="margin-top:8px;padding:6px 8px;background:rgba(255,7,58,0.1);border-radius:5px;font-size:12px;font-weight:700;color:#FF073A">−${data.worstEstimatedConvDrop.toFixed(1)}pp conv${data.worstEstimatedRevLoss > 0 ? ` · −$${Math.round(data.worstEstimatedRevLoss).toLocaleString()}` : ""}</div>` : ""}
-  </div>
-  <div class="card" style="background:rgba(13,156,41,0.04);border:1px solid rgba(13,156,41,0.2)">
-    <div style="font-size:11px;font-weight:700;color:#0D9C29;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">✨ Best #1 — Bucket ${data.bestIdx + 1}</div>
-    <div style="font-size:10px;opacity:0.4;font-family:monospace;margin-bottom:6px">${data.bestBucketKey}</div>
-    <div style="font-size:13px;font-weight:700;color:#0D9C29;margin-bottom:8px">Z = ${(data.allHotness[data.bestIdx] ?? 0).toFixed(2)} · Optimal</div>
-    <table style="border:none"><tbody>${bestRows}</tbody></table>
-    ${data.bestEstimatedConv > 0 ? `<div style="margin-top:8px;padding:6px 8px;background:rgba(13,156,41,0.1);border-radius:5px;font-size:12px;font-weight:700;color:#0D9C29">${data.bestEstimatedConv.toFixed(1)}% conv${data.bestEstimatedRev > 0 ? ` · $${Math.round(data.bestEstimatedRev).toLocaleString()}` : ""}</div>` : ""}
-  </div>
-  ${data.worst2Idx !== data.worstIdx ? `<div class="card" style="background:rgba(255,140,105,0.04);border:1px solid rgba(255,140,105,0.2)">
-    <div style="font-size:11px;font-weight:700;color:#FF8C69;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">🔶 Worst #2 — Bucket ${data.worst2Idx + 1}</div>
-    <div style="font-size:10px;opacity:0.4;font-family:monospace;margin-bottom:6px">${data.worst2BucketKey}</div>
-    <div style="font-size:13px;font-weight:700;color:#FF8C69;margin-bottom:8px">Z = ${data.worst2HotZ.toFixed(2)}</div>
-    <table style="border:none"><tbody>${[
-      { l: "Sessions", v: rFmtCount(data.worst2Row.sessions) },
-      { l: "Error Rate", v: rFmtPct(data.worst2Row.errorRate) },
-      { l: "Avg Load", v: `${Math.round(data.worst2Row.avgDurationMs)}ms` },
-      { l: "Apdex", v: data.worst2Row.apdex.toFixed(3) },
-      ...(data.worst2Row.lcp != null ? [{ l: "LCP", v: `${Math.round(data.worst2Row.lcp)}ms` }] : []),
-      { l: "Frustrated", v: data.worst2Row.sessions > 0 ? rFmtPct(data.worst2Row.frustrated / data.worst2Row.sessions * 100) : "—" },
-    ].map(r => `<tr><td style="padding:3px 10px;opacity:0.7;font-size:12px">${r.l}</td><td style="padding:3px 10px;font-weight:600;font-size:12px;color:#FF8C69">${r.v}</td></tr>`).join("")}</tbody></table>
-  </div>` : ""}
-  ${data.best2Idx !== data.bestIdx ? `<div class="card" style="background:rgba(127,217,154,0.04);border:1px solid rgba(127,217,154,0.2)">
-    <div style="font-size:11px;font-weight:700;color:#7FD99A;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">🌿 Best #2 — Bucket ${data.best2Idx + 1}</div>
-    <div style="font-size:10px;opacity:0.4;font-family:monospace;margin-bottom:6px">${data.best2BucketKey}</div>
-    <div style="font-size:13px;font-weight:700;color:#7FD99A;margin-bottom:8px">Z = ${(data.allHotness[data.best2Idx] ?? 0).toFixed(2)} · Good</div>
-    <table style="border:none"><tbody>${[
-      { l: "Sessions", v: rFmtCount(data.best2Row.sessions) },
-      { l: "Error Rate", v: rFmtPct(data.best2Row.errorRate) },
-      { l: "Avg Load", v: `${Math.round(data.best2Row.avgDurationMs)}ms` },
-      { l: "Apdex", v: data.best2Row.apdex.toFixed(3) },
-      ...(data.best2Row.lcp != null ? [{ l: "LCP", v: `${Math.round(data.best2Row.lcp)}ms` }] : []),
-      { l: "Frustrated", v: data.best2Row.sessions > 0 ? rFmtPct(data.best2Row.frustrated / data.best2Row.sessions * 100) : "—" },
-    ].map(r => `<tr><td style="padding:3px 10px;opacity:0.7;font-size:12px">${r.l}</td><td style="padding:3px 10px;font-weight:600;font-size:12px;color:#7FD99A">${r.v}</td></tr>`).join("")}</tbody></table>
-  </div>` : ""}
-</div>
+<h2>Compare Cards</h2>
+${cmpCard(
+  "🔥 Worst #1", "#FF073A", "rgba(255,7,58,0.05)", data.worstIdx + 1, data.worstBucketKey, data.worstHotZ,
+  "✨ Best #1",  "#0D9C29", "rgba(13,156,41,0.04)", data.bestIdx + 1, data.bestBucketKey, data.allHotness[data.bestIdx] ?? 0,
+  [
+    { l: "Sessions",  left: rFmtCount(data.worstRow.sessions), right: rFmtCount(data.bestRow.sessions), leftColor: "#c0c0c0", rightColor: "#c0c0c0" },
+    { l: "Error Rate",left: rFmtPct(data.worstRow.errorRate),  right: rFmtPct(data.bestRow.errorRate),  leftColor: data.worstRow.errorRate > 2 ? "#FF832B" : "#c0c0c0", rightColor: data.bestRow.errorRate < 1 ? "#0D9C29" : "#c0c0c0" },
+    { l: "Avg Load",  left: `${Math.round(data.worstRow.avgDurationMs)}ms`, right: `${Math.round(data.bestRow.avgDurationMs)}ms`, leftColor: "#FF832B", rightColor: "#0D9C29" },
+    { l: "Apdex",     left: data.worstRow.apdex.toFixed(3), right: data.bestRow.apdex.toFixed(3), leftColor: data.worstRow.apdex < 0.7 ? "#FF832B" : "#c0c0c0", rightColor: data.bestRow.apdex > 0.85 ? "#0D9C29" : "#c0c0c0" },
+    ...(data.worstRow.lcp != null && data.bestRow.lcp != null ? [{ l: "LCP", left: `${Math.round(data.worstRow.lcp)}ms`, right: `${Math.round(data.bestRow.lcp)}ms`, leftColor: data.worstRow.lcp > 2500 ? "#FF832B" : "#c0c0c0", rightColor: data.bestRow.lcp < 2500 ? "#0D9C29" : "#c0c0c0" }] : []),
+    { l: "Problems",  left: String(data.worstProblems.length), right: String(data.bestProblemsCount), leftColor: data.worstProblems.length > 0 ? "#FF832B" : "#c0c0c0", rightColor: data.bestProblemsCount === 0 ? "#0D9C29" : "#c0c0c0" },
+    { l: "Frustrated",left: data.worstRow.sessions > 0 ? rFmtPct(data.worstRow.frustrated / data.worstRow.sessions * 100) : "—", right: data.bestRow.sessions > 0 ? rFmtPct(data.bestRow.frustrated / data.bestRow.sessions * 100) : "—", leftColor: "#FF832B", rightColor: "#0D9C29" },
+    ...(data.worstEstimatedConvDrop > 0.1 || data.bestEstimatedConv > 0 ? [{ l: "Est. Conv", left: data.worstEstimatedConvDrop > 0.1 ? `−${data.worstEstimatedConvDrop.toFixed(1)}pp` : "—", right: data.bestEstimatedConv > 0 ? `${data.bestEstimatedConv.toFixed(1)}%` : "—", leftColor: "#FF832B", rightColor: "#0D9C29" }] : []),
+  ]
+)}
+${data.worst2Idx !== data.worstIdx ? cmpCard(
+  "🔥 Worst #1", "#FF073A", "rgba(255,7,58,0.05)",   data.worstIdx  + 1, data.worstBucketKey,  data.worstHotZ,
+  "🔶 Worst #2", "#FF8C69", "rgba(255,140,105,0.04)", data.worst2Idx + 1, data.worst2BucketKey, data.worst2HotZ,
+  [
+    { l: "Sessions",  left: rFmtCount(data.worstRow.sessions),  right: rFmtCount(data.worst2Row.sessions),  leftColor: "#c0c0c0", rightColor: "#c0c0c0" },
+    { l: "Error Rate",left: rFmtPct(data.worstRow.errorRate),   right: rFmtPct(data.worst2Row.errorRate),   leftColor: data.worstRow.errorRate > 2 ? "#FF832B" : "#c0c0c0", rightColor: data.worst2Row.errorRate > 2 ? "#FF8C69" : "#c0c0c0" },
+    { l: "Avg Load",  left: `${Math.round(data.worstRow.avgDurationMs)}ms`,  right: `${Math.round(data.worst2Row.avgDurationMs)}ms`,  leftColor: "#FF832B", rightColor: "#FF8C69" },
+    { l: "Apdex",     left: data.worstRow.apdex.toFixed(3),  right: data.worst2Row.apdex.toFixed(3),  leftColor: data.worstRow.apdex < 0.7 ? "#FF832B" : "#c0c0c0", rightColor: data.worst2Row.apdex < 0.7 ? "#FF8C69" : "#c0c0c0" },
+    ...(data.worstRow.lcp != null && data.worst2Row.lcp != null ? [{ l: "LCP", left: `${Math.round(data.worstRow.lcp)}ms`, right: `${Math.round(data.worst2Row.lcp)}ms`, leftColor: data.worstRow.lcp > 2500 ? "#FF832B" : "#c0c0c0", rightColor: data.worst2Row.lcp > 2500 ? "#FF8C69" : "#c0c0c0" }] : []),
+    { l: "Frustrated",left: data.worstRow.sessions > 0 ? rFmtPct(data.worstRow.frustrated / data.worstRow.sessions * 100) : "—", right: data.worst2Row.sessions > 0 ? rFmtPct(data.worst2Row.frustrated / data.worst2Row.sessions * 100) : "—", leftColor: "#FF832B", rightColor: "#FF8C69" },
+  ]
+) : ""}
+${data.best2Idx !== data.bestIdx ? cmpCard(
+  "✨ Best #1", "#0D9C29", "rgba(13,156,41,0.04)",    data.bestIdx  + 1, data.bestBucketKey,  data.allHotness[data.bestIdx]  ?? 0,
+  "🌿 Best #2", "#7FD99A", "rgba(127,217,154,0.04)",  data.best2Idx + 1, data.best2BucketKey, data.allHotness[data.best2Idx] ?? 0,
+  [
+    { l: "Sessions",  left: rFmtCount(data.bestRow.sessions),  right: rFmtCount(data.best2Row.sessions),  leftColor: "#c0c0c0", rightColor: "#c0c0c0" },
+    { l: "Error Rate",left: rFmtPct(data.bestRow.errorRate),   right: rFmtPct(data.best2Row.errorRate),   leftColor: data.bestRow.errorRate < 1 ? "#0D9C29" : "#c0c0c0", rightColor: data.best2Row.errorRate < 1 ? "#7FD99A" : "#c0c0c0" },
+    { l: "Avg Load",  left: `${Math.round(data.bestRow.avgDurationMs)}ms`,  right: `${Math.round(data.best2Row.avgDurationMs)}ms`,  leftColor: "#0D9C29", rightColor: "#7FD99A" },
+    { l: "Apdex",     left: data.bestRow.apdex.toFixed(3),  right: data.best2Row.apdex.toFixed(3),  leftColor: data.bestRow.apdex > 0.85 ? "#0D9C29" : "#c0c0c0", rightColor: data.best2Row.apdex > 0.85 ? "#7FD99A" : "#c0c0c0" },
+    ...(data.bestRow.lcp != null && data.best2Row.lcp != null ? [{ l: "LCP", left: `${Math.round(data.bestRow.lcp)}ms`, right: `${Math.round(data.best2Row.lcp)}ms`, leftColor: data.bestRow.lcp < 2500 ? "#0D9C29" : "#c0c0c0", rightColor: data.best2Row.lcp < 2500 ? "#7FD99A" : "#c0c0c0" }] : []),
+    { l: "Frustrated",left: data.bestRow.sessions > 0 ? rFmtPct(data.bestRow.frustrated / data.bestRow.sessions * 100) : "—", right: data.best2Row.sessions > 0 ? rFmtPct(data.best2Row.frustrated / data.best2Row.sessions * 100) : "—", leftColor: "#0D9C29", rightColor: "#7FD99A" },
+  ]
+) : ""}
 
 <h2>What's Different — Worst vs Best</h2>
 <table style="margin-bottom:20px"><thead><tr style="background:rgba(128,128,128,0.08)"><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Metric</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#0D9C29">Best</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#FF073A">Worst</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Gap</th></tr></thead><tbody>${gapRows}</tbody></table>
