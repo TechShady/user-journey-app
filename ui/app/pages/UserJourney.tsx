@@ -20,7 +20,7 @@ import type { Timeseries } from "@dynatrace/strato-components/charts";
 import { DataTable } from "@dynatrace/strato-components-preview/tables";
 import "./UserJourney.css";
 import { LAMBO_CAR } from "../lamboCarImage";
-import { useSettings, DEFAULT_FUNNEL_STEPS, DEFAULT_FUNNELS, DEFAULT_FRONTEND, MIN_STEPS, MAX_STEPS, MAX_FUNNELS, DEFAULT_AOV, INDUSTRY_OPTIONS, INDUSTRY_BENCHMARKS, IndustryType, IndustryBenchmark, GradeWeights, DEFAULT_GRADE_WEIGHTS } from "../SettingsContext";
+import { useSettings, DEFAULT_FUNNEL_STEPS, DEFAULT_FUNNELS, DEFAULT_FRONTEND, MIN_STEPS, MAX_STEPS, MAX_FUNNELS, DEFAULT_AOV, INDUSTRY_OPTIONS, INDUSTRY_BENCHMARKS, IndustryType, IndustryBenchmark, GradeWeights, DEFAULT_GRADE_WEIGHTS, DEFAULT_GRADE_METRIC_ENABLED, DEFAULT_GRADE_METRIC_THRESHOLDS } from "../SettingsContext";
 import type { StepDef, FunnelDef } from "../SettingsContext";
 import { useTimelapse, TL_BUCKETS, TL_SPEEDS } from "../TimelapseContext";
 import type { TlBucket, SharedBucketMetrics } from "../TimelapseContext";
@@ -5439,7 +5439,7 @@ export function UserJourney() {
   const [aiOpen, setAiOpen] = useState(false);
   const closeAiInsights = React.useCallback(() => setAiOpen(false), []);
   const aiContextValue = React.useMemo(() => ({ open: aiOpen, close: closeAiInsights, activeSubTab: activeSubTabKey }), [aiOpen, closeAiInsights, activeSubTabKey]);
-  const { frontend, steps, funnels, activeFunnelIndex, saveFunnels, saveActiveFunnelIndex, saveSteps, aov, saveAov, monthlyInfraCost, saveMonthlyInfraCost, cdnMonthlyCost, saveCdnMonthlyCost, computeCostPerHour, saveComputeCostPerHour, costPerGb, saveCostPerGb, engineerHourlyRate, saveEngineerHourlyRate, industry, saveIndustry, gradeWeights, saveGradeWeights, pageLabels, savePageLabels } = useSettings();
+  const { frontend, steps, funnels, activeFunnelIndex, saveFunnels, saveActiveFunnelIndex, saveSteps, aov, saveAov, monthlyInfraCost, saveMonthlyInfraCost, cdnMonthlyCost, saveCdnMonthlyCost, computeCostPerHour, saveComputeCostPerHour, costPerGb, saveCostPerGb, engineerHourlyRate, saveEngineerHourlyRate, industry, saveIndustry, gradeWeights, saveGradeWeights, gradeMetricEnabled, saveGradeMetricEnabled, gradeMetricThresholds, saveGradeMetricThresholds, pageLabels, savePageLabels } = useSettings();
   const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
   const [funnelStyle, setFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState<number>(0);
@@ -7008,33 +7008,74 @@ export function UserJourney() {
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12, marginTop: 8 }} />
           {/* Grade Weights */}
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Executive Summary Grade Weights</Paragraph>
-          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Adjust how each metric contributes to the overall journey grade. Values should sum to 100%.</Paragraph>
+          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Toggle metrics on/off, set weight (enabled weights should sum to 100%), and adjust Good/Poor thresholds for your customer's baseline. Session thresholds are daily counts — automatically scaled by the selected timeframe.</Paragraph>
           {(() => {
-            const total = gradeWeights.apdex + gradeWeights.conversion + gradeWeights.errorRate + gradeWeights.avgDuration + gradeWeights.lcp + gradeWeights.cls + (gradeWeights.inp ?? 0) + (gradeWeights.ttfb ?? 0);
-            const totalColor = Math.abs(total - 100) < 1 ? "#0D9C29" : "#C21930";
-            const gwFields: { key: keyof GradeWeights; label: string }[] = [
-              { key: "apdex", label: "Apdex" },
-              { key: "conversion", label: "Conversion Rate" },
-              { key: "errorRate", label: "Error Rate" },
-              { key: "avgDuration", label: "Avg Duration" },
-              { key: "lcp", label: "CWV — LCP" },
-              { key: "cls", label: "CWV — CLS" },
-              { key: "inp", label: "CWV — INP" },
-              { key: "ttfb", label: "CWV — TTFB" },
+            const gwFields: { key: keyof GradeWeights; label: string; goodUnit: string; poorUnit: string; higherBetter: boolean }[] = [
+              { key: "apdex",       label: "Apdex",           goodUnit: "",      poorUnit: "",      higherBetter: true  },
+              { key: "conversion",  label: "Conversion Rate",  goodUnit: "%",     poorUnit: "%",     higherBetter: true  },
+              { key: "errorRate",   label: "Error Rate",       goodUnit: "%",     poorUnit: "%",     higherBetter: false },
+              { key: "avgDuration", label: "Avg Duration",     goodUnit: "ms",    poorUnit: "ms",    higherBetter: false },
+              { key: "sessions",    label: "Daily Sessions",   goodUnit: "/day",  poorUnit: "/day",  higherBetter: true  },
+              { key: "lcp",         label: "CWV — LCP",        goodUnit: "ms",    poorUnit: "ms",    higherBetter: false },
+              { key: "cls",         label: "CWV — CLS",        goodUnit: "",      poorUnit: "",      higherBetter: false },
+              { key: "inp",         label: "CWV — INP",        goodUnit: "ms",    poorUnit: "ms",    higherBetter: false },
+              { key: "ttfb",        label: "CWV — TTFB",       goodUnit: "ms",    poorUnit: "ms",    higherBetter: false },
             ];
+            const enabledKeys = gwFields.filter(f => gradeMetricEnabled[f.key]);
+            const total = enabledKeys.reduce((s, f) => s + (gradeWeights[f.key] ?? 0), 0);
+            const totalColor = enabledKeys.length === 0 || Math.abs(total - 100) < 1 ? "#0D9C29" : "#C21930";
+            // Fixed-width layout — no 1fr so columns stay compact regardless of panel width
+            const rowStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, marginBottom: 5 };
+            const SW = 40;   // switch column
+            const LW = 128;  // label column
+            const WW = 52;   // weight input
+            const TW = 62;   // threshold input
+            const UW = 22;   // unit label
             return (
               <div style={{ marginBottom: 16 }}>
-                {gwFields.map(({ key, label }) => (
-                  <Flex key={key} alignItems="center" gap={8} style={{ marginBottom: 6 }}>
-                    <Text style={{ fontSize: 12, opacity: 0.7, minWidth: 130 }}>{label}</Text>
-                    <TextInput value={String(gradeWeights[key])} onChange={(val) => { const v = Number(val); if (!isNaN(v) && v >= 0 && v <= 100) saveGradeWeights({ ...gradeWeights, [key]: v }); }} placeholder="0–100" />
-                    <Text style={{ fontSize: 12, opacity: 0.6 }}>%</Text>
-                  </Flex>
-                ))}
-                <Flex alignItems="center" gap={6} style={{ marginTop: 6 }}>
-                  <Text style={{ fontSize: 12, fontWeight: 700, color: totalColor }}>Total: {total}%</Text>
-                  {Math.abs(total - 100) >= 1 && <Text style={{ fontSize: 11, color: "#C21930" }}>— should equal 100%</Text>}
-                  <button onClick={() => saveGradeWeights(DEFAULT_GRADE_WEIGHTS)} style={{ marginLeft: "auto", fontSize: 11, padding: "2px 8px", borderRadius: 4, border: "1px solid rgba(128,128,128,0.3)", background: "none", color: "inherit", cursor: "pointer" }}>Reset</button>
+                {/* Column headers */}
+                <div style={{ ...rowStyle, marginBottom: 6, opacity: 0.5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: SW, flexShrink: 0 }} />
+                  <div style={{ width: LW, flexShrink: 0 }}>Metric</div>
+                  <div style={{ width: WW + UW, flexShrink: 0 }}>Weight</div>
+                  <div style={{ width: 34, flexShrink: 0, textAlign: "right" }}>Good</div>
+                  <div style={{ width: TW + UW, flexShrink: 0 }} />
+                  <div style={{ width: 30, flexShrink: 0, textAlign: "right" }}>Poor</div>
+                </div>
+                {gwFields.map(({ key, label, goodUnit, poorUnit }) => {
+                  const enabled = gradeMetricEnabled[key];
+                  const thr = gradeMetricThresholds[key];
+                  const updateThr = (field: "good" | "poor", val: string) => {
+                    const v = parseFloat(val);
+                    if (!isNaN(v) && v >= 0) saveGradeMetricThresholds({ ...gradeMetricThresholds, [key]: { ...thr, [field]: v } });
+                  };
+                  return (
+                    <div key={key} style={{ ...rowStyle, opacity: enabled ? 1 : 0.4 }}>
+                      <div style={{ width: SW, flexShrink: 0, display: "flex", alignItems: "center" }}>
+                        <Switch value={enabled} onChange={() => saveGradeMetricEnabled({ ...gradeMetricEnabled, [key]: !enabled })} />
+                      </div>
+                      <Text style={{ fontSize: 12, width: LW, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</Text>
+                      <div style={{ width: WW, flexShrink: 0 }}>
+                        <TextInput value={String(gradeWeights[key] ?? 0)} onChange={(val) => { const v = Number(val); if (!isNaN(v) && v >= 0 && v <= 100) saveGradeWeights({ ...gradeWeights, [key]: v }); }} placeholder="0" />
+                      </div>
+                      <Text style={{ fontSize: 11, opacity: 0.5, width: UW, flexShrink: 0 }}>%</Text>
+                      <Text style={{ fontSize: 10, opacity: 0.5, width: 34, flexShrink: 0, textAlign: "right" }}>Good:</Text>
+                      <div style={{ width: TW, flexShrink: 0 }}>
+                        <TextInput value={String(thr.good)} onChange={(val) => updateThr("good", val)} placeholder="good" />
+                      </div>
+                      <Text style={{ fontSize: 10, opacity: 0.4, width: UW, flexShrink: 0 }}>{goodUnit}</Text>
+                      <Text style={{ fontSize: 10, opacity: 0.5, width: 30, flexShrink: 0, textAlign: "right" }}>Poor:</Text>
+                      <div style={{ width: TW, flexShrink: 0 }}>
+                        <TextInput value={String(thr.poor)} onChange={(val) => updateThr("poor", val)} placeholder="poor" />
+                      </div>
+                      <Text style={{ fontSize: 10, opacity: 0.4 }}>{poorUnit}</Text>
+                    </div>
+                  );
+                })}
+                <Flex alignItems="center" gap={6} style={{ marginTop: 6, paddingLeft: SW + 6 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 700, color: totalColor }}>Enabled total: {total}%</Text>
+                  {enabledKeys.length > 0 && Math.abs(total - 100) >= 1 && <Text style={{ fontSize: 11, color: "#C21930" }}>— should equal 100%</Text>}
+                  <button onClick={() => { saveGradeWeights(DEFAULT_GRADE_WEIGHTS); saveGradeMetricEnabled(DEFAULT_GRADE_METRIC_ENABLED); saveGradeMetricThresholds(DEFAULT_GRADE_METRIC_THRESHOLDS); }} style={{ marginLeft: "auto", fontSize: 11, padding: "2px 8px", borderRadius: 4, border: "1px solid rgba(128,128,128,0.3)", background: "none", color: "inherit", cursor: "pointer" }}>Reset</button>
                 </Flex>
               </div>
             );
@@ -8483,10 +8524,11 @@ export function useAIInsights(analysisFn: () => AIInsightsData, subTabKey?: TabK
 // ---------------------------------------------------------------------------
 // Per-tab analysis functions — industry-standard benchmarks
 // ---------------------------------------------------------------------------
-function analyzeFunnelOverview(overallConv: number, overallApdex: number, quality: any, funnelCounts: number[], steps: StepDef[], stepMap: Map<string, any>, aov: number, pageMap?: Map<string, any>, cwv?: { lcp: number; cls: number; inp: number; ttfb: number }, qualityPrev?: any): AIInsightsData {
+function analyzeFunnelOverview(overallConv: number, overallApdex: number, quality: any, funnelCounts: number[], steps: StepDef[], stepMap: Map<string, any>, aov: number, pageMap?: Map<string, any>, cwv?: { lcp: number; cls: number; inp: number; ttfb: number }, qualityPrev?: any, enabledMetrics?: { apdex: boolean; conversion: boolean; errorRate: boolean; avgDuration: boolean; lcp: boolean; cls: boolean; inp: boolean; ttfb: boolean }): AIInsightsData {
   const insights: InsightItem[] = [];
   const recs: RecommendationItem[] = [];
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
+  const en = enabledMetrics;
 
   // Cross-app funnel detection
   const distinctApps = [...new Set(steps.map(s => s.app).filter(Boolean))];
@@ -8515,20 +8557,26 @@ function analyzeFunnelOverview(overallConv: number, overallApdex: number, qualit
   }
 
   // Conversion
-  if (overallConv >= 5) insights.push({ severity: "good", icon: "✅", text: `Conversion rate of ${fmtPct(overallConv)} is above the industry average of 2-5%.` });
-  else if (overallConv >= 2) insights.push({ severity: "info", icon: "📊", text: `Conversion rate of ${fmtPct(overallConv)} is within the industry average range (2-5%).` });
-  else if (overallConv > 0) { insights.push({ severity: "warning", icon: "⚠️", text: `Conversion rate of ${fmtPct(overallConv)} is below the industry average of 2-5%.` }); recs.push({ impact: "high", text: "Investigate the highest drop-off steps in the funnel and optimize page load times and UX for those pages." }); }
+  if (!en || en.conversion) {
+    if (overallConv >= 5) insights.push({ severity: "good", icon: "✅", text: `Conversion rate of ${fmtPct(overallConv)} is above the industry average of 2-5%.` });
+    else if (overallConv >= 2) insights.push({ severity: "info", icon: "📊", text: `Conversion rate of ${fmtPct(overallConv)} is within the industry average range (2-5%).` });
+    else if (overallConv > 0) { insights.push({ severity: "warning", icon: "⚠️", text: `Conversion rate of ${fmtPct(overallConv)} is below the industry average of 2-5%.` }); recs.push({ impact: "high", text: "Investigate the highest drop-off steps in the funnel and optimize page load times and UX for those pages." }); }
+  }
 
   // Apdex
-  if (overallApdex >= 0.85) insights.push({ severity: "good", icon: "✅", text: `Apdex of ${overallApdex.toFixed(2)} is Excellent (≥0.85). Users are satisfied with performance.` });
-  else if (overallApdex >= 0.7) insights.push({ severity: "info", icon: "📊", text: `Apdex of ${overallApdex.toFixed(2)} is Good (0.70-0.85). Minor performance improvements could help.` });
-  else if (overallApdex >= 0.5) { insights.push({ severity: "warning", icon: "⚠️", text: `Apdex of ${overallApdex.toFixed(2)} is Fair (0.50-0.70). Users are experiencing noticeable performance issues.` }); recs.push({ impact: "high", text: "Prioritize server-side and frontend performance optimization. Target reducing P90 response times below 3 seconds." }); }
-  else { insights.push({ severity: "critical", icon: "🔴", text: `Apdex of ${overallApdex.toFixed(2)} is Poor (<0.50). Performance is unacceptable for most users.` }); recs.push({ impact: "high", text: "Critical: Immediate performance intervention needed. Profile backend services, optimize database queries, and reduce page weight." }); }
+  if (!en || en.apdex) {
+    if (overallApdex >= 0.85) insights.push({ severity: "good", icon: "✅", text: `Apdex of ${overallApdex.toFixed(2)} is Excellent (≥0.85). Users are satisfied with performance.` });
+    else if (overallApdex >= 0.7) insights.push({ severity: "info", icon: "📊", text: `Apdex of ${overallApdex.toFixed(2)} is Good (0.70-0.85). Minor performance improvements could help.` });
+    else if (overallApdex >= 0.5) { insights.push({ severity: "warning", icon: "⚠️", text: `Apdex of ${overallApdex.toFixed(2)} is Fair (0.50-0.70). Users are experiencing noticeable performance issues.` }); recs.push({ impact: "high", text: "Prioritize server-side and frontend performance optimization. Target reducing P90 response times below 3 seconds." }); }
+    else { insights.push({ severity: "critical", icon: "🔴", text: `Apdex of ${overallApdex.toFixed(2)} is Poor (<0.50). Performance is unacceptable for most users.` }); recs.push({ impact: "high", text: "Critical: Immediate performance intervention needed. Profile backend services, optimize database queries, and reduce page weight." }); }
+  }
 
   // Error rate
-  if (errorRate > 5) { insights.push({ severity: "critical", icon: "🔴", text: `Error rate of ${fmtPct(errorRate)} exceeds the 5% threshold. Industry standard is <1%.` }); recs.push({ impact: "high", text: "Investigate top JavaScript exceptions. High error rates directly correlate with conversion loss — each 1% increase in errors can reduce conversion by 0.5-1%." }); }
-  else if (errorRate > 1) { insights.push({ severity: "warning", icon: "⚠️", text: `Error rate of ${fmtPct(errorRate)} is above the recommended <1% threshold.` }); recs.push({ impact: "medium", text: "Review the Exceptions tab to identify and fix the most frequent errors affecting user experience." }); }
-  else insights.push({ severity: "good", icon: "✅", text: `Error rate of ${fmtPct(errorRate)} is within the healthy range (<1%).` });
+  if (!en || en.errorRate) {
+    if (errorRate > 5) { insights.push({ severity: "critical", icon: "🔴", text: `Error rate of ${fmtPct(errorRate)} exceeds the 5% threshold. Industry standard is <1%.` }); recs.push({ impact: "high", text: "Investigate top JavaScript exceptions. High error rates directly correlate with conversion loss — each 1% increase in errors can reduce conversion by 0.5-1%." }); }
+    else if (errorRate > 1) { insights.push({ severity: "warning", icon: "⚠️", text: `Error rate of ${fmtPct(errorRate)} is above the recommended <1% threshold.` }); recs.push({ impact: "medium", text: "Review the Exceptions tab to identify and fix the most frequent errors affecting user experience." }); }
+    else insights.push({ severity: "good", icon: "✅", text: `Error rate of ${fmtPct(errorRate)} is within the healthy range (<1%).` });
+  }
 
   // Step drop-offs
   let worstDrop = 0, worstStep = "";
@@ -8547,29 +8595,31 @@ function analyzeFunnelOverview(overallConv: number, overallApdex: number, qualit
   }
 
   // Avg duration
-  if (quality.avg > 3000) { insights.push({ severity: "critical", icon: "🔴", text: `Average action duration of ${fmt(quality.avg)} exceeds 3s. Google recommends pages load within 2.5s.` }); recs.push({ impact: "high", text: "Optimize critical rendering path: defer non-essential JavaScript, compress images, use CDN caching." }); }
-  else if (quality.avg > 1000) insights.push({ severity: "info", icon: "📊", text: `Average action duration of ${fmt(quality.avg)} is acceptable but has room for improvement.` });
-  else insights.push({ severity: "good", icon: "✅", text: `Average action duration of ${fmt(quality.avg)} is fast, meeting the <1s best practice.` });
+  if (!en || en.avgDuration) {
+    if (quality.avg > 3000) { insights.push({ severity: "critical", icon: "🔴", text: `Average action duration of ${fmt(quality.avg)} exceeds 3s. Google recommends pages load within 2.5s.` }); recs.push({ impact: "high", text: "Optimize critical rendering path: defer non-essential JavaScript, compress images, use CDN caching." }); }
+    else if (quality.avg > 1000) insights.push({ severity: "info", icon: "📊", text: `Average action duration of ${fmt(quality.avg)} is acceptable but has room for improvement.` });
+    else insights.push({ severity: "good", icon: "✅", text: `Average action duration of ${fmt(quality.avg)} is fast, meeting the <1s best practice.` });
+  }
 
   // CWV insights
   if (cwv) {
     const { lcp, cls, inp, ttfb } = cwv;
-    if (isFinite(lcp) && lcp > 0) {
+    if ((!en || en.lcp) && isFinite(lcp) && lcp > 0) {
       if (lcp > 4000) { insights.push({ severity: "critical", icon: "🔴", text: `LCP of ${fmt(lcp)} is Poor (>4s). Core Web Vitals target is ≤2.5s.` }); recs.push({ impact: "high", text: "Reduce Largest Contentful Paint: optimize hero images (WebP/AVIF), preload critical resources, and eliminate render-blocking scripts." }); }
       else if (lcp > 2500) { insights.push({ severity: "warning", icon: "⚠️", text: `LCP of ${fmt(lcp)} needs improvement (2.5–4s). Target ≤2.5s for Good status.` }); recs.push({ impact: "medium", text: "Improve LCP: lazy-load below-fold images, use an image CDN, and ensure main content is server-rendered or preloaded." }); }
       else insights.push({ severity: "good", icon: "✅", text: `LCP of ${fmt(lcp)} is Good (≤2.5s). Meets Core Web Vitals threshold.` });
     }
-    if (isFinite(cls) && cls >= 0) {
+    if ((!en || en.cls) && isFinite(cls) && cls >= 0) {
       if (cls > 0.25) { insights.push({ severity: "critical", icon: "🔴", text: `CLS of ${cls.toFixed(3)} is Poor (>0.25). Layout shifts are severely degrading user experience.` }); recs.push({ impact: "high", text: "Fix layout shifts: add explicit width/height to images and iframes, avoid inserting content above existing elements." }); }
       else if (cls > 0.1) { insights.push({ severity: "warning", icon: "⚠️", text: `CLS of ${cls.toFixed(3)} needs improvement (>0.1). Target ≤0.1 for Good status.` }); recs.push({ impact: "medium", text: "Reduce CLS by reserving space for ads and dynamic content using CSS aspect-ratio or min-height." }); }
       else insights.push({ severity: "good", icon: "✅", text: `CLS of ${cls.toFixed(3)} is Good (≤0.1). Layout is visually stable.` });
     }
-    if (isFinite(inp) && inp > 0) {
+    if ((!en || en.inp) && isFinite(inp) && inp > 0) {
       if (inp > 500) { insights.push({ severity: "critical", icon: "🔴", text: `INP of ${fmt(inp)} is Poor (>500ms). Interactions feel severely delayed.` }); recs.push({ impact: "high", text: "Reduce Interaction to Next Paint: break up long tasks, minimize main-thread blocking, and defer non-critical JavaScript." }); }
       else if (inp > 200) { insights.push({ severity: "warning", icon: "⚠️", text: `INP of ${fmt(inp)} needs improvement (200–500ms). Target ≤200ms for Good status.` }); recs.push({ impact: "medium", text: "Improve INP: use web workers for heavy computation, prioritize user-event handling, and reduce synchronous JavaScript." }); }
       else insights.push({ severity: "good", icon: "✅", text: `INP of ${fmt(inp)} is Good (≤200ms). Interactions feel responsive.` });
     }
-    if (isFinite(ttfb) && ttfb > 0) {
+    if ((!en || en.ttfb) && isFinite(ttfb) && ttfb > 0) {
       if (ttfb > 1800) { insights.push({ severity: "warning", icon: "⚠️", text: `TTFB of ${fmt(ttfb)} is Poor (>1.8s). Slow server response delays all subsequent loading.` }); recs.push({ impact: "high", text: "Improve Time to First Byte: optimize server-side processing, add CDN edge caching, and enable HTTP/2 or HTTP/3." }); }
       else if (ttfb > 800) insights.push({ severity: "info", icon: "📊", text: `TTFB of ${fmt(ttfb)} could be improved (>800ms). Target ≤800ms for Good status.` });
       else insights.push({ severity: "good", icon: "✅", text: `TTFB of ${fmt(ttfb)} is Good (≤800ms). Server is responding quickly.` });
@@ -8577,13 +8627,13 @@ function analyzeFunnelOverview(overallConv: number, overallApdex: number, qualit
   }
 
   // Regression Watchlist — metrics outside healthy thresholds
-  if (overallApdex < 0.7 && isFinite(overallApdex))
+  if ((!en || en.apdex) && overallApdex < 0.7 && isFinite(overallApdex))
     insights.push({ severity: overallApdex < 0.5 ? "critical" : "warning", icon: overallApdex < 0.5 ? "🔴" : "⚠️", text: `Regression Watchlist: Apdex ${overallApdex.toFixed(2)} is below the 0.7 threshold. Users are experiencing significant performance degradation.` });
-  if (errorRate > 5)
+  if ((!en || en.errorRate) && errorRate > 5)
     insights.push({ severity: errorRate > 10 ? "critical" : "warning", icon: errorRate > 10 ? "🔴" : "⚠️", text: `Regression Watchlist: Error Rate ${fmtPct(errorRate)} exceeds the 5% critical threshold. Investigate Exceptions and Errors tabs immediately.` });
-  if (quality.avg_dur > 5000 && isFinite(quality.avg_dur))
+  if ((!en || en.avgDuration) && quality.avg_dur > 5000 && isFinite(quality.avg_dur))
     insights.push({ severity: quality.avg_dur > 8000 ? "critical" : "warning", icon: "⚠️", text: `Regression Watchlist: Avg Duration ${fmt(quality.avg_dur)} exceeds 5s. Users are experiencing slow page loads — review Resource Waterfall and Third-Party Impact tabs.` });
-  if (overallConv < 1 && quality.sessions > 100)
+  if ((!en || en.conversion) && overallConv < 1 && quality.sessions > 100)
     insights.push({ severity: "warning", icon: "⚠️", text: `Regression Watchlist: Conversion rate ${fmtPct(overallConv)} is below 1%. This is significantly below industry average (2–5%). Check funnel steps for critical drop-off points.` });
 
   // What Changed — period-over-period metric shifts (when qualityPrev is provided)
@@ -8592,11 +8642,11 @@ function analyzeFunnelOverview(overallConv: number, overallApdex: number, qualit
     const apdexDelta = overallApdex - (qualityPrev.total > 0 ? (qualityPrev.satisfied + qualityPrev.tolerating * 0.5) / qualityPrev.total : 0);
     const errDelta = errorRate - prevErr;
     const convDeltaAI = overallConv - (qualityPrev.sessions > 0 ? (funnelCounts[funnelCounts.length - 1] / qualityPrev.sessions) * 100 : 0);
-    if (Math.abs(apdexDelta) >= 0.05)
+    if ((!en || en.apdex) && Math.abs(apdexDelta) >= 0.05)
       insights.push({ severity: apdexDelta > 0 ? "good" : "warning", icon: apdexDelta > 0 ? "📈" : "📉", text: `What Changed: Apdex shifted ${apdexDelta > 0 ? "+" : ""}${(apdexDelta * 100).toFixed(1)}pts vs prior period — ${apdexDelta > 0 ? "performance is improving" : "performance is degrading"}.` });
-    if (Math.abs(errDelta) >= 0.5)
+    if ((!en || en.errorRate) && Math.abs(errDelta) >= 0.5)
       insights.push({ severity: errDelta < 0 ? "good" : "warning", icon: errDelta < 0 ? "✅" : "⚠️", text: `What Changed: Error rate ${errDelta > 0 ? "increased" : "decreased"} ${Math.abs(errDelta).toFixed(1)}pp (${fmtPct(prevErr)} → ${fmtPct(errorRate)}).` });
-    if (Math.abs(convDeltaAI) >= 0.5 && overallConv > 0)
+    if ((!en || en.conversion) && Math.abs(convDeltaAI) >= 0.5 && overallConv > 0)
       insights.push({ severity: convDeltaAI > 0 ? "good" : "warning", icon: convDeltaAI > 0 ? "📈" : "📉", text: `What Changed: Conversion rate ${convDeltaAI > 0 ? "improved" : "declined"} ${Math.abs(convDeltaAI).toFixed(1)}pp vs the prior period.` });
     const sessChange = qualityPrev.sessions > 0 ? ((quality.sessions - qualityPrev.sessions) / qualityPrev.sessions) * 100 : 0;
     if (Math.abs(sessChange) >= 10)
@@ -21020,9 +21070,9 @@ const ExecGradeRow: React.FC<{
 // TAB: Executive Summary
 // ===========================================================================
 function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps, aov, sparklineRecords, convSparklineRecords, onDrillToForecast, funnels, activeFunnelIndex, saveActiveFunnelIndex, timeframeDays, allFunnelQualities }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[]; aov: number; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnels: FunnelDef[]; activeFunnelIndex: number; saveActiveFunnelIndex: (v: number) => void; timeframeDays: number; allFunnelQualities: any[] }) {
-  const { gradeWeights } = useSettings();
+  const { gradeWeights, gradeMetricEnabled, gradeMetricThresholds } = useSettings();
   const [copied, setCopied] = useState(false);
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, undefined, cwvMetrics, qualityPrev), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, cwvMetrics, qualityPrev]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, undefined, cwvMetrics, qualityPrev, gradeMetricEnabled), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, cwvMetrics, qualityPrev, gradeMetricEnabled]));
   const tl = useTimelapse();
 
   // All hooks must be before early returns (Rules of Hooks)
@@ -21094,18 +21144,21 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
     return 100 * ((v - poor) / (good - poor));
   };
 
+  const thr = gradeMetricThresholds;
+  const dailySessions = quality.sessions / Math.max(timeframeDays, 1 / 24);
   const gradeMetricRows = [
-    { label: "Apdex",       weight: gradeWeights.apdex,       score: scoreHB(effApdex, 0.5, 0.94),          value: isFinite(effApdex) ? effApdex.toFixed(2) : "—",                 color: apdexClr(effApdex),                    indent: false },
-    { label: "Satisfied",   weight: undefined,                  score: satPct,                                value: `${satPct.toFixed(0)}% (${fmtCount(quality.satisfied ?? 0)})`,  color: GREEN,                                 indent: true  },
-    { label: "Tolerating",  weight: undefined,                  score: tolPct,                                value: `${tolPct.toFixed(0)}% (${fmtCount(quality.tolerating ?? 0)})`, color: YELLOW,                                indent: true  },
-    { label: "Frustrated",  weight: undefined,                  score: fruPct,                                value: `${fruPct.toFixed(0)}% (${fmtCount(quality.frustrated ?? 0)})`, color: RED,                                   indent: true  },
-    { label: "Conversion",  weight: gradeWeights.conversion,   score: scoreHB(overallConv, 1, 25),           value: fmtPct(overallConv),                                             color: statusClr(overallConv),                indent: false },
-    { label: "Error Rate",  weight: gradeWeights.errorRate,    score: scoreLB(effErrorRate, 0.5, 5),         value: fmtPct(effErrorRate),                                            color: effErrorRate < 1 ? GREEN : effErrorRate < 3 ? YELLOW : RED, indent: false },
-    { label: "Avg Duration",weight: gradeWeights.avgDuration,  score: scoreLB(effAvgDur, 1500, 5000),        value: fmt(effAvgDur),                                                  color: effAvgDur < 2000 ? GREEN : effAvgDur < 3500 ? YELLOW : RED, indent: false },
-    { label: "CWV — LCP",  weight: gradeWeights.lcp,          score: scoreLB(effLcp, 2500, 4000),           value: fmt(effLcp),                                                     color: cwvClr(effLcp, "lcp"),                 indent: false },
-    { label: "CWV — CLS",  weight: gradeWeights.cls,          score: scoreLB(effCls, 0.1, 0.25),            value: isFinite(effCls) ? effCls.toFixed(3) : "—",                      color: cwvClr(effCls, "cls"),                 indent: false },
-    { label: "CWV — INP",  weight: gradeWeights.inp,          score: scoreLB(effInp, 200, 500),             value: fmt(effInp),                                                     color: cwvClr(effInp, "inp"),                 indent: false },
-    { label: "CWV — TTFB", weight: gradeWeights.ttfb,         score: scoreLB(effTtfb, 800, 1800),           value: fmt(effTtfb),                                                    color: cwvClr(effTtfb, "ttfb"),               indent: false },
+    { label: "Apdex",          show: gradeMetricEnabled.apdex,       weight: gradeMetricEnabled.apdex       ? gradeWeights.apdex       : undefined, score: scoreHB(effApdex,      thr.apdex.poor,       thr.apdex.good),       value: isFinite(effApdex) ? effApdex.toFixed(2) : "—",                                       color: apdexClr(effApdex),                    indent: false },
+    { label: "Satisfied",      show: gradeMetricEnabled.apdex,       weight: undefined,                                                               score: satPct,                                                             value: `${satPct.toFixed(0)}% (${fmtCount(quality.satisfied ?? 0)})`,                        color: GREEN,                                 indent: true  },
+    { label: "Tolerating",     show: gradeMetricEnabled.apdex,       weight: undefined,                                                               score: tolPct,                                                             value: `${tolPct.toFixed(0)}% (${fmtCount(quality.tolerating ?? 0)})`,                       color: YELLOW,                                indent: true  },
+    { label: "Frustrated",     show: gradeMetricEnabled.apdex,       weight: undefined,                                                               score: fruPct,                                                             value: `${fruPct.toFixed(0)}% (${fmtCount(quality.frustrated ?? 0)})`,                       color: RED,                                   indent: true  },
+    { label: "Conversion",     show: gradeMetricEnabled.conversion,  weight: gradeMetricEnabled.conversion   ? gradeWeights.conversion   : undefined, score: scoreHB(overallConv,   thr.conversion.poor,   thr.conversion.good),  value: fmtPct(overallConv),                                                                   color: statusClr(overallConv),                indent: false },
+    { label: "Error Rate",     show: gradeMetricEnabled.errorRate,   weight: gradeMetricEnabled.errorRate    ? gradeWeights.errorRate    : undefined, score: scoreLB(effErrorRate,  thr.errorRate.good,   thr.errorRate.poor),   value: fmtPct(effErrorRate),                                                                  color: effErrorRate < 1 ? GREEN : effErrorRate < 3 ? YELLOW : RED, indent: false },
+    { label: "Avg Duration",   show: gradeMetricEnabled.avgDuration, weight: gradeMetricEnabled.avgDuration  ? gradeWeights.avgDuration  : undefined, score: scoreLB(effAvgDur,     thr.avgDuration.good, thr.avgDuration.poor), value: fmt(effAvgDur),                                                                        color: effAvgDur < 2000 ? GREEN : effAvgDur < 3500 ? YELLOW : RED, indent: false },
+    { label: "Daily Sessions", show: gradeMetricEnabled.sessions,    weight: gradeMetricEnabled.sessions     ? gradeWeights.sessions     : undefined, score: scoreHB(dailySessions, thr.sessions.poor,    thr.sessions.good),    value: `${fmtCount(Math.round(dailySessions))}/day (${fmtCount(quality.sessions)} total)`,   color: dailySessions >= thr.sessions.good ? GREEN : dailySessions >= thr.sessions.poor ? YELLOW : RED, indent: false },
+    { label: "CWV — LCP",     show: gradeMetricEnabled.lcp,         weight: gradeMetricEnabled.lcp          ? gradeWeights.lcp          : undefined, score: scoreLB(effLcp,        thr.lcp.good,         thr.lcp.poor),         value: fmt(effLcp),                                                                           color: cwvClr(effLcp, "lcp"),                 indent: false },
+    { label: "CWV — CLS",     show: gradeMetricEnabled.cls,         weight: gradeMetricEnabled.cls          ? gradeWeights.cls          : undefined, score: scoreLB(effCls,        thr.cls.good,         thr.cls.poor),         value: isFinite(effCls) ? effCls.toFixed(3) : "—",                                            color: cwvClr(effCls, "cls"),                 indent: false },
+    { label: "CWV — INP",     show: gradeMetricEnabled.inp,         weight: gradeMetricEnabled.inp          ? gradeWeights.inp          : undefined, score: scoreLB(effInp,        thr.inp.good,         thr.inp.poor),         value: fmt(effInp),                                                                           color: cwvClr(effInp, "inp"),                 indent: false },
+    { label: "CWV — TTFB",    show: gradeMetricEnabled.ttfb,        weight: gradeMetricEnabled.ttfb         ? gradeWeights.ttfb         : undefined, score: scoreLB(effTtfb,       thr.ttfb.good,        thr.ttfb.poor),        value: fmt(effTtfb),                                                                          color: cwvClr(effTtfb, "ttfb"),               indent: false },
   ];
 
   const weightedRows = gradeMetricRows.filter(m => m.weight != null && isFinite(m.score));
@@ -21132,9 +21185,9 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
   const errCountPrev = hasPrev ? Math.round((errorRatePrev / 100) * qualityPrev.total) : 0;
   const impactStats = [
     { label: "Sessions",   value: fmtCount(effSessions),                   delta: mkDelta(quality.sessions, qualityPrev.sessions, v => `${Math.abs(Math.round((v / Math.max(1, qualityPrev.sessions)) * 100))}%`, true),  subtext: hasPrev ? `vs ${fmtCount(qualityPrev.sessions)} prior` : "this period" },
-    { label: "Errors",     value: fmtCount(quality.errors),                 delta: hasPrev && Math.abs(quality.errors - errCountPrev) > 0 ? { label: (quality.errors - errCountPrev > 0 ? "+" : "") + fmtCount(quality.errors - errCountPrev), positive: quality.errors < errCountPrev, neutral: false } : null, subtext: `${fmtPct(effErrorRate)} error rate` },
-    { label: "Conversion", value: fmtPct(overallConv),                     delta: mkDelta(overallConv, overallConvPrev, v => (v > 0 ? "+" : "") + Math.abs(v).toFixed(1) + "pp", true),                                  subtext: overallConv >= overallConvPrev ? "holding or improving" : "below prior period" },
-    { label: "Apdex",      value: isFinite(effApdex) ? effApdex.toFixed(2) : "—", delta: mkDelta(overallApdex, overallApdexPrev, v => (v > 0 ? "+" : "") + (v * 100).toFixed(1) + "pts", true),                          subtext: apdexLabel(effApdex) },
+    ...(gradeMetricEnabled.errorRate ? [{ label: "Errors", value: fmtCount(quality.errors), delta: hasPrev && Math.abs(quality.errors - errCountPrev) > 0 ? { label: (quality.errors - errCountPrev > 0 ? "+" : "") + fmtCount(quality.errors - errCountPrev), positive: quality.errors < errCountPrev, neutral: false } : null, subtext: `${fmtPct(effErrorRate)} error rate` }] : []),
+    ...(gradeMetricEnabled.conversion ? [{ label: "Conversion", value: fmtPct(overallConv), delta: mkDelta(overallConv, overallConvPrev, v => (v > 0 ? "+" : "") + Math.abs(v).toFixed(1) + "pp", true), subtext: overallConv >= overallConvPrev ? "holding or improving" : "below prior period" }] : []),
+    ...(gradeMetricEnabled.apdex ? [{ label: "Apdex", value: isFinite(effApdex) ? effApdex.toFixed(2) : "—", delta: mkDelta(overallApdex, overallApdexPrev, v => (v > 0 ? "+" : "") + (v * 100).toFixed(1) + "pts", true), subtext: apdexLabel(effApdex) }] : []),
     ...(aov > 0 ? [{ label: "Revenue", value: fmtCurrency(currRevenue), delta: mkDelta(currRevenue, prevRevenue, v => fmtCurrency(Math.abs(v)), true), subtext: hasPrev ? `vs ${fmtCurrency(prevRevenue)} prior` : "this period" }] : []),
   ];
 
@@ -21142,16 +21195,16 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
   const metricChanges = !hasPrev ? [] : (() => {
     const items: Array<{ label: string; curr: string; prev: string; improved: boolean; summary: string }> = [];
     const apdexDelta = overallApdex - overallApdexPrev;
-    if (Math.abs(apdexDelta) >= 0.05 && isFinite(overallApdexPrev) && overallApdexPrev > 0)
+    if (gradeMetricEnabled.apdex && Math.abs(apdexDelta) >= 0.05 && isFinite(overallApdexPrev) && overallApdexPrev > 0)
       items.push({ label: "Apdex", curr: overallApdex.toFixed(2), prev: overallApdexPrev.toFixed(2), improved: apdexDelta > 0, summary: `${apdexDelta > 0 ? "+" : ""}${(apdexDelta * 100).toFixed(1)}pts` });
     const errDelta = effErrorRate - errorRatePrev;
-    if (Math.abs(errDelta) >= 0.5 && isFinite(errorRatePrev))
+    if (gradeMetricEnabled.errorRate && Math.abs(errDelta) >= 0.5 && isFinite(errorRatePrev))
       items.push({ label: "Error Rate", curr: fmtPct(effErrorRate), prev: fmtPct(errorRatePrev), improved: errDelta < 0, summary: `${errDelta > 0 ? "+" : ""}${errDelta.toFixed(1)}pp` });
     const convDeltaM = overallConv - overallConvPrev;
-    if (Math.abs(convDeltaM) >= 0.5 && overallConvPrev > 0)
+    if (gradeMetricEnabled.conversion && Math.abs(convDeltaM) >= 0.5 && overallConvPrev > 0)
       items.push({ label: "Conversion", curr: fmtPct(overallConv), prev: fmtPct(overallConvPrev), improved: convDeltaM > 0, summary: `${convDeltaM > 0 ? "+" : ""}${convDeltaM.toFixed(1)}pp` });
     const durDelta = (quality.avg_dur ?? 0) - (qualityPrev.avg_dur ?? 0);
-    if (Math.abs(durDelta) >= 200 && isFinite(durDelta) && (qualityPrev.avg_dur ?? 0) > 0)
+    if (gradeMetricEnabled.avgDuration && Math.abs(durDelta) >= 200 && isFinite(durDelta) && (qualityPrev.avg_dur ?? 0) > 0)
       items.push({ label: "Avg Duration", curr: fmt(quality.avg_dur), prev: fmt(qualityPrev.avg_dur), improved: durDelta < 0, summary: `${durDelta > 0 ? "+" : ""}${Math.round(durDelta)}ms` });
     const sessPct = qualityPrev.sessions > 0 ? ((quality.sessions - qualityPrev.sessions) / qualityPrev.sessions) * 100 : 0;
     if (Math.abs(sessPct) >= 10)
@@ -21162,21 +21215,21 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
   // ---------- Regression Watchlist ----------
   const regressions = (() => {
     const items: Array<{ label: string; value: string; threshold: string; severity: "warning" | "critical" }> = [];
-    if (isFinite(overallApdex) && overallApdex < 0.7)
+    if (gradeMetricEnabled.apdex && isFinite(overallApdex) && overallApdex < 0.7)
       items.push({ label: "Apdex", value: overallApdex.toFixed(2), threshold: "< 0.7", severity: overallApdex < 0.5 ? "critical" : "warning" });
-    if (effErrorRate > 5)
+    if (gradeMetricEnabled.errorRate && effErrorRate > 5)
       items.push({ label: "Error Rate", value: fmtPct(effErrorRate), threshold: "> 5%", severity: effErrorRate > 10 ? "critical" : "warning" });
-    if (isFinite(quality.avg_dur) && quality.avg_dur > 5000)
+    if (gradeMetricEnabled.avgDuration && isFinite(quality.avg_dur) && quality.avg_dur > 5000)
       items.push({ label: "Avg Duration", value: fmt(quality.avg_dur), threshold: "> 5s", severity: quality.avg_dur > 8000 ? "critical" : "warning" });
-    if (overallConv < 1 && quality.sessions > 100)
+    if (gradeMetricEnabled.conversion && overallConv < 1 && quality.sessions > 100)
       items.push({ label: "Conversion", value: fmtPct(overallConv), threshold: "< 1%", severity: "warning" });
-    if (isFinite(effLcp) && effLcp > 4000)
+    if (gradeMetricEnabled.lcp && isFinite(effLcp) && effLcp > 4000)
       items.push({ label: "LCP", value: fmt(effLcp), threshold: "> 4s (Poor)", severity: effLcp > 6000 ? "critical" : "warning" });
-    if (isFinite(effCls) && effCls > 0.25)
+    if (gradeMetricEnabled.cls && isFinite(effCls) && effCls > 0.25)
       items.push({ label: "CLS", value: effCls.toFixed(3), threshold: "> 0.25 (Poor)", severity: effCls > 0.4 ? "critical" : "warning" });
-    if (isFinite(effInp) && effInp > 500)
+    if (gradeMetricEnabled.inp && isFinite(effInp) && effInp > 500)
       items.push({ label: "INP", value: fmt(effInp), threshold: "> 500ms (Poor)", severity: effInp > 1000 ? "critical" : "warning" });
-    if (isFinite(effTtfb) && effTtfb > 1800)
+    if (gradeMetricEnabled.ttfb && isFinite(effTtfb) && effTtfb > 1800)
       items.push({ label: "TTFB", value: fmt(effTtfb), threshold: "> 1.8s (Poor)", severity: effTtfb > 3000 ? "critical" : "warning" });
     return items;
   })();
@@ -21185,17 +21238,19 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
   const periodLabel = timeframeDays >= 1 ? `${timeframeDays} day${timeframeDays === 1 ? "" : "s"}` : `${Math.round(timeframeDays * 24)}h`;
   const funnelName = funnels[activeFunnelIndex]?.name ?? "this funnel";
   const narrativeLines: string[] = [];
-  narrativeLines.push(`Over the last ${periodLabel}, funnel "${funnelName}" handled ${fmtCount(quality.sessions)} session${quality.sessions === 1 ? "" : "s"} with an overall conversion rate of ${fmtPct(overallConv)}.`);
-  if (isFinite(overallApdex)) {
+  narrativeLines.push(`Over the last ${periodLabel}, funnel "${funnelName}" handled ${fmtCount(quality.sessions)} session${quality.sessions === 1 ? "" : "s"}${gradeMetricEnabled.conversion ? ` with an overall conversion rate of ${fmtPct(overallConv)}` : ""}.`);
+  if (gradeMetricEnabled.apdex && isFinite(overallApdex)) {
     const q = apdexLabel(overallApdex).toLowerCase();
     narrativeLines.push(`Apdex is ${overallApdex.toFixed(2)} (${q}) — ${satPct.toFixed(0)}% satisfied, ${tolPct.toFixed(0)}% tolerating, ${fruPct.toFixed(0)}% frustrated.`);
   }
   const convDelta = overallConvPrev > 0 ? overallConv - overallConvPrev : 0;
-  if (Math.abs(convDelta) > 0.5 && hasPrev) narrativeLines.push(`Conversion is ${convDelta > 0 ? "up" : "down"} ${Math.abs(convDelta).toFixed(1)}pp vs the prior period (${fmtPct(overallConvPrev)} → ${fmtPct(overallConv)}).`);
-  if (effErrorRate > 1) narrativeLines.push(`Error rate is ${fmtPct(effErrorRate)}, above the 1% healthy threshold — review the Exceptions and Errors tabs.`);
-  else narrativeLines.push(`Error rate is ${fmtPct(effErrorRate)} — within the healthy range.`);
+  if (gradeMetricEnabled.conversion && Math.abs(convDelta) > 0.5 && hasPrev) narrativeLines.push(`Conversion is ${convDelta > 0 ? "up" : "down"} ${Math.abs(convDelta).toFixed(1)}pp vs the prior period (${fmtPct(overallConvPrev)} → ${fmtPct(overallConv)}).`);
+  if (gradeMetricEnabled.errorRate) {
+    if (effErrorRate > 1) narrativeLines.push(`Error rate is ${fmtPct(effErrorRate)}, above the 1% healthy threshold — review the Exceptions and Errors tabs.`);
+    else narrativeLines.push(`Error rate is ${fmtPct(effErrorRate)} — within the healthy range.`);
+  }
   if (worstStep && worstStep.dropOff > 15) narrativeLines.push(`Biggest bottleneck: ${worstStep.from} → ${worstStep.to} with a ${fmtPct(worstStep.dropOff)} drop-off rate.${worstStep.dropOff > 40 ? " Critical — requires immediate attention." : ""}`);
-  if (isFinite(effLcp) && effLcp > 2500) narrativeLines.push(`LCP averages ${fmt(effLcp)} — ${effLcp > 4000 ? "outside the Good threshold (>4s). Investigate render-blocking resources." : "needs improvement (target: <2.5s)."}`);
+  if (gradeMetricEnabled.lcp && isFinite(effLcp) && effLcp > 2500) narrativeLines.push(`LCP averages ${fmt(effLcp)} — ${effLcp > 4000 ? "outside the Good threshold (>4s). Investigate render-blocking resources." : "needs improvement (target: <2.5s)."}`);
   if (aov > 0) narrativeLines.push(`Estimated revenue this period: ${fmtCurrency(currRevenue)}${hasPrev && prevRevenue > 0 ? ` (${currRevenue >= prevRevenue ? "+" : ""}${fmtCurrency(currRevenue - prevRevenue)} vs prior)` : ""}.`);
   const sessChange = qualityPrev.sessions > 0 ? ((quality.sessions - qualityPrev.sessions) / qualityPrev.sessions) * 100 : 0;
   if (hasPrev && Math.abs(sessChange) > 10) narrativeLines.push(`Traffic ${sessChange > 0 ? "grew" : "declined"} ${Math.abs(sessChange).toFixed(0)}% vs the prior period.`);
@@ -21209,7 +21264,7 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
       `OVERALL GRADE: ${grade.letter} (${isFinite(overallScore) ? overallScore.toFixed(0) : "—"}/100)`,
       ``,
       `GRADE BREAKDOWN`,
-      ...gradeMetricRows.map(m =>
+      ...gradeMetricRows.filter(m => m.show).map(m =>
         `  ${m.indent ? "  " : ""}${m.label}: ${m.value}` +
         (m.weight != null ? ` — score ${isFinite(m.score) ? m.score.toFixed(0) : "—"}/100 (weight ${m.weight}%)` : "")
       ),
@@ -21296,7 +21351,7 @@ function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexP
 </div>
 <h2>Grade Breakdown</h2>
 <table><tr><th>Metric</th><th style="text-align:right">Value</th><th style="text-align:right">Score /100</th><th style="text-align:right">Weight</th></tr>
-${gradeMetricRows.map(m => `<tr><td style="padding-left:${m.indent ? 28 : 12}px;color:#555">${m.label}</td><td style="text-align:right;font-weight:600;color:${m.color}">${m.value}</td><td style="text-align:right">${isFinite(m.score) ? m.score.toFixed(0) : "—"}</td><td style="text-align:right;color:#888">${m.weight != null ? m.weight + "%" : "—"}</td></tr>`).join("")}
+${gradeMetricRows.filter(m => m.show).map(m => `<tr><td style="padding-left:${m.indent ? 28 : 12}px;color:#555">${m.label}</td><td style="text-align:right;font-weight:600;color:${m.color}">${m.value}</td><td style="text-align:right">${isFinite(m.score) ? m.score.toFixed(0) : "—"}</td><td style="text-align:right;color:#888">${m.weight != null ? m.weight + "%" : "—"}</td></tr>`).join("")}
 </table>
 <h2>Narrative</h2>
 <div style="padding:14px;background:#f6f7fb;border-left:4px solid #A56EFF;margin-bottom:20px">${narrativeLines.map(l => `<p style="margin:4px 0;font-size:14px">${l}</p>`).join("")}</div>
@@ -21376,7 +21431,10 @@ ${whatChanged.length > 0 ? `<h2>Funnel Drop-off Shifts</h2><table><tr><th>From S
           <div style={{ fontSize: 20, fontWeight: 700 }}>Overall Journey Grade</div>
           <div style={{ fontSize: 13, opacity: 0.75, marginTop: 4 }}>Weighted score: <b>{isFinite(overallScore) ? overallScore.toFixed(1) : "—"}</b> / 100</div>
           <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6 }}>
-            Blend of Apdex ({gradeWeights.apdex}%), Conversion ({gradeWeights.conversion}%), Error Rate ({gradeWeights.errorRate}%), Avg Duration ({gradeWeights.avgDuration}%), LCP ({gradeWeights.lcp}%), CLS ({gradeWeights.cls}%), INP ({gradeWeights.inp ?? 0}%), TTFB ({gradeWeights.ttfb ?? 0}%). Adjust weights in Settings.
+            {(["apdex","conversion","errorRate","avgDuration","lcp","cls","inp","ttfb"] as const).filter(k => gradeMetricEnabled[k]).map(k => {
+              const labels: Record<string, string> = { apdex: "Apdex", conversion: "Conversion", errorRate: "Error Rate", avgDuration: "Avg Duration", lcp: "LCP", cls: "CLS", inp: "INP", ttfb: "TTFB" };
+              return `${labels[k]} (${gradeWeights[k]}%)`;
+            }).join(", ") || "No metrics enabled"}. Adjust in Settings.
           </div>
         </div>
       </div>
@@ -21385,7 +21443,7 @@ ${whatChanged.length > 0 ? `<h2>Funnel Drop-off Shifts</h2><table><tr><th>From S
       <div className="uj-table-tile" style={{ margin: "0 20px 8px", padding: "8px 16px" }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Grade Breakdown</div>
         <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 10 }}>Weighted contributors to the overall journey grade.</div>
-        {gradeMetricRows.map(m => (
+        {gradeMetricRows.filter(m => m.show).map(m => (
           <ExecGradeRow key={m.label + (m.indent ? "-sub" : "")} label={m.label} weight={m.weight} score={m.score} displayValue={m.value} color={m.color} indent={m.indent} />
         ))}
       </div>
@@ -21495,25 +21553,26 @@ ${whatChanged.length > 0 ? `<h2>Funnel Drop-off Shifts</h2><table><tr><th>From S
         </>
       )}
 
-      {/* CWV detail row */}
-      <div style={{ margin: "0 20px 8px", fontSize: 15, fontWeight: 700, padding: "18px 0 6px" }}>Core Web Vitals
-        <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.55, marginLeft: 8 }}>Real-user measurements for this funnel's frontend.</span>
-      </div>
-      <div style={{ padding: "0 20px 8px", display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {([
-          { label: "LCP",  value: effLcp,  metric: "lcp" as const,  unit: "ms" },
-          { label: "CLS",  value: effCls,  metric: "cls" as const,  unit: "" },
-          { label: "INP",  value: effInp,  metric: "inp" as const,  unit: "ms" },
-          { label: "TTFB", value: effTtfb, metric: "ttfb" as const, unit: "ms" },
-        ]).map(v => {
-          const color = cwvClr(v.value, v.metric);
-          const displayVal = v.metric === "cls" ? (isFinite(v.value) ? v.value.toFixed(3) : "—") : fmt(v.value);
-          const label = cwvLabel(v.value, v.metric);
-          return (
-            <KpiCard key={v.label} label={v.label} value={displayVal} color={color} rawValue={v.value} prevRawValue={syntheticPrev(v.value, v.label)} sparkline={syntheticSparkline(v.value, 8, v.label)} onDrillToForecast={onDrillToForecast} />
-          );
-        })}
-      </div>
+      {/* CWV detail row — only render if at least one CWV metric is enabled */}
+      {(gradeMetricEnabled.lcp || gradeMetricEnabled.cls || gradeMetricEnabled.inp || gradeMetricEnabled.ttfb) && (<>
+        <div style={{ margin: "0 20px 8px", fontSize: 15, fontWeight: 700, padding: "18px 0 6px" }}>Core Web Vitals
+          <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.55, marginLeft: 8 }}>Real-user measurements for this funnel's frontend.</span>
+        </div>
+        <div style={{ padding: "0 20px 8px", display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {([
+            { label: "LCP",  value: effLcp,  metric: "lcp" as const,  enabled: gradeMetricEnabled.lcp  },
+            { label: "CLS",  value: effCls,  metric: "cls" as const,  enabled: gradeMetricEnabled.cls  },
+            { label: "INP",  value: effInp,  metric: "inp" as const,  enabled: gradeMetricEnabled.inp  },
+            { label: "TTFB", value: effTtfb, metric: "ttfb" as const, enabled: gradeMetricEnabled.ttfb },
+          ]).filter(v => v.enabled).map(v => {
+            const color = cwvClr(v.value, v.metric);
+            const displayVal = v.metric === "cls" ? (isFinite(v.value) ? v.value.toFixed(3) : "—") : fmt(v.value);
+            return (
+              <KpiCard key={v.label} label={v.label} value={displayVal} color={color} rawValue={v.value} prevRawValue={syntheticPrev(v.value, v.label)} sparkline={syntheticSparkline(v.value, 8, v.label)} onDrillToForecast={onDrillToForecast} />
+            );
+          })}
+        </div>
+      </>)}
 
       {/* Funnel Report Cards — always shows all funnels regardless of active selection */}
       <div style={{ margin: "0 20px 8px", fontSize: 15, fontWeight: 700, padding: "18px 0 6px" }}>Funnel Report Cards

@@ -1,4 +1,5 @@
-﻿[
+[
   { "url": "https://guu84124.apps.dynatrace.com", "label": "primary" },
-  { "url": "https://rer30726.apps.dynatrace.com", "label": "secondary" }
+  { "url": "https://rer30726.apps.dynatrace.com", "label": "secondary" },
+  { "url": "https://mxc41850.apps.dynatrace.com", "label": "mxc41850" }
 ]
