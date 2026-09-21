@@ -20,7 +20,7 @@ import type { Timeseries } from "@dynatrace/strato-components/charts";
 import { DataTable } from "@dynatrace/strato-components-preview/tables";
 import "./UserJourney.css";
 import { LAMBO_CAR } from "../lamboCarImage";
-import { useSettings, DEFAULT_FUNNEL_STEPS, DEFAULT_FUNNELS, DEFAULT_FRONTEND, MIN_STEPS, MAX_STEPS, MAX_FUNNELS, DEFAULT_AOV, INDUSTRY_OPTIONS, INDUSTRY_BENCHMARKS, IndustryType, IndustryBenchmark, GradeWeights, DEFAULT_GRADE_WEIGHTS, DEFAULT_GRADE_METRIC_ENABLED, DEFAULT_GRADE_METRIC_THRESHOLDS } from "../SettingsContext";
+import { useSettings, DEFAULT_FUNNEL_STEPS, DEFAULT_FUNNELS, DEFAULT_FRONTEND, MIN_STEPS, MAX_STEPS, MAX_FUNNELS, DEFAULT_AOV, INDUSTRY_OPTIONS, INDUSTRY_BENCHMARKS, IndustryType, IndustryBenchmark, GradeWeights, DEFAULT_GRADE_WEIGHTS, DEFAULT_GRADE_METRIC_ENABLED, DEFAULT_GRADE_METRIC_THRESHOLDS, GradeMetricEnabled, GradeMetricThresholds } from "../SettingsContext";
 import type { StepDef, FunnelDef } from "../SettingsContext";
 import { useTimelapse, TL_BUCKETS, TL_SPEEDS } from "../TimelapseContext";
 import type { TlBucket, SharedBucketMetrics } from "../TimelapseContext";
@@ -388,8 +388,8 @@ type TabKey = typeof TAB_KEYS[number];
 // ---------------------------------------------------------------------------
 type TabGroupDef = { label: string; subTabs: TabKey[] };
 const TAB_GROUPS: TabGroupDef[] = [
-  { label: "Funnel & Conversion", subTabs: ["Funnel Overview", "Funnel Analysis", "Step Details", "Trends", "Conversion Attribution", "Errors & Drop-offs"] },
   { label: "Executive Summary", subTabs: ["Executive Summary"] },
+  { label: "Funnel & Conversion", subTabs: ["Funnel Overview", "Funnel Analysis", "Step Details", "Trends", "Conversion Attribution", "Errors & Drop-offs"] },
   { label: "User Experience", subTabs: ["Web Vitals", "Worst Sessions", "Click Issues", "Perf Budgets", "Resource Waterfall", "Third-Party Impact", "Hyperlyzer"] },
   { label: "Navigation & Flows", subTabs: ["Navigation Paths", "Sankey", "Geo Heatmap", "Maps", "Session Replay Spotlight"] },
   { label: "Intelligence & AI", subTabs: ["Anomaly Detection", "Root Cause Correlation", "Predictive Forecasting", "Change Intelligence", "What-If Analysis"] },
@@ -5439,7 +5439,7 @@ export function UserJourney() {
   const [aiOpen, setAiOpen] = useState(false);
   const closeAiInsights = React.useCallback(() => setAiOpen(false), []);
   const aiContextValue = React.useMemo(() => ({ open: aiOpen, close: closeAiInsights, activeSubTab: activeSubTabKey }), [aiOpen, closeAiInsights, activeSubTabKey]);
-  const { frontend, steps, funnels, activeFunnelIndex, saveFunnels, saveActiveFunnelIndex, saveSteps, aov, saveAov, monthlyInfraCost, saveMonthlyInfraCost, cdnMonthlyCost, saveCdnMonthlyCost, computeCostPerHour, saveComputeCostPerHour, costPerGb, saveCostPerGb, engineerHourlyRate, saveEngineerHourlyRate, industry, saveIndustry, gradeWeights, saveGradeWeights, gradeMetricEnabled, saveGradeMetricEnabled, gradeMetricThresholds, saveGradeMetricThresholds, pageLabels, savePageLabels } = useSettings();
+  const { frontend, steps, funnels, activeFunnelIndex, saveFunnels, saveActiveFunnelIndex, saveSteps, aov, saveAov, monthlyInfraCost, saveMonthlyInfraCost, cdnMonthlyCost, saveCdnMonthlyCost, computeCostPerHour, saveComputeCostPerHour, costPerGb, saveCostPerGb, engineerHourlyRate, saveEngineerHourlyRate, industry, saveIndustry, gradeWeights, saveGradeWeights, gradeMetricEnabled, saveGradeMetricEnabled, gradeMetricThresholds, saveGradeMetricThresholds, saveGradeSettings, pageLabels, savePageLabels } = useSettings();
   const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
   const [funnelStyle, setFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState<number>(0);
@@ -7007,8 +7007,8 @@ export function UserJourney() {
           </div>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12, marginTop: 8 }} />
           {/* Grade Weights */}
-          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Executive Summary Grade Weights</Paragraph>
-          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>Toggle metrics on/off, set weight (enabled weights should sum to 100%), and adjust Good/Poor thresholds for your customer's baseline. Session thresholds are daily counts — automatically scaled by the selected timeframe.</Paragraph>
+          <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Executive Summary Grade Weights — {funnels[activeFunnelIndex < funnels.length ? activeFunnelIndex : 0]?.name ?? "Current Funnel"}</Paragraph>
+          <Paragraph style={{ marginBottom: 8, opacity: 0.6, fontSize: 12 }}>These settings are saved per funnel. Toggle metrics on/off, set weight (enabled weights should sum to 100%), and adjust Good/Poor thresholds for your customer's baseline. Session thresholds are daily counts — automatically scaled by the selected timeframe.</Paragraph>
           {(() => {
             const gwFields: { key: keyof GradeWeights; label: string; goodUnit: string; poorUnit: string; higherBetter: boolean }[] = [
               { key: "apdex",       label: "Apdex",           goodUnit: "",      poorUnit: "",      higherBetter: true  },
@@ -7075,7 +7075,7 @@ export function UserJourney() {
                 <Flex alignItems="center" gap={6} style={{ marginTop: 6, paddingLeft: SW + 6 }}>
                   <Text style={{ fontSize: 12, fontWeight: 700, color: totalColor }}>Enabled total: {total}%</Text>
                   {enabledKeys.length > 0 && Math.abs(total - 100) >= 1 && <Text style={{ fontSize: 11, color: "#C21930" }}>— should equal 100%</Text>}
-                  <button onClick={() => { saveGradeWeights(DEFAULT_GRADE_WEIGHTS); saveGradeMetricEnabled(DEFAULT_GRADE_METRIC_ENABLED); saveGradeMetricThresholds(DEFAULT_GRADE_METRIC_THRESHOLDS); }} style={{ marginLeft: "auto", fontSize: 11, padding: "2px 8px", borderRadius: 4, border: "1px solid rgba(128,128,128,0.3)", background: "none", color: "inherit", cursor: "pointer" }}>Reset</button>
+                  <button onClick={() => saveGradeSettings(DEFAULT_GRADE_WEIGHTS, DEFAULT_GRADE_METRIC_ENABLED, DEFAULT_GRADE_METRIC_THRESHOLDS)} style={{ marginLeft: "auto", fontSize: 11, padding: "2px 8px", borderRadius: 4, border: "1px solid rgba(128,128,128,0.3)", background: "none", color: "inherit", cursor: "pointer" }}>Reset</button>
                 </Flex>
               </div>
             );

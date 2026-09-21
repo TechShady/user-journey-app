@@ -15,6 +15,9 @@ export type FunnelDef = {
   costPerGb?: number;
   engineerHourlyRate?: number;
   industry?: IndustryType;
+  gradeWeights?: GradeWeights;
+  gradeMetricEnabled?: GradeMetricEnabled;
+  gradeMetricThresholds?: GradeMetricThresholds;
 };
 
 export const DEFAULT_FRONTEND = "www.angular.easytravel.com";
@@ -177,6 +180,7 @@ interface SettingsContextValue {
   saveGradeMetricEnabled: (v: GradeMetricEnabled) => void;
   gradeMetricThresholds: GradeMetricThresholds;
   saveGradeMetricThresholds: (v: GradeMetricThresholds) => void;
+  saveGradeSettings: (weights: GradeWeights, enabled: GradeMetricEnabled, thresholds: GradeMetricThresholds) => void;
   pageLabels: Record<string, string>;
   savePageLabels: (v: Record<string, string>) => void;
   saveAov: (v: number) => void;
@@ -196,9 +200,6 @@ const SettingsContext = createContext<SettingsContextValue | null>(null);
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [funnels, setFunnels] = useState<FunnelDef[]>(DEFAULT_FUNNELS);
   const [activeFunnelIndex, setActiveFunnelIndex] = useState<number>(0);
-  const [gradeWeights, setGradeWeights] = useState<GradeWeights>(DEFAULT_GRADE_WEIGHTS);
-  const [gradeMetricEnabled, setGradeMetricEnabled] = useState<GradeMetricEnabled>(DEFAULT_GRADE_METRIC_ENABLED);
-  const [gradeMetricThresholds, setGradeMetricThresholds] = useState<GradeMetricThresholds>(DEFAULT_GRADE_METRIC_THRESHOLDS);
   const [pageLabels, setPageLabels] = useState<Record<string, string>>({});
 
   // Global (app-scoped) reads — shared across every user of this app in the Dynatrace environment.
@@ -253,6 +254,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             costPerGb: f.costPerGb !== undefined ? Number(f.costPerGb) : undefined,
             engineerHourlyRate: f.engineerHourlyRate !== undefined ? Number(f.engineerHourlyRate) : undefined,
             industry: f.industry ?? undefined,
+            gradeWeights: f.gradeWeights && typeof f.gradeWeights === "object" ? f.gradeWeights as GradeWeights : undefined,
+            gradeMetricEnabled: f.gradeMetricEnabled && typeof f.gradeMetricEnabled === "object" ? f.gradeMetricEnabled as GradeMetricEnabled : undefined,
+            gradeMetricThresholds: f.gradeMetricThresholds && typeof f.gradeMetricThresholds === "object" ? f.gradeMetricThresholds as GradeMetricThresholds : undefined,
           }));
           setFunnels(migrated);
           return; // Already have multi-funnel data
@@ -293,57 +297,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const saveActiveFunnelIndex = (v: number) => {
     setActiveFunnelIndex(v);
     saveState({ key: ACTIVE_FUNNEL_STATE_KEY, body: { value: String(v) } });
-  };
-
-  useEffect(() => {
-    const raw = savedGradeWeights.data?.value as string | undefined;
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") setGradeWeights({ ...DEFAULT_GRADE_WEIGHTS, ...parsed });
-      } catch { /* ignore */ }
-    }
-  }, [savedGradeWeights.data?.value]);
-
-  const saveGradeWeights = (v: GradeWeights) => {
-    setGradeWeights(v);
-    saveState({ key: GRADE_WEIGHTS_STATE_KEY, body: { value: JSON.stringify(v) } });
-  };
-
-  useEffect(() => {
-    const raw = savedGradeMetricEnabled.data?.value as string | undefined;
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") setGradeMetricEnabled({ ...DEFAULT_GRADE_METRIC_ENABLED, ...parsed });
-      } catch { /* ignore */ }
-    }
-  }, [savedGradeMetricEnabled.data?.value]);
-
-  const saveGradeMetricEnabled = (v: GradeMetricEnabled) => {
-    setGradeMetricEnabled(v);
-    saveState({ key: GRADE_METRIC_ENABLED_STATE_KEY, body: { value: JSON.stringify(v) } });
-  };
-
-  useEffect(() => {
-    const raw = savedGradeMetricThresholds.data?.value as string | undefined;
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") {
-          const merged: GradeMetricThresholds = { ...DEFAULT_GRADE_METRIC_THRESHOLDS };
-          for (const k of Object.keys(DEFAULT_GRADE_METRIC_THRESHOLDS) as (keyof GradeMetricThresholds)[]) {
-            if (parsed[k] && typeof parsed[k].good === "number" && typeof parsed[k].poor === "number") merged[k] = parsed[k];
-          }
-          setGradeMetricThresholds(merged);
-        }
-      } catch { /* ignore */ }
-    }
-  }, [savedGradeMetricThresholds.data?.value]);
-
-  const saveGradeMetricThresholds = (v: GradeMetricThresholds) => {
-    setGradeMetricThresholds(v);
-    saveState({ key: GRADE_METRIC_THRESHOLDS_STATE_KEY, body: { value: JSON.stringify(v) } });
   };
 
   useEffect(() => {
@@ -394,6 +347,41 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const engineerHourlyRate = activeFunnel?.engineerHourlyRate ?? (!isNaN(legacyEngineer) ? legacyEngineer : DEFAULT_ENGINEER_HOURLY_RATE);
   const industry: IndustryType = activeFunnel?.industry ?? (legacyIndustry && INDUSTRY_OPTIONS.some(o => o.value === legacyIndustry) ? legacyIndustry as IndustryType : DEFAULT_INDUSTRY);
 
+  // Grade settings: per-funnel, falling back to legacy global saved state, then defaults
+  const legacyGradeWeights: GradeWeights | undefined = (() => {
+    const raw = savedGradeWeights.data?.value as string | undefined;
+    if (!raw) return undefined;
+    try { const p = JSON.parse(raw); return p && typeof p === "object" ? { ...DEFAULT_GRADE_WEIGHTS, ...p } : undefined; } catch { return undefined; }
+  })();
+  const legacyGradeMetricEnabled: GradeMetricEnabled | undefined = (() => {
+    const raw = savedGradeMetricEnabled.data?.value as string | undefined;
+    if (!raw) return undefined;
+    try { const p = JSON.parse(raw); return p && typeof p === "object" ? { ...DEFAULT_GRADE_METRIC_ENABLED, ...p } : undefined; } catch { return undefined; }
+  })();
+  const legacyGradeMetricThresholds: GradeMetricThresholds | undefined = (() => {
+    const raw = savedGradeMetricThresholds.data?.value as string | undefined;
+    if (!raw) return undefined;
+    try {
+      const p = JSON.parse(raw);
+      if (!p || typeof p !== "object") return undefined;
+      const merged: GradeMetricThresholds = { ...DEFAULT_GRADE_METRIC_THRESHOLDS };
+      for (const k of Object.keys(DEFAULT_GRADE_METRIC_THRESHOLDS) as (keyof GradeMetricThresholds)[]) {
+        if (p[k] && typeof p[k].good === "number" && typeof p[k].poor === "number") merged[k] = p[k];
+      }
+      return merged;
+    } catch { return undefined; }
+  })();
+
+  const gradeWeights: GradeWeights = activeFunnel?.gradeWeights
+    ? { ...DEFAULT_GRADE_WEIGHTS, ...activeFunnel.gradeWeights }
+    : legacyGradeWeights ?? DEFAULT_GRADE_WEIGHTS;
+  const gradeMetricEnabled: GradeMetricEnabled = activeFunnel?.gradeMetricEnabled
+    ? { ...DEFAULT_GRADE_METRIC_ENABLED, ...activeFunnel.gradeMetricEnabled }
+    : legacyGradeMetricEnabled ?? DEFAULT_GRADE_METRIC_ENABLED;
+  const gradeMetricThresholds: GradeMetricThresholds = activeFunnel?.gradeMetricThresholds
+    ? { ...DEFAULT_GRADE_METRIC_THRESHOLDS, ...activeFunnel.gradeMetricThresholds }
+    : legacyGradeMetricThresholds ?? DEFAULT_GRADE_METRIC_THRESHOLDS;
+
   // ---------------------------------------------------------------------------
   // Setters — update active funnel in local state (non-persisting)
   // ---------------------------------------------------------------------------
@@ -431,8 +419,14 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const setIndustry = (v: IndustryType) => updateActiveFunnel({ industry: v });
   const saveIndustry = (v: IndustryType) => persistActiveFunnel({ industry: v });
 
+  const saveGradeWeights = (v: GradeWeights) => persistActiveFunnel({ gradeWeights: v });
+  const saveGradeMetricEnabled = (v: GradeMetricEnabled) => persistActiveFunnel({ gradeMetricEnabled: v });
+  const saveGradeMetricThresholds = (v: GradeMetricThresholds) => persistActiveFunnel({ gradeMetricThresholds: v });
+  const saveGradeSettings = (weights: GradeWeights, enabled: GradeMetricEnabled, thresholds: GradeMetricThresholds) =>
+    persistActiveFunnel({ gradeWeights: weights, gradeMetricEnabled: enabled, gradeMetricThresholds: thresholds });
+
   return (
-    <SettingsContext.Provider value={{ frontend, funnels, setFunnels, activeFunnelIndex, setActiveFunnelIndex, saveFunnels, saveActiveFunnelIndex, steps, setSteps, saveSteps, aov, setAov, monthlyInfraCost, setMonthlyInfraCost, cdnMonthlyCost, setCdnMonthlyCost, computeCostPerHour, setComputeCostPerHour, costPerGb, setCostPerGb, engineerHourlyRate, setEngineerHourlyRate, industry, setIndustry, gradeWeights, saveGradeWeights, gradeMetricEnabled, saveGradeMetricEnabled, gradeMetricThresholds, saveGradeMetricThresholds, pageLabels, savePageLabels, saveAov, saveMonthlyInfraCost, saveCdnMonthlyCost, saveComputeCostPerHour, saveCostPerGb, saveEngineerHourlyRate, saveIndustry }}>
+    <SettingsContext.Provider value={{ frontend, funnels, setFunnels, activeFunnelIndex, setActiveFunnelIndex, saveFunnels, saveActiveFunnelIndex, steps, setSteps, saveSteps, aov, setAov, monthlyInfraCost, setMonthlyInfraCost, cdnMonthlyCost, setCdnMonthlyCost, computeCostPerHour, setComputeCostPerHour, costPerGb, setCostPerGb, engineerHourlyRate, setEngineerHourlyRate, industry, setIndustry, gradeWeights, saveGradeWeights, gradeMetricEnabled, saveGradeMetricEnabled, gradeMetricThresholds, saveGradeMetricThresholds, saveGradeSettings, pageLabels, savePageLabels, saveAov, saveMonthlyInfraCost, saveCdnMonthlyCost, saveComputeCostPerHour, saveCostPerGb, saveEngineerHourlyRate, saveIndustry }}>
       {children}
     </SettingsContext.Provider>
   );
