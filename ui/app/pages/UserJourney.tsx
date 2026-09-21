@@ -27,6 +27,7 @@ import type { TlBucket, SharedBucketMetrics } from "../TimelapseContext";
 import { HyperlyzerTab } from "./HyperlyzerTab";
 import { ForecastModal } from "../components/ForecastModal";
 import { HotnessForecastPanel } from "../components/HotnessForecastPanel";
+import { HotnessCalendarPanel } from "../components/HotnessCalendarPanel";
 import { PersonaPickerModal } from "../components/PersonaPickerModal";
 import type { PersonaDef } from "../components/PersonaPickerModal";
 import { CorrelationsPanel, CorrelationsContext, computeCorrelations } from "../components/CorrelationsPanel";
@@ -5433,6 +5434,9 @@ export function UserJourney() {
   const [hotnessAssistOpen, setHotnessAssistOpen] = useState(false);
   const [hotnessAssistPos, setHotnessAssistPos] = useState<{ x: number; y: number }>({ x: 200, y: 80 });
   const hotnessAssistDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const [hotnessCalendarOpen, setHotnessCalendarOpen] = useState(false);
+  const [hotnessCalendarPos, setHotnessCalendarPos] = useState<{ x: number; y: number }>({ x: 280, y: 100 });
+  const hotnessCalendarDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [hotnessForecastOpen, setHotnessForecastOpen] = useState(false);
   const [hotnessForecastPos, setHotnessForecastPos] = useState<{ x: number; y: number }>({ x: 240, y: 120 });
   const hotnessForecastDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
@@ -6138,6 +6142,18 @@ export function UserJourney() {
     window.addEventListener('mouseup', onUp);
   }, [hotnessAssistPos]);
 
+  const startHotnessCalendarDrag = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    hotnessCalendarDragRef.current = { startX: e.clientX, startY: e.clientY, origX: hotnessCalendarPos.x, origY: hotnessCalendarPos.y };
+    const onMove = (me: MouseEvent) => {
+      if (!hotnessCalendarDragRef.current) return;
+      setHotnessCalendarPos({ x: hotnessCalendarDragRef.current.origX + me.clientX - hotnessCalendarDragRef.current.startX, y: hotnessCalendarDragRef.current.origY + me.clientY - hotnessCalendarDragRef.current.startY });
+    };
+    const onUp = () => { hotnessCalendarDragRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [hotnessCalendarPos]);
+
   const startHotnessForecastDrag = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     hotnessForecastDragRef.current = { startX: e.clientX, startY: e.clientY, origX: hotnessForecastPos.x, origY: hotnessForecastPos.y };
@@ -6153,6 +6169,7 @@ export function UserJourney() {
   // Close the diag panel when Time-Lapse is turned off
   useEffect(() => { if (!tl.enabled) setTlDiagPanel(null); }, [tl.enabled]);
   useEffect(() => { if (!tl.enabled) setHotnessAssistOpen(false); }, [tl.enabled]);
+  useEffect(() => { if (!tl.enabled) setHotnessCalendarOpen(false); }, [tl.enabled]);
   useEffect(() => { if (!tl.enabled) setHotnessForecastOpen(false); }, [tl.enabled]);
 
   // Parse funnel
@@ -6323,6 +6340,59 @@ export function UserJourney() {
         (aM - apdexes[i]) / aS,
       ));
     } catch { return []; }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [steps, frontend]);
+
+  const getHotnessHeatmapData = React.useCallback(async (days: number): Promise<{ scores: number[]; bucketMs: number }> => {
+    try {
+      const q = `fetch user.events, from: now()-${days}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| fieldsAdd dur_ms = toDouble(duration) / 1000000.0, hour_bucket = bin(start_time, 1h)
+| summarize
+    total = count(),
+    errors = countIf(characteristics.has_error == true),
+    avgDur = avg(dur_ms),
+    sat = countIf(dur_ms <= ${APDEX_T}.0),
+    tol = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
+    by: {hour_bucket}
+| sort hour_bucket asc`;
+      const recs = await runDqlQuery(q);
+      if (recs.length < 2) return { scores: [], bucketMs: 3600000 };
+      const withTs = recs.map((r: any) => {
+        const ts = r.hour_bucket != null ? new Date(r.hour_bucket).getTime() : 0;
+        const t = Number(r.total ?? 0);
+        return {
+          ts,
+          errRate: t > 0 ? Number(r.errors ?? 0) / t * 100 : 0,
+          dur: Number(r.avgDur ?? 0),
+          apdex: t > 0 ? (Number(r.sat ?? 0) + Number(r.tol ?? 0) / 2) / t : 1,
+        };
+      }).filter((x: any) => x.ts > 0);
+      if (withTs.length < 2) return { scores: [], bucketMs: 3600000 };
+      const mn = (a: number[]) => a.reduce((x, y) => x + y, 0) / Math.max(a.length, 1);
+      const sd = (a: number[], m: number) => Math.sqrt(a.reduce((x, v) => x + (v - m) ** 2, 0) / Math.max(a.length, 1)) || 1;
+      const errRates = withTs.map((x: any) => x.errRate);
+      const durs = withTs.map((x: any) => x.dur);
+      const apdexes = withTs.map((x: any) => x.apdex);
+      const eM = mn(errRates), eS = sd(errRates, eM);
+      const dM = mn(durs),     dS = sd(durs, dM);
+      const aM = mn(apdexes),  aS = sd(apdexes, aM);
+      // Fill a dense hourly array so buildGrid timestamps align correctly
+      const startMs = withTs[0].ts;
+      const endMs = withTs[withTs.length - 1].ts;
+      const totalBuckets = Math.ceil((endMs - startMs) / 3600000) + 1;
+      const dense = new Array(totalBuckets).fill(0);
+      withTs.forEach((x: any, i: number) => {
+        const idx = Math.round((x.ts - startMs) / 3600000);
+        if (idx >= 0 && idx < totalBuckets) dense[idx] = Math.max(0,
+          (errRates[i] - eM) / eS,
+          (durs[i] - dM) / dS,
+          (aM - apdexes[i]) / aS,
+        );
+      });
+      return { scores: dense, bucketMs: 3600000 };
+    } catch { return { scores: [], bucketMs: 3600000 }; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [steps, frontend]);
 
@@ -6576,6 +6646,19 @@ export function UserJourney() {
                   )}
                   {tl.hotness.length > 0 && (
                     <button
+                      onClick={() => setHotnessCalendarOpen(v => !v)}
+                      title="Hotness Heatmap — hour-of-day × day-of-week pattern"
+                      style={{
+                        fontSize: 11, padding: "2px 8px", borderRadius: 5, cursor: "pointer",
+                        background: hotnessCalendarOpen ? "rgba(69,137,255,0.25)" : "rgba(255,255,255,0.07)",
+                        color: hotnessCalendarOpen ? "#4589FF" : "rgba(255,255,255,0.6)",
+                        border: `1px solid ${hotnessCalendarOpen ? "rgba(69,137,255,0.5)" : "rgba(255,255,255,0.15)"}`,
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                      }}
+                    >📅 Heatmap</button>
+                  )}
+                  {tl.hotness.length > 0 && (
+                    <button
                       onClick={() => setHotnessForecastOpen(v => !v)}
                       title="Hotness Forecast"
                       style={{
@@ -6726,6 +6809,17 @@ export function UserJourney() {
           onDragStart={startHotnessAssistDrag}
         />,
         document.body
+      )}
+
+      {hotnessCalendarOpen && tl.hotness.length > 0 && (
+        <HotnessCalendarPanel
+          heatScores={tl.hotness}
+          bucketMs={tl.bucketMs}
+          pos={hotnessCalendarPos}
+          onClose={() => setHotnessCalendarOpen(false)}
+          onDragStart={startHotnessCalendarDrag}
+          getRequeryData={getHotnessHeatmapData}
+        />
       )}
 
       {hotnessForecastOpen && tl.hotness.length > 0 && (
