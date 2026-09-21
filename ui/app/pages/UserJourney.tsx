@@ -7521,8 +7521,11 @@ function analyzeHotnessTimelapse(
   const usableRows = allRows.length > 1 ? allRows.slice(0, -1) : allRows;
   const analyzedCount = usableHotness.length;
 
-  // Find top-2 worst (hottest) and top-2 best (coolest) buckets
-  const ranked = usableHotness.map((z, i) => ({ z, i })).sort((a, b) => b.z - a.z);
+  // Find top-2 worst (hottest) and top-2 best (coolest) buckets — exclude empty (no-data) buckets
+  const ranked = usableHotness
+    .map((z, i) => ({ z, i }))
+    .filter(({ i }) => (usableRows[i]?.sessions ?? 0) > 0)
+    .sort((a, b) => b.z - a.z);
   const worstIdx  = ranked[0]?.i ?? 0;
   const worst2Idx = ranked.length > 1 ? (ranked[1]?.i ?? worstIdx) : worstIdx;
   const bestIdx   = ranked[ranked.length - 1]?.i ?? 0;
@@ -7556,6 +7559,7 @@ function analyzeHotnessTimelapse(
   for (let i = 0; i < usableRows.length; i++) {
     const z = usableHotness[i] ?? 0;
     const row = usableRows[i];
+    if ((row?.sessions ?? 0) === 0) continue; // skip empty/no-data buckets
     const problems = problemsByBucket[i] ?? [];
     if (z >= 0.75) {
       hotBuckets++;
@@ -7568,9 +7572,11 @@ function analyzeHotnessTimelapse(
     if (z >= 2.5) criticalBuckets++;
   }
 
-  // [5] Sustained vs Burst Classification
+  // [5] Sustained vs Burst Classification — skip empty buckets (treat as run break)
   let maxRun = 0, currentRun = 0;
-  for (const z of usableHotness) {
+  for (let i = 0; i < usableHotness.length; i++) {
+    if ((usableRows[i]?.sessions ?? 0) === 0) { currentRun = 0; continue; }
+    const z = usableHotness[i] ?? 0;
     if (z >= 0.75) { currentRun++; maxRun = Math.max(maxRun, currentRun); }
     else currentRun = 0;
   }
@@ -8030,117 +8036,103 @@ ${problemsHtml}
           </div>
         </div>
 
-        {/* Worst/Best cards — up to 4 (W1, W2, B1, B2) */}
-        <div style={{ display: "grid", gridTemplateColumns: data.worst2Idx !== data.worstIdx || data.best2Idx !== data.bestIdx ? "1fr 1fr" : "1fr 1fr", gap: 10, marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${cardsDelay}ms` }}>
-          {/* Worst #1 spike */}
-          <div style={{ background: "rgba(255,7,58,0.05)", border: "1px solid rgba(255,7,58,0.2)", borderRadius: 8, padding: "10px 12px" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: TL_HOT_HIGH, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>🔥 Worst #1 — Bucket {data.worstIdx + 1}</div>
-            <div style={{ fontSize: 9, opacity: 0.4, fontFamily: "monospace", marginBottom: 5 }}>{data.worstBucketKey}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: hotColor(data.worstHotZ) }}>Z = {data.worstHotZ.toFixed(2)}</span>
-              <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, fontWeight: 600, background: `${hotColor(data.worstHotZ)}22`, border: `1px solid ${hotColor(data.worstHotZ)}44`, color: hotColor(data.worstHotZ) }}>{data.worstDriver}</span>
+        {/* Compare cards — W1 vs B1 (always), W1 vs W2 and B1 vs B2 (when distinct) */}
+        {(() => {
+          const metricRow = (label: string, left: string, right: string, leftBad?: boolean, rightGood?: boolean) => (
+            <div key={label} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 4, padding: "2px 0", borderBottom: "1px solid rgba(128,128,128,0.08)", alignItems: "center" }}>
+              <span style={{ opacity: 0.55, fontSize: 11 }}>{label}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, textAlign: "right", color: leftBad ? TL_HOT_WARM : "#c0c0c0" }}>{left}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, textAlign: "right", color: rightGood ? GREEN : "#c0c0c0" }}>{right}</span>
             </div>
-            {([
-              { label: "Sessions", value: fmtCount(data.worstRow.sessions), bad: false },
-              { label: "Error Rate", value: fmtPct(data.worstRow.errorRate), bad: data.worstRow.errorRate > 2 },
-              { label: "Avg Load", value: `${Math.round(data.worstRow.avgDurationMs)}ms`, bad: true },
-              { label: "Apdex", value: data.worstRow.apdex.toFixed(3), bad: data.worstRow.apdex < 0.7 },
-              ...(data.worstRow.lcp != null ? [{ label: "LCP", value: `${Math.round(data.worstRow.lcp)}ms`, bad: data.worstRow.lcp > 2500 }] : []),
-              { label: "Problems", value: String(data.worstProblems.length), bad: data.worstProblems.length > 0 },
-              { label: "Frustrated", value: data.worstRow.sessions > 0 ? fmtPct(data.worstRow.frustrated / data.worstRow.sessions * 100) : "—", bad: data.worstRow.sessions > 0 && (data.worstRow.frustrated / data.worstRow.sessions) > 0.15 },
-            ] as const).map((row, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderBottom: "1px solid rgba(128,128,128,0.08)" }}>
-                <span style={{ opacity: 0.55, fontSize: 11 }}>{row.label}</span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: row.bad ? TL_HOT_WARM : "#c0c0c0" }}>{row.value}</span>
-              </div>
-            ))}
-            {data.worstEstimatedConvDrop > 0.1 && (
-              <div style={{ marginTop: 8, padding: "6px 8px", background: "rgba(255,7,58,0.08)", borderRadius: 5 }}>
-                <div style={{ fontSize: 9, opacity: 0.6 }}>Estimated impact</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: TL_HOT_HIGH }}>−{data.worstEstimatedConvDrop.toFixed(1)}pp conv{data.worstEstimatedRevLoss > 0 ? ` · −$${Math.round(data.worstEstimatedRevLoss).toLocaleString()}` : ""}</div>
-              </div>
-            )}
-          </div>
-
-          {/* Best #1 window */}
-          <div style={{ background: "rgba(13,156,41,0.04)", border: "1px solid rgba(13,156,41,0.2)", borderRadius: 8, padding: "10px 12px" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: GREEN, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>✨ Best #1 — Bucket {data.bestIdx + 1}</div>
-            <div style={{ fontSize: 9, opacity: 0.4, fontFamily: "monospace", marginBottom: 5 }}>{data.bestBucketKey}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: hotColor(data.allHotness[data.bestIdx] ?? 0) }}>Z = {(data.allHotness[data.bestIdx] ?? 0).toFixed(2)}</span>
-              <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, fontWeight: 600, background: "rgba(13,156,41,0.12)", border: "1px solid rgba(13,156,41,0.3)", color: GREEN }}>Optimal</span>
-            </div>
-            {([
-              { label: "Sessions", value: fmtCount(data.bestRow.sessions), good: false },
-              { label: "Error Rate", value: fmtPct(data.bestRow.errorRate), good: data.bestRow.errorRate < 1 },
-              { label: "Avg Load", value: `${Math.round(data.bestRow.avgDurationMs)}ms`, good: true },
-              { label: "Apdex", value: data.bestRow.apdex.toFixed(3), good: data.bestRow.apdex > 0.85 },
-              ...(data.bestRow.lcp != null ? [{ label: "LCP", value: `${Math.round(data.bestRow.lcp)}ms`, good: data.bestRow.lcp < 2500 }] : []),
-              { label: "Problems", value: String(data.bestProblemsCount), good: data.bestProblemsCount === 0 },
-              { label: "Frustrated", value: data.bestRow.sessions > 0 ? fmtPct(data.bestRow.frustrated / data.bestRow.sessions * 100) : "—", good: true },
-            ] as const).map((row, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderBottom: "1px solid rgba(128,128,128,0.08)" }}>
-                <span style={{ opacity: 0.55, fontSize: 11 }}>{row.label}</span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: row.good ? GREEN : "#c0c0c0" }}>{row.value}</span>
-              </div>
-            ))}
-            {data.bestEstimatedConv > 0 && (
-              <div style={{ marginTop: 8, padding: "6px 8px", background: "rgba(13,156,41,0.08)", borderRadius: 5 }}>
-                <div style={{ fontSize: 9, opacity: 0.6 }}>Estimated performance</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: GREEN }}>{data.bestEstimatedConv.toFixed(1)}% conv{data.bestEstimatedRev > 0 ? ` · $${Math.round(data.bestEstimatedRev).toLocaleString()}` : ""}</div>
-              </div>
-            )}
-          </div>
-
-          {/* Worst #2 — only when different from Worst #1 */}
-          {data.worst2Idx !== data.worstIdx && (
-            <div style={{ background: "rgba(255,140,105,0.04)", border: "1px solid rgba(255,140,105,0.2)", borderRadius: 8, padding: "10px 12px" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#FF8C69", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>🔶 Worst #2 — Bucket {data.worst2Idx + 1}</div>
-              <div style={{ fontSize: 9, opacity: 0.4, fontFamily: "monospace", marginBottom: 5 }}>{data.worst2BucketKey}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: hotColor(data.worst2HotZ) }}>Z = {data.worst2HotZ.toFixed(2)}</span>
-              </div>
-              {([
-                { label: "Sessions", value: fmtCount(data.worst2Row.sessions), bad: false },
-                { label: "Error Rate", value: fmtPct(data.worst2Row.errorRate), bad: data.worst2Row.errorRate > 2 },
-                { label: "Avg Load", value: `${Math.round(data.worst2Row.avgDurationMs)}ms`, bad: true },
-                { label: "Apdex", value: data.worst2Row.apdex.toFixed(3), bad: data.worst2Row.apdex < 0.7 },
-                ...(data.worst2Row.lcp != null ? [{ label: "LCP", value: `${Math.round(data.worst2Row.lcp)}ms`, bad: data.worst2Row.lcp > 2500 }] : []),
-                { label: "Frustrated", value: data.worst2Row.sessions > 0 ? fmtPct(data.worst2Row.frustrated / data.worst2Row.sessions * 100) : "—", bad: data.worst2Row.sessions > 0 && (data.worst2Row.frustrated / data.worst2Row.sessions) > 0.15 },
-              ] as const).map((row, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderBottom: "1px solid rgba(128,128,128,0.08)" }}>
-                  <span style={{ opacity: 0.55, fontSize: 11 }}>{row.label}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: row.bad ? "#FF8C69" : "#c0c0c0" }}>{row.value}</span>
+          );
+          const cmpCard = (
+            leftLabel: string, leftColor: string, leftBg: string, leftBucket: number, leftKey: string, leftZ: number,
+            rightLabel: string, rightColor: string, rightBg: string, rightBucket: number, rightKey: string, rightZ: number,
+            rows: React.ReactNode,
+          ) => (
+            <div style={{ border: `1px solid rgba(128,128,128,0.15)`, borderRadius: 8, overflow: "hidden", marginBottom: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr" }}>
+                <div style={{ background: leftBg, padding: "8px 10px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: leftColor, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>{leftLabel} — Bkt {leftBucket}</div>
+                  <div style={{ fontSize: 9, opacity: 0.35, fontFamily: "monospace", marginBottom: 3 }}>{leftKey}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: hotColor(leftZ) }}>Z = {leftZ.toFixed(2)}</div>
                 </div>
-              ))}
-            </div>
-          )}
-
-          {/* Best #2 — only when different from Best #1 */}
-          {data.best2Idx !== data.bestIdx && (
-            <div style={{ background: "rgba(127,217,154,0.04)", border: "1px solid rgba(127,217,154,0.2)", borderRadius: 8, padding: "10px 12px" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#7FD99A", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>🌿 Best #2 — Bucket {data.best2Idx + 1}</div>
-              <div style={{ fontSize: 9, opacity: 0.4, fontFamily: "monospace", marginBottom: 5 }}>{data.best2BucketKey}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: hotColor(data.allHotness[data.best2Idx] ?? 0) }}>Z = {(data.allHotness[data.best2Idx] ?? 0).toFixed(2)}</span>
-                <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, fontWeight: 600, background: "rgba(127,217,154,0.12)", border: "1px solid rgba(127,217,154,0.3)", color: "#7FD99A" }}>Good</span>
-              </div>
-              {([
-                { label: "Sessions", value: fmtCount(data.best2Row.sessions), good: false },
-                { label: "Error Rate", value: fmtPct(data.best2Row.errorRate), good: data.best2Row.errorRate < 1 },
-                { label: "Avg Load", value: `${Math.round(data.best2Row.avgDurationMs)}ms`, good: true },
-                { label: "Apdex", value: data.best2Row.apdex.toFixed(3), good: data.best2Row.apdex > 0.85 },
-                ...(data.best2Row.lcp != null ? [{ label: "LCP", value: `${Math.round(data.best2Row.lcp)}ms`, good: data.best2Row.lcp < 2500 }] : []),
-                { label: "Frustrated", value: data.best2Row.sessions > 0 ? fmtPct(data.best2Row.frustrated / data.best2Row.sessions * 100) : "—", good: true },
-              ] as const).map((row, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderBottom: "1px solid rgba(128,128,128,0.08)" }}>
-                  <span style={{ opacity: 0.55, fontSize: 11 }}>{row.label}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: row.good ? "#7FD99A" : "#c0c0c0" }}>{row.value}</span>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "0 8px", background: "rgba(128,128,128,0.04)", fontSize: 9, fontWeight: 800, opacity: 0.35, letterSpacing: 1 }}>VS</div>
+                <div style={{ background: rightBg, padding: "8px 10px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: rightColor, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>{rightLabel} — Bkt {rightBucket}</div>
+                  <div style={{ fontSize: 9, opacity: 0.35, fontFamily: "monospace", marginBottom: 3 }}>{rightKey}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: hotColor(rightZ) }}>Z = {rightZ.toFixed(2)}</div>
                 </div>
-              ))}
+              </div>
+              <div style={{ padding: "6px 10px 4px", background: "rgba(0,0,0,0.15)" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 4, marginBottom: 3 }}>
+                  <span style={{ fontSize: 9, opacity: 0.35 }}>Metric</span>
+                  <span style={{ fontSize: 9, opacity: 0.35, textAlign: "right", color: leftColor }}>{leftLabel.split(" ")[0]}</span>
+                  <span style={{ fontSize: 9, opacity: 0.35, textAlign: "right", color: rightColor }}>{rightLabel.split(" ")[0]}</span>
+                </div>
+                {rows}
+              </div>
             </div>
-          )}
-        </div>
+          );
+
+          const w = data.worstRow, b = data.bestRow, w2 = data.worst2Row, b2 = data.best2Row;
+          const wFrust = w.sessions > 0 ? fmtPct(w.frustrated / w.sessions * 100) : "—";
+          const bFrust = b.sessions > 0 ? fmtPct(b.frustrated / b.sessions * 100) : "—";
+          const w2Frust = w2.sessions > 0 ? fmtPct(w2.frustrated / w2.sessions * 100) : "—";
+          const b2Frust = b2.sessions > 0 ? fmtPct(b2.frustrated / b2.sessions * 100) : "—";
+
+          return (
+            <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${cardsDelay}ms` }}>
+              {/* W1 vs B1 */}
+              {cmpCard(
+                "🔥 Worst #1", TL_HOT_HIGH, "rgba(255,7,58,0.06)", data.worstIdx + 1, data.worstBucketKey, data.worstHotZ,
+                "✨ Best #1", GREEN, "rgba(13,156,41,0.05)", data.bestIdx + 1, data.bestBucketKey, data.allHotness[data.bestIdx] ?? 0,
+                <>
+                  {metricRow("Sessions",  fmtCount(w.sessions),              fmtCount(b.sessions))}
+                  {metricRow("Error Rate",fmtPct(w.errorRate),               fmtPct(b.errorRate),  w.errorRate > 2, b.errorRate < 1)}
+                  {metricRow("Avg Load",  `${Math.round(w.avgDurationMs)}ms`,`${Math.round(b.avgDurationMs)}ms`, true, true)}
+                  {metricRow("Apdex",     w.apdex.toFixed(3),                b.apdex.toFixed(3),   w.apdex < 0.7, b.apdex > 0.85)}
+                  {w.lcp != null && b.lcp != null && metricRow("LCP", `${Math.round(w.lcp)}ms`, `${Math.round(b.lcp)}ms`, w.lcp > 2500, b.lcp < 2500)}
+                  {metricRow("Problems",  String(data.worstProblems.length), String(data.bestProblemsCount), data.worstProblems.length > 0, data.bestProblemsCount === 0)}
+                  {metricRow("Frustrated",wFrust,                            bFrust,               true, true)}
+                  {(data.worstEstimatedConvDrop > 0.1 || data.bestEstimatedConv > 0) && metricRow(
+                    "Est. Conv", data.worstEstimatedConvDrop > 0.1 ? `−${data.worstEstimatedConvDrop.toFixed(1)}pp` : "—",
+                    data.bestEstimatedConv > 0 ? `${data.bestEstimatedConv.toFixed(1)}%` : "—",
+                    data.worstEstimatedConvDrop > 0.1, data.bestEstimatedConv > 0,
+                  )}
+                </>,
+              )}
+
+              {/* W1 vs W2 */}
+              {data.worst2Idx !== data.worstIdx && cmpCard(
+                "🔥 Worst #1", TL_HOT_HIGH, "rgba(255,7,58,0.06)", data.worstIdx + 1, data.worstBucketKey, data.worstHotZ,
+                "🔶 Worst #2", "#FF8C69", "rgba(255,140,105,0.05)", data.worst2Idx + 1, data.worst2BucketKey, data.worst2HotZ,
+                <>
+                  {metricRow("Sessions",  fmtCount(w.sessions),               fmtCount(w2.sessions))}
+                  {metricRow("Error Rate",fmtPct(w.errorRate),                fmtPct(w2.errorRate),  w.errorRate > 2,  w2.errorRate > 2)}
+                  {metricRow("Avg Load",  `${Math.round(w.avgDurationMs)}ms`, `${Math.round(w2.avgDurationMs)}ms`, true, false)}
+                  {metricRow("Apdex",     w.apdex.toFixed(3),                 w2.apdex.toFixed(3),  w.apdex < 0.7,   w2.apdex < 0.7)}
+                  {w.lcp != null && w2.lcp != null && metricRow("LCP", `${Math.round(w.lcp)}ms`, `${Math.round(w2.lcp)}ms`, w.lcp > 2500, false)}
+                  {metricRow("Frustrated",wFrust,                             w2Frust,              true, false)}
+                </>,
+              )}
+
+              {/* B1 vs B2 */}
+              {data.best2Idx !== data.bestIdx && cmpCard(
+                "✨ Best #1", GREEN, "rgba(13,156,41,0.05)", data.bestIdx + 1, data.bestBucketKey, data.allHotness[data.bestIdx] ?? 0,
+                "🌿 Best #2", "#7FD99A", "rgba(127,217,154,0.05)", data.best2Idx + 1, data.best2BucketKey, data.allHotness[data.best2Idx] ?? 0,
+                <>
+                  {metricRow("Sessions",  fmtCount(b.sessions),               fmtCount(b2.sessions))}
+                  {metricRow("Error Rate",fmtPct(b.errorRate),                fmtPct(b2.errorRate),  false, b2.errorRate < 1)}
+                  {metricRow("Avg Load",  `${Math.round(b.avgDurationMs)}ms`, `${Math.round(b2.avgDurationMs)}ms`, false, true)}
+                  {metricRow("Apdex",     b.apdex.toFixed(3),                 b2.apdex.toFixed(3),  false, b2.apdex > 0.85)}
+                  {b.lcp != null && b2.lcp != null && metricRow("LCP", `${Math.round(b.lcp)}ms`, `${Math.round(b2.lcp)}ms`, false, b2.lcp < 2500)}
+                  {metricRow("Frustrated",bFrust,                             b2Frust,              false, true)}
+                </>,
+              )}
+            </div>
+          );
+        })()}
 
         {/* Delta gap comparison table */}
         <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay}ms` }}>
@@ -13499,7 +13491,7 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
   const funnelTlSpikeStrip = React.useMemo(() => {
     return funnelTlBucketList.map((b) => {
       const c = funnelTlBuckets.get(b);
-      if (!c) return 0;
+      if (!c || c[0] === 0) return 0; // skip empty/no-data buckets
       let worstDropZ = 0;
       steps.forEach((_, i) => {
         if (i === 0) return;
