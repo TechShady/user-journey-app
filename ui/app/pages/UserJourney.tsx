@@ -103,7 +103,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.17";
+const APP_VERSION_LABEL = "4.77.26";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -7602,6 +7602,11 @@ interface HotnessAssistData {
   burstType: "stable" | "transient" | "sustained" | "chronic";
   maxConsecutiveHot: number;
   totalHotBuckets: number;
+  episodeCount: number;
+  longestEpisodeBuckets: number;
+  avgRecoveryBuckets: number;
+  driftSlope: number;
+  driftLabel: "worsening" | "stable" | "improving";
   problemCorrelation: Array<{
     problemId: string;
     displayId: string;
@@ -7851,6 +7856,42 @@ function analyzeHotnessTimelapse(
     .sort((a, b) => b.pct - a.pct || b.hotBucketCount - a.hotBucketCount);
   const totalHotBuckets = hotBucketIndices.length;
 
+  // Spike episodes
+  const HOT_THRESH = 0.75;
+  const episodeList: { startIdx: number; endIdx: number; bucketCount: number }[] = [];
+  let inEp = false, epStart = 0;
+  for (let i = 0; i < usableHotness.length; i++) {
+    if (usableHotness[i] >= HOT_THRESH) {
+      if (!inEp) { inEp = true; epStart = i; }
+    } else if (inEp) {
+      episodeList.push({ startIdx: epStart, endIdx: i - 1, bucketCount: i - epStart });
+      inEp = false;
+    }
+  }
+  if (inEp) episodeList.push({ startIdx: epStart, endIdx: usableHotness.length - 1, bucketCount: usableHotness.length - epStart });
+  const episodeCount = episodeList.length;
+  const longestEpisodeBuckets = episodeList.reduce((m, ep) => Math.max(m, ep.bucketCount), 0);
+
+  // Recovery speed
+  const recoveryList = episodeList.map(ep => {
+    for (let i = ep.endIdx + 1; i < usableHotness.length; i++) {
+      if (usableHotness[i] < 0.3 || usableHotness[i] >= HOT_THRESH) return i - ep.endIdx;
+    }
+    return usableHotness.length - ep.endIdx;
+  });
+  const avgRecoveryBuckets = recoveryList.length > 0
+    ? Math.round(recoveryList.reduce((s, v) => s + v, 0) / recoveryList.length)
+    : 0;
+
+  // Drift trend
+  const dn = usableHotness.length;
+  const dSumX = (dn * (dn - 1)) / 2;
+  const dSumX2 = (dn * (dn - 1) * (2 * dn - 1)) / 6;
+  const dSumY = usableHotness.reduce((s, v) => s + v, 0);
+  const dSumXY = usableHotness.reduce((s, v, i) => s + i * v, 0);
+  const driftSlope = dn > 1 ? (dn * dSumXY - dSumX * dSumY) / (dn * dSumX2 - dSumX * dSumX) : 0;
+  const driftLabel: "worsening" | "stable" | "improving" = driftSlope > 0.02 ? "worsening" : driftSlope < -0.02 ? "improving" : "stable";
+
   return {
     summary, analyzedCount,
     worstIdx, worstBucketKey: worstRow.bucket, worstHotZ: worstZ, worstDriver,
@@ -7863,6 +7904,7 @@ function analyzeHotnessTimelapse(
     errorRateDelta, durationDelta, apdexDelta, lcpDelta, allHotness: usableHotness, insights, recommendations: recs,
     alertPattern, burstType, maxConsecutiveHot: maxRun,
     problemCorrelation, totalHotBuckets,
+    episodeCount, longestEpisodeBuckets, avgRecoveryBuckets, driftSlope, driftLabel,
   };
 }
 
@@ -8152,6 +8194,21 @@ ${problemsHtml}
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ marginRight: 5, verticalAlign: "middle" }}><path d="M4 1h5l4 4v9a1.5 1.5 0 01-1.5 1.5h-7A1.5 1.5 0 013 14V2.5A1.5 1.5 0 014 1z" stroke="currentColor" strokeWidth="1.5"/><path d="M9 1v4h4" stroke="currentColor" strokeWidth="1.5"/></svg>
           Export PDF
         </button>
+        <button
+          onMouseDown={e => e.stopPropagation()}
+          onClick={() => {
+            const corrNote = data.problemCorrelation.length > 0
+              ? ` Problem ${data.problemCorrelation[0].displayId || data.problemCorrelation[0].title} correlated with ${data.problemCorrelation[0].pct}% of hot buckets.`
+              : "";
+            const rec0 = data.recommendations[0]?.text ?? "Investigate root cause.";
+            const text = `User Journey detected a ${data.alertPattern}-pattern spike — ${data.episodeCount} episode${data.episodeCount !== 1 ? "s" : ""} (longest ${data.longestEpisodeBuckets} bucket${data.longestEpisodeBuckets !== 1 ? "s" : ""}, peak Z=${data.worstHotZ.toFixed(1)}) at ${data.worstBucketKey}. Drift: ${data.driftLabel}.${corrNote} Recommendation: ${rec0}`;
+            navigator.clipboard.writeText(text).catch(() => {});
+          }}
+          title="Copy executive summary to clipboard"
+          style={{ background: "rgba(128,128,128,0.12)", border: "1px solid rgba(128,128,128,0.2)", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 10, padding: "3px 8px", borderRadius: 4, fontWeight: 600 }}
+        >
+          📋
+        </button>
         <button onClick={onClose} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", opacity: 0.5, fontSize: 16, padding: "0 2px", lineHeight: 1 }}>✕</button>
       </div>
 
@@ -8239,6 +8296,34 @@ ${problemsHtml}
             <div style={{ fontSize: 10, opacity: 0.55, marginTop: 2 }}>{burstSubLabel}</div>
           </div>
         </div>
+
+        {/* Spike Episodes + Recovery + Drift */}
+        {(() => {
+          const epColor = data.episodeCount === 0 ? "#10B981" : data.episodeCount === 1 ? "#FFF04D" : data.episodeCount <= 3 ? "#FF3D9A" : "#E00000";
+          const recLabel = data.episodeCount === 0 ? "N/A" : data.avgRecoveryBuckets <= 1 ? "Rapid" : data.avgRecoveryBuckets <= 3 ? "Fast" : data.avgRecoveryBuckets <= 6 ? "Moderate" : "Slow";
+          const recColor = data.episodeCount === 0 ? "#888" : data.avgRecoveryBuckets <= 1 ? "#10B981" : data.avgRecoveryBuckets <= 3 ? "#10B981" : data.avgRecoveryBuckets <= 6 ? "#FFF04D" : "#E00000";
+          const driftColor = data.driftLabel === "worsening" ? "#E00000" : data.driftLabel === "improving" ? "#10B981" : "#888";
+          const cs: React.CSSProperties = { flex: 1, borderRadius: 8, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 2 };
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${chartDelay + 600}ms` }}>
+              <div style={{ ...cs, background: `${epColor}0d`, border: `1px solid ${epColor}30` }}>
+                <div style={{ fontSize: 9, fontWeight: 700, opacity: 0.5, textTransform: "uppercase" as const, letterSpacing: 0.8 }}>Spike Episodes</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: epColor }}>{data.episodeCount}</div>
+                <div style={{ fontSize: 10, opacity: 0.6 }}>{data.episodeCount === 0 ? "No hot buckets" : `Longest: ${data.longestEpisodeBuckets} bucket${data.longestEpisodeBuckets !== 1 ? "s" : ""}`}</div>
+              </div>
+              <div style={{ ...cs, background: `${recColor}0d`, border: `1px solid ${recColor}30` }}>
+                <div style={{ fontSize: 9, fontWeight: 700, opacity: 0.5, textTransform: "uppercase" as const, letterSpacing: 0.8 }}>Recovery Speed</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: recColor }}>{recLabel}</div>
+                <div style={{ fontSize: 10, opacity: 0.6 }}>{data.episodeCount === 0 ? "—" : `Avg ${data.avgRecoveryBuckets} bucket${data.avgRecoveryBuckets !== 1 ? "s" : ""} to baseline`}</div>
+              </div>
+              <div style={{ ...cs, background: `${driftColor}0d`, border: `1px solid ${driftColor}30` }}>
+                <div style={{ fontSize: 9, fontWeight: 700, opacity: 0.5, textTransform: "uppercase" as const, letterSpacing: 0.8 }}>Drift Trend</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: driftColor }}>{data.driftLabel.charAt(0).toUpperCase() + data.driftLabel.slice(1)}</div>
+                <div style={{ fontSize: 10, opacity: 0.6 }}>{`${data.driftSlope >= 0 ? "+" : ""}${data.driftSlope.toFixed(3)}Z/bucket`}</div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Comparison groups — each with: section header → cmpCard → table */}
         {(() => {
