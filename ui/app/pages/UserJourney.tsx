@@ -28,7 +28,7 @@ import { HyperlyzerTab } from "./HyperlyzerTab";
 import { ForecastModal } from "../components/ForecastModal";
 import { HotnessForecastPanel } from "../components/HotnessForecastPanel";
 import { HotnessCalendarPanel } from "../components/HotnessCalendarPanel";
-import { PersonaPickerModal } from "../components/PersonaPickerModal";
+import { OnboardingWizard } from "../components/OnboardingWizard";
 import type { PersonaDef } from "../components/PersonaPickerModal";
 import { CorrelationsPanel, CorrelationsContext, computeCorrelations } from "../components/CorrelationsPanel";
 import type { MetricEntry, CorrelationOpener } from "../components/CorrelationsPanel";
@@ -103,7 +103,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.28";
+const APP_VERSION_LABEL = "4.77.29";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -6833,16 +6833,15 @@ export function UserJourney() {
         />
       )}
 
-      <PersonaPickerModal
+      <OnboardingWizard
         appName="User Journey & Experience"
         appVersion={APP_VERSION_LABEL}
         appDesc="Tracks conversion funnels, revenue impact, user behavior, and performance across every step of your users' journeys."
         repoUrl="https://github.com/TechShady/user-journey-app"
         whatsNew={UJ_WHATS_NEW}
-        statePrefix="uj"
         personas={UJ_PERSONAS}
         defaultPersonaId="all"
-        onApply={(personaId) => {
+        onPersonaApply={(personaId) => {
           const vis = UJ_PERSONA_PARENT_TABS[personaId] ?? DEFAULT_PARENT_TAB_VISIBILITY;
           setParentTabVisibility(vis);
           saveState({ key: PARENT_TAB_VISIBILITY_STATE_KEY, body: { value: JSON.stringify(vis) } });

@@ -5,13 +5,11 @@ import { UserJourney } from "./pages/UserJourney";
 import { ObservabilityJourney } from "./pages/ObservabilityJourney";
 import { SettingsProvider } from "./SettingsContext";
 import { TimelapseProvider } from "./TimelapseContext";
-import { DisclaimerModal } from "./components/DisclaimerModal";
 
 export const App = () => {
   return (
     <SettingsProvider>
       <TimelapseProvider>
-        <DisclaimerModal />
         <Page>
           <Page.Main>
             <Routes>
