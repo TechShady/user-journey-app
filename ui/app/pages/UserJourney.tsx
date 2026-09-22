@@ -7598,6 +7598,9 @@ interface HotnessAssistData {
   allHotness: number[];
   insights: InsightItem[];
   recommendations: RecommendationItem[];
+  alertPattern: "deployment" | "load-induced" | "infrastructure" | "unknown";
+  burstType: "stable" | "transient" | "sustained" | "chronic";
+  maxConsecutiveHot: number;
 }
 
 function analyzeHotnessTimelapse(
@@ -7690,6 +7693,12 @@ function analyzeHotnessTimelapse(
   const durZ = baselines.avgDurationMs.std > 0 ? (worstRow.avgDurationMs - baselines.avgDurationMs.mean) / baselines.avgDurationMs.std : 0;
   const apdexBadZ = baselines.apdex.std > 0 ? (baselines.apdex.mean - worstRow.apdex) / baselines.apdex.std : 0;
   const sessZ = baselines.sessions.std > 0 ? (worstRow.sessions - baselines.sessions.mean) / baselines.sessions.std : 0;
+
+  const alertPattern: "deployment" | "load-induced" | "infrastructure" | "unknown" =
+    errZ >= 1.0 && sessZ < 0.5 ? "deployment" :
+    errZ >= 1.0 && sessZ >= 0.75 ? "load-induced" :
+    apdexBadZ >= 1.5 && errZ < 0.5 ? "infrastructure" :
+    "unknown";
 
   let worstDriver = "Mixed issues";
   if (worstProblems.length >= 2) worstDriver = "Alert storm";
@@ -7829,6 +7838,7 @@ function analyzeHotnessTimelapse(
     best2Idx, best2BucketKey: best2Row.bucket, best2HotZ: best2Z, best2Row,
     hotBuckets, criticalBuckets, totalEstimatedRevLoss: totalRevLoss, totalLostConversions, alertStormBuckets,
     errorRateDelta, durationDelta, apdexDelta, lcpDelta, allHotness: usableHotness, insights, recommendations: recs,
+    alertPattern, burstType, maxConsecutiveHot: maxRun,
   };
 }
 
@@ -7863,6 +7873,12 @@ function HotnessAssistPanel({
   let insightOffset = summaryDuration + (data.worstProblems.length > 0 ? 1550 : 1400);
   const insightDurations = data.insights.map(ins => ins.text.split(/\s+/).length * 60);
   const hotColor = (z: number) => z >= 2.5 ? TL_HOT_HIGH : z >= 1.5 ? TL_HOT_WARM : z >= 0.75 ? TL_HOT_ELEV : "#4589FF";
+  const patternColor = data.alertPattern === "deployment" ? TL_HOT_WARM : data.alertPattern === "load-induced" ? TL_HOT_ELEV : data.alertPattern === "infrastructure" ? "#FF832B" : "#888";
+  const patternLabel = data.alertPattern === "deployment" ? "Deployment Regression" : data.alertPattern === "load-induced" ? "Load-Induced Overload" : data.alertPattern === "infrastructure" ? "Infrastructure Issue" : "Pattern Unknown";
+  const patternSubLabel = data.alertPattern === "deployment" ? "Code / config change most likely" : data.alertPattern === "load-induced" ? "Infrastructure capacity limit hit" : data.alertPattern === "infrastructure" ? "CDN, network, or origin saturation" : "Insufficient signal for classification";
+  const burstColor = data.burstType === "chronic" ? TL_HOT_HIGH : data.burstType === "sustained" ? TL_HOT_WARM : data.burstType === "transient" ? TL_HOT_ELEV : GREEN;
+  const burstLabel = data.burstType === "chronic" ? `Chronic (${data.maxConsecutiveHot} consecutive)` : data.burstType === "sustained" ? `Sustained (${data.maxConsecutiveHot} consecutive)` : data.burstType === "transient" ? `Transient (${data.maxConsecutiveHot} consecutive)` : "Stable";
+  const burstSubLabel = data.burstType === "chronic" ? "Needs active remediation" : data.burstType === "sustained" ? "Likely needed intervention" : data.burstType === "transient" ? "Appears self-resolved" : "No elevated buckets";
   const generateHotnessReportHtml = (): string => {
     const ts = new Date().toLocaleString();
     const rMaxZ = Math.max(0.5, ...data.allHotness);
@@ -7942,6 +7958,17 @@ function HotnessAssistPanel({
 
     const problemsHtml = data.worstProblems.length > 0 ? `<h2>Active Problems During Worst Window</h2><ul style="margin:0 0 20px;padding-left:18px">${data.worstProblems.map(p => `<li style="margin-bottom:4px;font-size:12px"><span style="font-family:monospace;color:#FF073A;font-size:11px">${p.displayId}</span> — ${p.title}</li>`).join("")}</ul>` : "";
 
+    const recommendationsHtml = data.recommendations.length > 0 ? `<h2>Recommendations</h2>${data.recommendations.map(rec => {
+      const c = rec.impact === "high" ? "#FF073A" : rec.impact === "medium" ? "#FF832B" : "#FFF04D";
+      return `<div style="margin-bottom:7px;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:6px;border-left:3px solid ${c}"><span style="font-size:10px;font-weight:700;text-transform:uppercase;opacity:0.55;margin-right:6px;color:${c}">${rec.impact}</span><span style="font-size:12px">${rec.text}</span></div>`;
+    }).join("")}` : "";
+    const rPatternColor = data.alertPattern === "deployment" ? "#FF3D9A" : data.alertPattern === "load-induced" ? "#FFF04D" : data.alertPattern === "infrastructure" ? "#FF832B" : "#888";
+    const rPatternLabel = data.alertPattern === "deployment" ? "Deployment Regression" : data.alertPattern === "load-induced" ? "Load-Induced Overload" : data.alertPattern === "infrastructure" ? "Infrastructure Issue" : "Pattern Unknown";
+    const rPatternSubLabel = data.alertPattern === "deployment" ? "Code / config change most likely" : data.alertPattern === "load-induced" ? "Infrastructure capacity limit hit" : data.alertPattern === "infrastructure" ? "CDN, network, or origin saturation" : "Insufficient signal for classification";
+    const rBurstColor = data.burstType === "chronic" ? "#FF073A" : data.burstType === "sustained" ? "#FF3D9A" : data.burstType === "transient" ? "#FFF04D" : "#0D9C29";
+    const rBurstLabel = data.burstType === "chronic" ? `Chronic (${data.maxConsecutiveHot} consecutive)` : data.burstType === "sustained" ? `Sustained (${data.maxConsecutiveHot} consecutive)` : data.burstType === "transient" ? `Transient (${data.maxConsecutiveHot} consecutive)` : "Stable";
+    const rBurstSubLabel = data.burstType === "chronic" ? "Needs active remediation" : data.burstType === "sustained" ? "Likely needed intervention" : data.burstType === "transient" ? "Appears self-resolved" : "No elevated buckets";
+
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Hotness Assist Report</title>
 <style>
   @media print{body{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}@page{margin:0.6in;size:A4;}.no-print{display:none !important;}}
@@ -7955,6 +7982,9 @@ function HotnessAssistPanel({
   .kpi-tile{background:rgba(128,128,128,0.08);border:1px solid rgba(128,128,128,0.15);border-radius:8px;padding:10px 14px;}
   .card-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
   .card{border-radius:8px;padding:12px 14px;}
+  .page-break{page-break-before:always;margin-top:0;}
+  .pat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
+  .pat-card{border-radius:8px;padding:12px 14px;}
 </style></head><body>
 <div class="toolbar no-print"><button onclick="window.print()">Print / Save PDF</button></div>
 <h1>🔥 Hotness Assist Report</h1>
@@ -7971,6 +8001,7 @@ function HotnessAssistPanel({
   <div class="kpi-tile"><div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Lost Conversions</div><div style="font-size:22px;font-weight:700;font-family:monospace;color:${data.totalLostConversions > 1 ? "#FF832B" : "#4589FF"}">${Math.round(data.totalLostConversions).toLocaleString()}</div><div style="font-size:10px;opacity:0.4">estimated</div></div>
 </div>
 
+<div class="page-break"></div>
 <h2>Hotness Timeline — Full Period</h2>
 <div style="background:rgba(128,128,128,0.04);border:1px solid rgba(128,128,128,0.15);border-radius:8px;padding:8px 10px 6px;margin-bottom:20px">
   <svg width="100%" height="130" viewBox="0 0 ${svgW} 130" preserveAspectRatio="none" style="display:block">${threshLines}${bars}${markersSvg}</svg>
@@ -7982,7 +8013,22 @@ function HotnessAssistPanel({
   </div>
 </div>
 
-<h2>Compare Cards</h2>
+<h2>Pattern Analysis &amp; Spike Duration</h2>
+<div class="pat-grid">
+  <div class="pat-card" style="background:${rPatternColor}12;border:1px solid ${rPatternColor}40">
+    <div style="font-size:9px;opacity:0.55;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Pattern Analysis</div>
+    <div style="font-size:13px;font-weight:700;color:${rPatternColor}">${rPatternLabel}</div>
+    <div style="font-size:11px;opacity:0.6;margin-top:3px">${rPatternSubLabel}</div>
+  </div>
+  <div class="pat-card" style="background:${rBurstColor}12;border:1px solid ${rBurstColor}40">
+    <div style="font-size:9px;opacity:0.55;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Spike Duration</div>
+    <div style="font-size:13px;font-weight:700;color:${rBurstColor}">${rBurstLabel}</div>
+    <div style="font-size:11px;opacity:0.6;margin-top:3px">${rBurstSubLabel}</div>
+  </div>
+</div>
+
+<div class="page-break"></div>
+<h2>What's Different — Worst #1 vs Best #1</h2>
 ${cmpCard(
   "🔥 Worst #1", "#FF073A", "rgba(255,7,58,0.05)", data.worstIdx + 1, data.worstBucketKey, data.worstHotZ,
   "✨ Best #1",  "#0D9C29", "rgba(13,156,41,0.04)", data.bestIdx + 1, data.bestBucketKey, data.allHotness[data.bestIdx] ?? 0,
@@ -7997,7 +8043,12 @@ ${cmpCard(
     ...(data.worstEstimatedConvDrop > 0.1 || data.bestEstimatedConv > 0 ? [{ l: "Est. Conv", left: data.worstEstimatedConvDrop > 0.1 ? `−${data.worstEstimatedConvDrop.toFixed(1)}pp` : "—", right: data.bestEstimatedConv > 0 ? `${data.bestEstimatedConv.toFixed(1)}%` : "—", leftColor: "#FF832B", rightColor: "#0D9C29" }] : []),
   ]
 )}
-${data.worst2Idx !== data.worstIdx ? cmpCard(
+<h2 style="margin-top:16px">Gap Summary</h2>
+<table style="margin-bottom:20px"><thead><tr style="background:rgba(128,128,128,0.08)"><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Metric</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#0D9C29">Best</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#FF073A">Worst</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Gap</th></tr></thead><tbody>${gapRows}</tbody></table>
+
+${data.worst2Idx !== data.worstIdx ? `<div class="page-break"></div>
+<h2>Common Bad Signals — Worst #1 vs Worst #2</h2>
+${cmpCard(
   "🔥 Worst #1", "#FF073A", "rgba(255,7,58,0.05)",   data.worstIdx  + 1, data.worstBucketKey,  data.worstHotZ,
   "🔶 Worst #2", "#FF8C69", "rgba(255,140,105,0.04)", data.worst2Idx + 1, data.worst2BucketKey, data.worst2HotZ,
   [
@@ -8008,8 +8059,18 @@ ${data.worst2Idx !== data.worstIdx ? cmpCard(
     ...(data.worstRow.lcp != null && data.worst2Row.lcp != null ? [{ l: "LCP", left: `${Math.round(data.worstRow.lcp)}ms`, right: `${Math.round(data.worst2Row.lcp)}ms`, leftColor: data.worstRow.lcp > 2500 ? "#FF832B" : "#c0c0c0", rightColor: data.worst2Row.lcp > 2500 ? "#FF8C69" : "#c0c0c0" }] : []),
     { l: "Frustrated",left: data.worstRow.sessions > 0 ? rFmtPct(data.worstRow.frustrated / data.worstRow.sessions * 100) : "—", right: data.worst2Row.sessions > 0 ? rFmtPct(data.worst2Row.frustrated / data.worst2Row.sessions * 100) : "—", leftColor: "#FF832B", rightColor: "#FF8C69" },
   ]
-) : ""}
-${data.best2Idx !== data.bestIdx ? cmpCard(
+)}
+<h2 style="margin-top:16px">Common Bad Signals Table</h2>
+<table style="margin-bottom:20px"><thead><tr style="background:rgba(128,128,128,0.08)"><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Metric</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#FF073A">W1 (Bkt ${data.worstIdx + 1})</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#FF8C69">W2 (Bkt ${data.worst2Idx + 1})</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Signal</th></tr></thead><tbody>${[
+  { m: "Error Rate", v1: rFmtPct(data.worstRow.errorRate), v2: rFmtPct(data.worst2Row.errorRate), both: data.worstRow.errorRate > data.bestRow.errorRate * 1.5 && data.worst2Row.errorRate > data.bestRow.errorRate * 1.5 },
+  { m: "Avg Duration", v1: `${Math.round(data.worstRow.avgDurationMs)}ms`, v2: `${Math.round(data.worst2Row.avgDurationMs)}ms`, both: data.worstRow.avgDurationMs > data.bestRow.avgDurationMs * 1.15 && data.worst2Row.avgDurationMs > data.bestRow.avgDurationMs * 1.15 },
+  { m: "Apdex", v1: data.worstRow.apdex.toFixed(3), v2: data.worst2Row.apdex.toFixed(3), both: data.worstRow.apdex < data.bestRow.apdex * 0.97 && data.worst2Row.apdex < data.bestRow.apdex * 0.97 },
+  ...(data.worstRow.lcp != null && data.worst2Row.lcp != null && data.bestRow.lcp != null ? [{ m: "LCP", v1: `${Math.round(data.worstRow.lcp)}ms`, v2: `${Math.round(data.worst2Row.lcp)}ms`, both: data.worstRow.lcp > data.bestRow.lcp * 1.2 && data.worst2Row.lcp > data.bestRow.lcp * 1.2 }] : []),
+].map(r => `<tr style="border-bottom:1px solid rgba(255,255,255,0.06)"><td style="padding:6px 12px;font-size:12px">${r.m}</td><td style="padding:6px 12px;font-size:12px;color:#FF073A;font-weight:600">${r.v1}</td><td style="padding:6px 12px;font-size:12px;color:#FF8C69;font-weight:600">${r.v2}</td><td style="padding:6px 12px;font-size:12px;font-weight:700;color:${r.both ? "#FF073A" : "#888"}">${r.both ? "Both hot" : "—"}</td></tr>`).join("")}</tbody></table>` : ""}
+
+${data.best2Idx !== data.bestIdx ? `<div class="page-break"></div>
+<h2>Common Good Signals — Best #1 vs Best #2</h2>
+${cmpCard(
   "✨ Best #1", "#0D9C29", "rgba(13,156,41,0.04)",    data.bestIdx  + 1, data.bestBucketKey,  data.allHotness[data.bestIdx]  ?? 0,
   "🌿 Best #2", "#7FD99A", "rgba(127,217,154,0.04)",  data.best2Idx + 1, data.best2BucketKey, data.allHotness[data.best2Idx] ?? 0,
   [
@@ -8020,20 +8081,8 @@ ${data.best2Idx !== data.bestIdx ? cmpCard(
     ...(data.bestRow.lcp != null && data.best2Row.lcp != null ? [{ l: "LCP", left: `${Math.round(data.bestRow.lcp)}ms`, right: `${Math.round(data.best2Row.lcp)}ms`, leftColor: data.bestRow.lcp < 2500 ? "#0D9C29" : "#c0c0c0", rightColor: data.best2Row.lcp < 2500 ? "#7FD99A" : "#c0c0c0" }] : []),
     { l: "Frustrated",left: data.bestRow.sessions > 0 ? rFmtPct(data.bestRow.frustrated / data.bestRow.sessions * 100) : "—", right: data.best2Row.sessions > 0 ? rFmtPct(data.best2Row.frustrated / data.best2Row.sessions * 100) : "—", leftColor: "#0D9C29", rightColor: "#7FD99A" },
   ]
-) : ""}
-
-<h2>What's Different — Worst vs Best</h2>
-<table style="margin-bottom:20px"><thead><tr style="background:rgba(128,128,128,0.08)"><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Metric</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#0D9C29">Best</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#FF073A">Worst</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Gap</th></tr></thead><tbody>${gapRows}</tbody></table>
-
-${data.worst2Idx !== data.worstIdx ? `<h2>Common Bad Signals — Worst #1 vs Worst #2</h2>
-<table style="margin-bottom:20px"><thead><tr style="background:rgba(128,128,128,0.08)"><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Metric</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#FF073A">W1 (Bkt ${data.worstIdx + 1})</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#FF8C69">W2 (Bkt ${data.worst2Idx + 1})</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Signal</th></tr></thead><tbody>${[
-  { m: "Error Rate", v1: rFmtPct(data.worstRow.errorRate), v2: rFmtPct(data.worst2Row.errorRate), both: data.worstRow.errorRate > data.bestRow.errorRate * 1.5 && data.worst2Row.errorRate > data.bestRow.errorRate * 1.5 },
-  { m: "Avg Duration", v1: `${Math.round(data.worstRow.avgDurationMs)}ms`, v2: `${Math.round(data.worst2Row.avgDurationMs)}ms`, both: data.worstRow.avgDurationMs > data.bestRow.avgDurationMs * 1.15 && data.worst2Row.avgDurationMs > data.bestRow.avgDurationMs * 1.15 },
-  { m: "Apdex", v1: data.worstRow.apdex.toFixed(3), v2: data.worst2Row.apdex.toFixed(3), both: data.worstRow.apdex < data.bestRow.apdex * 0.97 && data.worst2Row.apdex < data.bestRow.apdex * 0.97 },
-  ...(data.worstRow.lcp != null && data.worst2Row.lcp != null && data.bestRow.lcp != null ? [{ m: "LCP", v1: `${Math.round(data.worstRow.lcp)}ms`, v2: `${Math.round(data.worst2Row.lcp)}ms`, both: data.worstRow.lcp > data.bestRow.lcp * 1.2 && data.worst2Row.lcp > data.bestRow.lcp * 1.2 }] : []),
-].map(r => `<tr style="border-bottom:1px solid rgba(255,255,255,0.06)"><td style="padding:6px 12px;font-size:12px">${r.m}</td><td style="padding:6px 12px;font-size:12px;color:#FF073A;font-weight:600">${r.v1}</td><td style="padding:6px 12px;font-size:12px;color:#FF8C69;font-weight:600">${r.v2}</td><td style="padding:6px 12px;font-size:12px;font-weight:700;color:${r.both ? "#FF073A" : "#888"}">${r.both ? "Both hot" : "—"}</td></tr>`).join("")}</tbody></table>` : ""}
-
-${data.best2Idx !== data.bestIdx ? `<h2>Common Good Signals — Best #1 vs Best #2</h2>
+)}
+<h2 style="margin-top:16px">Common Good Signals Table</h2>
 <table style="margin-bottom:20px"><thead><tr style="background:rgba(128,128,128,0.08)"><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Metric</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#0D9C29">B1 (Bkt ${data.bestIdx + 1})</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);color:#7FD99A">B2 (Bkt ${data.best2Idx + 1})</th><th style="padding:6px 12px;font-size:11px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)">Signal</th></tr></thead><tbody>${[
   { m: "Error Rate", v1: rFmtPct(data.bestRow.errorRate), v2: rFmtPct(data.best2Row.errorRate), both: data.bestRow.errorRate < data.worstRow.errorRate * 0.7 && data.best2Row.errorRate < data.worstRow.errorRate * 0.7 },
   { m: "Avg Duration", v1: `${Math.round(data.bestRow.avgDurationMs)}ms`, v2: `${Math.round(data.best2Row.avgDurationMs)}ms`, both: data.bestRow.avgDurationMs < data.worstRow.avgDurationMs * 0.9 && data.best2Row.avgDurationMs < data.worstRow.avgDurationMs * 0.9 },
@@ -8041,7 +8090,9 @@ ${data.best2Idx !== data.bestIdx ? `<h2>Common Good Signals — Best #1 vs Best 
   ...(data.bestRow.lcp != null && data.best2Row.lcp != null ? [{ m: "LCP", v1: `${Math.round(data.bestRow.lcp)}ms`, v2: `${Math.round(data.best2Row.lcp)}ms`, both: data.bestRow.lcp < 2500 && data.best2Row.lcp < 2500 }] : []),
 ].map(r => `<tr style="border-bottom:1px solid rgba(255,255,255,0.06)"><td style="padding:6px 12px;font-size:12px">${r.m}</td><td style="padding:6px 12px;font-size:12px;color:#0D9C29;font-weight:600">${r.v1}</td><td style="padding:6px 12px;font-size:12px;color:#7FD99A;font-weight:600">${r.v2}</td><td style="padding:6px 12px;font-size:12px;font-weight:700;color:${r.both ? "#0D9C29" : "#888"}">${r.both ? "Both healthy" : "—"}</td></tr>`).join("")}</tbody></table>` : ""}
 
+<div class="page-break"></div>
 ${insightsHtml}
+${recommendationsHtml}
 ${problemsHtml}
 
 <div style="text-align:center;margin-top:30px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);font-size:10px;color:#555">Hotness Assist | ${data.analyzedCount} buckets analyzed | ${ts}</div>
@@ -8143,7 +8194,21 @@ ${problemsHtml}
           </div>
         </div>
 
-        {/* Compare cards — W1 vs B1 (always), W1 vs W2 and B1 vs B2 (when distinct) */}
+        {/* Pattern Analysis + Spike Duration cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${chartDelay + 400}ms` }}>
+          <div style={{ background: `${patternColor}12`, border: `1px solid ${patternColor}40`, borderRadius: 8, padding: "8px 12px" }}>
+            <div style={{ fontSize: 9, opacity: 0.55, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>Pattern Analysis</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: patternColor }}>{patternLabel}</div>
+            <div style={{ fontSize: 10, opacity: 0.55, marginTop: 2 }}>{patternSubLabel}</div>
+          </div>
+          <div style={{ background: `${burstColor}12`, border: `1px solid ${burstColor}40`, borderRadius: 8, padding: "8px 12px" }}>
+            <div style={{ fontSize: 9, opacity: 0.55, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>Spike Duration</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: burstColor }}>{burstLabel}</div>
+            <div style={{ fontSize: 10, opacity: 0.55, marginTop: 2 }}>{burstSubLabel}</div>
+          </div>
+        </div>
+
+        {/* Comparison groups — each with: section header → cmpCard → table */}
         {(() => {
           const metricRow = (label: string, left: string, right: string, leftBad?: boolean, rightGood?: boolean) => (
             <div key={label} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 4, padding: "2px 0", borderBottom: "1px solid rgba(128,128,128,0.08)", alignItems: "center" }}>
@@ -8157,7 +8222,7 @@ ${problemsHtml}
             rightLabel: string, rightColor: string, rightBg: string, rightBucket: number, rightKey: string, rightZ: number,
             rows: React.ReactNode,
           ) => (
-            <div style={{ border: `1px solid rgba(128,128,128,0.15)`, borderRadius: 8, overflow: "hidden", marginBottom: 10 }}>
+            <div style={{ border: `1px solid rgba(128,128,128,0.15)`, borderRadius: 8, overflow: "hidden", marginBottom: 0 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr" }}>
                 <div style={{ background: leftBg, padding: "8px 10px" }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: leftColor, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>{leftLabel} — Bkt {leftBucket}</div>
@@ -8188,91 +8253,6 @@ ${problemsHtml}
           const w2Frust = w2.sessions > 0 ? fmtPct(w2.frustrated / w2.sessions * 100) : "—";
           const b2Frust = b2.sessions > 0 ? fmtPct(b2.frustrated / b2.sessions * 100) : "—";
 
-          return (
-            <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${cardsDelay}ms` }}>
-              {/* W1 vs B1 */}
-              {cmpCard(
-                "🔥 Worst #1", TL_HOT_HIGH, "rgba(255,7,58,0.06)", data.worstIdx + 1, data.worstBucketKey, data.worstHotZ,
-                "✨ Best #1", GREEN, "rgba(13,156,41,0.05)", data.bestIdx + 1, data.bestBucketKey, data.allHotness[data.bestIdx] ?? 0,
-                <>
-                  {metricRow("Sessions",  fmtCount(w.sessions),              fmtCount(b.sessions))}
-                  {metricRow("Error Rate",fmtPct(w.errorRate),               fmtPct(b.errorRate),  w.errorRate > 2, b.errorRate < 1)}
-                  {metricRow("Avg Load",  `${Math.round(w.avgDurationMs)}ms`,`${Math.round(b.avgDurationMs)}ms`, true, true)}
-                  {metricRow("Apdex",     w.apdex.toFixed(3),                b.apdex.toFixed(3),   w.apdex < 0.7, b.apdex > 0.85)}
-                  {w.lcp != null && b.lcp != null && metricRow("LCP", `${Math.round(w.lcp)}ms`, `${Math.round(b.lcp)}ms`, w.lcp > 2500, b.lcp < 2500)}
-                  {metricRow("Problems",  String(data.worstProblems.length), String(data.bestProblemsCount), data.worstProblems.length > 0, data.bestProblemsCount === 0)}
-                  {metricRow("Frustrated",wFrust,                            bFrust,               true, true)}
-                  {(data.worstEstimatedConvDrop > 0.1 || data.bestEstimatedConv > 0) && metricRow(
-                    "Est. Conv", data.worstEstimatedConvDrop > 0.1 ? `−${data.worstEstimatedConvDrop.toFixed(1)}pp` : "—",
-                    data.bestEstimatedConv > 0 ? `${data.bestEstimatedConv.toFixed(1)}%` : "—",
-                    data.worstEstimatedConvDrop > 0.1, data.bestEstimatedConv > 0,
-                  )}
-                </>,
-              )}
-
-              {/* W1 vs W2 */}
-              {data.worst2Idx !== data.worstIdx && cmpCard(
-                "🔥 Worst #1", TL_HOT_HIGH, "rgba(255,7,58,0.06)", data.worstIdx + 1, data.worstBucketKey, data.worstHotZ,
-                "🔶 Worst #2", "#FF8C69", "rgba(255,140,105,0.05)", data.worst2Idx + 1, data.worst2BucketKey, data.worst2HotZ,
-                <>
-                  {metricRow("Sessions",  fmtCount(w.sessions),               fmtCount(w2.sessions))}
-                  {metricRow("Error Rate",fmtPct(w.errorRate),                fmtPct(w2.errorRate),  w.errorRate > 2,  w2.errorRate > 2)}
-                  {metricRow("Avg Load",  `${Math.round(w.avgDurationMs)}ms`, `${Math.round(w2.avgDurationMs)}ms`, true, false)}
-                  {metricRow("Apdex",     w.apdex.toFixed(3),                 w2.apdex.toFixed(3),  w.apdex < 0.7,   w2.apdex < 0.7)}
-                  {w.lcp != null && w2.lcp != null && metricRow("LCP", `${Math.round(w.lcp)}ms`, `${Math.round(w2.lcp)}ms`, w.lcp > 2500, false)}
-                  {metricRow("Frustrated",wFrust,                             w2Frust,              true, false)}
-                </>,
-              )}
-
-              {/* B1 vs B2 */}
-              {data.best2Idx !== data.bestIdx && cmpCard(
-                "✨ Best #1", GREEN, "rgba(13,156,41,0.05)", data.bestIdx + 1, data.bestBucketKey, data.allHotness[data.bestIdx] ?? 0,
-                "🌿 Best #2", "#7FD99A", "rgba(127,217,154,0.05)", data.best2Idx + 1, data.best2BucketKey, data.allHotness[data.best2Idx] ?? 0,
-                <>
-                  {metricRow("Sessions",  fmtCount(b.sessions),               fmtCount(b2.sessions))}
-                  {metricRow("Error Rate",fmtPct(b.errorRate),                fmtPct(b2.errorRate),  false, b2.errorRate < 1)}
-                  {metricRow("Avg Load",  `${Math.round(b.avgDurationMs)}ms`, `${Math.round(b2.avgDurationMs)}ms`, false, true)}
-                  {metricRow("Apdex",     b.apdex.toFixed(3),                 b2.apdex.toFixed(3),  false, b2.apdex > 0.85)}
-                  {b.lcp != null && b2.lcp != null && metricRow("LCP", `${Math.round(b.lcp)}ms`, `${Math.round(b2.lcp)}ms`, false, b2.lcp < 2500)}
-                  {metricRow("Frustrated",bFrust,                             b2Frust,              false, true)}
-                </>,
-              )}
-            </div>
-          );
-        })()}
-
-        {/* Delta gap comparison table */}
-        <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay}ms` }}>
-          <div className="uj-ai-section-title">What's Different — Worst vs Best</div>
-          <div style={{ background: "rgba(128,128,128,0.03)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
-              {["Metric", "Best", "Worst", "Gap"].map((h, i) => (
-                <div key={i} style={{ padding: "5px 10px", fontSize: 9, fontWeight: 700, opacity: 0.45, textTransform: "uppercase", letterSpacing: 0.5, background: "rgba(128,128,128,0.06)", borderBottom: "1px solid rgba(128,128,128,0.12)" }}>{h}</div>
-              ))}
-              {([
-                { label: "Error Rate", best: `${data.bestRow.errorRate.toFixed(1)}%`, worst: `${data.worstRow.errorRate.toFixed(1)}%`, gap: data.errorRateDelta >= 0 ? `+${data.errorRateDelta.toFixed(1)}pp` : `${data.errorRateDelta.toFixed(1)}pp`, bad: data.errorRateDelta > 1 },
-                { label: "Avg Load", best: `${Math.round(data.bestRow.avgDurationMs)}ms`, worst: `${Math.round(data.worstRow.avgDurationMs)}ms`, gap: data.durationDelta >= 0 ? `+${Math.round(data.durationDelta)}ms` : `${Math.round(data.durationDelta)}ms`, bad: data.durationDelta > 200 },
-                { label: "Apdex", best: data.bestRow.apdex.toFixed(3), worst: data.worstRow.apdex.toFixed(3), gap: data.apdexDelta > 0 ? `−${data.apdexDelta.toFixed(3)}` : `+${Math.abs(data.apdexDelta).toFixed(3)}`, bad: data.apdexDelta > 0.05 },
-                ...(data.lcpDelta != null ? [{ label: "LCP", best: `${Math.round(data.bestRow.lcp!)}ms`, worst: `${Math.round(data.worstRow.lcp!)}ms`, gap: `+${Math.round(data.lcpDelta)}ms`, bad: data.lcpDelta > 300 }] : []),
-                { label: "Sessions", best: fmtCount(data.bestRow.sessions), worst: fmtCount(data.worstRow.sessions), gap: data.worstRow.sessions >= data.bestRow.sessions ? `+${fmtCount(data.worstRow.sessions - data.bestRow.sessions)}` : `−${fmtCount(data.bestRow.sessions - data.worstRow.sessions)}`, bad: false },
-                { label: "Satisfied %", best: data.bestRow.sessions > 0 ? fmtPct(data.bestRow.satisfied / data.bestRow.sessions * 100) : "—", worst: data.worstRow.sessions > 0 ? fmtPct(data.worstRow.satisfied / data.worstRow.sessions * 100) : "—", gap: (data.bestRow.sessions > 0 && data.worstRow.sessions > 0) ? `${((data.worstRow.satisfied / data.worstRow.sessions - data.bestRow.satisfied / data.bestRow.sessions) * 100).toFixed(1)}pp` : "—", bad: true },
-                { label: "Frustrated %", best: data.bestRow.sessions > 0 ? fmtPct(data.bestRow.frustrated / data.bestRow.sessions * 100) : "—", worst: data.worstRow.sessions > 0 ? fmtPct(data.worstRow.frustrated / data.worstRow.sessions * 100) : "—", gap: (data.bestRow.sessions > 0 && data.worstRow.sessions > 0) ? `+${((data.worstRow.frustrated / data.worstRow.sessions - data.bestRow.frustrated / data.bestRow.sessions) * 100).toFixed(1)}pp` : "—", bad: true },
-                { label: "Est. Conv. Rate", best: `${data.bestEstimatedConv.toFixed(1)}%`, worst: `${Math.max(0, data.bestEstimatedConv - data.worstEstimatedConvDrop).toFixed(1)}%`, gap: `−${data.worstEstimatedConvDrop.toFixed(1)}pp`, bad: data.worstEstimatedConvDrop > 0.5 },
-                ...(data.worstEstimatedRevLoss > 0 ? [{ label: "Est. Revenue", best: `$${Math.round(data.bestEstimatedRev).toLocaleString()}`, worst: `$${Math.round(Math.max(0, data.bestEstimatedRev - data.worstEstimatedRevLoss)).toLocaleString()}`, gap: `−$${Math.round(data.worstEstimatedRevLoss).toLocaleString()}`, bad: true }] : []),
-              ] as const).map((row, i, arr) => (
-                <React.Fragment key={i}>
-                  <div style={{ padding: "4px 10px", fontSize: 11, opacity: 0.75, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.label}</div>
-                  <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: GREEN, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.best}</div>
-                  <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: (row as any).bad ? TL_HOT_WARM : "#c0c0c0", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.worst}</div>
-                  <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, color: (row as any).bad ? TL_HOT_HIGH : "#4589FF", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.gap}</div>
-                </React.Fragment>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Common Bad Signals — Worst #1 vs Worst #2 */}
-        {data.worst2Idx !== data.worstIdx && (() => {
           const avgBestErrRate = data.bestRow.errorRate;
           const avgBestDuration = data.bestRow.avgDurationMs;
           const avgBestApdex = data.bestRow.apdex;
@@ -8280,92 +8260,165 @@ ${problemsHtml}
           const avgBestInp = data.bestRow.inp;
           const avgBestCls = data.bestRow.cls;
           const avgBestTtfb = data.bestRow.ttfb;
-          const w1 = data.worstRow;
-          const w2 = data.worst2Row;
           const badRows = [
-            { label: "Error Rate", v1: `${w1.errorRate.toFixed(1)}%`, v2: `${w2.errorRate.toFixed(1)}%`, bothBad: w1.errorRate > avgBestErrRate * 1.5 && w2.errorRate > avgBestErrRate * 1.5 },
-            { label: "Avg Duration", v1: `${Math.round(w1.avgDurationMs)}ms`, v2: `${Math.round(w2.avgDurationMs)}ms`, bothBad: w1.avgDurationMs > avgBestDuration * 1.15 && w2.avgDurationMs > avgBestDuration * 1.15 },
-            { label: "Apdex", v1: w1.apdex.toFixed(3), v2: w2.apdex.toFixed(3), bothBad: w1.apdex < avgBestApdex * 0.97 && w2.apdex < avgBestApdex * 0.97 },
-            ...(avgBestLcp != null && w1.lcp != null && w2.lcp != null ? [{ label: "LCP", v1: `${Math.round(w1.lcp)}ms`, v2: `${Math.round(w2.lcp)}ms`, bothBad: w1.lcp > (avgBestLcp ?? 0) * 1.2 && w2.lcp > (avgBestLcp ?? 0) * 1.2 }] : []),
-            ...(avgBestInp != null && w1.inp != null && w2.inp != null ? [{ label: "INP", v1: `${Math.round(w1.inp!)}ms`, v2: `${Math.round(w2.inp!)}ms`, bothBad: w1.inp! > (avgBestInp ?? 0) * 1.2 && w2.inp! > (avgBestInp ?? 0) * 1.2 }] : []),
-            ...(avgBestCls != null && w1.cls != null && w2.cls != null ? [{ label: "CLS", v1: w1.cls!.toFixed(3), v2: w2.cls!.toFixed(3), bothBad: w1.cls! > (avgBestCls ?? 0) * 1.2 && w2.cls! > (avgBestCls ?? 0) * 1.2 }] : []),
-            ...(avgBestTtfb != null && w1.ttfb != null && w2.ttfb != null ? [{ label: "TTFB", v1: `${Math.round(w1.ttfb!)}ms`, v2: `${Math.round(w2.ttfb!)}ms`, bothBad: w1.ttfb! > (avgBestTtfb ?? 0) * 1.2 && w2.ttfb! > (avgBestTtfb ?? 0) * 1.2 }] : []),
+            { label: "Error Rate", v1: `${w.errorRate.toFixed(1)}%`, v2: `${w2.errorRate.toFixed(1)}%`, bothBad: w.errorRate > avgBestErrRate * 1.5 && w2.errorRate > avgBestErrRate * 1.5 },
+            { label: "Avg Duration", v1: `${Math.round(w.avgDurationMs)}ms`, v2: `${Math.round(w2.avgDurationMs)}ms`, bothBad: w.avgDurationMs > avgBestDuration * 1.15 && w2.avgDurationMs > avgBestDuration * 1.15 },
+            { label: "Apdex", v1: w.apdex.toFixed(3), v2: w2.apdex.toFixed(3), bothBad: w.apdex < avgBestApdex * 0.97 && w2.apdex < avgBestApdex * 0.97 },
+            ...(avgBestLcp != null && w.lcp != null && w2.lcp != null ? [{ label: "LCP", v1: `${Math.round(w.lcp)}ms`, v2: `${Math.round(w2.lcp)}ms`, bothBad: w.lcp > (avgBestLcp ?? 0) * 1.2 && w2.lcp > (avgBestLcp ?? 0) * 1.2 }] : []),
+            ...(avgBestInp != null && w.inp != null && w2.inp != null ? [{ label: "INP", v1: `${Math.round(w.inp!)}ms`, v2: `${Math.round(w2.inp!)}ms`, bothBad: w.inp! > (avgBestInp ?? 0) * 1.2 && w2.inp! > (avgBestInp ?? 0) * 1.2 }] : []),
+            ...(avgBestCls != null && w.cls != null && w2.cls != null ? [{ label: "CLS", v1: w.cls!.toFixed(3), v2: w2.cls!.toFixed(3), bothBad: w.cls! > (avgBestCls ?? 0) * 1.2 && w2.cls! > (avgBestCls ?? 0) * 1.2 }] : []),
+            ...(avgBestTtfb != null && w.ttfb != null && w2.ttfb != null ? [{ label: "TTFB", v1: `${Math.round(w.ttfb!)}ms`, v2: `${Math.round(w2.ttfb!)}ms`, bothBad: w.ttfb! > (avgBestTtfb ?? 0) * 1.2 && w2.ttfb! > (avgBestTtfb ?? 0) * 1.2 }] : []),
           ];
-          return (
-            <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay + 200}ms` }}>
-              <div className="uj-ai-section-title">Common Bad Signals — Worst #1 vs Worst #2</div>
-              <div style={{ background: "rgba(128,128,128,0.03)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, overflow: "hidden" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
-                  {[`Metric`, `W1 (Bkt ${data.worstIdx + 1})`, `W2 (Bkt ${data.worst2Idx + 1})`, "Signal"].map((h, i) => (
-                    <div key={i} style={{ padding: "5px 10px", fontSize: 9, fontWeight: 700, opacity: 0.45, textTransform: "uppercase", letterSpacing: 0.5, background: "rgba(128,128,128,0.06)", borderBottom: "1px solid rgba(128,128,128,0.12)" }}>{h}</div>
-                  ))}
-                  {badRows.map((row, i, arr) => (
-                    <React.Fragment key={i}>
-                      <div style={{ padding: "4px 10px", fontSize: 11, opacity: 0.75, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.label}</div>
-                      <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: TL_HOT_WARM, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.v1}</div>
-                      <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: "#FF8C69", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.v2}</div>
-                      <div style={{ padding: "4px 10px", fontSize: 10, fontWeight: 700, color: row.bothBad ? TL_HOT_HIGH : "#888", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.bothBad ? "Both hot" : "—"}</div>
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Common Good Signals — Best #1 vs Best #2 */}
-        {data.best2Idx !== data.bestIdx && (() => {
-          const b1 = data.bestRow;
-          const b2 = data.best2Row;
           const avgWorstErrRate = data.worstRow.errorRate;
           const avgWorstDuration = data.worstRow.avgDurationMs;
           const avgWorstApdex = data.worstRow.apdex;
           const goodRows = [
-            { label: "Error Rate", v1: `${b1.errorRate.toFixed(1)}%`, v2: `${b2.errorRate.toFixed(1)}%`, bothGood: b1.errorRate < avgWorstErrRate * 0.7 && b2.errorRate < avgWorstErrRate * 0.7 },
-            { label: "Avg Duration", v1: `${Math.round(b1.avgDurationMs)}ms`, v2: `${Math.round(b2.avgDurationMs)}ms`, bothGood: b1.avgDurationMs < avgWorstDuration * 0.9 && b2.avgDurationMs < avgWorstDuration * 0.9 },
-            { label: "Apdex", v1: b1.apdex.toFixed(3), v2: b2.apdex.toFixed(3), bothGood: b1.apdex > avgWorstApdex * 1.03 && b2.apdex > avgWorstApdex * 1.03 },
-            ...(b1.lcp != null && b2.lcp != null ? [{ label: "LCP", v1: `${Math.round(b1.lcp)}ms`, v2: `${Math.round(b2.lcp)}ms`, bothGood: b1.lcp < 2500 && b2.lcp < 2500 }] : []),
-            ...(b1.inp != null && b2.inp != null ? [{ label: "INP", v1: `${Math.round(b1.inp!)}ms`, v2: `${Math.round(b2.inp!)}ms`, bothGood: b1.inp! < 200 && b2.inp! < 200 }] : []),
-            ...(b1.cls != null && b2.cls != null ? [{ label: "CLS", v1: b1.cls!.toFixed(3), v2: b2.cls!.toFixed(3), bothGood: b1.cls! < 0.1 && b2.cls! < 0.1 }] : []),
-            ...(b1.ttfb != null && b2.ttfb != null ? [{ label: "TTFB", v1: `${Math.round(b1.ttfb!)}ms`, v2: `${Math.round(b2.ttfb!)}ms`, bothGood: b1.ttfb! < 800 && b2.ttfb! < 800 }] : []),
+            { label: "Error Rate", v1: `${b.errorRate.toFixed(1)}%`, v2: `${b2.errorRate.toFixed(1)}%`, bothGood: b.errorRate < avgWorstErrRate * 0.7 && b2.errorRate < avgWorstErrRate * 0.7 },
+            { label: "Avg Duration", v1: `${Math.round(b.avgDurationMs)}ms`, v2: `${Math.round(b2.avgDurationMs)}ms`, bothGood: b.avgDurationMs < avgWorstDuration * 0.9 && b2.avgDurationMs < avgWorstDuration * 0.9 },
+            { label: "Apdex", v1: b.apdex.toFixed(3), v2: b2.apdex.toFixed(3), bothGood: b.apdex > avgWorstApdex * 1.03 && b2.apdex > avgWorstApdex * 1.03 },
+            ...(b.lcp != null && b2.lcp != null ? [{ label: "LCP", v1: `${Math.round(b.lcp)}ms`, v2: `${Math.round(b2.lcp)}ms`, bothGood: b.lcp < 2500 && b2.lcp < 2500 }] : []),
+            ...(b.inp != null && b2.inp != null ? [{ label: "INP", v1: `${Math.round(b.inp!)}ms`, v2: `${Math.round(b2.inp!)}ms`, bothGood: b.inp! < 200 && b2.inp! < 200 }] : []),
+            ...(b.cls != null && b2.cls != null ? [{ label: "CLS", v1: b.cls!.toFixed(3), v2: b2.cls!.toFixed(3), bothGood: b.cls! < 0.1 && b2.cls! < 0.1 }] : []),
+            ...(b.ttfb != null && b2.ttfb != null ? [{ label: "TTFB", v1: `${Math.round(b.ttfb!)}ms`, v2: `${Math.round(b2.ttfb!)}ms`, bothGood: b.ttfb! < 800 && b2.ttfb! < 800 }] : []),
           ];
+
           return (
-            <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay + 400}ms` }}>
-              <div className="uj-ai-section-title">Common Good Signals — Best #1 vs Best #2</div>
-              <div style={{ background: "rgba(128,128,128,0.03)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, overflow: "hidden" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
-                  {[`Metric`, `B1 (Bkt ${data.bestIdx + 1})`, `B2 (Bkt ${data.best2Idx + 1})`, "Signal"].map((h, i) => (
-                    <div key={i} style={{ padding: "5px 10px", fontSize: 9, fontWeight: 700, opacity: 0.45, textTransform: "uppercase", letterSpacing: 0.5, background: "rgba(128,128,128,0.06)", borderBottom: "1px solid rgba(128,128,128,0.12)" }}>{h}</div>
-                  ))}
-                  {goodRows.map((row, i, arr) => (
-                    <React.Fragment key={i}>
-                      <div style={{ padding: "4px 10px", fontSize: 11, opacity: 0.75, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.label}</div>
-                      <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: GREEN, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.v1}</div>
-                      <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: "#7FD99A", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.v2}</div>
-                      <div style={{ padding: "4px 10px", fontSize: 10, fontWeight: 700, color: row.bothGood ? GREEN : "#888", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.bothGood ? "Both healthy" : "—"}</div>
-                    </React.Fragment>
-                  ))}
+            <>
+              {/* Group 1: What's Different — Worst #1 vs Best #1 */}
+              <div style={{ marginBottom: 6 }}>
+                <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${cardsDelay - 150}ms` }}>What's Different — Worst #1 vs Best #1</div>
+              </div>
+              <div style={{ marginBottom: 10, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${cardsDelay}ms` }}>
+                {cmpCard(
+                  "🔥 Worst #1", TL_HOT_HIGH, "rgba(255,7,58,0.06)", data.worstIdx + 1, data.worstBucketKey, data.worstHotZ,
+                  "✨ Best #1", GREEN, "rgba(13,156,41,0.05)", data.bestIdx + 1, data.bestBucketKey, data.allHotness[data.bestIdx] ?? 0,
+                  <>
+                    {metricRow("Sessions",  fmtCount(w.sessions),              fmtCount(b.sessions))}
+                    {metricRow("Error Rate",fmtPct(w.errorRate),               fmtPct(b.errorRate),  w.errorRate > 2, b.errorRate < 1)}
+                    {metricRow("Avg Load",  `${Math.round(w.avgDurationMs)}ms`,`${Math.round(b.avgDurationMs)}ms`, true, true)}
+                    {metricRow("Apdex",     w.apdex.toFixed(3),                b.apdex.toFixed(3),   w.apdex < 0.7, b.apdex > 0.85)}
+                    {w.lcp != null && b.lcp != null && metricRow("LCP", `${Math.round(w.lcp)}ms`, `${Math.round(b.lcp)}ms`, w.lcp > 2500, b.lcp < 2500)}
+                    {metricRow("Problems",  String(data.worstProblems.length), String(data.bestProblemsCount), data.worstProblems.length > 0, data.bestProblemsCount === 0)}
+                    {metricRow("Frustrated",wFrust,                            bFrust,               true, true)}
+                    {(data.worstEstimatedConvDrop > 0.1 || data.bestEstimatedConv > 0) && metricRow(
+                      "Est. Conv", data.worstEstimatedConvDrop > 0.1 ? `−${data.worstEstimatedConvDrop.toFixed(1)}pp` : "—",
+                      data.bestEstimatedConv > 0 ? `${data.bestEstimatedConv.toFixed(1)}%` : "—",
+                      data.worstEstimatedConvDrop > 0.1, data.bestEstimatedConv > 0,
+                    )}
+                  </>,
+                )}
+              </div>
+              {/* What's Different gap table */}
+              <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay}ms` }}>
+                <div style={{ background: "rgba(128,128,128,0.03)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, overflow: "hidden" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
+                    {["Metric", "Best", "Worst", "Gap"].map((h, i) => (
+                      <div key={i} style={{ padding: "5px 10px", fontSize: 9, fontWeight: 700, opacity: 0.45, textTransform: "uppercase", letterSpacing: 0.5, background: "rgba(128,128,128,0.06)", borderBottom: "1px solid rgba(128,128,128,0.12)" }}>{h}</div>
+                    ))}
+                    {([
+                      { label: "Error Rate", best: `${data.bestRow.errorRate.toFixed(1)}%`, worst: `${data.worstRow.errorRate.toFixed(1)}%`, gap: data.errorRateDelta >= 0 ? `+${data.errorRateDelta.toFixed(1)}pp` : `${data.errorRateDelta.toFixed(1)}pp`, bad: data.errorRateDelta > 1 },
+                      { label: "Avg Load", best: `${Math.round(data.bestRow.avgDurationMs)}ms`, worst: `${Math.round(data.worstRow.avgDurationMs)}ms`, gap: data.durationDelta >= 0 ? `+${Math.round(data.durationDelta)}ms` : `${Math.round(data.durationDelta)}ms`, bad: data.durationDelta > 200 },
+                      { label: "Apdex", best: data.bestRow.apdex.toFixed(3), worst: data.worstRow.apdex.toFixed(3), gap: data.apdexDelta > 0 ? `−${data.apdexDelta.toFixed(3)}` : `+${Math.abs(data.apdexDelta).toFixed(3)}`, bad: data.apdexDelta > 0.05 },
+                      ...(data.lcpDelta != null ? [{ label: "LCP", best: `${Math.round(data.bestRow.lcp!)}ms`, worst: `${Math.round(data.worstRow.lcp!)}ms`, gap: `+${Math.round(data.lcpDelta)}ms`, bad: data.lcpDelta > 300 }] : []),
+                      { label: "Sessions", best: fmtCount(data.bestRow.sessions), worst: fmtCount(data.worstRow.sessions), gap: data.worstRow.sessions >= data.bestRow.sessions ? `+${fmtCount(data.worstRow.sessions - data.bestRow.sessions)}` : `−${fmtCount(data.bestRow.sessions - data.worstRow.sessions)}`, bad: false },
+                      { label: "Satisfied %", best: data.bestRow.sessions > 0 ? fmtPct(data.bestRow.satisfied / data.bestRow.sessions * 100) : "—", worst: data.worstRow.sessions > 0 ? fmtPct(data.worstRow.satisfied / data.worstRow.sessions * 100) : "—", gap: (data.bestRow.sessions > 0 && data.worstRow.sessions > 0) ? `${((data.worstRow.satisfied / data.worstRow.sessions - data.bestRow.satisfied / data.bestRow.sessions) * 100).toFixed(1)}pp` : "—", bad: true },
+                      { label: "Frustrated %", best: data.bestRow.sessions > 0 ? fmtPct(data.bestRow.frustrated / data.bestRow.sessions * 100) : "—", worst: data.worstRow.sessions > 0 ? fmtPct(data.worstRow.frustrated / data.worstRow.sessions * 100) : "—", gap: (data.bestRow.sessions > 0 && data.worstRow.sessions > 0) ? `+${((data.worstRow.frustrated / data.worstRow.sessions - data.bestRow.frustrated / data.bestRow.sessions) * 100).toFixed(1)}pp` : "—", bad: true },
+                      { label: "Est. Conv. Rate", best: `${data.bestEstimatedConv.toFixed(1)}%`, worst: `${Math.max(0, data.bestEstimatedConv - data.worstEstimatedConvDrop).toFixed(1)}%`, gap: `−${data.worstEstimatedConvDrop.toFixed(1)}pp`, bad: data.worstEstimatedConvDrop > 0.5 },
+                      ...(data.worstEstimatedRevLoss > 0 ? [{ label: "Est. Revenue", best: `$${Math.round(data.bestEstimatedRev).toLocaleString()}`, worst: `$${Math.round(Math.max(0, data.bestEstimatedRev - data.worstEstimatedRevLoss)).toLocaleString()}`, gap: `−$${Math.round(data.worstEstimatedRevLoss).toLocaleString()}`, bad: true }] : []),
+                    ] as const).map((row, i, arr) => (
+                      <React.Fragment key={i}>
+                        <div style={{ padding: "4px 10px", fontSize: 11, opacity: 0.75, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.label}</div>
+                        <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: GREEN, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.best}</div>
+                        <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: (row as any).bad ? TL_HOT_WARM : "#c0c0c0", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.worst}</div>
+                        <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, color: (row as any).bad ? TL_HOT_HIGH : "#4589FF", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.gap}</div>
+                      </React.Fragment>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+
+              {/* Group 2: Common Bad Signals — Worst #1 vs Worst #2 */}
+              {data.worst2Idx !== data.worstIdx && (
+                <>
+                  <div style={{ marginBottom: 6 }}>
+                    <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${tableDelay + 150}ms` }}>Common Bad Signals — Worst #1 vs Worst #2</div>
+                  </div>
+                  <div style={{ marginBottom: 10, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay + 200}ms` }}>
+                    {cmpCard(
+                      "🔥 Worst #1", TL_HOT_HIGH, "rgba(255,7,58,0.06)", data.worstIdx + 1, data.worstBucketKey, data.worstHotZ,
+                      "🔶 Worst #2", "#FF8C69", "rgba(255,140,105,0.05)", data.worst2Idx + 1, data.worst2BucketKey, data.worst2HotZ,
+                      <>
+                        {metricRow("Sessions",  fmtCount(w.sessions),               fmtCount(w2.sessions))}
+                        {metricRow("Error Rate",fmtPct(w.errorRate),                fmtPct(w2.errorRate),  w.errorRate > 2,  w2.errorRate > 2)}
+                        {metricRow("Avg Load",  `${Math.round(w.avgDurationMs)}ms`, `${Math.round(w2.avgDurationMs)}ms`, true, false)}
+                        {metricRow("Apdex",     w.apdex.toFixed(3),                 w2.apdex.toFixed(3),  w.apdex < 0.7,   w2.apdex < 0.7)}
+                        {w.lcp != null && w2.lcp != null && metricRow("LCP", `${Math.round(w.lcp)}ms`, `${Math.round(w2.lcp)}ms`, w.lcp > 2500, false)}
+                        {metricRow("Frustrated",wFrust,                             w2Frust,              true, false)}
+                      </>,
+                    )}
+                  </div>
+                  <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay + 350}ms` }}>
+                    <div style={{ background: "rgba(128,128,128,0.03)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, overflow: "hidden" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
+                        {[`Metric`, `W1 (Bkt ${data.worstIdx + 1})`, `W2 (Bkt ${data.worst2Idx + 1})`, "Signal"].map((h, i) => (
+                          <div key={i} style={{ padding: "5px 10px", fontSize: 9, fontWeight: 700, opacity: 0.45, textTransform: "uppercase", letterSpacing: 0.5, background: "rgba(128,128,128,0.06)", borderBottom: "1px solid rgba(128,128,128,0.12)" }}>{h}</div>
+                        ))}
+                        {badRows.map((row, i, arr) => (
+                          <React.Fragment key={i}>
+                            <div style={{ padding: "4px 10px", fontSize: 11, opacity: 0.75, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.label}</div>
+                            <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: TL_HOT_WARM, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.v1}</div>
+                            <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: "#FF8C69", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.v2}</div>
+                            <div style={{ padding: "4px 10px", fontSize: 10, fontWeight: 700, color: row.bothBad ? TL_HOT_HIGH : "#888", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.bothBad ? "Both hot" : "—"}</div>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Group 3: Common Good Signals — Best #1 vs Best #2 */}
+              {data.best2Idx !== data.bestIdx && (
+                <>
+                  <div style={{ marginBottom: 6 }}>
+                    <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${tableDelay + 500}ms` }}>Common Good Signals — Best #1 vs Best #2</div>
+                  </div>
+                  <div style={{ marginBottom: 10, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay + 550}ms` }}>
+                    {cmpCard(
+                      "✨ Best #1", GREEN, "rgba(13,156,41,0.05)", data.bestIdx + 1, data.bestBucketKey, data.allHotness[data.bestIdx] ?? 0,
+                      "🌿 Best #2", "#7FD99A", "rgba(127,217,154,0.05)", data.best2Idx + 1, data.best2BucketKey, data.allHotness[data.best2Idx] ?? 0,
+                      <>
+                        {metricRow("Sessions",  fmtCount(b.sessions),               fmtCount(b2.sessions))}
+                        {metricRow("Error Rate",fmtPct(b.errorRate),                fmtPct(b2.errorRate),  false, b2.errorRate < 1)}
+                        {metricRow("Avg Load",  `${Math.round(b.avgDurationMs)}ms`, `${Math.round(b2.avgDurationMs)}ms`, false, true)}
+                        {metricRow("Apdex",     b.apdex.toFixed(3),                 b2.apdex.toFixed(3),  false, b2.apdex > 0.85)}
+                        {b.lcp != null && b2.lcp != null && metricRow("LCP", `${Math.round(b.lcp)}ms`, `${Math.round(b2.lcp)}ms`, false, b2.lcp < 2500)}
+                        {metricRow("Frustrated",bFrust,                             b2Frust,              false, true)}
+                      </>,
+                    )}
+                  </div>
+                  <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay + 700}ms` }}>
+                    <div style={{ background: "rgba(128,128,128,0.03)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, overflow: "hidden" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
+                        {[`Metric`, `B1 (Bkt ${data.bestIdx + 1})`, `B2 (Bkt ${data.best2Idx + 1})`, "Signal"].map((h, i) => (
+                          <div key={i} style={{ padding: "5px 10px", fontSize: 9, fontWeight: 700, opacity: 0.45, textTransform: "uppercase", letterSpacing: 0.5, background: "rgba(128,128,128,0.06)", borderBottom: "1px solid rgba(128,128,128,0.12)" }}>{h}</div>
+                        ))}
+                        {goodRows.map((row, i, arr) => (
+                          <React.Fragment key={i}>
+                            <div style={{ padding: "4px 10px", fontSize: 11, opacity: 0.75, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.label}</div>
+                            <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: GREEN, borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.v1}</div>
+                            <div style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, color: "#7FD99A", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.v2}</div>
+                            <div style={{ padding: "4px 10px", fontSize: 10, fontWeight: 700, color: row.bothGood ? GREEN : "#888", borderBottom: i < arr.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>{row.bothGood ? "Both healthy" : "—"}</div>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
           );
         })()}
-
-        {/* Problems active during worst spike */}
-        {data.worstProblems.length > 0 && (
-          <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${problemsDelay}ms` }}>
-            <div className="uj-ai-section-title">Active Problems During Worst Spike</div>
-            <div style={{ background: "rgba(255,7,58,0.04)", border: "1px solid rgba(255,7,58,0.15)", borderRadius: 8, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
-              {data.worstProblems.map((p, i) => (
-                <div key={i} style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, padding: "2px 0", borderBottom: i < data.worstProblems.length - 1 ? "1px solid rgba(128,128,128,0.08)" : "none" }}>
-                  <span style={{ color: TL_HOT_HIGH, fontSize: 10, flexShrink: 0 }}>◆</span>
-                  {p.displayId && <span style={{ fontFamily: "monospace", fontSize: 10, color: TL_HOT_WARM, flexShrink: 0 }}>{p.displayId}</span>}
-                  <span style={{ opacity: 0.8 }}>{p.title}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Insights */}
         {data.insights.length > 0 && (
@@ -8397,6 +8450,22 @@ ${problemsHtml}
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Active Davis Problems — shown after recommendations */}
+        {data.worstProblems.length > 0 && (
+          <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${problemsDelay}ms` }}>
+            <div className="uj-ai-section-title">Active Problems During Worst Spike</div>
+            <div style={{ background: "rgba(255,7,58,0.04)", border: "1px solid rgba(255,7,58,0.15)", borderRadius: 8, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
+              {data.worstProblems.map((p, i) => (
+                <div key={i} style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, padding: "2px 0", borderBottom: i < data.worstProblems.length - 1 ? "1px solid rgba(128,128,128,0.08)" : "none" }}>
+                  <span style={{ color: TL_HOT_HIGH, fontSize: 10, flexShrink: 0 }}>◆</span>
+                  {p.displayId && <span style={{ fontFamily: "monospace", fontSize: 10, color: TL_HOT_WARM, flexShrink: 0 }}>{p.displayId}</span>}
+                  <span style={{ opacity: 0.8 }}>{p.title}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
