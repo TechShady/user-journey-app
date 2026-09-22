@@ -7601,6 +7601,14 @@ interface HotnessAssistData {
   alertPattern: "deployment" | "load-induced" | "infrastructure" | "unknown";
   burstType: "stable" | "transient" | "sustained" | "chronic";
   maxConsecutiveHot: number;
+  totalHotBuckets: number;
+  problemCorrelation: Array<{
+    problemId: string;
+    displayId: string;
+    title: string;
+    hotBucketCount: number;
+    pct: number;
+  }>;
 }
 
 function analyzeHotnessTimelapse(
@@ -7828,6 +7836,21 @@ function analyzeHotnessTimelapse(
   const convContext = overallConv > 0 ? ` with an overall conversion rate of ${overallConv.toFixed(1)}%` : "";
   const summary = `Analyzed ${analyzedCount} of ${allRows.length} ${bucketGranularity} bucket${allRows.length !== 1 ? "s" : ""} (last bucket excluded as potentially incomplete)${convContext}. ${spikeSummary.charAt(0).toUpperCase() + spikeSummary.slice(1)}${revContext}. Top worst: bucket ${worstIdx + 1} (${worstRow.bucket}, Z=${worstZ.toFixed(1)}, driver: ${worstDriver})${worst2Idx !== worstIdx ? `; runner-up: bucket ${worst2Idx + 1} (${worst2Row.bucket}, Z=${worst2Z.toFixed(1)})` : ""}${alertStormBuckets > 0 ? `, with ${alertStormBuckets} window${alertStormBuckets !== 1 ? "s" : ""} coinciding with active Davis problems` : ""}. Best conditions: bucket ${bestIdx + 1} (${bestRow.bucket}) with Apdex ${bestRow.apdex.toFixed(2)} and ${bestRow.errorRate.toFixed(1)}% error rate${best2Idx !== bestIdx ? `; runner-up: bucket ${best2Idx + 1} (${best2Row.bucket})` : ""}.`;
 
+  // Problem correlation: rank problems by % of hot buckets they appear in
+  const hotBucketIndices = usableHotness.map((z, i) => ({ z, i })).filter(x => x.z >= 0.75).map(x => x.i);
+  const probMap = new Map<string, { problemId: string; displayId: string; title: string; hotBucketCount: number }>();
+  for (const idx of hotBucketIndices) {
+    for (const p of (problemsByBucket[idx] ?? [])) {
+      const ex = probMap.get(p.problemId);
+      if (ex) ex.hotBucketCount++;
+      else probMap.set(p.problemId, { problemId: p.problemId, displayId: p.displayId, title: p.title, hotBucketCount: 1 });
+    }
+  }
+  const problemCorrelation = [...probMap.values()]
+    .map(p => ({ ...p, pct: Math.round(p.hotBucketCount / Math.max(1, hotBucketIndices.length) * 100) }))
+    .sort((a, b) => b.pct - a.pct || b.hotBucketCount - a.hotBucketCount);
+  const totalHotBuckets = hotBucketIndices.length;
+
   return {
     summary, analyzedCount,
     worstIdx, worstBucketKey: worstRow.bucket, worstHotZ: worstZ, worstDriver,
@@ -7839,6 +7862,7 @@ function analyzeHotnessTimelapse(
     hotBuckets, criticalBuckets, totalEstimatedRevLoss: totalRevLoss, totalLostConversions, alertStormBuckets,
     errorRateDelta, durationDelta, apdexDelta, lcpDelta, allHotness: usableHotness, insights, recommendations: recs,
     alertPattern, burstType, maxConsecutiveHot: maxRun,
+    problemCorrelation, totalHotBuckets,
   };
 }
 
@@ -7962,6 +7986,13 @@ function HotnessAssistPanel({
       const c = rec.impact === "high" ? "#FF073A" : rec.impact === "medium" ? "#FF832B" : "#FFF04D";
       return `<div style="margin-bottom:7px;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:6px;border-left:3px solid ${c}"><span style="font-size:10px;font-weight:700;text-transform:uppercase;opacity:0.55;margin-right:6px;color:${c}">${rec.impact}</span><span style="font-size:12px">${rec.text}</span></div>`;
     }).join("")}` : "";
+    const corrHtml = data.problemCorrelation.length > 0
+      ? `<div class="page-break"></div><h2 style="font-size:15px;margin:0 0 12px">Problem Correlation · ${data.totalHotBuckets} Hot Bucket${data.totalHotBuckets !== 1 ? "s" : ""}</h2>` +
+        data.problemCorrelation.slice(0, 8).map(p => {
+          const barColor = p.pct === 100 ? "#E00000" : p.pct >= 75 ? "#FF3D9A" : p.pct >= 50 ? "#FFF04D" : "#4589FF";
+          return `<div style="margin-bottom:8px;padding:8px 12px;background:#f8f8f8;border-radius:6px;border:1px solid #e0e0e0"><div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="font-size:12px">${p.displayId ? `<span style="font-family:monospace;color:#e65c00;font-size:10px;margin-right:6px">${p.displayId}</span>` : ""}${p.title}</span><span style="font-size:11px;font-weight:700;color:${barColor}">${p.pct}%</span></div><div style="height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden"><div style="width:${p.pct}%;height:100%;background:${barColor};border-radius:3px"></div></div><div style="font-size:10px;color:#888;margin-top:3px">${p.hotBucketCount} of ${data.totalHotBuckets} hot bucket${data.totalHotBuckets !== 1 ? "s" : ""}</div></div>`;
+        }).join("")
+      : "";
     const rPatternColor = data.alertPattern === "deployment" ? "#FF3D9A" : data.alertPattern === "load-induced" ? "#FFF04D" : data.alertPattern === "infrastructure" ? "#FF832B" : "#888";
     const rPatternLabel = data.alertPattern === "deployment" ? "Deployment Regression" : data.alertPattern === "load-induced" ? "Load-Induced Overload" : data.alertPattern === "infrastructure" ? "Infrastructure Issue" : "Pattern Unknown";
     const rPatternSubLabel = data.alertPattern === "deployment" ? "Code / config change most likely" : data.alertPattern === "load-induced" ? "Infrastructure capacity limit hit" : data.alertPattern === "infrastructure" ? "CDN, network, or origin saturation" : "Insufficient signal for classification";
@@ -8093,6 +8124,7 @@ ${cmpCard(
 <div class="page-break"></div>
 ${insightsHtml}
 ${recommendationsHtml}
+${corrHtml}
 ${problemsHtml}
 
 <div style="text-align:center;margin-top:30px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);font-size:10px;color:#555">Hotness Assist | ${data.analyzedCount} buckets analyzed | ${ts}</div>
@@ -8450,6 +8482,37 @@ ${problemsHtml}
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Problem Correlation */}
+        {data.problemCorrelation.length > 0 && (
+          <div style={{ marginTop: 0 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+              Problem Correlation · {data.totalHotBuckets} Hot Bucket{data.totalHotBuckets !== 1 ? "s" : ""}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {data.problemCorrelation.slice(0, 8).map((p, i) => {
+                const barColor = p.pct === 100 ? "#E00000" : p.pct >= 75 ? "#FF3D9A" : p.pct >= 50 ? "#FFF04D" : "#4589FF";
+                return (
+                  <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "7px 10px", background: "rgba(128,128,128,0.05)", border: "1px solid rgba(128,128,128,0.13)", borderRadius: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                      <span style={{ fontSize: 11, opacity: 0.85, lineHeight: 1.4, flex: 1 }}>
+                        {p.displayId && <span style={{ fontFamily: "monospace", fontSize: 10, color: "#FF832B", marginRight: 6 }}>{p.displayId}</span>}
+                        {p.title}
+                      </span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: barColor, flexShrink: 0 }}>{p.pct}%</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ flex: 1, height: 4, background: "rgba(128,128,128,0.15)", borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{ width: `${p.pct}%`, height: "100%", background: barColor, borderRadius: 2, transition: "width 0.4s ease" }} />
+                      </div>
+                      <span style={{ fontSize: 9, opacity: 0.5, flexShrink: 0 }}>{p.hotBucketCount}/{data.totalHotBuckets} hot</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
