@@ -103,7 +103,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.26";
+const APP_VERSION_LABEL = "4.77.27";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -7945,6 +7945,22 @@ function HotnessAssistPanel({
   const burstColor = data.burstType === "chronic" ? TL_HOT_HIGH : data.burstType === "sustained" ? TL_HOT_WARM : data.burstType === "transient" ? TL_HOT_ELEV : GREEN;
   const burstLabel = data.burstType === "chronic" ? `Chronic (${data.maxConsecutiveHot} consecutive)` : data.burstType === "sustained" ? `Sustained (${data.maxConsecutiveHot} consecutive)` : data.burstType === "transient" ? `Transient (${data.maxConsecutiveHot} consecutive)` : "Stable";
   const burstSubLabel = data.burstType === "chronic" ? "Needs active remediation" : data.burstType === "sustained" ? "Likely needed intervention" : data.burstType === "transient" ? "Appears self-resolved" : "No elevated buckets";
+  const [haPanelW, setHaPanelW] = React.useState(628);
+  const [haPanelH, setHaPanelH] = React.useState(580);
+  const haResizeRef = React.useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
+  React.useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!haResizeRef.current) return;
+      const dx = e.clientX - haResizeRef.current.startX;
+      const dy = e.clientY - haResizeRef.current.startY;
+      setHaPanelW(Math.max(380, haResizeRef.current.startW + dx));
+      setHaPanelH(Math.max(420, haResizeRef.current.startH + dy));
+    };
+    const onUp = () => { haResizeRef.current = null; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
   const generateHotnessReportHtml = (): string => {
     const ts = new Date().toLocaleString();
     const rMaxZ = Math.max(0.5, ...data.allHotness);
@@ -8180,7 +8196,7 @@ ${problemsHtml}
   };
 
   return (
-    <div style={{ position: "fixed", left: pos.x, top: pos.y, width: 628, maxHeight: "calc(100vh - 36px)", background: "var(--dt-colors-background-base-default,#0f1428)", border: "1px solid rgba(255,107,53,0.3)", borderRadius: 10, boxShadow: "0 16px 56px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,107,53,0.08)", zIndex: 601, userSelect: "none", fontSize: 12, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ position: "fixed", left: pos.x, top: pos.y, width: haPanelW, height: haPanelH, background: "var(--dt-colors-background-base-default,#0f1428)", border: "1px solid rgba(255,107,53,0.3)", borderRadius: 10, boxShadow: "0 16px 56px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,107,53,0.08)", zIndex: 601, userSelect: "none", fontSize: 12, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
       {/* Header */}
       <div onMouseDown={onDragStart} style={{ padding: "11px 14px", background: "linear-gradient(135deg, rgba(255,107,53,0.13) 0%, rgba(255,61,154,0.07) 100%)", borderBottom: "1px solid rgba(255,107,53,0.2)", cursor: "grab", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -8621,6 +8637,18 @@ ${problemsHtml}
         <div style={{ padding: "6px 0", borderTop: "1px solid rgba(128,128,128,0.1)", fontSize: 9, opacity: 0.3, lineHeight: 1.5 }}>
           Drag header to reposition · Revenue estimates use performance-conversion correlation models (Deloitte/Google: 100ms latency ≈ 1% conv, 1pp errors ≈ 0.5% conv, 0.1 Apdex drop ≈ 2% conv) · Z-scores computed from shared KPI baselines across all buckets
         </div>
+      </div>
+      <div
+        onMouseDown={e => {
+          e.stopPropagation();
+          haResizeRef.current = { startX: e.clientX, startY: e.clientY, startW: haPanelW, startH: haPanelH };
+        }}
+        style={{ position: "absolute", bottom: 0, right: 0, width: 18, height: 18, cursor: "nwse-resize", display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: "3px", zIndex: 1 }}
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" style={{ opacity: 0.3 }}>
+          <line x1="1" y1="9" x2="9" y2="1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="5" y1="9" x2="9" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
       </div>
     </div>
   );
