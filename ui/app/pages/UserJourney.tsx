@@ -103,7 +103,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.35";
+const APP_VERSION_LABEL = "4.77.37";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -902,8 +902,8 @@ function KpiPanelOverlay({ label, rawValue, sparkline, color, panel, onClose, ef
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[
               { label: "Current value", value: fmt(curr), col: color ?? "#4589FF" },
-              { label: "Peak (period)", value: fmt(pMax), col: "#0D9C29" },
-              { label: "Trough (period)", value: fmt(pMin), col: "#E00000" },
+              { label: "Peak (period)", value: fmt(pMax), col: effectiveHigherIsBetter ? "#0D9C29" : "#E00000" },
+              { label: "Trough (period)", value: fmt(pMin), col: effectiveHigherIsBetter ? "#E00000" : "#0D9C29" },
               { label: "Mean (period)", value: fmt(mean), col: "rgba(255,255,255,0.7)" },
               { label: "Recent trend", value: trendLabel, col: recentTrend > 0 && effectiveHigherIsBetter ? "#0D9C29" : recentTrend < 0 && !effectiveHigherIsBetter ? "#0D9C29" : Math.abs(recentTrend) < 3 ? "rgba(255,255,255,0.6)" : "#E00000" },
               { label: "Data stability", value: stabilityLabel, col: "rgba(255,255,255,0.6)" },
@@ -8738,7 +8738,8 @@ function AIInsightsPanel({ data, onClose }: { data: AIInsightsData; onClose: () 
   // Calculate cumulative word offsets so each section streams after the previous
   const summaryWords = data.summary.split(/\s+/).length;
   const summaryDuration = summaryWords * 60;
-  const biOffset = summaryDuration + 350;
+  // Cap the Business Impact reveal at 1500ms — long summaries would otherwise delay cards 6+ seconds
+  const biOffset = Math.min(summaryDuration + 350, 1500);
   const biDuration = data.businessImpact ? data.businessImpact.length * 200 + 400 : 0;
   let insightOffset = biOffset + biDuration + 200;
   const insightDurations: number[] = data.insights.map(ins => {
@@ -15774,11 +15775,11 @@ function JSErrorsTab({ data, prevData, isLoading, frontend, onDrillToForecast }:
           const effReg = eff.on ? Math.round((statusCounts.regression || 0) * errBoost) : (statusCounts.regression || 0);
           return (
             <>
-              <KpiCard label={eff.label("Unique Exceptions")} value={errors.length} color={errors.length > 10 ? RED : errors.length > 3 ? YELLOW : GREEN} rawValue={errors.length} prevRawValue={syntheticPrev(errors.length, "Unique Exceptions")} sparkline={syntheticSparkline(errors.length, 8, "Unique Exceptions")} onDrillToForecast={onDrillToForecast} />
-              <KpiCard label={eff.label("Total Occurrences")} value={fmtCount(effOccur)} color={RED} rawValue={effOccur} prevRawValue={syntheticPrev(effOccur, "Total Occurrences")} sparkline={syntheticSparkline(effOccur, 8, "Total Occurrences")} onDrillToForecast={onDrillToForecast} />
-              <KpiCard label={eff.label("Affected Sessions")} value={fmtCount(effAffected)} color={ORANGE} rawValue={effAffected} prevRawValue={syntheticPrev(effAffected, "Affected Sessions")} sparkline={syntheticSparkline(effAffected, 8, "Affected Sessions")} onDrillToForecast={onDrillToForecast} />
-              <KpiCard label={eff.label("New")} value={effNew} color={CYAN} rawValue={effNew} prevRawValue={syntheticPrev(effNew, "New")} sparkline={syntheticSparkline(effNew, 8, "New")} onDrillToForecast={onDrillToForecast} />
-              <KpiCard label={eff.label("Recurring")} value={effRecur} color={YELLOW} rawValue={effRecur} prevRawValue={syntheticPrev(effRecur, "Recurring")} sparkline={syntheticSparkline(effRecur, 8, "Recurring")} onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Unique Exceptions")} value={errors.length} color={errors.length > 10 ? RED : errors.length > 3 ? YELLOW : GREEN} rawValue={errors.length} prevRawValue={syntheticPrev(errors.length, "Unique Exceptions")} sparkline={syntheticSparkline(errors.length, 8, "Unique Exceptions")} inverted onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Total Occurrences")} value={fmtCount(effOccur)} color={RED} rawValue={effOccur} prevRawValue={syntheticPrev(effOccur, "Total Occurrences")} sparkline={syntheticSparkline(effOccur, 8, "Total Occurrences")} inverted onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Affected Sessions")} value={fmtCount(effAffected)} color={ORANGE} rawValue={effAffected} prevRawValue={syntheticPrev(effAffected, "Affected Sessions")} sparkline={syntheticSparkline(effAffected, 8, "Affected Sessions")} inverted onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("New")} value={effNew} color={CYAN} rawValue={effNew} prevRawValue={syntheticPrev(effNew, "New")} sparkline={syntheticSparkline(effNew, 8, "New")} inverted onDrillToForecast={onDrillToForecast} />
+              <KpiCard label={eff.label("Recurring")} value={effRecur} color={YELLOW} rawValue={effRecur} prevRawValue={syntheticPrev(effRecur, "Recurring")} sparkline={syntheticSparkline(effRecur, 8, "Recurring")} inverted onDrillToForecast={onDrillToForecast} />
               <KpiCard label={eff.label("Regressions")} value={effReg} color={RED} rawValue={effReg} prevRawValue={syntheticPrev(effReg, "Regressions")} inverted sparkline={syntheticSparkline(effReg, 8, "Regressions")} onDrillToForecast={onDrillToForecast} />
             </>
           );
@@ -15952,9 +15953,9 @@ function ClickIssuesTab({ data, isLoading, replayData, frontend, onDrillToForeca
 
       {/* KPI cards */}
       <Flex gap={16} flexWrap="wrap">
-        <KpiCard label="Rage Clicks" value={fmtCount(totalRage)} color={totalRage > 0 ? RED : GREEN} rawValue={totalRage} prevRawValue={syntheticPrev(totalRage, "Rage Clicks")} sparkline={syntheticSparkline(totalRage, 8, "Rage Clicks")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Dead Clicks" value={fmtCount(totalDead)} color={totalDead > 0 ? ORANGE : GREEN} rawValue={totalDead} prevRawValue={syntheticPrev(totalDead, "Dead Clicks")} sparkline={syntheticSparkline(totalDead, 8, "Dead Clicks")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Affected Sessions" value={fmtCount(totalAffected)} color={totalAffected > 0 ? YELLOW : GREEN} rawValue={totalAffected} prevRawValue={syntheticPrev(totalAffected, "Affected Sessions")} sparkline={syntheticSparkline(totalAffected, 8, "Affected Sessions")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label="Rage Clicks" value={fmtCount(totalRage)} color={totalRage > 0 ? RED : GREEN} rawValue={totalRage} prevRawValue={syntheticPrev(totalRage, "Rage Clicks")} sparkline={syntheticSparkline(totalRage, 8, "Rage Clicks")} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label="Dead Clicks" value={fmtCount(totalDead)} color={totalDead > 0 ? ORANGE : GREEN} rawValue={totalDead} prevRawValue={syntheticPrev(totalDead, "Dead Clicks")} sparkline={syntheticSparkline(totalDead, 8, "Dead Clicks")} inverted onDrillToForecast={onDrillToForecast} />
+        <KpiCard label="Affected Sessions" value={fmtCount(totalAffected)} color={totalAffected > 0 ? YELLOW : GREEN} rawValue={totalAffected} prevRawValue={syntheticPrev(totalAffected, "Affected Sessions")} sparkline={syntheticSparkline(totalAffected, 8, "Affected Sessions")} inverted onDrillToForecast={onDrillToForecast} />
         <KpiCard label="Unique Elements" value={rows.length} color={BLUE} rawValue={rows.length} prevRawValue={syntheticPrev(rows.length, "Unique Elements")} sparkline={syntheticSparkline(rows.length, 8, "Unique Elements")} onDrillToForecast={onDrillToForecast} />
       </Flex>
 
@@ -22071,7 +22072,7 @@ ${whatChanged.length > 0 ? `<h2>Funnel Drop-off Shifts</h2><table><tr><th>From S
             const color = cwvClr(v.value, v.metric);
             const displayVal = v.metric === "cls" ? (isFinite(v.value) ? v.value.toFixed(3) : "—") : fmt(v.value);
             return (
-              <KpiCard key={v.label} label={v.label} value={displayVal} color={color} rawValue={v.value} prevRawValue={syntheticPrev(v.value, v.label)} sparkline={syntheticSparkline(v.value, 8, v.label)} onDrillToForecast={onDrillToForecast} />
+              <KpiCard key={v.label} label={v.label} value={displayVal} color={color} rawValue={v.value} prevRawValue={syntheticPrev(v.value, v.label)} sparkline={syntheticSparkline(v.value, 8, v.label)} higherIsBetter={false} onDrillToForecast={onDrillToForecast} />
             );
           })}
         </div>
@@ -24948,7 +24949,7 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
       {sankeySubTab === "endpoints" && (
         <>
           <Flex gap={16} flexWrap="wrap">
-            <KpiCard label="Bounce Rate" value={fmtPct(endpointAnalysis.bounceRate)} color={endpointAnalysis.bounceRate > 30 ? RED : endpointAnalysis.bounceRate > 15 ? YELLOW : GREEN} rawValue={endpointAnalysis.bounceRate} prevRawValue={syntheticPrev(endpointAnalysis.bounceRate, "Bounce Rate")} sparkline={syntheticSparkline(endpointAnalysis.bounceRate, 8, "Bounce Rate")} onDrillToForecast={onDrillToForecast} />
+            <KpiCard label="Bounce Rate" value={fmtPct(endpointAnalysis.bounceRate)} color={endpointAnalysis.bounceRate > 30 ? RED : endpointAnalysis.bounceRate > 15 ? YELLOW : GREEN} rawValue={endpointAnalysis.bounceRate} prevRawValue={syntheticPrev(endpointAnalysis.bounceRate, "Bounce Rate")} sparkline={syntheticSparkline(endpointAnalysis.bounceRate, 8, "Bounce Rate")} inverted onDrillToForecast={onDrillToForecast} />
             <KpiCard label="Total Sessions" value={fmtCount(endpointAnalysis.totalSessions)} color={BLUE} rawValue={endpointAnalysis.totalSessions} prevRawValue={syntheticPrev(endpointAnalysis.totalSessions, "Total Sessions")} sparkline={syntheticSparkline(endpointAnalysis.totalSessions, 8, "Total Sessions")} onDrillToForecast={onDrillToForecast} />
           </Flex>
 
