@@ -28,7 +28,7 @@ import { HyperlyzerTab } from "./HyperlyzerTab";
 import { ForecastModal } from "../components/ForecastModal";
 import { HotnessForecastPanel } from "../components/HotnessForecastPanel";
 import { HotnessCalendarPanel } from "../components/HotnessCalendarPanel";
-import { OnboardingWizard } from "../components/OnboardingWizard";
+import { OnboardingWizard, CommunityWarningBanner } from "../components/OnboardingWizard";
 import type { PersonaDef } from "../components/PersonaPickerModal";
 import { CorrelationsPanel, CorrelationsContext, computeCorrelations } from "../components/CorrelationsPanel";
 import type { MetricEntry, CorrelationOpener } from "../components/CorrelationsPanel";
@@ -103,7 +103,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.29";
+const APP_VERSION_LABEL = "4.77.31";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -6859,6 +6859,7 @@ export function UserJourney() {
           saveState({ key: PARENT_TAB_VISIBILITY_STATE_KEY, body: { value: JSON.stringify(vis) } });
         }}
       />
+      <CommunityWarningBanner repoUrl="https://github.com/TechShady/user-journey-app" />
 
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
       <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>

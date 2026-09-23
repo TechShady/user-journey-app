@@ -5,6 +5,7 @@ import type { PersonaDef } from "./PersonaPickerModal";
 
 const WIZARD_KEY = `uj-wizard-v${appConfig.app.version}`;
 const PERSONA_EVER_KEY = "uj-persona-ever";
+const COMMUNITY_WARN_KEY = "uj-community-warn-dismissed";
 
 const A  = "#F59E0B";
 const AL = "#FBBF24";
@@ -242,6 +243,84 @@ function StatusBadge({ label, value, accent }: { label: string; value: string; a
       <div style={{ fontSize: 12, fontWeight: 700, color: accent ? AL : "rgba(255,255,255,0.75)" }}>
         {value}
       </div>
+    </div>
+  );
+}
+
+// ─── Community Warning Banner ──────────────────────────────────────────────
+// Shown on every load (independent of the wizard) unless permanently suppressed.
+
+export function CommunityWarningBanner({ repoUrl }: { repoUrl: string }) {
+  const warnState = useUserAppState({ key: COMMUNITY_WARN_KEY });
+  const { execute: saveState } = useSetUserAppState();
+  const [visible, setVisible] = useState(false);
+  const [hiding, setHiding] = useState(false);
+
+  useEffect(() => {
+    if (warnState.isLoading) return;
+    if (warnState.data?.value === "dismissed") return;
+    setVisible(true);
+  }, [warnState.isLoading, warnState.data?.value]);
+
+  if (!visible) return null;
+
+  const dismiss = (permanent: boolean) => {
+    if (permanent) saveState({ key: COMMUNITY_WARN_KEY, body: { value: "dismissed" } });
+    setHiding(true);
+    setTimeout(() => setVisible(false), 320);
+  };
+
+  return (
+    <div style={{
+      position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)",
+      zIndex: 9000,
+      maxWidth: 560, width: "calc(100% - 32px)",
+      background: "linear-gradient(135deg, #0E1323 0%, #090D18 100%)",
+      border: `1px solid ${AB}`,
+      borderLeft: `3px solid ${A}`,
+      borderRadius: 10,
+      padding: "12px 16px",
+      boxShadow: "0 8px 40px rgba(0,0,0,0.6), 0 0 20px rgba(245,158,11,0.08)",
+      display: "flex", alignItems: "flex-start", gap: 12,
+      fontFamily: '"Inter",system-ui,sans-serif',
+      opacity: hiding ? 0 : 1,
+      transition: "opacity 0.32s ease",
+      animation: hiding ? "none" : "ow-fadein 0.3s ease",
+    }}>
+      <style>{`@keyframes ow-fadein{from{opacity:0;transform:translateX(-50%) translateY(8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
+      <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>⚠️</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: A, marginBottom: 3 }}>
+          Community App — Not an Official Dynatrace Product
+        </div>
+        <div style={{ fontSize: 12.5, color: "rgba(255,255,255,0.7)", lineHeight: 1.5, marginBottom: 8 }}>
+          This app is community-built and unsupported. Use at your own discretion.{" "}
+          <a href={repoUrl} target="_blank" rel="noopener noreferrer" style={{ color: A, textDecoration: "none", fontWeight: 600 }}>
+            View on GitHub ↗
+          </a>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => dismiss(false)} style={{
+            fontSize: 11.5, fontWeight: 600, color: "rgba(255,255,255,0.55)",
+            background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 5, padding: "4px 10px", cursor: "pointer",
+          }}>
+            Dismiss
+          </button>
+          <button onClick={() => dismiss(true)} style={{
+            fontSize: 11.5, fontWeight: 600, color: A,
+            background: AG, border: `1px solid ${AB}`,
+            borderRadius: 5, padding: "4px 10px", cursor: "pointer",
+          }}>
+            Don't show again
+          </button>
+        </div>
+      </div>
+      <button onClick={() => dismiss(false)} style={{
+        background: "none", border: "none", cursor: "pointer",
+        color: "rgba(255,255,255,0.3)", fontSize: 16, padding: "2px 4px",
+        flexShrink: 0, lineHeight: 1,
+      }}>✕</button>
     </div>
   );
 }
