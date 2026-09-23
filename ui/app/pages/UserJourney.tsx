@@ -5555,6 +5555,9 @@ export function UserJourney() {
   const savedFunnelStyle = useUserAppState({ key: FUNNEL_STYLE_STATE_KEY });
   const savedMapView = useUserAppState({ key: MAP_VIEW_STATE_KEY });
   const savedHotnessMode = useUserAppState({ key: HOTNESS_MODE_STATE_KEY });
+  const communityWarnState = useUserAppState({ key: "uj-community-warn-dismissed" });
+  const [communityBannerDone, setCommunityBannerDone] = useState(false);
+  const communityBannerActive = !communityBannerDone && (communityWarnState.isLoading || communityWarnState.data?.value !== "dismissed");
   // Perf-budget thresholds and SLO targets are now shared with every user of this app.
   // Fall back to any pre-migration per-user value so nothing is lost.
   const savedNavTlEdgesLimitGlobal = useAppState({ key: NAV_TL_EDGES_LIMIT_STATE_KEY });
@@ -5791,6 +5794,7 @@ export function UserJourney() {
   setQueryAnchorMs(timeframeAnchor);
   setCurrentTimeframeDays(timeframeDays);
   const refetchOpts = refreshIntervalMs > 0 ? { refetchInterval: refreshIntervalMs } : undefined;
+  const baseOpts = communityBannerActive ? { ...refetchOpts, enabled: false } : refetchOpts;
   // Dynamically determine the first visible sub-tab based on current ordering so queries for
   // whatever tab lands first always fire — regardless of how the user has reordered tabs.
   const firstVisibleSubTab = useMemo((): TabKey | null => {
@@ -5805,6 +5809,7 @@ export function UserJourney() {
   }, [parentTabOrder, parentTabVisibility, subTabOrder, tabVisibility]);
   // Returns options for a query that should only run after the user has visited one of the given tabs.
   const lazyOpts = (tabs: TabKey[]) => {
+    if (communityBannerActive) return { ...refetchOpts, enabled: false };
     const enabled = tabs.some(t => visitedTabs.has(t) || t === activeSubTabKey || t === firstVisibleSubTab);
     return enabled ? refetchOpts : { ...refetchOpts, enabled: false };
   };
@@ -5812,9 +5817,9 @@ export function UserJourney() {
   const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps) }, lazyOpts(["Funnel Overview"]));
   const stepMetricsPrev = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps, 1, true) }, lazyOpts(["Step Details"]));
   const hasMultiPageSteps = steps.some(s => s.identifiers.length > 1);
-  const pageMetrics = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, refetchOpts);
-  const pageMetricsPrev = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps, 1, true) : "fetch user.events | limit 0" }, refetchOpts);
-  const pageSparklineData = useDql({ query: hasMultiPageSteps ? pageSparklineQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, refetchOpts);
+  const pageMetrics = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, baseOpts);
+  const pageMetricsPrev = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps, 1, true) : "fetch user.events | limit 0" }, baseOpts);
+  const pageSparklineData = useDql({ query: hasMultiPageSteps ? pageSparklineQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, baseOpts);
   const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend, steps, "actions") }, lazyOpts(["Web Vitals", "Executive Summary", "SLO Tracker"]));
   const cwvResultPages = useDql({ query: cwvQuery(timeframeDays, frontend, steps, "pages") }, lazyOpts(["Web Vitals"]));
   const cwvResultViews = useDql({ query: cwvQuery(timeframeDays, frontend, steps, "views") }, lazyOpts(["Web Vitals"]));
@@ -5873,7 +5878,7 @@ export function UserJourney() {
       : "fetch user.events | limit 0",
     // Default useDql cap is 1000 records — Sankey TL needs headroom for 1440+ buckets * top-N paths.
     maxResultRecords: 200000,
-  }, refetchOpts);
+  }, baseOpts);
   const funnelDrillFrontend = useMemo(() => {
     const stepApp = steps.find((s) => (s.app ?? "").trim() !== "")?.app;
     return stepApp || frontend;
@@ -5962,12 +5967,12 @@ export function UserJourney() {
   const geoPriorPerformanceData = useDql({ query: geoPerformanceQuery(timeframeDays, frontend, steps, true) }, lazyOpts(["Maps"]));
   const geoFunnelBounceData = useDql({ query: geoFunnelBounceQuery(timeframeDays, frontend, steps) }, lazyOpts(["Maps"]));
   // Maps time-lapse now uses the global TimelapseContext bucket. Only fires when TL is on to save quota.
-  const mapTimelapseData = useDql({ query: tl.enabled ? mapTimelapseQuery(timeframeDays, frontend, steps, tl.bucket) : "fetch user.events | limit 0" }, refetchOpts);
+  const mapTimelapseData = useDql({ query: tl.enabled ? mapTimelapseQuery(timeframeDays, frontend, steps, tl.bucket) : "fetch user.events | limit 0" }, baseOpts);
   // Shared per-bucket KPI metrics — one query drives per-bucket values for every animatable tab's KPI cards
   // (Overall Apdex, Error Rate, Avg Duration, Satisfied/Tolerating/Frustrated, Web Vitals, etc.). Only fires when TL is on.
-  const sharedTlMetricsData = useDql({ query: tl.enabled ? sharedTimelapseMetricsQuery(timeframeDays, frontend, steps, tl.bucket) : "fetch user.events | limit 0" }, refetchOpts);
+  const sharedTlMetricsData = useDql({ query: tl.enabled ? sharedTimelapseMetricsQuery(timeframeDays, frontend, steps, tl.bucket) : "fetch user.events | limit 0" }, baseOpts);
   // Shared Davis problem intervals for TL correlation (active problem overlap per bucket).
-  const sharedTlProblemsData = useDql({ query: tl.enabled ? sharedTimelapseProblemsQuery(timeframeDays) : "fetch dt.davis.problems | limit 0" }, refetchOpts);
+  const sharedTlProblemsData = useDql({ query: tl.enabled ? sharedTimelapseProblemsQuery(timeframeDays) : "fetch dt.davis.problems | limit 0" }, baseOpts);
   const osVersionData = useDql({ query: osVersionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
   const navPathConvData = useDql({ query: navPathConversionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Navigation Paths"]));
   const clickReplayData = useDql({ query: clickIssuesReplayQuery(timeframeDays, frontend) }, lazyOpts(["Click Issues"]));
@@ -6859,7 +6864,7 @@ export function UserJourney() {
           saveState({ key: PARENT_TAB_VISIBILITY_STATE_KEY, body: { value: JSON.stringify(vis) } });
         }}
       />
-      <CommunityWarningBanner repoUrl="https://github.com/TechShady/user-journey-app" />
+      <CommunityWarningBanner repoUrl="https://github.com/TechShady/user-journey-app" onDismissed={() => setCommunityBannerDone(true)} />
 
       <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
       <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>

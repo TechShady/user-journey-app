@@ -250,7 +250,7 @@ function StatusBadge({ label, value, accent }: { label: string; value: string; a
 // ─── Community Warning Banner ──────────────────────────────────────────────
 // Shown on every load (independent of the wizard) unless permanently suppressed.
 
-export function CommunityWarningBanner({ repoUrl }: { repoUrl: string }) {
+export function CommunityWarningBanner({ repoUrl, onDismissed }: { repoUrl: string; onDismissed?: () => void }) {
   const warnState = useUserAppState({ key: COMMUNITY_WARN_KEY });
   const { execute: saveState } = useSetUserAppState();
   // Start visible immediately — hide only once we confirm it was dismissed
@@ -259,7 +259,7 @@ export function CommunityWarningBanner({ repoUrl }: { repoUrl: string }) {
 
   useEffect(() => {
     if (warnState.isLoading) return;
-    if (warnState.data?.value === "dismissed") setVisible(false);
+    if (warnState.data?.value === "dismissed") { setVisible(false); onDismissed?.(); }
   }, [warnState.isLoading, warnState.data?.value]);
 
   if (!visible) return null;
@@ -267,14 +267,14 @@ export function CommunityWarningBanner({ repoUrl }: { repoUrl: string }) {
   const dismiss = (permanent: boolean) => {
     if (permanent) saveState({ key: COMMUNITY_WARN_KEY, body: { value: "dismissed" } });
     setHiding(true);
-    setTimeout(() => setVisible(false), 320);
+    setTimeout(() => { setVisible(false); onDismissed?.(); }, 320);
   };
 
   return (
     <div style={{
       position: "fixed", inset: 0,
       zIndex: 10000,
-      background: "rgba(0,0,0,0.72)",
+      background: "#070B15",
       display: "flex", alignItems: "center", justifyContent: "center",
       fontFamily: '"Inter",system-ui,sans-serif',
       opacity: hiding ? 0 : 1,
