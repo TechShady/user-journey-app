@@ -253,13 +253,13 @@ function StatusBadge({ label, value, accent }: { label: string; value: string; a
 export function CommunityWarningBanner({ repoUrl }: { repoUrl: string }) {
   const warnState = useUserAppState({ key: COMMUNITY_WARN_KEY });
   const { execute: saveState } = useSetUserAppState();
-  const [visible, setVisible] = useState(false);
+  // Start visible immediately — hide only once we confirm it was dismissed
+  const [visible, setVisible] = useState(true);
   const [hiding, setHiding] = useState(false);
 
   useEffect(() => {
     if (warnState.isLoading) return;
-    if (warnState.data?.value === "dismissed") return;
-    setVisible(true);
+    if (warnState.data?.value === "dismissed") setVisible(false);
   }, [warnState.isLoading, warnState.data?.value]);
 
   if (!visible) return null;
@@ -272,55 +272,60 @@ export function CommunityWarningBanner({ repoUrl }: { repoUrl: string }) {
 
   return (
     <div style={{
-      position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)",
-      zIndex: 9000,
-      maxWidth: 560, width: "calc(100% - 32px)",
-      background: "linear-gradient(135deg, #0E1323 0%, #090D18 100%)",
-      border: `1px solid ${AB}`,
-      borderLeft: `3px solid ${A}`,
-      borderRadius: 10,
-      padding: "12px 16px",
-      boxShadow: "0 8px 40px rgba(0,0,0,0.6), 0 0 20px rgba(245,158,11,0.08)",
-      display: "flex", alignItems: "flex-start", gap: 12,
+      position: "fixed", inset: 0,
+      zIndex: 10000,
+      background: "rgba(0,0,0,0.72)",
+      display: "flex", alignItems: "center", justifyContent: "center",
       fontFamily: '"Inter",system-ui,sans-serif',
       opacity: hiding ? 0 : 1,
       transition: "opacity 0.32s ease",
-      animation: hiding ? "none" : "ow-fadein 0.3s ease",
+      animation: hiding ? "none" : "ow-fadein 0.25s ease",
     }}>
-      <style>{`@keyframes ow-fadein{from{opacity:0;transform:translateX(-50%) translateY(8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
-      <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>⚠️</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: A, marginBottom: 3 }}>
-          Community App — Not an Official Dynatrace Product
+      <style>{`@keyframes ow-fadein{from{opacity:0}to{opacity:1}}`}</style>
+      <div style={{
+        maxWidth: 520, width: "calc(100% - 48px)",
+        background: "linear-gradient(135deg, #0E1323 0%, #090D18 100%)",
+        border: `1px solid rgba(255,255,255,0.09)`,
+        borderLeft: `3px solid ${AB}`,
+        borderRadius: 12,
+        padding: "28px 28px 24px",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.7), 0 0 40px rgba(245,158,11,0.06)",
+        animation: hiding ? "none" : "ow-card-in 0.3s ease",
+      }}>
+        <style>{`@keyframes ow-card-in{from{opacity:0;transform:translateY(-16px) scale(0.97)}to{opacity:1;transform:none}}`}</style>
+        <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.18em", textTransform: "uppercase", color: A, marginBottom: 14 }}>
+          Operational Notice
         </div>
-        <div style={{ fontSize: 12.5, color: "rgba(255,255,255,0.7)", lineHeight: 1.5, marginBottom: 8 }}>
-          This app is community-built and unsupported. Use at your own discretion.{" "}
-          <a href={repoUrl} target="_blank" rel="noopener noreferrer" style={{ color: A, textDecoration: "none", fontWeight: 600 }}>
-            View on GitHub ↗
-          </a>
-        </div>
+        <p style={{ margin: "0 0 16px", fontSize: 13.5, lineHeight: 1.65, color: "rgba(255,255,255,0.85)" }}>
+          This is an <strong style={{ color: "#fff" }}>unofficial community application</strong> — not a supported Dynatrace product.
+          Report issues or fork the repo at:
+        </p>
+        <a href={repoUrl} target="_blank" rel="noopener noreferrer" style={{
+          display: "inline-flex", alignItems: "center", gap: 7,
+          fontSize: 12.5, fontWeight: 600, color: A, textDecoration: "none",
+          background: AG, border: `1px solid ${AB}`, borderRadius: 5, padding: "6px 12px",
+          marginBottom: 20,
+        }}>
+          <GithubIcon />
+          {repoUrl.replace("https://", "")}
+        </a>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => dismiss(false)} style={{
-            fontSize: 11.5, fontWeight: 600, color: "rgba(255,255,255,0.55)",
+            fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.55)",
             background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 5, padding: "4px 10px", cursor: "pointer",
+            borderRadius: 5, padding: "7px 14px", cursor: "pointer",
           }}>
             Dismiss
           </button>
           <button onClick={() => dismiss(true)} style={{
-            fontSize: 11.5, fontWeight: 600, color: A,
+            fontSize: 12, fontWeight: 600, color: A,
             background: AG, border: `1px solid ${AB}`,
-            borderRadius: 5, padding: "4px 10px", cursor: "pointer",
+            borderRadius: 5, padding: "7px 14px", cursor: "pointer",
           }}>
             Don't show again
           </button>
         </div>
       </div>
-      <button onClick={() => dismiss(false)} style={{
-        background: "none", border: "none", cursor: "pointer",
-        color: "rgba(255,255,255,0.3)", fontSize: 16, padding: "2px 4px",
-        flexShrink: 0, lineHeight: 1,
-      }}>✕</button>
     </div>
   );
 }
