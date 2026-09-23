@@ -103,7 +103,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.37";
+const APP_VERSION_LABEL = "4.77.38";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1063,7 +1063,7 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
   const arrow = delta === null ? "" : delta === 0 ? "—" : trendUp ? "↑" : "↓";
 
   // Progress bar: only for threshold-colored metrics
-  const THRESHOLD_COLORS = new Set([GREEN, RED, YELLOW]);
+  const THRESHOLD_COLORS = new Set([GREEN, RED, YELLOW, ORANGE]);
   const showProgressBar = hasSpark && !customContent && rawValue != null && THRESHOLD_COLORS.has(color ?? "");
   let progressPct = 50;
   if (showProgressBar && sparkline && sparkline.length >= 2) {
@@ -3311,26 +3311,18 @@ function ApdexGauge({ score, size = 80, label }: { score: number; size?: number;
 
 function CwvCard({ label, value, unit, metric, onDrillToForecast }: { label: string; value: number; unit: string; metric: keyof typeof CWV; onDrillToForecast?: (label: string, sparkline: number[], color?: string) => void }) {
   const color = cwvClr(value, metric);
-  const status = cwvLabel(value, metric);
-  const spark = syntheticSparkline(value);
-  const SW = 100, SH = 20;
-  const sMin = Math.min(...spark), sMax = Math.max(...spark), sRange = sMax - sMin || 1;
-  const sparkPts = spark.map((v2, i) => `${(i / (spark.length - 1)) * SW},${SH - ((v2 - sMin) / sRange) * (SH - 4) + 2}`).join(" ");
+  const displayVal = metric === "cls" ? (isFinite(value) ? value.toFixed(3) : "—") : fmt(value);
   return (
-    <div className={`uj-cwv-card${onDrillToForecast ? " clickable" : ""}`} onClick={onDrillToForecast ? () => onDrillToForecast(label, spark, color) : undefined}>
-      {onDrillToForecast && <span className="kpi-drill-hint">→ Forecast</span>}
-      <Text style={{ fontSize: 13, opacity: 0.6 }}>{label}</Text>
-      <Heading level={3} style={{ color, margin: "4px 0 2px" }}>{metric === "cls" ? value.toFixed(3) : fmt(value)}</Heading>
-      <svg width="100%" viewBox={`0 0 ${SW} ${SH}`} preserveAspectRatio="none" style={{ display: "block", margin: "4px 0", overflow: "visible" }}>
-        <polyline points={sparkPts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" strokeOpacity={0.6} />
-      </svg>
-      <span className="uj-cwv-badge" style={{ background: `${color}22`, color, borderColor: `${color}44` }}>{status}</span>
-      <div className="uj-cwv-thresholds">
-        <span style={{ color: GREEN }}>≤{metric === "cls" ? CWV[metric].good : fmt(CWV[metric].good)}</span>
-        <span style={{ color: YELLOW }}>≤{metric === "cls" ? `${CWV[metric].poor}` : fmt(CWV[metric].poor)}</span>
-        <span style={{ color: RED }}>&gt;{metric === "cls" ? CWV[metric].poor : fmt(CWV[metric].poor)}</span>
-      </div>
-    </div>
+    <KpiCard
+      label={label}
+      value={displayVal}
+      color={color}
+      rawValue={value}
+      prevRawValue={syntheticPrev(value, label)}
+      sparkline={syntheticSparkline(value, 8, label)}
+      higherIsBetter={false}
+      onDrillToForecast={onDrillToForecast}
+    />
   );
 }
 
