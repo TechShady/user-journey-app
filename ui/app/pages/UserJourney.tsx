@@ -103,7 +103,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.38";
+const APP_VERSION_LABEL = "4.77.39";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -3309,7 +3309,7 @@ function ApdexGauge({ score, size = 80, label }: { score: number; size?: number;
   );
 }
 
-function CwvCard({ label, value, unit, metric, onDrillToForecast }: { label: string; value: number; unit: string; metric: keyof typeof CWV; onDrillToForecast?: (label: string, sparkline: number[], color?: string) => void }) {
+function CwvCard({ label, value, unit, metric, onDrillToForecast, query }: { label: string; value: number; unit: string; metric: keyof typeof CWV; onDrillToForecast?: (label: string, sparkline: number[], color?: string) => void; query?: string }) {
   const color = cwvClr(value, metric);
   const displayVal = metric === "cls" ? (isFinite(value) ? value.toFixed(3) : "—") : fmt(value);
   return (
@@ -3321,6 +3321,7 @@ function CwvCard({ label, value, unit, metric, onDrillToForecast }: { label: str
       prevRawValue={syntheticPrev(value, label)}
       sparkline={syntheticSparkline(value, 8, label)}
       higherIsBetter={false}
+      query={query}
       onDrillToForecast={onDrillToForecast}
     />
   );
@@ -7484,7 +7485,7 @@ export function UserJourney() {
             case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} timeframeDays={timeframeDays} frontend={frontend} hotnessMode={hotnessMode} />; break;
             case "Funnel Analysis": content = <FunnelAnalysisTab frontend={frontend} funnels={funnels} saveFunnels={saveFunnels} saveActiveFunnelIndex={saveActiveFunnelIndex} aov={aov} onJumpToTab={(t) => setActiveSubTabKey(t)} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
-            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvPages={cwvPages} cwvViews={cwvViews} cwvByPage={cwvByPage} cwvByPagePages={cwvByPagePages} cwvByPageViews={cwvByPageViews} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} />; break;
+            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvPages={cwvPages} cwvViews={cwvViews} cwvByPage={cwvByPage} cwvByPagePages={cwvByPagePages} cwvByPageViews={cwvByPageViews} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} cwvNotebookQuery={cwvQuery(timeframeDays, frontend, steps, "actions")} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} stepQuery={stepMetricsQuery(timeframeDays, frontend, steps)} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} onDrillToForecast={openForecast} />; break;
             case "Exceptions": content = <JSErrorsTab data={jsErrorsData} prevData={jsErrorsPrevData} isLoading={jsErrorsData.isLoading} frontend={frontend} onDrillToForecast={openForecast} />; break;
@@ -14913,7 +14914,7 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
 // ===========================================================================
 // TAB: Web Vitals
 // ===========================================================================
-function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvByPage, cwvByPagePages, cwvByPageViews, cwvTrend, isLoading, appEntityId, onDrillToForecast }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvPages: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvViews: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvByPagePages: any; cwvByPageViews: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void }) {
+function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvByPage, cwvByPagePages, cwvByPageViews, cwvTrend, isLoading, appEntityId, onDrillToForecast, cwvNotebookQuery }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvPages: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvViews: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvByPagePages: any; cwvByPageViews: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; cwvNotebookQuery?: string }) {
   const [cwvMode, setCwvMode] = React.useState<CwvMode>("actions");
   const v = cwvMode === "pages" ? vPages : cwvMode === "views" ? vViews : vActions;
   const activeByPage = cwvMode === "pages" ? cwvByPagePages : cwvMode === "views" ? cwvByPageViews : cwvByPage;
@@ -15008,10 +15009,10 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
 
       <SectionHeader title="Core Web Vitals" />
       <Flex gap={16} flexWrap="wrap">
-        <CwvCard label={tlShared ? "Largest Contentful Paint (bucket)" : "Largest Contentful Paint"} value={effV.lcp} unit="ms" metric="lcp" onDrillToForecast={onDrillToForecast} />
-        <CwvCard label={tlShared ? "Cumulative Layout Shift (bucket)" : "Cumulative Layout Shift"} value={effV.cls} unit="" metric="cls" onDrillToForecast={onDrillToForecast} />
-        <CwvCard label={tlShared ? "Interaction to Next Paint (bucket)" : "Interaction to Next Paint"} value={effV.inp} unit="ms" metric="inp" onDrillToForecast={onDrillToForecast} />
-        <CwvCard label={tlShared ? "Time to First Byte (bucket)" : "Time to First Byte"} value={effV.ttfb} unit="ms" metric="ttfb" onDrillToForecast={onDrillToForecast} />
+        <CwvCard label={tlShared ? "Largest Contentful Paint (bucket)" : "Largest Contentful Paint"} value={effV.lcp} unit="ms" metric="lcp" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
+        <CwvCard label={tlShared ? "Cumulative Layout Shift (bucket)" : "Cumulative Layout Shift"} value={effV.cls} unit="" metric="cls" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
+        <CwvCard label={tlShared ? "Interaction to Next Paint (bucket)" : "Interaction to Next Paint"} value={effV.inp} unit="ms" metric="inp" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
+        <CwvCard label={tlShared ? "Time to First Byte (bucket)" : "Time to First Byte"} value={effV.ttfb} unit="ms" metric="ttfb" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
       </Flex>
 
       {/* CWV Trend Chart */}
