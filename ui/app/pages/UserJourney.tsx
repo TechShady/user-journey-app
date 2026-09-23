@@ -5791,9 +5791,21 @@ export function UserJourney() {
   setQueryAnchorMs(timeframeAnchor);
   setCurrentTimeframeDays(timeframeDays);
   const refetchOpts = refreshIntervalMs > 0 ? { refetchInterval: refreshIntervalMs } : undefined;
+  // Dynamically determine the first visible sub-tab based on current ordering so queries for
+  // whatever tab lands first always fire — regardless of how the user has reordered tabs.
+  const firstVisibleSubTab = useMemo((): TabKey | null => {
+    for (const parent of parentTabOrder) {
+      if (parentTabVisibility[parent] === false) continue;
+      const subs: TabKey[] = (subTabOrder[parent] || DEFAULT_SUB_TAB_ORDER[parent] || []) as TabKey[];
+      for (const sub of subs) {
+        if (tabVisibility[sub] !== false) return sub;
+      }
+    }
+    return null;
+  }, [parentTabOrder, parentTabVisibility, subTabOrder, tabVisibility]);
   // Returns options for a query that should only run after the user has visited one of the given tabs.
   const lazyOpts = (tabs: TabKey[]) => {
-    const enabled = tabs.some(t => visitedTabs.has(t) || t === activeSubTabKey);
+    const enabled = tabs.some(t => visitedTabs.has(t) || t === activeSubTabKey || t === firstVisibleSubTab);
     return enabled ? refetchOpts : { ...refetchOpts, enabled: false };
   };
   const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, false) }, lazyOpts(["Funnel Overview"]));
@@ -5907,8 +5919,8 @@ export function UserJourney() {
   const resourceSessionDrillData = useDql({ query: resourceSessionDrillQuery(timeframeDays, frontend, steps) }, lazyOpts(["Resource Waterfall"]));
 
   // NEW: Change Intelligence
-  const deploymentEventsData = useDql({ query: deploymentEventsQuery(timeframeDays) }, lazyOpts(["Change Intelligence", "Error Clustering"]));
-  const changeImpactData = useDql({ query: changeImpactQuery(timeframeDays, frontend, steps) }, lazyOpts(["Change Intelligence"]));
+  const deploymentEventsData = useDql({ query: deploymentEventsQuery(timeframeDays) }, lazyOpts(["Change Intelligence", "Error Clustering", "Executive Summary"]));
+  const changeImpactData = useDql({ query: changeImpactQuery(timeframeDays, frontend, steps) }, lazyOpts(["Change Intelligence", "Executive Summary"]));
 
   // NEW: SLO Tracker
   const sloApdexTrendData = useDql({ query: sloApdexTrendQuery(timeframeDays, frontend, steps) }, lazyOpts(["SLO Tracker"]));
@@ -5959,7 +5971,7 @@ export function UserJourney() {
   const osVersionData = useDql({ query: osVersionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
   const navPathConvData = useDql({ query: navPathConversionQuery(timeframeDays, frontend, steps) }, lazyOpts(["Navigation Paths"]));
   const clickReplayData = useDql({ query: clickIssuesReplayQuery(timeframeDays, frontend) }, lazyOpts(["Click Issues"]));
-  const davisProblemsData = useDql({ query: davisProblemsQuery(timeframeDays, frontend) }, lazyOpts(["Anomaly Detection"]));
+  const davisProblemsData = useDql({ query: davisProblemsQuery(timeframeDays, frontend) }, lazyOpts(["Anomaly Detection", "Executive Summary"]));
   const backendServicesData = useDql({ query: backendServicesQuery(timeframeDays, frontend, steps) }, lazyOpts(["Navigation Paths", "Root Cause Correlation"]));
   const serviceToServiceData = useDql({ query: serviceToServiceQuery(timeframeDays, frontend) }, lazyOpts(["Navigation Paths", "Root Cause Correlation"]));
   const backendProblemsData = useDql({ query: backendProblemsQuery(timeframeDays) }, lazyOpts(["Root Cause Correlation"]));
@@ -7485,7 +7497,7 @@ export function UserJourney() {
             case "Sankey": content = <SankeyTab data={sankeyData} isLoading={sankeyData.isLoading} appEntityId={appEntityId} chartStyle={sankeyStyle} onStyleChange={(v: SankeyStyle) => { setSankeyStyle(v); saveState({ key: SANKEY_STYLE_STATE_KEY, body: { value: v } }); }} steps={steps} aov={aov} cwvData={sankeyCwvData} errorData={sankeyErrorData} pathsData={sankeyPathsData} frontend={frontend} durationData={sankeyDurationData} prevPathsData={sankeyPrevPaths} velocityData={funnelVelocityData} onDrillToForecast={openForecast} timelapseData={sankeyTimelapseData} hotnessMode={hotnessMode} navQuery={navigationPathsQuery(timeframeDays, frontend, steps)} />; break;
             case "Anomaly Detection": content = <AnomalyDetectionTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} stepMap={stepMap} durationDist={durationDistributionData} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || durationDistributionData.isLoading} steps={steps} aov={aov}  davisProblemsData={davisProblemsData} onDrillToForecast={openForecast} />; break;
             case "Conversion Attribution": content = <ConversionAttributionTab data={conversionAttributionData} overallConv={overallConv} isLoading={conversionAttributionData.isLoading} aov={aov} funnelCounts={funnelCounts} steps={steps} />; break;
-            case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnels={funnels} activeFunnelIndex={activeFunnelIndex} saveActiveFunnelIndex={saveActiveFunnelIndex} timeframeDays={timeframeDays} allFunnelQualities={allFunnelQualities} />; break;
+            case "Executive Summary": content = <ExecutiveSummaryTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} cwv={cwv} stepMap={stepMap} isLoading={isLoading || qualityData.isLoading || qualityDataPrev.isLoading || cwvResult.isLoading} frontend={frontend} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnels={funnels} activeFunnelIndex={activeFunnelIndex} saveActiveFunnelIndex={saveActiveFunnelIndex} timeframeDays={timeframeDays} allFunnelQualities={allFunnelQualities} davisProblems={davisProblemsData.data?.records ?? []} deploymentRecords={deploymentEventsData.data?.records ?? []} changeImpactRecords={changeImpactData.data?.records ?? []} />; break;
             case "Segmentation": /* enhanced */ content = <SegmentationTab devices={(deviceData.data?.records ?? []) as any[]} browsers={(browserData.data?.records ?? []) as any[]} geos={(geoData.data?.records ?? []) as any[]} osVersions={(osVersionData.data?.records ?? []) as any[]} isLoading={deviceData.isLoading || browserData.isLoading || geoData.isLoading || osVersionData.isLoading} aov={aov} overallConv={overallConv} />; break;
             case "Errors & Drop-offs": content = <ErrorsTab errors={(errorData.data?.records ?? []) as any[]} funnelCounts={funnelCounts} isLoading={errorData.isLoading} steps={steps} aov={aov} stepDropData={rootCauseStepDropData} />; break;
             case "What-If Analysis": content = <WhatIfTab hostMetricsData={hostMetricsData} funnelCounts={funnelCounts} stepMap={stepMap} overallApdex={overallApdex} isLoading={isLoading} steps={steps} aov={aov} onDrillToForecast={openForecast} />; break;
@@ -8342,42 +8354,56 @@ ${problemsHtml}
 
         {/* Comparison groups — each with: section header → cmpCard → table */}
         {(() => {
-          const metricRow = (label: string, left: string, right: string, leftBad?: boolean, rightGood?: boolean) => (
-            <div key={label} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 4, padding: "2px 0", borderBottom: "1px solid rgba(128,128,128,0.08)", alignItems: "center" }}>
-              <span style={{ opacity: 0.55, fontSize: 11 }}>{label}</span>
-              <span style={{ fontSize: 11, fontWeight: 600, textAlign: "right", color: leftBad ? TL_HOT_WARM : "#c0c0c0" }}>{left}</span>
-              <span style={{ fontSize: 11, fontWeight: 600, textAlign: "right", color: rightGood ? GREEN : "#c0c0c0" }}>{right}</span>
-            </div>
-          );
+          const metricRow = (label: string, left: string, right: string, leftBad?: boolean, rightGood?: boolean) =>
+            ({ label, left, right, leftBad, rightGood });
           const cmpCard = (
             leftLabel: string, leftColor: string, leftBg: string, leftBucket: number, leftKey: string, leftZ: number,
             rightLabel: string, rightColor: string, rightBg: string, rightBucket: number, rightKey: string, rightZ: number,
-            rows: React.ReactNode,
-          ) => (
-            <div style={{ border: `1px solid rgba(128,128,128,0.15)`, borderRadius: 8, overflow: "hidden", marginBottom: 0 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr" }}>
-                <div style={{ background: leftBg, padding: "8px 10px" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: leftColor, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>{leftLabel} — Bkt {leftBucket}</div>
-                  <div style={{ fontSize: 9, opacity: 0.35, fontFamily: "monospace", marginBottom: 3 }}>{leftKey}</div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: hotColor(leftZ) }}>Z = {leftZ.toFixed(2)}</div>
+            rows: { label: string; left: string; right: string; leftBad?: boolean; rightGood?: boolean }[],
+          ) => {
+            const zBadge = (z: number) =>
+              z >= 2.5  ? { text: "Error storm", color: TL_HOT_HIGH } :
+              z >= 1.5  ? { text: "Warm",        color: TL_HOT_WARM } :
+              z >= 0.75 ? { text: "Elevated",    color: TL_HOT_ELEV } :
+                          { text: "Optimal",     color: GREEN };
+            const fmtKey = (k: string) => k.replace("T", " ").split(".")[0];
+            const renderHalf = (
+              label: string, color: string, bg: string, bkt: number, key: string, z: number,
+              vals: { label: string; value: string; bad?: boolean; good?: boolean }[]
+            ) => {
+              const badge = zBadge(z);
+              return (
+                <div style={{ border: `1px solid ${color}35`, borderTop: `3px solid ${color}`, borderRadius: 8, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                  <div style={{ padding: "12px 14px 10px", background: bg }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 3 }}>
+                      {label} — Bucket {bkt}
+                    </div>
+                    <div style={{ fontSize: 9, opacity: 0.4, fontFamily: "monospace", marginBottom: 8 }}>{fmtKey(key)}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: hotColor(z) }}>Z = {z.toFixed(2)}</span>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: `${badge.color}22`, color: badge.color, border: `1px solid ${badge.color}50` }}>
+                        {badge.text}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ borderTop: "1px solid rgba(128,128,128,0.12)", padding: "8px 12px 10px", flex: 1 }}>
+                    {vals.map((v, i) => (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "3px 0", borderBottom: i < vals.length - 1 ? "1px solid rgba(128,128,128,0.07)" : "none" }}>
+                        <span style={{ fontSize: 11, opacity: 0.55 }}>{v.label}</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: v.good ? GREEN : v.bad ? TL_HOT_WARM : "#c0c0c0" }}>{v.value}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "0 8px", background: "rgba(128,128,128,0.04)", fontSize: 9, fontWeight: 800, opacity: 0.35, letterSpacing: 1 }}>VS</div>
-                <div style={{ background: rightBg, padding: "8px 10px" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: rightColor, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>{rightLabel} — Bkt {rightBucket}</div>
-                  <div style={{ fontSize: 9, opacity: 0.35, fontFamily: "monospace", marginBottom: 3 }}>{rightKey}</div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: hotColor(rightZ) }}>Z = {rightZ.toFixed(2)}</div>
-                </div>
+              );
+            };
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {renderHalf(leftLabel, leftColor, leftBg, leftBucket, leftKey, leftZ, rows.map(r => ({ label: r.label, value: r.left, bad: r.leftBad })))}
+                {renderHalf(rightLabel, rightColor, rightBg, rightBucket, rightKey, rightZ, rows.map(r => ({ label: r.label, value: r.right, good: r.rightGood })))}
               </div>
-              <div style={{ padding: "6px 10px 4px", background: "rgba(0,0,0,0.15)" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 4, marginBottom: 3 }}>
-                  <span style={{ fontSize: 9, opacity: 0.35 }}>Metric</span>
-                  <span style={{ fontSize: 9, opacity: 0.35, textAlign: "right", color: leftColor }}>{leftLabel.split(" ")[0]}</span>
-                  <span style={{ fontSize: 9, opacity: 0.35, textAlign: "right", color: rightColor }}>{rightLabel.split(" ")[0]}</span>
-                </div>
-                {rows}
-              </div>
-            </div>
-          );
+            );
+          };
 
           const w = data.worstRow, b = data.bestRow, w2 = data.worst2Row, b2 = data.best2Row;
           const wFrust = w.sessions > 0 ? fmtPct(w.frustrated / w.sessions * 100) : "—";
@@ -8424,28 +8450,28 @@ ${problemsHtml}
                 {cmpCard(
                   "🔥 Worst #1", TL_HOT_HIGH, "rgba(255,7,58,0.06)", data.worstIdx + 1, data.worstBucketKey, data.worstHotZ,
                   "✨ Best #1", GREEN, "rgba(13,156,41,0.05)", data.bestIdx + 1, data.bestBucketKey, data.allHotness[data.bestIdx] ?? 0,
-                  <>
-                    {metricRow("Sessions",  fmtCount(w.sessions),              fmtCount(b.sessions))}
-                    {metricRow("Error Rate",fmtPct(w.errorRate),               fmtPct(b.errorRate),  w.errorRate > 2, b.errorRate < 1)}
-                    {metricRow("Avg Load",  `${Math.round(w.avgDurationMs)}ms`,`${Math.round(b.avgDurationMs)}ms`, true, true)}
-                    {metricRow("Apdex",     w.apdex.toFixed(3),                b.apdex.toFixed(3),   w.apdex < 0.7, b.apdex > 0.85)}
-                    {w.lcp != null && b.lcp != null && metricRow("LCP", `${Math.round(w.lcp)}ms`, `${Math.round(b.lcp)}ms`, w.lcp > 2500, b.lcp < 2500)}
-                    {metricRow("Problems",  String(data.worstProblems.length), String(data.bestProblemsCount), data.worstProblems.length > 0, data.bestProblemsCount === 0)}
-                    {metricRow("Frustrated",wFrust,                            bFrust,               true, true)}
-                    {(data.worstEstimatedConvDrop > 0.1 || data.bestEstimatedConv > 0) && metricRow(
+                  [
+                    metricRow("Sessions",  fmtCount(w.sessions),              fmtCount(b.sessions)),
+                    metricRow("Error Rate",fmtPct(w.errorRate),               fmtPct(b.errorRate),  w.errorRate > 2, b.errorRate < 1),
+                    metricRow("Avg Load",  `${Math.round(w.avgDurationMs)}ms`,`${Math.round(b.avgDurationMs)}ms`, true, true),
+                    metricRow("Apdex",     w.apdex.toFixed(3),                b.apdex.toFixed(3),   w.apdex < 0.7, b.apdex > 0.85),
+                    ...(w.lcp != null && b.lcp != null ? [metricRow("LCP", `${Math.round(w.lcp)}ms`, `${Math.round(b.lcp)}ms`, w.lcp > 2500, b.lcp < 2500)] : []),
+                    metricRow("Problems",  String(data.worstProblems.length), String(data.bestProblemsCount), data.worstProblems.length > 0, data.bestProblemsCount === 0),
+                    metricRow("Frustrated",wFrust,                            bFrust,               true, true),
+                    ...(data.worstEstimatedConvDrop > 0.1 || data.bestEstimatedConv > 0 ? [metricRow(
                       "Est. Conv", data.worstEstimatedConvDrop > 0.1 ? `−${data.worstEstimatedConvDrop.toFixed(1)}pp` : "—",
                       data.bestEstimatedConv > 0 ? `${data.bestEstimatedConv.toFixed(1)}%` : "—",
                       data.worstEstimatedConvDrop > 0.1, data.bestEstimatedConv > 0,
-                    )}
-                  </>,
+                    )] : []),
+                  ],
                 )}
               </div>
               {/* What's Different gap table */}
               <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay}ms` }}>
                 <div style={{ background: "rgba(128,128,128,0.03)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, overflow: "hidden" }}>
                   <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
-                    {["Metric", "Best", "Worst", "Gap"].map((h, i) => (
-                      <div key={i} style={{ padding: "5px 10px", fontSize: 9, fontWeight: 700, opacity: 0.45, textTransform: "uppercase", letterSpacing: 0.5, background: "rgba(128,128,128,0.06)", borderBottom: "1px solid rgba(128,128,128,0.12)" }}>{h}</div>
+                    {(["Metric", "Best", "Worst", "Gap"] as const).map((h, i) => (
+                      <div key={i} style={{ padding: "5px 10px", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, background: "rgba(128,128,128,0.06)", borderBottom: "1px solid rgba(128,128,128,0.12)", color: h === "Best" ? GREEN : h === "Worst" ? TL_HOT_WARM : undefined, opacity: h === "Best" || h === "Worst" ? 1 : 0.45 }}>{h}</div>
                     ))}
                     {([
                       { label: "Error Rate", best: `${data.bestRow.errorRate.toFixed(1)}%`, worst: `${data.worstRow.errorRate.toFixed(1)}%`, gap: data.errorRateDelta >= 0 ? `+${data.errorRateDelta.toFixed(1)}pp` : `${data.errorRateDelta.toFixed(1)}pp`, bad: data.errorRateDelta > 1 },
@@ -8479,14 +8505,14 @@ ${problemsHtml}
                     {cmpCard(
                       "🔥 Worst #1", TL_HOT_HIGH, "rgba(255,7,58,0.06)", data.worstIdx + 1, data.worstBucketKey, data.worstHotZ,
                       "🔶 Worst #2", "#FF8C69", "rgba(255,140,105,0.05)", data.worst2Idx + 1, data.worst2BucketKey, data.worst2HotZ,
-                      <>
-                        {metricRow("Sessions",  fmtCount(w.sessions),               fmtCount(w2.sessions))}
-                        {metricRow("Error Rate",fmtPct(w.errorRate),                fmtPct(w2.errorRate),  w.errorRate > 2,  w2.errorRate > 2)}
-                        {metricRow("Avg Load",  `${Math.round(w.avgDurationMs)}ms`, `${Math.round(w2.avgDurationMs)}ms`, true, false)}
-                        {metricRow("Apdex",     w.apdex.toFixed(3),                 w2.apdex.toFixed(3),  w.apdex < 0.7,   w2.apdex < 0.7)}
-                        {w.lcp != null && w2.lcp != null && metricRow("LCP", `${Math.round(w.lcp)}ms`, `${Math.round(w2.lcp)}ms`, w.lcp > 2500, false)}
-                        {metricRow("Frustrated",wFrust,                             w2Frust,              true, false)}
-                      </>,
+                      [
+                        metricRow("Sessions",  fmtCount(w.sessions),               fmtCount(w2.sessions)),
+                        metricRow("Error Rate",fmtPct(w.errorRate),                fmtPct(w2.errorRate),  w.errorRate > 2,  w2.errorRate > 2),
+                        metricRow("Avg Load",  `${Math.round(w.avgDurationMs)}ms`, `${Math.round(w2.avgDurationMs)}ms`, true, false),
+                        metricRow("Apdex",     w.apdex.toFixed(3),                 w2.apdex.toFixed(3),  w.apdex < 0.7,   w2.apdex < 0.7),
+                        ...(w.lcp != null && w2.lcp != null ? [metricRow("LCP", `${Math.round(w.lcp)}ms`, `${Math.round(w2.lcp)}ms`, w.lcp > 2500, false)] : []),
+                        metricRow("Frustrated",wFrust,                             w2Frust,              true, false),
+                      ],
                     )}
                   </div>
                   <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay + 350}ms` }}>
@@ -8519,14 +8545,14 @@ ${problemsHtml}
                     {cmpCard(
                       "✨ Best #1", GREEN, "rgba(13,156,41,0.05)", data.bestIdx + 1, data.bestBucketKey, data.allHotness[data.bestIdx] ?? 0,
                       "🌿 Best #2", "#7FD99A", "rgba(127,217,154,0.05)", data.best2Idx + 1, data.best2BucketKey, data.allHotness[data.best2Idx] ?? 0,
-                      <>
-                        {metricRow("Sessions",  fmtCount(b.sessions),               fmtCount(b2.sessions))}
-                        {metricRow("Error Rate",fmtPct(b.errorRate),                fmtPct(b2.errorRate),  false, b2.errorRate < 1)}
-                        {metricRow("Avg Load",  `${Math.round(b.avgDurationMs)}ms`, `${Math.round(b2.avgDurationMs)}ms`, false, true)}
-                        {metricRow("Apdex",     b.apdex.toFixed(3),                 b2.apdex.toFixed(3),  false, b2.apdex > 0.85)}
-                        {b.lcp != null && b2.lcp != null && metricRow("LCP", `${Math.round(b.lcp)}ms`, `${Math.round(b2.lcp)}ms`, false, b2.lcp < 2500)}
-                        {metricRow("Frustrated",bFrust,                             b2Frust,              false, true)}
-                      </>,
+                      [
+                        metricRow("Sessions",  fmtCount(b.sessions),               fmtCount(b2.sessions)),
+                        metricRow("Error Rate",fmtPct(b.errorRate),                fmtPct(b2.errorRate),  false, b2.errorRate < 1),
+                        metricRow("Avg Load",  `${Math.round(b.avgDurationMs)}ms`, `${Math.round(b2.avgDurationMs)}ms`, false, true),
+                        metricRow("Apdex",     b.apdex.toFixed(3),                 b2.apdex.toFixed(3),  false, b2.apdex > 0.85),
+                        ...(b.lcp != null && b2.lcp != null ? [metricRow("LCP", `${Math.round(b.lcp)}ms`, `${Math.round(b2.lcp)}ms`, false, b2.lcp < 2500)] : []),
+                        metricRow("Frustrated",bFrust,                             b2Frust,              false, true),
+                      ],
                     )}
                   </div>
                   <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay + 700}ms` }}>
@@ -8659,7 +8685,8 @@ ${problemsHtml}
 export type InsightSeverity = "good" | "warning" | "critical" | "info";
 export type InsightItem = { severity: InsightSeverity; icon: string; text: string };
 export type RecommendationItem = { impact: "high" | "medium" | "low"; text: string };
-export type AIInsightsData = { summary: string; insights: InsightItem[]; recommendations: RecommendationItem[] };
+export type BusinessImpactCard = { icon: string; title: string; status: "good" | "warning" | "critical" | "neutral"; headline: string; detail: string };
+export type AIInsightsData = { summary: string; insights: InsightItem[]; recommendations: RecommendationItem[]; businessImpact?: BusinessImpactCard[] };
 
 function SparkleIcon() {
   return (
@@ -8704,11 +8731,23 @@ function AIInsightsPanel({ data, onClose }: { data: AIInsightsData; onClose: () 
   // Calculate cumulative word offsets so each section streams after the previous
   const summaryWords = data.summary.split(/\s+/).length;
   const summaryDuration = summaryWords * 60;
-  let insightOffset = summaryDuration + 400;
+  const biOffset = summaryDuration + 350;
+  const biDuration = data.businessImpact ? data.businessImpact.length * 200 + 400 : 0;
+  let insightOffset = biOffset + biDuration + 200;
   const insightDurations: number[] = data.insights.map(ins => {
     const d = ins.text.split(/\s+/).length * 60;
     return d;
   });
+
+  const statusBorder: Record<string, string> = {
+    good: "rgba(30,200,100,0.35)", warning: "rgba(240,180,40,0.4)", critical: "rgba(240,60,60,0.4)", neutral: "rgba(128,128,128,0.25)",
+  };
+  const statusBg: Record<string, string> = {
+    good: "rgba(30,200,100,0.06)", warning: "rgba(240,180,40,0.06)", critical: "rgba(240,60,60,0.06)", neutral: "rgba(128,128,128,0.05)",
+  };
+  const statusDot: Record<string, string> = {
+    good: "#1ec864", warning: "#f0b428", critical: "#f03c3c", neutral: "rgba(128,128,128,0.5)",
+  };
 
   return (
     <div className="uj-ai-panel">
@@ -8725,6 +8764,26 @@ function AIInsightsPanel({ data, onClose }: { data: AIInsightsData; onClose: () 
             <StreamText text={data.summary} baseDelay={200} style={{ fontSize: 13, lineHeight: "1.5" }} />
           </div>
         </div>
+
+        {/* Business Impact */}
+        {data.businessImpact && data.businessImpact.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${biOffset - 150}ms` }}>Business Impact</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {data.businessImpact.map((card, i) => (
+                <div key={i} style={{ borderRadius: 8, border: `1px solid ${statusBorder[card.status]}`, background: statusBg[card.status], padding: "10px 12px", opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${biOffset + i * 180}ms` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <span style={{ fontSize: 14 }}>{card.icon}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, opacity: 0.65 }}>{card.title}</span>
+                    <span style={{ marginLeft: "auto", width: 7, height: 7, borderRadius: "50%", background: statusDot[card.status], flexShrink: 0 }} />
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 2, lineHeight: 1.3 }}>{card.headline}</div>
+                  <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.4 }}>{card.detail}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Insights */}
         {data.insights.length > 0 && (
@@ -8867,7 +8926,7 @@ export function useAIInsights(analysisFn: () => AIInsightsData, subTabKey?: TabK
 // ---------------------------------------------------------------------------
 // Per-tab analysis functions — industry-standard benchmarks
 // ---------------------------------------------------------------------------
-function analyzeFunnelOverview(overallConv: number, overallApdex: number, quality: any, funnelCounts: number[], steps: StepDef[], stepMap: Map<string, any>, aov: number, pageMap?: Map<string, any>, cwv?: { lcp: number; cls: number; inp: number; ttfb: number }, qualityPrev?: any, enabledMetrics?: { apdex: boolean; conversion: boolean; errorRate: boolean; avgDuration: boolean; lcp: boolean; cls: boolean; inp: boolean; ttfb: boolean }): AIInsightsData {
+function analyzeFunnelOverview(overallConv: number, overallApdex: number, quality: any, funnelCounts: number[], steps: StepDef[], stepMap: Map<string, any>, aov: number, pageMap?: Map<string, any>, cwv?: { lcp: number; cls: number; inp: number; ttfb: number }, qualityPrev?: any, enabledMetrics?: { apdex: boolean; conversion: boolean; errorRate: boolean; avgDuration: boolean; lcp: boolean; cls: boolean; inp: boolean; ttfb: boolean }, davisProblems?: any[], deploymentRecords?: any[], changeImpactRecords?: any[]): AIInsightsData {
   const insights: InsightItem[] = [];
   const recs: RecommendationItem[] = [];
   const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
@@ -9007,7 +9066,101 @@ function analyzeFunnelOverview(overallConv: number, overallApdex: number, qualit
     ? `Executive Summary for this funnel: ${fmtCount(quality.sessions)} sessions over the period with ${fmtPct(overallConv)} conversion and Apdex ${overallApdex.toFixed(2)}. Error rate: ${fmtPct(errorRate)}. ${worstDrop > 30 ? `Highest drop-off at "${worstStep}" (${fmtPct(worstDrop)}).` : "No severe funnel drop-offs."} Core Web Vitals — LCP: ${cwv.lcp > 0 ? fmt(cwv.lcp) : "no data"}, CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "no data"}, INP: ${cwv.inp > 0 ? fmt(cwv.inp) : "no data"}, TTFB: ${cwv.ttfb > 0 ? fmt(cwv.ttfb) : "no data"}. ${hasNegativeTrend ? "One or more key metrics show areas for improvement — see Insights below for prioritized recommendations." : "All key metrics are within healthy ranges."} Use the Grade Breakdown to understand which metrics are driving the score. The What Changed section highlights funnel steps with significant drop-off shifts vs. the prior period. Copy Text or Export PDF to share with stakeholders.`
     : `Funnel Overview is the primary command center for understanding end-to-end user conversion. It visualizes how ${fmtCount(quality.sessions)} sessions progress through your defined funnel steps, tracking where users advance, where they abandon, and why. KPI cards now feature inline sparklines showing metric trends over time, comparison arrows showing % change vs. the previous period, and one-click Forecast Modal popup with 6 statistical models. This tab is designed for Product Managers evaluating conversion effectiveness, UX Designers identifying friction points, and Performance Engineers correlating speed with business outcomes. It answers: What is my overall conversion rate (currently ${fmtPct(overallConv)} against an industry average of 2-5%)? How satisfied are users with performance (Apdex ${overallApdex.toFixed(2)}, where ≥0.85 is excellent)? Where is the biggest drop-off in my funnel? ${worstDrop > 30 ? `The steepest abandonment occurs at "${worstStep}" where ${fmtPct(worstDrop)} of users leave — this is your highest-leverage optimization target.` : "Funnel progression is relatively smooth with no severe drop-off points."} ${errorRate > 1 ? `Error rate of ${fmtPct(errorRate)} exceeds the <1% industry benchmark and may be suppressing conversion.` : "Error rate is within healthy bounds."} ${hasNegativeTrend ? "One or more metrics show concerning trends — click any KPI card to open the Forecast Modal and compare projections across 6 models." : ""} The tab is organized into 4 sub-tabs: (1) Conversion Funnel — Apdex satisfaction breakdown, 5 visualization styles (Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split), and Compare mode to overlay the previous period; (2) Predictive Model — linear regression on today's hourly conversion rates projects where the conversion rate will land by 23:59, with hourly velocity and confidence score; (3) Step Analysis — sortable table of all funnel steps with sessions, avg/P90 duration, Apdex, conversion %, abandons, and errors per step; (4) Per-Page Breakdown — per-page metrics for steps with multiple page identifiers. Revenue-lost annotations are shown when AOV is configured.`;
 
-  return { summary, insights, recommendations: recs };
+  // ── Business Impact Cards ──────────────────────────────────────────────────
+  const businessImpact: BusinessImpactCard[] = [];
+
+  // Card 1: Active User Impact — are users impacted right now?
+  {
+    const openProblems = (davisProblems ?? []).filter((p: any) => p["event.status"] === "OPEN" || !p["event.end"]);
+    if (openProblems.length === 0) {
+      businessImpact.push({ icon: "🛡️", title: "Active Impact", status: "good", headline: "No active incidents detected", detail: "Davis AI has not flagged any open problems for this application." });
+    } else {
+      const names = openProblems.slice(0, 2).map((p: any) => p.title || p["event.name"] || "Unknown").join("; ");
+      businessImpact.push({ icon: "🚨", title: "Active Impact", status: "critical", headline: `${openProblems.length} open incident${openProblems.length > 1 ? "s" : ""}`, detail: names + (openProblems.length > 2 ? ` +${openProblems.length - 2} more` : "") });
+    }
+  }
+
+  // Card 2: Users at risk + business impact
+  {
+    const total = quality.total ?? 0;
+    const errored = quality.errors ?? 0;
+    const frustrated = quality.frustrated ?? 0;
+    const atRisk = errored + frustrated;
+    const atRiskPct = total > 0 ? (atRisk / total) * 100 : 0;
+    const lastIdx2 = steps.length - 1;
+    const convRate = funnelCounts[0] > 0 ? funnelCounts[lastIdx2] / funnelCounts[0] : 0;
+    const revenueAtRisk = aov > 0 && atRiskPct > 0 ? Math.round(atRisk * convRate * aov) : 0;
+    const status2: BusinessImpactCard["status"] = atRiskPct > 10 ? "critical" : atRiskPct > 3 ? "warning" : "good";
+    const headline2 = total > 0 ? `${fmtCount(atRisk)} users at risk (${atRiskPct.toFixed(1)}% of traffic)` : "Insufficient session data";
+    const detail2 = revenueAtRisk > 0
+      ? `${fmtCount(errored)} with errors, ${fmtCount(frustrated)} frustrated. Est. revenue exposure: $${fmtCount(revenueAtRisk)}.`
+      : `${fmtCount(errored)} users hit errors, ${fmtCount(frustrated)} experienced very slow loads.`;
+    businessImpact.push({ icon: "⚠️", title: "Users at Risk", status: status2, headline: headline2, detail: detail2 });
+  }
+
+  // Card 3: Degrading actions / root cause
+  {
+    type StepEntry = { label: string; errorRate: number; avgDur: number; total: number };
+    const stepEntries: StepEntry[] = steps.map(s => {
+      const m = stepMap.get(s.label);
+      if (!m) return null;
+      const total = Number(m.total_actions ?? 0);
+      const errors = Number(m.error_count ?? 0);
+      const avg = Number(m.avg_duration_ms ?? 0);
+      return { label: s.label, errorRate: total > 0 ? (errors / total) * 100 : 0, avgDur: avg, total };
+    }).filter((x): x is StepEntry => x !== null && x.total > 0);
+    const worstErr = [...stepEntries].sort((a, b) => b.errorRate - a.errorRate)[0];
+    const slowest = [...stepEntries].sort((a, b) => b.avgDur - a.avgDur)[0];
+    if (worstErr && (worstErr.errorRate > 2 || (slowest && slowest.avgDur > 3000))) {
+      const issues: string[] = [];
+      if (worstErr.errorRate > 2) issues.push(`"${worstErr.label}" — ${worstErr.errorRate.toFixed(1)}% error rate`);
+      if (slowest && slowest.avgDur > 3000 && slowest.label !== worstErr?.label) issues.push(`"${slowest.label}" — ${fmt(slowest.avgDur)} avg load`);
+      businessImpact.push({ icon: "🐢", title: "Degrading Actions", status: "warning", headline: issues[0] ?? "Performance degradation detected", detail: issues.slice(1).join(" · ") || "Review Step Details tab for full breakdown." });
+    } else if (stepEntries.length > 0) {
+      businessImpact.push({ icon: "✅", title: "Degrading Actions", status: "good", headline: "All funnel steps performing normally", detail: stepEntries.length > 0 ? `Avg load across steps: ${fmt(stepEntries.reduce((s, e) => s + e.avgDur, 0) / stepEntries.length)}.` : "No step data available." });
+    } else {
+      businessImpact.push({ icon: "📊", title: "Degrading Actions", status: "neutral", headline: "Step data loading…", detail: "Visit Step Details to populate per-action metrics." });
+    }
+  }
+
+  // Card 4: Deployment stability
+  {
+    const deploys = deploymentRecords ?? [];
+    const impact = changeImpactRecords ?? [];
+    if (deploys.length === 0) {
+      businessImpact.push({ icon: "🚀", title: "Deployment Health", status: "neutral", headline: "No recent deployments detected", detail: "Configure deployment events in Dynatrace to track release impact." });
+    } else {
+      const recentDeploy = deploys[0];
+      const deployName = recentDeploy.deploy_name ?? recentDeploy.deploy_component ?? "Deployment";
+      const deployHour = recentDeploy.hour_key ?? "";
+      if (impact.length >= 2) {
+        const sortedImpact = [...impact].sort((a: any, b: any) => String(a.hour_ts).localeCompare(String(b.hour_ts)));
+        const deployHourTs = deployHour.slice(0, 13);
+        const pre = sortedImpact.filter((r: any) => String(r.hour_ts) < deployHourTs);
+        const post = sortedImpact.filter((r: any) => String(r.hour_ts) >= deployHourTs);
+        if (pre.length >= 1 && post.length >= 1) {
+          const preErr = pre.reduce((s: number, r: any) => s + (Number(r.actions) > 0 ? Number(r.errors) / Number(r.actions) : 0), 0) / pre.length;
+          const postErr = post.reduce((s: number, r: any) => s + (Number(r.actions) > 0 ? Number(r.errors) / Number(r.actions) : 0), 0) / post.length;
+          const errDelta = (postErr - preErr) * 100;
+          const improving = errDelta < -0.5;
+          const risky = errDelta > 0.5;
+          businessImpact.push({
+            icon: improving ? "✅" : risky ? "⚠️" : "🚀",
+            title: "Deployment Health",
+            status: improving ? "good" : risky ? "warning" : "neutral",
+            headline: improving ? `${deployName}: error rate improved` : risky ? `${deployName}: error rate increased` : `${deployName}: stable`,
+            detail: `Error rate ${errDelta > 0 ? "+" : ""}${errDelta.toFixed(2)}pp post-deploy. ${deploys.length} event${deploys.length > 1 ? "s" : ""} in period.`,
+          });
+        } else {
+          businessImpact.push({ icon: "🚀", title: "Deployment Health", status: "neutral", headline: `${deployName} detected`, detail: `${deploys.length} deployment event${deploys.length > 1 ? "s" : ""} in the period. Visit Change Intelligence for full impact analysis.` });
+        }
+      } else {
+        businessImpact.push({ icon: "🚀", title: "Deployment Health", status: "neutral", headline: `${deployName} detected`, detail: `${deploys.length} deployment event${deploys.length > 1 ? "s" : ""} in the period. Visit Change Intelligence for full impact analysis.` });
+      }
+    }
+  }
+
+  return { summary, insights, recommendations: recs, businessImpact };
 }
 
 function analyzeTrends(quality: any, qualityPrev: any, overallApdex: number, overallApdexPrev: number, overallConv: number, overallConvPrev: number, funnelCounts: number[], funnelCountsPrev: number[], aov: number): AIInsightsData {
@@ -21412,10 +21565,10 @@ const ExecGradeRow: React.FC<{
 // ===========================================================================
 // TAB: Executive Summary
 // ===========================================================================
-function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps, aov, sparklineRecords, convSparklineRecords, onDrillToForecast, funnels, activeFunnelIndex, saveActiveFunnelIndex, timeframeDays, allFunnelQualities }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[]; aov: number; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnels: FunnelDef[]; activeFunnelIndex: number; saveActiveFunnelIndex: (v: number) => void; timeframeDays: number; allFunnelQualities: any[] }) {
+function ExecutiveSummaryTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, funnelCounts, funnelCountsPrev, cwv: cwvMetrics, stepMap, isLoading, frontend, steps, aov, sparklineRecords, convSparklineRecords, onDrillToForecast, funnels, activeFunnelIndex, saveActiveFunnelIndex, timeframeDays, allFunnelQualities, davisProblems, deploymentRecords, changeImpactRecords }: { quality: any; qualityPrev: any; overallApdex: number; overallApdexPrev: number; overallConv: number; overallConvPrev: number; funnelCounts: number[]; funnelCountsPrev: number[]; cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number }; stepMap: Map<string, any>; isLoading: boolean; frontend: string; steps: StepDef[]; aov: number; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnels: FunnelDef[]; activeFunnelIndex: number; saveActiveFunnelIndex: (v: number) => void; timeframeDays: number; allFunnelQualities: any[]; davisProblems?: any[]; deploymentRecords?: any[]; changeImpactRecords?: any[] }) {
   const { gradeWeights, gradeMetricEnabled, gradeMetricThresholds } = useSettings();
   const [copied, setCopied] = useState(false);
-  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, undefined, cwvMetrics, qualityPrev, gradeMetricEnabled), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, cwvMetrics, qualityPrev, gradeMetricEnabled]));
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, undefined, cwvMetrics, qualityPrev, gradeMetricEnabled, davisProblems, deploymentRecords, changeImpactRecords), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, cwvMetrics, qualityPrev, gradeMetricEnabled, davisProblems, deploymentRecords, changeImpactRecords]));
   const tl = useTimelapse();
 
   // All hooks must be before early returns (Rules of Hooks)
