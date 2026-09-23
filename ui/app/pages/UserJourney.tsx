@@ -103,7 +103,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.33";
+const APP_VERSION_LABEL = "4.77.34";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -431,8 +431,9 @@ const UJ_PERSONA_PARENT_TABS: Record<string, Record<ParentTabKey, boolean>> = {
 };
 
 const UJ_WHATS_NEW = [
-  "📈 Predictive Hotness Forecasting — forecast future system stress with 6 AI-powered models (Prophet, Holt-Winters, ARIMA, SARIMA, Triple Exp. Smoothing, Linear Regression)",
-  "🎭 Persona Presets — role-based tab layouts; select your role to see only the tabs that matter to you",
+  "⚡ Smart lazy loading — app now detects whichever tab you've set as first and loads its data immediately, regardless of tab ordering",
+  "🧠 Business Impact cards in AI Assist — Executive Summary now shows 4 live cards: active incidents, users at risk, degrading actions, and deployment health",
+  "🛡️ Operational Notice — community warning banner blocks data loading until acknowledged, with a persistent 'Don't show again' option",
 ];
 const DEFAULT_SUB_TAB_ORDER: Record<ParentTabKey, TabKey[]> = Object.fromEntries(TAB_GROUPS.map(g => [g.label, [...g.subTabs]])) as Record<ParentTabKey, TabKey[]>;
 
