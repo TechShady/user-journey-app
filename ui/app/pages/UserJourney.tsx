@@ -28,6 +28,11 @@ import { HyperlyzerTab } from "./HyperlyzerTab";
 import { ForecastModal } from "../components/ForecastModal";
 import { HotnessForecastPanel } from "../components/HotnessForecastPanel";
 import { HotnessCalendarPanel } from "../components/HotnessCalendarPanel";
+import { KpiMenuContext } from "../components/KpiMenuContext";
+import type { KpiMenuContextValue } from "../components/KpiMenuContext";
+import { DimensionModal } from "../components/DimensionModal";
+import type { DimSlice } from "../components/DimensionModal";
+import { KpiHeatmapPanel } from "../components/KpiHeatmapPanel";
 import { OnboardingWizard, CommunityWarningBanner } from "../components/OnboardingWizard";
 import type { PersonaDef } from "../components/PersonaPickerModal";
 import { CorrelationsPanel, CorrelationsContext, computeCorrelations } from "../components/CorrelationsPanel";
@@ -924,7 +929,7 @@ function KpiPanelOverlay({ label, rawValue, sparkline, color, panel, onClose, ef
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
               <div style={{ textAlign: "center", padding: "12px 20px", borderRadius: 10, background: `${anomalyStatus.color}18`, border: `1px solid ${anomalyStatus.color}40` }}>
                 <div style={{ fontSize: 22, fontWeight: 800, color: anomalyStatus.color }}>{anomalyStatus.label}</div>
-                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>{Math.abs(deviation).toFixed(2)}σ from mean</div>
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>{Math.abs(deviation).toFixed(2)}{"σ"} from mean</div>
               </div>
             </div>
             {[
@@ -1032,6 +1037,7 @@ function useEffectiveTL(baseSessions: number | undefined = undefined) {
 function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, inverted = false, sparkline, onDrillToForecast, customContent, isLoading, style, query }: KpiCardProps) {
   const forecastOpener = useContext(ForecastContext);
   const correlationsCtx = useContext(CorrelationsContext);
+  const kpiMenuCtx = useContext(KpiMenuContext);
   const cardRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activePanel, setActivePanel] = useState<"impact" | "anomaly" | "attribution" | null>(null);
@@ -1096,6 +1102,14 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
     setMenuOpen(false);
     if (query) sendIntent({ 'dt.query': query }, { recommendedAppId: 'dynatrace.notebooks', recommendedIntentId: 'open-with-dql' });
   };
+  const doDimension = () => {
+    setMenuOpen(false);
+    if (hasSpark) kpiMenuCtx?.openDimension({ label, sparkline: sparkline ?? [], color });
+  };
+  const doHeatmap = () => {
+    setMenuOpen(false);
+    if (hasSpark) kpiMenuCtx?.openHeatmap({ label, sparkline: sparkline ?? [], color });
+  };
 
   return (
     <div
@@ -1152,6 +1166,8 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
             <button className="kpi-action-btn" onClick={doForecast}>📈 Forecast</button>
             <button className="kpi-action-btn" onClick={doRelated}>⟷ Related Metrics</button>
             {query && <button className="kpi-action-btn" onClick={doOpenNotebook}>↗ Open with...</button>}
+            {kpiMenuCtx && <button className="kpi-action-btn" onClick={doDimension}>🌍 Dimension</button>}
+            {kpiMenuCtx && <button className="kpi-action-btn" onClick={doHeatmap}>📅 Heatmap</button>}
             <div className="kpi-action-sep" />
             <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("impact"); }}>👥 Impact</button>
             <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("anomaly"); }}>🔍 Anomaly</button>
@@ -5435,6 +5451,10 @@ export function UserJourney() {
   const [hotnessForecastPos, setHotnessForecastPos] = useState<{ x: number; y: number }>({ x: 240, y: 120 });
   const hotnessForecastDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  const [dimensionModal, setDimensionModal] = useState<{ label: string; sparkline: number[]; color?: string; fetchGeo?: () => Promise<DimSlice[]>; fetchBrowser?: () => Promise<DimSlice[]> } | null>(null);
+  const [kpiHeatmapPanel, setKpiHeatmapPanel] = useState<{ label: string; color?: string; getRequeryData: (days: number) => Promise<{ values: number[]; bucketMs: number; unit?: string }> } | null>(null);
+  const [kpiHeatmapPos, setKpiHeatmapPos] = useState<{ x: number; y: number }>({ x: 320, y: 120 });
+  const kpiHeatmapDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const closeAiInsights = React.useCallback(() => setAiOpen(false), []);
   const aiContextValue = React.useMemo(() => ({ open: aiOpen, close: closeAiInsights, activeSubTab: activeSubTabKey }), [aiOpen, closeAiInsights, activeSubTabKey]);
   const { frontend, steps, funnels, activeFunnelIndex, saveFunnels, saveActiveFunnelIndex, saveSteps, aov, saveAov, monthlyInfraCost, saveMonthlyInfraCost, cdnMonthlyCost, saveCdnMonthlyCost, computeCostPerHour, saveComputeCostPerHour, costPerGb, saveCostPerGb, engineerHourlyRate, saveEngineerHourlyRate, industry, saveIndustry, gradeWeights, saveGradeWeights, gradeMetricEnabled, saveGradeMetricEnabled, gradeMetricThresholds, saveGradeMetricThresholds, saveGradeSettings, pageLabels, savePageLabels } = useSettings();
@@ -6165,6 +6185,18 @@ export function UserJourney() {
     window.addEventListener('mouseup', onUp);
   }, [hotnessCalendarPos]);
 
+  const startKpiHeatmapDrag = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    kpiHeatmapDragRef.current = { startX: e.clientX, startY: e.clientY, origX: kpiHeatmapPos.x, origY: kpiHeatmapPos.y };
+    const onMove = (me: MouseEvent) => {
+      if (!kpiHeatmapDragRef.current) return;
+      setKpiHeatmapPos({ x: kpiHeatmapDragRef.current.origX + me.clientX - kpiHeatmapDragRef.current.startX, y: kpiHeatmapDragRef.current.origY + me.clientY - kpiHeatmapDragRef.current.startY });
+    };
+    const onUp = () => { kpiHeatmapDragRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [kpiHeatmapPos]);
+
   const startHotnessForecastDrag = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     hotnessForecastDragRef.current = { startX: e.clientX, startY: e.clientY, origX: hotnessForecastPos.x, origY: hotnessForecastPos.y };
@@ -6406,6 +6438,151 @@ export function UserJourney() {
     } catch { return { scores: [], bucketMs: 3600000 }; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [steps, frontend]);
+
+  const buildKpiHeatmapFetcher = React.useCallback((lbl: string) => {
+    return async (days: number): Promise<{ values: number[]; bucketMs: number; unit?: string }> => {
+      try {
+        const vitals: Record<string, string> = { "LCP": "largestContentfulPaint", "FCP": "firstContentfulPaint", "CLS": "cumulativeLayoutShift", "INP": "interactionToNextPaint", "TTFB": "timeToFirstByte", "FID": "firstInputDelay" };
+        const vitalField = Object.keys(vitals).find(k => lbl.toUpperCase().includes(k));
+        let q: string;
+        let unit: string | undefined;
+        if (vitalField) {
+          const field = vitals[vitalField];
+          unit = "s";
+          q = `fetch user.events, from: now()-${days}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| filter isNotNull(${field})
+| fieldsAdd val = toDouble(${field}) / 1000000.0, hour_bucket = bin(start_time, 1h)
+| summarize avgVal = avg(val), by: {hour_bucket}
+| sort hour_bucket asc`;
+        } else if (lbl.includes("Error")) {
+          unit = "%";
+          q = `fetch user.events, from: now()-${days}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| fieldsAdd hour_bucket = bin(start_time, 1h)
+| summarize total = count(), errors = countIf(characteristics.has_error == true), by: {hour_bucket}
+| fieldsAdd avgVal = if(total > 0, toDouble(errors) / toDouble(total) * 100.0, else: 0.0)
+| sort hour_bucket asc`;
+        } else if (lbl.includes("Bounce") || lbl.includes("Exit")) {
+          unit = "%";
+          q = `fetch user.events, from: now()-${days}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| fieldsAdd hour_bucket = bin(start_time, 1h)
+| summarize total = count(), bounces = countIf(step_index == 1 and characteristics.is_exit == true), by: {hour_bucket}
+| fieldsAdd avgVal = if(total > 0, toDouble(bounces) / toDouble(total) * 100.0, else: 0.0)
+| sort hour_bucket asc`;
+        } else if (lbl.includes("Duration") || lbl.includes("Load") || lbl.includes("Time")) {
+          unit = "s";
+          q = `fetch user.events, from: now()-${days}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| fieldsAdd val = toDouble(duration) / 1000000.0, hour_bucket = bin(start_time, 1h)
+| summarize avgVal = avg(val), by: {hour_bucket}
+| sort hour_bucket asc`;
+        } else {
+          // Default: use combined hotness score
+          const hs = await getHotnessHeatmapData(days);
+          return { values: hs.scores, bucketMs: hs.bucketMs };
+        }
+        const recs = await runDqlQuery(q);
+        if (recs.length < 2) return { values: [], bucketMs: 3600000, unit };
+        const vals = recs.map((r: any) => {
+          const ts = r.hour_bucket != null ? new Date(r.hour_bucket).getTime() : 0;
+          const v = Number(r.avgVal ?? r.val ?? 0);
+          return { ts, v };
+        }).filter((x: any) => x.ts > 0);
+        if (vals.length < 2) return { values: [], bucketMs: 3600000, unit };
+        const startMs = vals[0].ts;
+        const endMs = vals[vals.length - 1].ts;
+        const totalBuckets = Math.ceil((endMs - startMs) / 3600000) + 1;
+        const dense = new Array(totalBuckets).fill(0);
+        vals.forEach((x: any) => {
+          const idx = Math.round((x.ts - startMs) / 3600000);
+          if (idx >= 0 && idx < totalBuckets) dense[idx] = x.v;
+        });
+        return { values: dense, bucketMs: 3600000, unit };
+      } catch {
+        const hs = await getHotnessHeatmapData(days);
+        return { values: hs.scores, bucketMs: hs.bucketMs };
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [steps, frontend, getHotnessHeatmapData]);
+
+  const kpiMenuContextValue: KpiMenuContextValue = React.useMemo(() => ({
+    openDimension: ({ label: lbl, sparkline: sp, color: col }) => {
+      const vitals: Record<string, string> = { "LCP": "largestContentfulPaint", "FCP": "firstContentfulPaint", "CLS": "cumulativeLayoutShift", "INP": "interactionToNextPaint", "TTFB": "timeToFirstByte", "FID": "firstInputDelay" };
+      const vitalKey = Object.keys(vitals).find(k => lbl.toUpperCase().includes(k));
+      const vitalField = vitalKey ? vitals[vitalKey] : null;
+      const isErrorRate = lbl.includes("Error");
+      const isBounceRate = lbl.includes("Bounce") || lbl.includes("Exit");
+      const isDuration = !vitalField && !isErrorRate && !isBounceRate && (lbl.includes("Duration") || lbl.includes("Load") || lbl.includes("Time"));
+      const unit: string | undefined = (vitalField || isDuration) ? "s" : (isErrorRate || isBounceRate) ? "%" : undefined;
+      const avgExpr = vitalField
+        ? `, avgVal = avg(toDouble(${vitalField})) / 1000000.0`
+        : isDuration ? `, avgVal = avg(toDouble(duration)) / 1000000.0` : "";
+
+      const fetchGeo = async (): Promise<DimSlice[]> => {
+        try {
+          let q: string;
+          if (isErrorRate) {
+            q = `fetch user.events, from: now()-${timeframeDays}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| filter isNotNull(geo.country.name)
+| summarize count = count(), errors = countIf(characteristics.has_error == true), by: {country = geo.country.name}
+| fieldsAdd avgVal = if(count > 0, toDouble(errors) / toDouble(count) * 100.0, else: 0.0)
+| sort count desc
+| limit 8`;
+          } else {
+            q = `fetch user.events, from: now()-${timeframeDays}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| filter isNotNull(geo.country.name)
+| summarize count = count()${avgExpr}, by: {country = geo.country.name}
+| sort count desc
+| limit 8`;
+          }
+          const recs = await runDqlQuery(q);
+          return recs.map((r: any) => ({ name: String(r.country ?? "Unknown"), value: Number(r.count ?? 0), avg: r.avgVal != null ? Number(r.avgVal) : undefined, unit }));
+        } catch { return []; }
+      };
+      const fetchBrowser = async (): Promise<DimSlice[]> => {
+        try {
+          let q: string;
+          if (isErrorRate) {
+            q = `fetch user.events, from: now()-${timeframeDays}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| filter isNotNull(browser.name)
+| summarize count = count(), errors = countIf(characteristics.has_error == true), by: {browser = browser.name}
+| fieldsAdd avgVal = if(count > 0, toDouble(errors) / toDouble(count) * 100.0, else: 0.0)
+| sort count desc
+| limit 6`;
+          } else {
+            q = `fetch user.events, from: now()-${timeframeDays}d
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| filter isNotNull(browser.name)
+| summarize count = count()${avgExpr}, by: {browser = browser.name}
+| sort count desc
+| limit 6`;
+          }
+          const recs = await runDqlQuery(q);
+          return recs.map((r: any) => ({ name: String(r.browser ?? "Unknown"), value: Number(r.count ?? 0), avg: r.avgVal != null ? Number(r.avgVal) : undefined, unit }));
+        } catch { return []; }
+      };
+      setDimensionModal({ label: lbl, sparkline: sp ?? [], color: col, fetchGeo, fetchBrowser });
+    },
+    openHeatmap: ({ label: lbl, sparkline: sp, color: col, getRequeryData: fetcher }) => {
+      setKpiHeatmapPos({ x: 320, y: 120 });
+      setKpiHeatmapPanel({ label: lbl, color: col, getRequeryData: fetcher ?? buildKpiHeatmapFetcher(lbl) });
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [steps, frontend, timeframeDays, buildKpiHeatmapFetcher]);
 
   const isLoading = funnelResult.isLoading || stepMetrics.isLoading;
   const isFunnelFetching = funnelResult.isFetching || stepMetrics.isFetching || qualityData.isFetching;
@@ -7469,6 +7646,7 @@ export function UserJourney() {
         </div>
       </Sheet>
       {/* Tabs — rendered as parent tab groups with sub-tabs */}
+      <KpiMenuContext.Provider value={kpiMenuContextValue}>
       <ForecastProvider value={openForecast}>
       <CorrelationsContext.Provider value={correlationsCtxValue}>
       <AIInsightsContext.Provider value={aiContextValue}>
@@ -7543,6 +7721,7 @@ export function UserJourney() {
       </AIInsightsContext.Provider>
       </CorrelationsContext.Provider>
       </ForecastProvider>
+      </KpiMenuContext.Provider>
 
       {/* Forecast Modal */}
       {forecastModal && (
@@ -7563,6 +7742,29 @@ export function UserJourney() {
           target={correlationsTarget}
           allMetrics={metricsRegistry}
           onClose={() => setCorrelationsTarget(null)}
+        />
+      )}
+
+      {/* KPI Dimension Modal */}
+      {dimensionModal && (
+        <DimensionModal
+          label={dimensionModal.label}
+          color={dimensionModal.color}
+          fetchGeo={dimensionModal.fetchGeo}
+          fetchBrowser={dimensionModal.fetchBrowser}
+          onClose={() => setDimensionModal(null)}
+        />
+      )}
+
+      {/* KPI Heatmap Panel */}
+      {kpiHeatmapPanel && (
+        <KpiHeatmapPanel
+          label={kpiHeatmapPanel.label}
+          color={kpiHeatmapPanel.color}
+          pos={kpiHeatmapPos}
+          onDragStart={startKpiHeatmapDrag}
+          onClose={() => setKpiHeatmapPanel(null)}
+          getRequeryData={kpiHeatmapPanel.getRequeryData}
         />
       )}
     </div>
@@ -15001,10 +15203,10 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
       <Flex gap={16} flexWrap="wrap" alignItems="center">
-        <KpiCard label={tlShared ? "Performance Health (bucket)" : "Performance Health"} value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} />
-        <KpiCard label="Duration" value={fmt(effV.duration)} color={effV.duration > 5000 ? RED : effV.duration > 2000 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label={tlShared ? "Load Event End (bucket)" : "Load Event End"} value={fmt(effV.load)} color={effV.load > 3000 ? RED : effV.load > 1500 ? YELLOW : GREEN} rawValue={effV.load} prevRawValue={syntheticPrev(effV.load, "Load Event End")} sparkline={syntheticSparkline(effV.load, 8, "Load Event End")} inverted onDrillToForecast={onDrillToForecast} />
-        <KpiCard label={tlShared ? "Failing Vitals (bucket)" : "Failing Vitals"} value={`${remediations.length}/4`} color={remediations.length > 2 ? RED : remediations.length > 0 ? YELLOW : GREEN} rawValue={remediations.length} prevRawValue={syntheticPrev(remediations.length, "Failing Vitals")} inverted sparkline={syntheticSparkline(remediations.length, 8, "Failing Vitals")} onDrillToForecast={onDrillToForecast} />
+        <KpiCard label={tlShared ? "Performance Health (bucket)" : "Performance Health"} value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
+        <KpiCard label="Duration" value={fmt(effV.duration)} color={effV.duration > 5000 ? RED : effV.duration > 2000 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
+        <KpiCard label={tlShared ? "Load Event End (bucket)" : "Load Event End"} value={fmt(effV.load)} color={effV.load > 3000 ? RED : effV.load > 1500 ? YELLOW : GREEN} rawValue={effV.load} prevRawValue={syntheticPrev(effV.load, "Load Event End")} sparkline={syntheticSparkline(effV.load, 8, "Load Event End")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
+        <KpiCard label={tlShared ? "Failing Vitals (bucket)" : "Failing Vitals"} value={`${remediations.length}/4`} color={remediations.length > 2 ? RED : remediations.length > 0 ? YELLOW : GREEN} rawValue={remediations.length} prevRawValue={syntheticPrev(remediations.length, "Failing Vitals")} inverted sparkline={syntheticSparkline(remediations.length, 8, "Failing Vitals")} onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
       </Flex>
 
       <SectionHeader title="Core Web Vitals" />
