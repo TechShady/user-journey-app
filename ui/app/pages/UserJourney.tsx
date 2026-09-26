@@ -1423,13 +1423,14 @@ function cwvQuery(days: number, frontend: string, steps: StepDef[], mode: CwvMod
 | filterOut dt.rum.user_type == "synthetic"
 | filter isNotNull(frontend.name)${appFiltClause}
 | filter characteristics.has_page_summary == true or characteristics.has_w3c_navigation_timings == true
+| fieldsAdd dur_for_pct = if(characteristics.has_user_action == true, duration)
 | summarize
     lcp_raw  = percentile(web_vitals.largest_contentful_paint,  75),
     cls_avg  = percentile(web_vitals.cumulative_layout_shift,   75),
     inp_raw  = percentile(web_vitals.interaction_to_next_paint, 75),
     ttfb_raw = percentile(web_vitals.time_to_first_byte,        75),
     load_raw = percentile(performance.load_event_end,           75),
-    dur_raw  = percentile(duration,                             75)
+    dur_raw  = percentile(dur_for_pct,                          75)
 | fieldsAdd
     lcp_avg  = toDouble(lcp_raw)  / 1000000.0,
     inp_avg  = toDouble(inp_raw)  / 1000000.0,
@@ -1446,7 +1447,7 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[], mode: 
 | filterOut dt.rum.user_type == "synthetic"
 | filter isNotNull(frontend.name)${appFiltClause}
 | filter ${cwvModeNameFilter(mode)}
-| fieldsAdd pageName = ${cwvModeGroupField(mode)}
+| fieldsAdd pageName = ${cwvModeGroupField(mode)}, dur_for_pct = if(characteristics.has_user_action == true, duration)
 | summarize
     count    = count(),
     lcp_raw  = percentile(web_vitals.largest_contentful_paint,  75),
@@ -1455,7 +1456,7 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[], mode: 
     ttfb_raw = percentile(web_vitals.time_to_first_byte,        75),
     load_raw = percentile(performance.load_event_end,           75),
     dom_raw  = percentile(performance.dom_interactive,          75),
-    dur_raw  = percentile(duration,                             75),
+    dur_raw  = percentile(dur_for_pct,                          75),
     by: {pageName}
 | fieldsAdd
     lcp_avg  = toDouble(lcp_raw)  / 1000000.0,
