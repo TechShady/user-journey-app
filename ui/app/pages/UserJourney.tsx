@@ -33,7 +33,7 @@ import type { KpiMenuContextValue } from "../components/KpiMenuContext";
 import { DimensionModal } from "../components/DimensionModal";
 import type { DimSlice } from "../components/DimensionModal";
 import { KpiHeatmapPanel } from "../components/KpiHeatmapPanel";
-import { OnboardingWizard, CommunityWarningBanner } from "../components/OnboardingWizard";
+import { OnboardingWizard, CommunityWarningBanner, COMMUNITY_WARN_KEY } from "../components/OnboardingWizard";
 import type { PersonaDef } from "../components/PersonaPickerModal";
 import { CorrelationsPanel, CorrelationsContext, computeCorrelations } from "../components/CorrelationsPanel";
 import type { MetricEntry, CorrelationOpener } from "../components/CorrelationsPanel";
@@ -1435,7 +1435,7 @@ function cwvQuery(days: number, frontend: string, steps: StepDef[], mode: CwvMod
     inp_avg  = toDouble(inp_raw)  / 1000000.0,
     ttfb_avg = toDouble(ttfb_raw) / 1000000.0,
     load_avg = toDouble(load_raw) / 1000000.0,
-    dur_avg  = toDouble(dur_raw)  / 1000000.0`;
+    dur_avg  = toDouble(dur_raw)  / 1000000000.0`;
 }
 
 function cwvByPageQuery(days: number, frontend: string, steps: StepDef[], mode: CwvMode = "actions"): string {
@@ -1463,7 +1463,7 @@ function cwvByPageQuery(days: number, frontend: string, steps: StepDef[], mode: 
     ttfb_avg = toDouble(ttfb_raw) / 1000000.0,
     load_avg = toDouble(load_raw) / 1000000.0,
     dom_avg  = toDouble(dom_raw)  / 1000000.0,
-    dur_avg  = toDouble(dur_raw)  / 1000000.0
+    dur_avg  = toDouble(dur_raw)  / 1000000000.0
 | sort ${mode === "actions" ? "dur_avg" : "lcp_avg"} desc
 | limit 20`;
 }
@@ -5569,7 +5569,7 @@ export function UserJourney() {
   const savedFunnelStyle = useUserAppState({ key: FUNNEL_STYLE_STATE_KEY });
   const savedMapView = useUserAppState({ key: MAP_VIEW_STATE_KEY });
   const savedHotnessMode = useUserAppState({ key: HOTNESS_MODE_STATE_KEY });
-  const communityWarnState = useUserAppState({ key: "uj-community-warn-dismissed" });
+  const communityWarnState = useUserAppState({ key: COMMUNITY_WARN_KEY });
   const [communityBannerDone, setCommunityBannerDone] = useState(false);
   const communityBannerActive = !communityBannerDone && (communityWarnState.isLoading || communityWarnState.data?.value !== "dismissed");
   // Perf-budget thresholds and SLO targets are now shared with every user of this app.
@@ -6479,7 +6479,7 @@ export function UserJourney() {
           q = `fetch user.events, from: now()-${days}d
 | filter ${frontendFilter(steps, frontend)}
 | filter ${anyStepFilter(steps)}
-| fieldsAdd val = toDouble(duration) / 1000000.0, hour_bucket = bin(start_time, 1h)
+| fieldsAdd val = toDouble(duration) / 1000000000.0, hour_bucket = bin(start_time, 1h)
 | summarize avgVal = avg(val), by: {hour_bucket}
 | sort hour_bucket asc`;
         } else {
@@ -6523,7 +6523,7 @@ export function UserJourney() {
       const unit: string | undefined = (vitalField || isDuration) ? "s" : (isErrorRate || isBounceRate) ? "%" : undefined;
       const avgExpr = vitalField
         ? `, avgVal = avg(toDouble(${vitalField})) / 1000000.0`
-        : isDuration ? `, avgVal = avg(toDouble(duration)) / 1000000.0` : "";
+        : isDuration ? `, avgVal = avg(toDouble(duration)) / 1000000000.0` : "";
 
       const fetchGeo = async (): Promise<DimSlice[]> => {
         try {
@@ -15204,7 +15204,7 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
       {aiPanel}
       <Flex gap={16} flexWrap="wrap" alignItems="center">
         <KpiCard label={tlShared ? "Performance Health (bucket)" : "Performance Health"} value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
-        <KpiCard label="Duration" value={fmt(effV.duration)} color={effV.duration > 5000 ? RED : effV.duration > 2000 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
+        <KpiCard label="Duration" value={effV.duration > 0 ? `${effV.duration.toFixed(2)} s` : "N/A"} color={effV.duration > 5 ? RED : effV.duration > 2 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
         <KpiCard label={tlShared ? "Load Event End (bucket)" : "Load Event End"} value={fmt(effV.load)} color={effV.load > 3000 ? RED : effV.load > 1500 ? YELLOW : GREEN} rawValue={effV.load} prevRawValue={syntheticPrev(effV.load, "Load Event End")} sparkline={syntheticSparkline(effV.load, 8, "Load Event End")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
         <KpiCard label={tlShared ? "Failing Vitals (bucket)" : "Failing Vitals"} value={`${remediations.length}/4`} color={remediations.length > 2 ? RED : remediations.length > 0 ? YELLOW : GREEN} rawValue={remediations.length} prevRawValue={syntheticPrev(remediations.length, "Failing Vitals")} inverted sparkline={syntheticSparkline(remediations.length, 8, "Failing Vitals")} onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
       </Flex>
@@ -15343,10 +15343,10 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
           const nameCol = { id: "Name", header: nameHeader, accessor: "Name", cell: ({ value }: any) => appEntityId ? <a href={vitalsUrlForMode(appEntityId, value, cwvMode)} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: "none" }} onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}>{value}</a> : <Text>{value}</Text> };
           if (cwvMode === "actions") {
             return (
-              <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ "Name": p["pageName"] ?? "Unknown", "Duration (ms)": Number(p.dur_avg ?? 0), "Count": Number(p.count ?? 0) }))}
+              <DataTable sortable resizable fullWidth data={pages.map((p: any) => ({ "Name": p["pageName"] ?? "Unknown", "Duration (s)": Number(p.dur_avg ?? 0), "Count": Number(p.count ?? 0) }))}
                 columns={[
                   nameCol,
-                  { id: "Duration (ms)", header: "Duration (p75)", accessor: "Duration (ms)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 5000 ? RED : value > 2000 ? YELLOW : GREEN }}>{fmt(value)}</Strong> },
+                  { id: "Duration (s)", header: "Duration (p75)", accessor: "Duration (s)", sortType: "number" as any, cell: ({ value }: any) => <Strong style={{ color: value > 5 ? RED : value > 2 ? YELLOW : GREEN }}>{`${value.toFixed(2)} s`}</Strong> },
                   { id: "Count", header: "Count", accessor: "Count", sortType: "number" as any, cell: ({ value }: any) => <Text>{fmtCount(value)}</Text> },
                 ]}
               />

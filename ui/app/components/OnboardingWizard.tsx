@@ -5,7 +5,7 @@ import type { PersonaDef } from "./PersonaPickerModal";
 
 const WIZARD_KEY = `uj-wizard-v${appConfig.app.version}`;
 const PERSONA_EVER_KEY = "uj-persona-ever";
-const COMMUNITY_WARN_KEY = "uj-community-warn-dismissed";
+export const COMMUNITY_WARN_KEY = `uj-community-warn-dismissed-v${appConfig.app.version}`;
 
 const A  = "#F59E0B";
 const AL = "#FBBF24";
