@@ -875,7 +875,7 @@ function KpiSparkline({ data, color = "#4589FF" }: { data: number[]; color?: str
 }
 
 // Inline analysis panels launched from KPI card dropdown
-function KpiPanelOverlay({ label, rawValue, sparkline, color, panel, onClose, effectiveHigherIsBetter }: { label: string; rawValue?: number; sparkline?: number[]; color?: string; panel: "impact" | "anomaly" | "attribution"; onClose: () => void; effectiveHigherIsBetter: boolean }) {
+function KpiPanelOverlay({ label, rawValue, sparkline, color, panel, onClose, effectiveHigherIsBetter }: { label: string; rawValue?: number; sparkline?: number[]; color?: string; panel: "impact" | "anomaly" | "attribution" | "baseline" | "cost" | "diagnose"; onClose: () => void; effectiveHigherIsBetter: boolean }) {
   const valid = (sparkline ?? []).filter((v) => isFinite(v) && v != null);
   const mean = valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : 0;
   const std = valid.length > 1 ? Math.sqrt(valid.reduce((a, v) => a + (v - mean) ** 2, 0) / valid.length) : 0;
@@ -891,10 +891,97 @@ function KpiPanelOverlay({ label, rawValue, sparkline, color, panel, onClose, ef
   const anomalyStatus = Math.abs(deviation) < 1 ? { label: "Normal", color: "#0D9C29" } : Math.abs(deviation) < 2 ? { label: "Slightly elevated", color: "#FFC800" } : { label: "Anomalous", color: "#E00000" };
   const fmt = (v: number) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(1)}k` : v >= 10 ? v.toFixed(0) : v.toFixed(2);
 
-  const titles: Record<string, string> = { impact: "👥 Impact Analysis", anomaly: "🔍 Anomaly Detection", attribution: "📋 Change Attribution" };
+  // --- Baseline / Cost / Diagnose computations ---
+  const n = valid.length;
+  // Baseline: split period in half
+  const mid = Math.floor(n / 2);
+  const baselineMean = mid > 0 ? valid.slice(0, mid).reduce((a, b) => a + b, 0) / mid : mean;
+  const currentHalfMean = n - mid > 0 ? valid.slice(mid).reduce((a, b) => a + b, 0) / (n - mid) : mean;
+  const bDelta = baselineMean > 0 ? ((currentHalfMean - baselineMean) / baselineMean) * 100 : 0;
+  const bDeltaGood = effectiveHigherIsBetter ? bDelta > 0 : bDelta < 0;
+  // Seasonality autocorrelation at n/6 lag
+  const acorrLag = Math.max(1, Math.floor(n / 6));
+  let acorrNum = 0;
+  const acorrCount = n > acorrLag * 2 ? n - acorrLag : 0;
+  for (let ai = 0; ai < acorrCount; ai++) acorrNum += (valid[ai] - mean) * (valid[ai + acorrLag] - mean);
+  const acorrDen = std * std * acorrCount;
+  const seasonalStrength = acorrDen > 0 ? Math.abs(acorrNum / acorrDen) : 0;
+  const seasonalLabel = seasonalStrength > 0.6 ? "Strong" : seasonalStrength > 0.3 ? "Moderate" : "Weak/None";
+  // Period thirds
+  const t1e = Math.floor(n / 3), t2e = Math.floor(2 * n / 3);
+  const t1avg = t1e > 0 ? valid.slice(0, t1e).reduce((a, b) => a + b, 0) / t1e : 0;
+  const t2avg = t2e > t1e ? valid.slice(t1e, t2e).reduce((a, b) => a + b, 0) / (t2e - t1e) : 0;
+  const t3avg = n > t2e ? valid.slice(t2e).reduce((a, b) => a + b, 0) / (n - t2e) : 0;
+  const peakSegment = t1avg >= t2avg && t1avg >= t3avg ? "Early period" : t2avg >= t1avg && t2avg >= t3avg ? "Mid period" : "Late period";
+  // Cost: metric classification
+  const isBusinessOutcome = /revenue|conversion.?rate|^cr$|cvr|conv\.?\s*rate/i.test(label);
+  const isPerf = /lcp|inp|ttfb|duration|load|paint/i.test(label);
+  const isError = /error/i.test(label);
+  const isApdex = /apdex/i.test(label);
+  const degradationRaw = !effectiveHigherIsBetter ? (curr - mean) : (mean - curr);
+  const degradationPct = mean > 0 ? (degradationRaw / mean) * 100 : 0;
+  let conversionImpactPct = 0;
+  let conversionNote = "";
+  if (!isBusinessOutcome) {
+    if (isPerf && degradationRaw > 0) { conversionImpactPct = Math.min(25, (degradationRaw / 100) * 0.7); conversionNote = "~0.7% conversion drop per 100ms degradation (Google research)."; }
+    else if (isError && degradationRaw > 0) { conversionImpactPct = Math.min(20, degradationPct * 2); conversionNote = "Error rate increases correlate with ~2x conversion loss rate."; }
+    else if (isApdex && degradationRaw > 0) { conversionImpactPct = Math.min(20, Math.abs(degradationPct) * 5); conversionNote = "Apdex decline correlates with dissatisfied user abandonment."; }
+    else if (degradationRaw > 0) { conversionImpactPct = Math.min(10, degradationPct * 0.5); }
+  }
+  // Diagnose: traffic scaling
+  const peakIdx = valid.length ? valid.indexOf(Math.max(...valid)) : 0;
+  const peakToMean = mean > 0 ? pMax / mean : 1;
+  const peakIsMid = n > 4 && peakIdx > n * 0.2 && peakIdx < n * 0.8;
+  const trafficScaling = peakIsMid && peakToMean > 1.3;
+  // Diagnose: funnel/conversion
+  const isWorsening = effectiveHigherIsBetter ? recentTrend < -5 : recentTrend > 5;
+  const worsePct = Math.abs(recentTrend);
+  const funnelImpact = isWorsening ? Math.min(20, worsePct * 0.4) : 0;
+  // Diagnose: change point detection
+  let changePointIdx = -1;
+  let maxShift = 0;
+  for (let ci = 2; ci < n - 2; ci++) {
+    const before = valid.slice(0, ci).reduce((a, b) => a + b, 0) / ci;
+    const after = valid.slice(ci).reduce((a, b) => a + b, 0) / (n - ci);
+    const shift = Math.abs(after - before);
+    if (shift > maxShift) { maxShift = shift; changePointIdx = ci; }
+  }
+  const changeDetected = maxShift > mean * 0.12 && changePointIdx > 0;
+  const changePct = mean > 0 ? (maxShift / mean) * 100 : 0;
+  const changePos = changeDetected ? Math.round((changePointIdx / n) * 100) : 0;
+  // Diagnose: performance distribution (normal approx)
+  const p50e = mean, p75e = mean + 0.674 * std, p90e = mean + 1.282 * std, p95e = mean + 1.645 * std, p99e = mean + 2.326 * std;
+  const longTail = std > 0 && p50e > 0 && p99e > p50e * 2.5;
+  // Diagnose: trend pattern
+  const velDiffs = valid.slice(1).map((v, i) => v - valid[i]);
+  const velPos = velDiffs.filter(d => d > std * 0.05).length;
+  const velNeg = velDiffs.filter(d => d < -std * 0.05).length;
+  const monotone = velDiffs.length > 0 ? Math.max(velPos, velNeg) / velDiffs.length : 0;
+  const lag4 = Math.max(2, Math.floor(n / 4));
+  let acorr4Num = 0;
+  const lag4Count = n > lag4 * 2 ? n - lag4 : 0;
+  for (let li = 0; li < lag4Count; li++) acorr4Num += (valid[li] - mean) * (valid[li + lag4] - mean);
+  const lag4Den = std * std * lag4Count;
+  const acorr4 = lag4Den > 0 ? acorr4Num / lag4Den : 0;
+  const zScores = valid.map(v => std > 0 ? Math.abs((v - mean) / std) : 0);
+  const spikeCount = zScores.filter(z => z > 2.5).length;
+  const hasSpikePattern = spikeCount >= 1 && spikeCount <= Math.max(2, Math.floor(n * 0.1));
+  const trendType =
+    hasSpikePattern && spikeCount <= 2 ? "One-time spike"
+    : acorr4 > 0.5 ? "Cyclical / periodic"
+    : monotone > 0.65 && velPos > velNeg ? (effectiveHigherIsBetter ? "Steadily improving" : "Gradually worsening")
+    : monotone > 0.65 && velNeg > velPos ? (effectiveHigherIsBetter ? "Gradually declining" : "Steadily improving")
+    : Math.abs(recentTrend) < 3 ? "Stable"
+    : "Variable / mixed";
+  const trendBad = trendType === "Gradually worsening" || trendType === "Gradually declining";
+  // Diagnose: deterioration threshold
+  const detThreshold = effectiveHigherIsBetter ? mean - std : mean + std;
+  const nearThreshold = effectiveHigherIsBetter ? curr < detThreshold * 1.1 : curr > detThreshold * 0.9;
+
+  const titles: Record<string, string> = { impact: "👥 Impact Analysis", anomaly: "🔍 Anomaly Detection", attribution: "📋 Change Attribution", baseline: "📊 Baseline Compare", cost: "💰 Cost Impact", diagnose: "🩺 Diagnose" };
   return createPortal(
     <div style={{ position: "fixed", inset: 0, zIndex: 99998, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: "rgba(20,24,46,0.98)", border: `1px solid ${color ?? "#4589FF"}40`, borderRadius: 12, padding: "24px 28px", maxWidth: 480, width: "90vw", boxShadow: "0 8px 40px rgba(0,0,0,0.5)" }}>
+      <div style={{ background: "rgba(20,24,46,0.98)", border: `1px solid ${color ?? "#4589FF"}40`, borderRadius: 12, padding: "24px 28px", maxWidth: panel === "diagnose" ? 600 : 480, width: "90vw", boxShadow: "0 8px 40px rgba(0,0,0,0.5)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 4 }}>{titles[panel]}</div>
@@ -971,6 +1058,201 @@ function KpiPanelOverlay({ label, rawValue, sparkline, color, panel, onClose, ef
             </div>
           </div>
         )}
+
+        {panel === "baseline" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ padding: "10px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 8 }}>Period Comparison (First Half vs Second Half)</div>
+              {[
+                { label: "Baseline avg (first half)", value: fmt(baselineMean), col: "rgba(255,255,255,0.7)" },
+                { label: "Current avg (second half)", value: fmt(currentHalfMean), col: color ?? "#4589FF" },
+                { label: "Change from baseline", value: `${bDelta >= 0 ? "+" : ""}${bDelta.toFixed(1)}%`, col: Math.abs(bDelta) < 3 ? "rgba(255,255,255,0.6)" : bDeltaGood ? "#0D9C29" : "#E00000" },
+                { label: "Data stability", value: stabilityLabel, col: "rgba(255,255,255,0.6)" },
+              ].map((r, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: i < 3 ? "1px solid rgba(255,255,255,0.06)" : "none" }}>
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>{r.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: r.col }}>{r.value}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "10px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 8 }}>Seasonality & Period Patterns</div>
+              {[
+                { label: "Cyclical strength", value: seasonalLabel, col: seasonalStrength > 0.3 ? "#FFC800" : "rgba(255,255,255,0.6)" },
+                { label: "Peak segment", value: peakSegment, col: "rgba(255,255,255,0.7)" },
+                { label: "Early period avg", value: fmt(t1avg), col: "rgba(255,255,255,0.6)" },
+                { label: "Mid period avg", value: fmt(t2avg), col: "rgba(255,255,255,0.6)" },
+                { label: "Late period avg", value: fmt(t3avg), col: "rgba(255,255,255,0.6)" },
+              ].map((r, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: i < 4 ? "1px solid rgba(255,255,255,0.06)" : "none" }}>
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>{r.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: r.col }}>{r.value}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "10px 12px", background: "rgba(69,137,255,0.06)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.6 }}>
+              {Math.abs(bDelta) < 3
+                ? `${label} is consistent with its earlier baseline — no significant drift detected.`
+                : bDeltaGood
+                  ? `${label} has ${effectiveHigherIsBetter ? "improved" : "decreased"} ${Math.abs(bDelta).toFixed(1)}% vs baseline.${seasonalStrength > 0.3 ? " Cyclical pattern detected — compare same hour/day in prior periods for an accurate seasonality baseline." : ""}`
+                  : `${label} has ${effectiveHigherIsBetter ? "declined" : "increased"} ${Math.abs(bDelta).toFixed(1)}% vs baseline.${seasonalStrength > 0.3 ? " Cyclical pattern detected — use a longer timeframe to compare same-day or same-hour baselines." : " Investigate root cause."}`
+              }
+            </div>
+          </div>
+        )}
+
+        {panel === "cost" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ padding: "10px 12px", background: "rgba(255,200,0,0.06)", border: "1px solid rgba(255,200,0,0.2)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.65)", lineHeight: 1.6 }}>
+              {isBusinessOutcome
+                ? `${label} is a business outcome metric. The analysis below identifies which performance metrics drive it most.`
+                : "Estimates based on industry benchmarks. Connect revenue data in Dynatrace Business Analytics for precision."}
+            </div>
+            {isBusinessOutcome ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", padding: "0 2px" }}>Top performance drivers for {label}</div>
+                {[
+                  { metric: "LCP (Page Load Speed)", impact: "High", note: "Each 100ms above 2.5s reduces conversion ~0.7%", col: "#E00000" },
+                  { metric: "Error Rate", impact: "High", note: "Each 1% error rate increase → ~2% conversion drop", col: "#E00000" },
+                  { metric: "INP (Interactivity)", impact: "Medium", note: "Slow interactions reduce task completion rate", col: "#FFC800" },
+                  { metric: "TTFB", impact: "Medium", note: "High TTFB inflates all downstream timings", col: "#FFC800" },
+                  { metric: "Apdex / Satisfaction", impact: "Medium", note: "Low Apdex correlates with early abandonment", col: "#FFC800" },
+                  { metric: "Session Duration", impact: "Low–Medium", note: "Abnormally short durations may indicate friction", col: "rgba(255,255,255,0.5)" },
+                ].map((r, i) => (
+                  <div key={i} style={{ padding: "8px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>{r.metric}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: r.col }}>{r.impact}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>{r.note}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <>
+                <div style={{ padding: "10px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 8 }}>Metric Deviation vs Mean</div>
+                  {[
+                    { label: "Deviation from mean", value: `${degradationRaw >= 0 ? "+" : ""}${degradationPct.toFixed(1)}%`, col: degradationRaw > 0 ? "#E00000" : "#0D9C29" },
+                    { label: "Est. conversion impact", value: conversionImpactPct > 0 ? `-${conversionImpactPct.toFixed(1)}%` : "Minimal", col: conversionImpactPct > 5 ? "#E00000" : conversionImpactPct > 2 ? "#FFC800" : "#0D9C29" },
+                    { label: "Severity", value: degradationPct > 20 ? "Severe" : degradationPct > 10 ? "Moderate" : degradationPct > 3 ? "Minor" : "Negligible", col: degradationPct > 20 ? "#E00000" : degradationPct > 10 ? "#FFC800" : "#0D9C29" },
+                    { label: "Peak-to-mean ratio", value: mean > 0 ? `${(pMax / mean).toFixed(1)}x` : "N/A", col: pMax > mean * 3 ? "#E00000" : pMax > mean * 1.5 ? "#FFC800" : "#0D9C29" },
+                  ].map((r, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: i < 3 ? "1px solid rgba(255,255,255,0.06)" : "none" }}>
+                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>{r.label}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: r.col }}>{r.value}</span>
+                    </div>
+                  ))}
+                </div>
+                {conversionNote && (
+                  <div style={{ padding: "10px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.6 }}>
+                    <span style={{ color: "rgba(255,255,255,0.75)", fontWeight: 600 }}>Benchmark: </span>{conversionNote}
+                  </div>
+                )}
+                <div style={{ padding: "10px 12px", background: "rgba(69,137,255,0.06)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.6 }}>
+                  {degradationPct > 10
+                    ? `${label} is ${degradationPct.toFixed(0)}% worse than period mean — likely measurable business impact. Prioritize optimization.`
+                    : `${label} is within normal range. Cost impact appears minimal at current levels.`}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {panel === "diagnose" && (() => {
+          const sc: Record<string, string> = { ok: "#0D9C29", warning: "#FFC800", critical: "#E00000", info: "#4589FF" };
+          const sl: Record<string, string> = { ok: "OK", warning: "REVIEW", critical: "CRITICAL", info: "INFO" };
+          const scenarios = [
+            {
+              id: "traffic", icon: "🚦", title: "Traffic Scaling",
+              status: trafficScaling ? "warning" : "ok",
+              finding: trafficScaling
+                ? `Peak value (${fmt(pMax)}) occurs mid-period — consistent with traffic surge impact. Peak-to-mean: ${peakToMean.toFixed(1)}x.`
+                : `No clear mid-period peak surge. Peak-to-mean: ${peakToMean.toFixed(1)}x — scaling likely not the primary cause.`,
+              rec: trafficScaling
+                ? `Monitor when ${label} exceeds ~${fmt(mean * 1.15)}. Consider auto-scaling or caching during peak load.`
+                : "Investigate other causes. Traffic volume scaling appears stable.",
+            },
+            {
+              id: "funnel", icon: "📉",
+              title: isBusinessOutcome ? "Performance Drivers (Funnel Impact)" : "Funnel Exits & Conversion",
+              status: isBusinessOutcome ? "info" : isWorsening ? (worsePct > 10 ? "critical" : "warning") : "ok",
+              finding: isBusinessOutcome
+                ? `${label} IS the conversion/revenue metric. Focus on what drives it: LCP, Error Rate, TTFB, INP, and Apdex have the strongest correlation.`
+                : isWorsening
+                  ? `Recent ${worsePct.toFixed(1)}% ${effectiveHigherIsBetter ? "decline" : "increase"} may drive early funnel exits. Est. ~${funnelImpact.toFixed(1)}% conversion impact.`
+                  : `${label} is relatively stable. Low funnel exit risk at current values.`,
+              rec: isBusinessOutcome
+                ? "Use the KPI cards for LCP, Error Rate, TTFB, and INP — those metrics have the highest leverage on your conversion/revenue outcomes."
+                : isWorsening
+                  ? `A ${worsePct.toFixed(0)}% worsening adds ~${funnelImpact.toFixed(1)}% abandonment. Check the Funnel tab and correlate with Business Analytics revenue data.`
+                  : "Continue monitoring. Set an alert if the trend reverses.",
+            },
+            {
+              id: "browser-geo", icon: "🌍", title: "Browser / Geo Specificity",
+              status: "info",
+              finding: "Sparkline data is aggregated — browser and geo segmentation is not derivable at this level.",
+              rec: "Use 🌍 Dimension from this card's menu to break down by browser/OS and geo. Flag any segment with values 2x+ the overall average.",
+            },
+            {
+              id: "pages", icon: "📋", title: "Pages / Actions Focus",
+              status: "info",
+              finding: "Page-level breakdown requires per-page dimension data beyond this KPI's sparkline.",
+              rec: "Use 🌍 Dimension → split by page/action. Prioritize pages with high traffic AND poor metric values. Use 📅 Heatmap to find time/page patterns.",
+            },
+            {
+              id: "change", icon: "🔄", title: "Change / Deployment",
+              status: changeDetected ? (changePct > 20 ? "critical" : "warning") : "ok",
+              finding: changeDetected
+                ? `Significant change point at ~${changePos}% into the period. Values shifted by ~${changePct.toFixed(0)}% (${fmt(maxShift)}).`
+                : "No significant change point detected. Values appear to transition smoothly.",
+              rec: changeDetected
+                ? `Correlate with Dynatrace release events near the ${changePos}% mark. Check the Change Intelligence tab or Davis AI for automated RCA.`
+                : "No deployment correlation needed. Monitor for new releases.",
+            },
+            {
+              id: "distribution", icon: "📊", title: "Performance Distribution (P50–P99)",
+              status: longTail ? "warning" : "ok",
+              finding: `P50: ${fmt(Math.max(0, p50e))}, P75: ${fmt(Math.max(0, p75e))}, P90: ${fmt(Math.max(0, p90e))}, P95: ${fmt(Math.max(0, p95e))}, P99: ${fmt(Math.max(0, p99e))}`,
+              rec: longTail
+                ? `High P99/P50 ratio (${(p99e / Math.max(p50e, 0.001)).toFixed(1)}x) indicates a long tail — some users experience significantly worse values. Investigate outlier sessions.`
+                : `Distribution looks reasonable (P99/P50: ${(p99e / Math.max(p50e, 0.001)).toFixed(1)}x). Most users have a consistent experience.`,
+            },
+            {
+              id: "trend", icon: "📈", title: "Trend Pattern",
+              status: trendBad ? "warning" : acorr4 > 0.5 ? "info" : "ok",
+              finding: `Pattern: ${trendType}.${acorr4 > 0.3 ? ` Autocorrelation: ${(acorr4 * 100).toFixed(0)}%.` : ""}${hasSpikePattern ? ` Spike occurrences: ${spikeCount}.` : ""}`,
+              rec: trendType === "One-time spike"
+                ? "Isolated event. Verify against deployments or external events. Likely not systemic — watch for recurrence."
+                : trendType === "Cyclical / periodic"
+                  ? "Cyclical behavior detected. Set time-based alerts aligned to the cycle. Confirm if it matches daily/weekly traffic patterns."
+                  : trendBad
+                    ? "Gradual degradation in progress. Investigate root cause before it impacts more users — check for memory or resource leaks."
+                    : "Pattern is healthy or stable. Continue monitoring with existing alerts.",
+            },
+            {
+              id: "threshold", icon: "⚡", title: "Deterioration Threshold",
+              status: nearThreshold ? "warning" : "ok",
+              finding: `Estimated threshold: ${fmt(Math.max(0, detThreshold))} (mean ${effectiveHigherIsBetter ? "−" : "+"}1σ).${nearThreshold ? ` Current value (${fmt(curr)}) is near or past the threshold.` : ""}`,
+              rec: `Set a Dynatrace alert when ${label} ${effectiveHigherIsBetter ? "falls below" : "exceeds"} ${fmt(Math.max(0, detThreshold))} to catch deterioration early.`,
+            },
+          ];
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "62vh", overflowY: "auto", paddingRight: 4 }}>
+              {scenarios.map(s => (
+                <div key={s.id} style={{ padding: "10px 12px", background: "rgba(255,255,255,0.04)", borderRadius: 8, borderLeft: `3px solid ${sc[s.status]}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <span style={{ fontSize: 14 }}>{s.icon}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>{s.title}</span>
+                    <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, color: sc[s.status], textTransform: "uppercase", letterSpacing: "0.5px" }}>{sl[s.status]}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", lineHeight: 1.5, marginBottom: 4 }}>{s.finding}</div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.42)", lineHeight: 1.5 }}>→ {s.rec}</div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
     </div>,
     document.body
@@ -1040,7 +1322,7 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
   const kpiMenuCtx = useContext(KpiMenuContext);
   const cardRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [activePanel, setActivePanel] = useState<"impact" | "anomaly" | "attribution" | null>(null);
+  const [activePanel, setActivePanel] = useState<"impact" | "anomaly" | "attribution" | "baseline" | "cost" | "diagnose" | null>(null);
   const hasSpark = sparkline && sparkline.length >= 2;
 
   useEffect(() => {
@@ -1172,6 +1454,10 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
             <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("impact"); }}>👥 Impact</button>
             <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("anomaly"); }}>🔍 Anomaly</button>
             <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("attribution"); }}>📋 Change Attribution</button>
+            <div className="kpi-action-sep" />
+            <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("baseline"); }}>📊 Baseline Compare</button>
+            <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("cost"); }}>💰 Cost Impact</button>
+            <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("diagnose"); }}>🩺 Diagnose</button>
           </div>,
           document.body
         );
@@ -5452,7 +5738,7 @@ export function UserJourney() {
   const [hotnessForecastPos, setHotnessForecastPos] = useState<{ x: number; y: number }>({ x: 240, y: 120 });
   const hotnessForecastDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
-  const [dimensionModal, setDimensionModal] = useState<{ label: string; sparkline: number[]; color?: string; fetchGeo?: () => Promise<DimSlice[]>; fetchBrowser?: () => Promise<DimSlice[]> } | null>(null);
+  const [dimensionModal, setDimensionModal] = useState<{ label: string; sparkline: number[]; color?: string; fetchGeo?: (pct: string) => Promise<DimSlice[]>; fetchBrowser?: (pct: string) => Promise<DimSlice[]> } | null>(null);
   const [kpiHeatmapPanel, setKpiHeatmapPanel] = useState<{ label: string; color?: string; getRequeryData: (days: number) => Promise<{ values: number[]; bucketMs: number; unit?: string }> } | null>(null);
   const [kpiHeatmapPos, setKpiHeatmapPos] = useState<{ x: number; y: number }>({ x: 320, y: 120 });
   const kpiHeatmapDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
@@ -6515,19 +6801,33 @@ export function UserJourney() {
 
   const kpiMenuContextValue: KpiMenuContextValue = React.useMemo(() => ({
     openDimension: ({ label: lbl, sparkline: sp, color: col }) => {
-      const vitals: Record<string, string> = { "LCP": "largestContentfulPaint", "FCP": "firstContentfulPaint", "CLS": "cumulativeLayoutShift", "INP": "interactionToNextPaint", "TTFB": "timeToFirstByte", "FID": "firstInputDelay" };
-      const vitalKey = Object.keys(vitals).find(k => lbl.toUpperCase().includes(k));
-      const vitalField = vitalKey ? vitals[vitalKey] : null;
+      const upper = lbl.toUpperCase();
+      const vitalMap: Array<[RegExp, string]> = [
+        [/\bLCP\b|LARGEST CONTENTFUL PAINT/, "largestContentfulPaint"],
+        [/\bFCP\b|FIRST CONTENTFUL PAINT/, "firstContentfulPaint"],
+        [/\bCLS\b|CUMULATIVE LAYOUT SHIFT/, "cumulativeLayoutShift"],
+        [/\bINP\b|INTERACTION TO NEXT PAINT/, "interactionToNextPaint"],
+        [/\bTTFB\b|TIME TO FIRST BYTE/, "timeToFirstByte"],
+        [/\bFID\b|FIRST INPUT DELAY/, "firstInputDelay"],
+      ];
+      const vitalEntry = vitalMap.find(([pat]) => pat.test(upper));
+      const vitalField = vitalEntry ? vitalEntry[1] : null;
       const isErrorRate = lbl.includes("Error");
       const isBounceRate = lbl.includes("Bounce") || lbl.includes("Exit");
       const isDuration = !vitalField && !isErrorRate && !isBounceRate && (lbl.includes("Duration") || lbl.includes("Load") || lbl.includes("Time"));
       const unit: string | undefined = (vitalField || isDuration) ? "s" : (isErrorRate || isBounceRate) ? "%" : undefined;
-      const avgExpr = vitalField
-        ? `, avgVal = avg(toDouble(${vitalField})) / 1000000.0`
-        : isDuration ? `, avgVal = avg(toDouble(duration)) / 1000000000.0` : "";
+      const buildMetricExpr = (pct: string, field: string, divisor: number) => {
+        const p = parseInt(pct.replace(/\D/g, ""), 10);
+        return isNaN(p)
+          ? `avg(toDouble(${field})) / ${divisor}`
+          : `percentile(toDouble(${field}), ${p}) / ${divisor}`;
+      };
 
-      const fetchGeo = async (): Promise<DimSlice[]> => {
+      const fetchGeo = async (pct: string): Promise<DimSlice[]> => {
         try {
+          const metricExpr = vitalField
+            ? `, avgVal = ${buildMetricExpr(pct, vitalField, 1000000.0)}`
+            : isDuration ? `, avgVal = ${buildMetricExpr(pct, "duration", 1000000000.0)}` : "";
           let q: string;
           if (isErrorRate) {
             q = `fetch user.events, from: now()-${timeframeDays}d
@@ -6543,7 +6843,7 @@ export function UserJourney() {
 | filter ${frontendFilter(steps, frontend)}
 | filter ${anyStepFilter(steps)}
 | filter isNotNull(geo.country.name)
-| summarize count = count()${avgExpr}, by: {country = geo.country.name}
+| summarize count = count()${metricExpr}, by: {country = geo.country.name}
 | sort count desc
 | limit 8`;
           }
@@ -6551,8 +6851,11 @@ export function UserJourney() {
           return recs.map((r: any) => ({ name: String(r.country ?? "Unknown"), value: Number(r.count ?? 0), avg: r.avgVal != null ? Number(r.avgVal) : undefined, unit }));
         } catch { return []; }
       };
-      const fetchBrowser = async (): Promise<DimSlice[]> => {
+      const fetchBrowser = async (pct: string): Promise<DimSlice[]> => {
         try {
+          const metricExpr = vitalField
+            ? `, avgVal = ${buildMetricExpr(pct, vitalField, 1000000.0)}`
+            : isDuration ? `, avgVal = ${buildMetricExpr(pct, "duration", 1000000000.0)}` : "";
           let q: string;
           if (isErrorRate) {
             q = `fetch user.events, from: now()-${timeframeDays}d
@@ -6568,7 +6871,7 @@ export function UserJourney() {
 | filter ${frontendFilter(steps, frontend)}
 | filter ${anyStepFilter(steps)}
 | filter isNotNull(browser.name)
-| summarize count = count()${avgExpr}, by: {browser = browser.name}
+| summarize count = count()${metricExpr}, by: {browser = browser.name}
 | sort count desc
 | limit 6`;
           }

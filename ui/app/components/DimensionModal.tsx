@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export interface DimSlice { name: string; value: number; avg?: number; unit?: string; }
@@ -7,12 +7,15 @@ export interface DimensionModalProps {
   label: string;
   color?: string;
   onClose: () => void;
-  fetchGeo?: () => Promise<DimSlice[]>;
-  fetchBrowser?: () => Promise<DimSlice[]>;
+  fetchGeo?: (pct: string) => Promise<DimSlice[]>;
+  fetchBrowser?: (pct: string) => Promise<DimSlice[]>;
 }
 
 const GEO_COLORS     = ["#4589FF", "#23A5D0", "#3FA66C", "#A66C3F", "#8B5CF6", "#64748B", "#F59E0B", "#EC4899"];
 const BROWSER_COLORS = ["#FF6B35", "#4ECDC4", "#45B7D1", "#96CEB4", "#B0B0B0", "#F59E0B"];
+
+const PCT_OPTIONS = ["P50", "P75", "P90", "P95", "P99"] as const;
+type PctOption = typeof PCT_OPTIONS[number];
 
 function formatAvg(avg: number, unit?: string): string {
   if (unit === "s") return avg >= 1 ? `${avg.toFixed(2)} s` : `${(avg * 1000).toFixed(0)} ms`;
@@ -22,7 +25,7 @@ function formatAvg(avg: number, unit?: string): string {
 
 // ─── SVG Pie Chart ────────────────────────────────────────────────────────────
 
-function PieChart({ data, title, colors }: { data: DimSlice[]; title: string; colors: string[] }) {
+function PieChart({ data, title, colors, pct }: { data: DimSlice[]; title: string; colors: string[]; pct: PctOption }) {
   const [hovered, setHovered] = useState<number | null>(null);
   const total = data.reduce((s, d) => s + d.value, 0);
   if (!total) return <div style={{ opacity: 0.4, fontSize: 12, textAlign: "center", padding: 32 }}>No data</div>;
@@ -43,8 +46,8 @@ function PieChart({ data, title, colors }: { data: DimSlice[]; title: string; co
     const y2 = cy + r * Math.sin(endAngle);
     const largeArc = angle > Math.PI ? 1 : 0;
     const path = `M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
-    const pct = (d.value / total) * 100;
-    const result = { path, color: colors[i % colors.length], slice: d, pct };
+    const pctShare = (d.value / total) * 100;
+    const result = { path, color: colors[i % colors.length], slice: d, pct: pctShare };
     startAngle = endAngle;
     return result;
   });
@@ -87,7 +90,7 @@ function PieChart({ data, title, colors }: { data: DimSlice[]; title: string; co
         <div style={{ display: "flex", flexDirection: "column" as const, gap: 6, paddingTop: 4, flex: 1, minWidth: 0 }}>
           {hasAvg && (
             <div style={{ fontSize: 9, opacity: 0.4, marginBottom: 2, fontWeight: 600, letterSpacing: "0.04em" }}>
-              AVG &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; SHARE
+              {pct} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; SHARE
             </div>
           )}
           {slices.map((s, i) => (
@@ -137,13 +140,19 @@ export function DimensionModal({ label, color, onClose, fetchGeo, fetchBrowser }
   const [geoData, setGeoData]         = useState<DimSlice[]>([]);
   const [browserData, setBrowserData] = useState<DimSlice[]>([]);
   const [loading, setLoading]         = useState(true);
+  const [selectedPct, setSelectedPct] = useState<PctOption>("P50");
+
+  const fetchGeoRef     = useRef(fetchGeo);
+  const fetchBrowserRef = useRef(fetchBrowser);
+  fetchGeoRef.current     = fetchGeo;
+  fetchBrowserRef.current = fetchBrowser;
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     Promise.all([
-      fetchGeo     ? fetchGeo()     : Promise.resolve(DEFAULT_GEO),
-      fetchBrowser ? fetchBrowser() : Promise.resolve(DEFAULT_BROWSER),
+      fetchGeoRef.current     ? fetchGeoRef.current(selectedPct)     : Promise.resolve(DEFAULT_GEO),
+      fetchBrowserRef.current ? fetchBrowserRef.current(selectedPct) : Promise.resolve(DEFAULT_BROWSER),
     ])
       .then(([geo, browser]) => {
         if (!active) return;
@@ -153,7 +162,7 @@ export function DimensionModal({ label, color, onClose, fetchGeo, fetchBrowser }
       .catch(() => { if (active) { setGeoData(DEFAULT_GEO); setBrowserData(DEFAULT_BROWSER); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedPct]);
 
   return createPortal(
     <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -181,24 +190,49 @@ export function DimensionModal({ label, color, onClose, fetchGeo, fetchBrowser }
               &ensp;&middot;&ensp;Geographic &amp; Browser distribution &middot; last 7 days
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{ background: "none", border: "none", color: "inherit", fontSize: 18, cursor: "pointer", opacity: 0.35, padding: "4px 8px", lineHeight: 1 }}
-          >&#x2715;</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {/* Percentile selector */}
+            <div style={{ display: "flex", gap: 3, background: "rgba(255,255,255,0.06)", borderRadius: 8, padding: 3 }}>
+              {PCT_OPTIONS.map(p => (
+                <button
+                  key={p}
+                  onClick={() => setSelectedPct(p)}
+                  style={{
+                    padding: "3px 8px",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    borderRadius: 6,
+                    border: "none",
+                    cursor: "pointer",
+                    background: selectedPct === p ? (color ?? "#4589FF") : "transparent",
+                    color: selectedPct === p ? "#fff" : "rgba(232,234,240,0.45)",
+                    letterSpacing: "0.02em",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={onClose}
+              style={{ background: "none", border: "none", color: "inherit", fontSize: 18, cursor: "pointer", opacity: 0.35, padding: "4px 8px", lineHeight: 1 }}
+            >&#x2715;</button>
+          </div>
         </div>
 
         {loading ? (
           <div style={{ textAlign: "center", padding: "48px 0", opacity: 0.45, fontSize: 13 }}>Loading dimension data&hellip;</div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1px 1fr", gap: 28, alignItems: "start" }}>
-            <PieChart data={geoData} title="GEO breakdown (country)" colors={GEO_COLORS} />
+            <PieChart data={geoData} title="GEO breakdown (country)" colors={GEO_COLORS} pct={selectedPct} />
             <div style={{ background: "rgba(255,255,255,0.07)", height: "100%", minHeight: 200 }} />
-            <PieChart data={browserData} title="Browser breakdown" colors={BROWSER_COLORS} />
+            <PieChart data={browserData} title="Browser breakdown" colors={BROWSER_COLORS} pct={selectedPct} />
           </div>
         )}
 
         <div style={{ marginTop: 20, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 10, opacity: 0.3, textAlign: "right" }}>
-          Dimension Breakdown &middot; Services Overview
+          Dimension Breakdown &middot; User Journey
         </div>
       </div>
     </div>,
