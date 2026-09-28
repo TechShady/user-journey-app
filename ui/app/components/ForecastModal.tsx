@@ -68,7 +68,17 @@ export function prophetForecast(data: number[], forecastBuckets: number): number
   const trend = fitPiecewiseTrend(data, cpIndices);
   const detrended = data.map((v, i) => v - trend[i]);
   const seasonality = fitFourierSeasonality(detrended, n + forecastBuckets);
-  const lastSlope = n >= 2 ? (trend[n - 1] - trend[n - 2]) : 0;
+  // Average slope over the last ~10% of the trend (capped 4–20 points) to dampen noise from spiky data
+  const slopeWindow = Math.min(20, Math.max(4, Math.floor(n * 0.1)));
+  let slopeSum = 0;
+  for (let i = n - slopeWindow; i < n - 1; i++) slopeSum += trend[i + 1] - trend[i];
+  const rawSlope = slopeWindow > 1 ? slopeSum / (slopeWindow - 1) : (n >= 2 ? trend[n - 1] - trend[n - 2] : 0);
+  // Dampen the slope toward zero proportional to data coefficient of variation — spiky data gets more damping
+  const dmean = data.reduce((a, b) => a + b, 0) / n;
+  const dstd = Math.sqrt(data.reduce((a, v) => a + (v - dmean) ** 2, 0) / n);
+  const cv = dmean > 0 ? dstd / dmean : 1;
+  const dampFactor = Math.max(0.1, 1 - Math.min(0.9, cv * 0.5));
+  const lastSlope = rawSlope * dampFactor;
   const lastLevel = trend[n - 1];
   const forecast: number[] = [];
   for (let i = 0; i < forecastBuckets; i++) forecast.push(Math.max(0, lastLevel + lastSlope * (i + 1) + seasonality[n + i]));
