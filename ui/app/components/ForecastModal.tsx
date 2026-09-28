@@ -392,6 +392,74 @@ const SELECT_STYLE: React.CSSProperties = {
   backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center",
 };
 
+// ─── Metric metadata for deep-dive analysis ──────────────────────────────────
+
+interface MetricMeta {
+  higherIsBetter: boolean;
+  good: number | null;
+  poor: number | null;
+  unit: string;
+  formatVal: (v: number) => string;
+  cwvType: boolean;
+  convImpactPer1pct: number | null;
+}
+
+function detectMetricMeta(label: string, historicalData: number[]): MetricMeta {
+  const lbl = label.toUpperCase();
+  const sorted = [...historicalData].filter(isFinite).sort((a, b) => a - b);
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+  const inMs = median > 10;
+  const timingFmt = (v: number): string =>
+    inMs ? (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${Math.round(v)}ms`)
+         : (v >= 1 ? `${v.toFixed(2)}s` : `${Math.round(v * 1000)}ms`);
+  if (/\bLCP\b|LARGEST.CONTENTFUL/.test(lbl))
+    return { higherIsBetter: false, good: inMs ? 2500 : 2.5, poor: inMs ? 4000 : 4.0, unit: inMs ? "ms" : "s", formatVal: timingFmt, cwvType: true, convImpactPer1pct: 0.7 };
+  if (/\bFCP\b|FIRST.CONTENTFUL/.test(lbl))
+    return { higherIsBetter: false, good: inMs ? 1800 : 1.8, poor: inMs ? 3000 : 3.0, unit: inMs ? "ms" : "s", formatVal: timingFmt, cwvType: true, convImpactPer1pct: 0.4 };
+  if (/\bINP\b|INTERACTION.TO.NEXT/.test(lbl))
+    return { higherIsBetter: false, good: inMs ? 200 : 0.2, poor: inMs ? 500 : 0.5, unit: inMs ? "ms" : "s", formatVal: timingFmt, cwvType: true, convImpactPer1pct: 0.3 };
+  if (/\bTTFB\b|TIME.TO.FIRST.BYTE/.test(lbl))
+    return { higherIsBetter: false, good: inMs ? 800 : 0.8, poor: inMs ? 1800 : 1.8, unit: inMs ? "ms" : "s", formatVal: timingFmt, cwvType: true, convImpactPer1pct: 0.3 };
+  if (/\bCLS\b|CUMULATIVE.LAYOUT/.test(lbl))
+    return { higherIsBetter: false, good: 0.1, poor: 0.25, unit: "", formatVal: (v) => v.toFixed(3), cwvType: true, convImpactPer1pct: 1.5 };
+  if (/\bFID\b|FIRST.INPUT.DELAY/.test(lbl))
+    return { higherIsBetter: false, good: inMs ? 100 : 0.1, poor: inMs ? 300 : 0.3, unit: inMs ? "ms" : "s", formatVal: timingFmt, cwvType: true, convImpactPer1pct: 0.2 };
+  if (/APDEX/.test(lbl))
+    return { higherIsBetter: true, good: 0.85, poor: 0.7, unit: "", formatVal: (v) => v.toFixed(3), cwvType: false, convImpactPer1pct: 5 };
+  if (/ERROR.?RATE|ERROR\s*%/.test(lbl))
+    return { higherIsBetter: false, good: 1, poor: 5, unit: "%", formatVal: (v) => `${v.toFixed(1)}%`, cwvType: false, convImpactPer1pct: 2 };
+  if (/CONVERSION/.test(lbl))
+    return { higherIsBetter: true, good: null, poor: null, unit: "%", formatVal: (v) => `${v.toFixed(2)}%`, cwvType: false, convImpactPer1pct: null };
+  if (/REVENUE/.test(lbl))
+    return { higherIsBetter: true, good: null, poor: null, unit: "$", formatVal: (v) => `$${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)}`, cwvType: false, convImpactPer1pct: null };
+  if (/DURATION|LOAD.TIME/.test(lbl))
+    return { higherIsBetter: false, good: inMs ? 3000 : 3, poor: inMs ? 8000 : 8, unit: inMs ? "ms" : "s", formatVal: timingFmt, cwvType: false, convImpactPer1pct: 0.5 };
+  return { higherIsBetter: true, good: null, poor: null, unit: "", formatVal: formatAxisValue, cwvType: false, convImpactPer1pct: null };
+}
+
+function buildAnomalyDql(label: string, meta: MetricMeta): string | null {
+  const lbl = label.toUpperCase();
+  const threshold = meta.poor ?? meta.good;
+  if (threshold == null) return null;
+  const op = meta.higherIsBetter ? "<" : ">";
+  type Spec = { expr: string; name: string; extra: string };
+  const spec: Spec | null =
+    /\bLCP\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.largest_contentful_paint) / 1000000.0, 75)", name: "p75_lcp", extra: "\n| filter characteristics.has_page_summary == true" } :
+    /\bINP\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.interaction_to_next_paint) / 1000000.0, 75)", name: "p75_inp", extra: "\n| filter isNotNull(web_vitals.interaction_to_next_paint) and toDouble(web_vitals.interaction_to_next_paint) > 0" } :
+    /\bFCP\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.first_contentful_paint) / 1000000.0, 75)", name: "p75_fcp", extra: "\n| filter characteristics.has_page_summary == true" } :
+    /\bTTFB\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.time_to_first_byte) / 1000000.0, 75)", name: "p75_ttfb", extra: "\n| filter characteristics.has_page_summary == true" } :
+    /\bCLS\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.cumulative_layout_shift), 75)", name: "p75_cls", extra: "\n| filter characteristics.has_page_summary == true" } :
+    /\bFID\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.first_input_delay) / 1000000.0, 75)", name: "p75_fid", extra: "" } :
+    /APDEX/.test(lbl) ? { expr: "avg(toDouble(apdex_score))", name: "avg_apdex", extra: "" } :
+    /ERROR.?RATE|ERROR\s*%/.test(lbl) ? { expr: "countIf(error == true) / toDouble(count()) * 100", name: "error_rate_pct", extra: "" } :
+    /DURATION|LOAD.TIME/.test(lbl) ? { expr: "avg(toDouble(duration)) / 1000000.0", name: "avg_dur_s", extra: "" } :
+    null;
+  if (!spec) return null;
+  return `fetch user.events, from: now()-1h${spec.extra}\n| summarize ${spec.name} = ${spec.expr}\n| filter ${spec.name} ${op} ${threshold}`;
+}
+
+interface NextStep { text: string; copyDql?: string; anomalyLink?: boolean; }
+
 export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, getRequeryData }: ForecastModalProps) {
   const [method, setMethod] = useState<ForecastMethod>("prophet");
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -477,6 +545,110 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
     const cv = std / Math.abs(mean);
     return Math.round(Math.max(40, Math.min(98, (1 - Math.min(1, cv * 1.5)) * 100)));
   }, [historicalData]);
+
+  const metricMeta = useMemo(() => detectMetricMeta(label, historicalData), [label, historicalData]);
+
+  const rateAnalysis = useMemo(() => {
+    if (historicalData.length < 4) return null;
+    const durationMs = activeToMs - activeFromMs;
+    const bucketMs = durationMs / historicalData.length;
+    const bucketsPerDay = 86400000 / Math.max(1, bucketMs);
+    const recentN = Math.max(4, Math.floor(historicalData.length * 0.15));
+    const recentSlice = historicalData.slice(-recentN);
+    const earlySlice = historicalData.slice(0, recentN);
+    const recentSlope = recentSlice.length >= 2 ? (recentSlice[recentSlice.length - 1] - recentSlice[0]) / (recentN / bucketsPerDay) : 0;
+    const earlySlope = earlySlice.length >= 2 ? (earlySlice[earlySlice.length - 1] - earlySlice[0]) / (recentN / bucketsPerDay) : 0;
+    const isAccelerating = Math.abs(recentSlope) > Math.abs(earlySlope) * 1.4 && Math.sign(recentSlope) === Math.sign(earlySlope);
+    const isTrendingBad = metricMeta.higherIsBetter ? recentSlope < 0 : recentSlope > 0;
+    return { perDay: recentSlope, isAccelerating, isTrendingBad };
+  }, [historicalData, activeFromMs, activeToMs, metricMeta]);
+
+  const breachAnalysis = useMemo(() => {
+    const { good, poor, higherIsBetter } = metricMeta;
+    if (historicalData.length === 0) return null;
+    const current = historicalData[historicalData.length - 1];
+    const projected = forecastData.length > 0 ? forecastData[forecastData.length - 1] : current;
+    const zone = (v: number): "good" | "needs_improvement" | "poor" | "unknown" => {
+      if (good == null && poor == null) return "unknown";
+      if (higherIsBetter) {
+        if (good != null && v >= good) return "good";
+        if (poor != null && v >= poor) return "needs_improvement";
+        return "poor";
+      } else {
+        if (good != null && v <= good) return "good";
+        if (poor != null && v <= poor) return "needs_improvement";
+        return "poor";
+      }
+    };
+    const durationMs = activeToMs - activeFromMs;
+    const bucketMs = historicalData.length > 0 ? durationMs / historicalData.length : 900000;
+    const bucketsPerDay = 86400000 / Math.max(1, bucketMs);
+    let daysToGoodBreach: number | null = null;
+    let daysToPoorBreach: number | null = null;
+    for (let i = 0; i < forecastData.length; i++) {
+      const v = forecastData[i];
+      if (good != null && daysToGoodBreach == null && (higherIsBetter ? v < good : v > good)) daysToGoodBreach = +(i / bucketsPerDay).toFixed(1);
+      if (poor != null && daysToPoorBreach == null && (higherIsBetter ? v < poor : v > poor)) daysToPoorBreach = +(i / bucketsPerDay).toFixed(1);
+    }
+    return { current, projected, currentZone: zone(current), projectedZone: zone(projected), daysToGoodBreach, daysToPoorBreach, zone };
+  }, [historicalData, forecastData, metricMeta, activeFromMs, activeToMs]);
+
+  const businessImpact = useMemo(() => {
+    if (!metricMeta.convImpactPer1pct || !breachAnalysis) return null;
+    const { current, projected } = breachAnalysis;
+    if (current === 0) return null;
+    const change = projected - current;
+    const pctChange = Math.abs(change / current) * 100;
+    const isBad = metricMeta.higherIsBetter ? change < 0 : change > 0;
+    if (!isBad || pctChange < 1) return null;
+    const convDrop = Math.min(25, pctChange * metricMeta.convImpactPer1pct / 100);
+    return { convDropPct: +convDrop.toFixed(1), abandonmentPct: +(convDrop * 0.7).toFixed(1), metricPctChange: +pctChange.toFixed(0) };
+  }, [breachAnalysis, metricMeta]);
+
+  const recoveryProb = useMemo((): { level: "low" | "medium" | "high"; reason: string } => {
+    const n = historicalData.length;
+    if (n < 8) return { level: "medium", reason: "Insufficient history for recovery analysis" };
+    const mean = historicalData.reduce((a, b) => a + b, 0) / n;
+    const centered = historicalData.map(v => v - mean);
+    const variance = centered.reduce((a, v) => a + v * v, 0);
+    if (variance === 0) return { level: "high", reason: "Metric is perfectly stable" };
+    let acf1 = 0;
+    for (let i = 0; i < n - 1; i++) acf1 += centered[i] * centered[i + 1];
+    acf1 /= variance;
+    if (acf1 > 0.65) return { level: "low", reason: `High persistence (${(acf1 * 100).toFixed(0)}% autocorrelation) — rarely self-corrects` };
+    if (acf1 > 0.35) return { level: "medium", reason: "Moderate persistence — may partially self-correct" };
+    return { level: "high", reason: "Low persistence — volatile metric, may self-correct" };
+  }, [historicalData]);
+
+  const urgency = useMemo((): "act_now" | "monitor" | "on_track" => {
+    if (!breachAnalysis || breachAnalysis.currentZone === "unknown") return "monitor";
+    const { currentZone, daysToPoorBreach, daysToGoodBreach } = breachAnalysis;
+    if (currentZone === "poor") return "act_now";
+    if (currentZone === "needs_improvement") {
+      if (daysToPoorBreach != null && daysToPoorBreach <= 3) return "act_now";
+      if (rateAnalysis?.isAccelerating) return "act_now";
+      return "monitor";
+    }
+    if (daysToGoodBreach != null && daysToGoodBreach <= 2 && (confidenceScore ?? 0) >= 50) return "act_now";
+    if (daysToGoodBreach != null) return "monitor";
+    return "on_track";
+  }, [breachAnalysis, rateAnalysis, confidenceScore]);
+
+  const nextSteps = useMemo((): NextStep[] => {
+    const steps: NextStep[] = [];
+    const { good, higherIsBetter, cwvType, formatVal } = metricMeta;
+    if (urgency === "act_now" || urgency === "monitor") {
+      steps.push({ text: "Check the Change Intelligence tab for deployments in the past 72 hours — correlate timing with when the trend started." });
+      if (cwvType) steps.push({ text: "Use 🌍 Dimension from the KPI card dropdown to break down by browser, OS, and geography — isolate whether degradation is segment-specific or global." });
+      if (urgency === "act_now") steps.push({ text: "Open Dynatrace Davis AI (Causation) for automated root cause analysis on this metric." });
+      if (good != null) steps.push({ text: `Set a Dynatrace anomaly detection rule when ${label} ${higherIsBetter ? "falls below" : "exceeds"} ${formatVal(good)} to catch further degradation early.`, copyDql: buildAnomalyDql(label, metricMeta) ?? undefined, anomalyLink: true });
+      if (businessImpact && businessImpact.convDropPct > 2) steps.push({ text: `Validate in Business Analytics — a ${businessImpact.convDropPct}% conversion drop at this trajectory should appear in revenue data within 24–48 hours.` });
+    } else {
+      steps.push({ text: "Metric is on a healthy trajectory — maintain current monitoring and alert thresholds." });
+      if (cwvType) steps.push({ text: "Run a periodic 🌍 Dimension check to confirm no specific segment is quietly degrading beneath the aggregate." });
+    }
+    return steps.slice(0, 4);
+  }, [urgency, metricMeta, breachAnalysis, businessImpact, label]);
 
   const allValues = useMemo(() => [...historicalData, ...forecastData, ...confidence.upper], [historicalData, forecastData, confidence.upper]);
   const totalPoints = historicalData.length + forecastData.length;
@@ -650,6 +822,9 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
                 <text x={nowX} y={MARGIN.top - 8} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={10}>Now</text>
               </>
             )}
+            {/* Threshold lines */}
+            {metricMeta.good != null && (() => { const ty = yScale(metricMeta.good); return ty > MARGIN.top && ty < H - MARGIN.bottom ? <g><line x1={MARGIN.left} y1={ty} x2={W - MARGIN.right} y2={ty} stroke="#0D9C29" strokeDasharray="6,3" strokeWidth={1.2} opacity={0.65} /><text x={W - MARGIN.right + 4} y={ty + 4} fontSize={9} fill="#0D9C29" opacity={0.8}>Good</text></g> : null; })()}
+            {metricMeta.poor != null && (() => { const ty = yScale(metricMeta.poor); return ty > MARGIN.top && ty < H - MARGIN.bottom ? <g><line x1={MARGIN.left} y1={ty} x2={W - MARGIN.right} y2={ty} stroke="#E00000" strokeDasharray="6,3" strokeWidth={1.2} opacity={0.65} /><text x={W - MARGIN.right + 4} y={ty + 4} fontSize={9} fill="#E00000" opacity={0.8}>Poor</text></g> : null; })()}
             {confidencePoly && <polygon points={confidencePoly} fill={color} fillOpacity={0.08} />}
             {historicalPath && <path d={historicalPath} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />}
             {historicalData.map((v, i) => (
@@ -712,6 +887,110 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
             <span style={{ color: "rgba(255,255,255,0.7)" }}>Data Points ({datapointLabel(appliedDatapoints)})</span>
           </div>
         </div>
+
+        {/* Deep Dive Analysis */}
+        {breachAnalysis && (
+          <div style={{ marginTop: 20, border: "1px solid rgba(128,128,128,0.15)", borderRadius: 10, overflow: "hidden", fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
+            {/* Urgency header */}
+            <div style={{ padding: "12px 20px", background: urgency === "act_now" ? "rgba(224,0,0,0.12)" : urgency === "monitor" ? "rgba(255,200,0,0.08)" : "rgba(13,156,41,0.08)", borderBottom: "1px solid rgba(128,128,128,0.1)", display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 22 }}>{urgency === "act_now" ? "🔴" : urgency === "monitor" ? "🟡" : "🟢"}</span>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: urgency === "act_now" ? "#E00000" : urgency === "monitor" ? "#FFC800" : "#0D9C29", letterSpacing: "0.03em" }}>
+                  {urgency === "act_now" ? "ACT NOW" : urgency === "monitor" ? "MONITOR" : "ON TRACK"}
+                </div>
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>
+                  {urgency === "act_now"
+                    ? breachAnalysis.currentZone === "poor"
+                      ? `${label} is already in the "Poor" zone — immediate investigation recommended`
+                      : breachAnalysis.daysToPoorBreach != null
+                        ? `Projected to breach "Poor" in ~${Math.ceil(breachAnalysis.daysToPoorBreach)}d at current rate${rateAnalysis?.isAccelerating ? " — and accelerating" : ""}`
+                        : `Trend is degrading rapidly — intervention recommended`
+                    : urgency === "monitor"
+                    ? breachAnalysis.daysToPoorBreach != null
+                      ? `Trending toward "Poor" threshold — possible breach in ~${Math.ceil(breachAnalysis.daysToPoorBreach)}d`
+                      : `${label} is in "Needs Improvement" — watch for continued degradation`
+                    : `${label} is within healthy bounds across the ${appliedForecastDays}-day horizon`}
+                </div>
+              </div>
+            </div>
+
+            {/* Key metrics row */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", borderBottom: "1px solid rgba(128,128,128,0.1)" }}>
+              {[
+                { lbl: "Current value", val: metricMeta.formatVal(breachAnalysis.current), z: breachAnalysis.currentZone },
+                { lbl: `${appliedForecastDays}d projection`, val: metricMeta.formatVal(breachAnalysis.projected), z: breachAnalysis.projectedZone },
+                { lbl: "Rate / day", val: rateAnalysis ? `${rateAnalysis.perDay > 0 ? "+" : ""}${metricMeta.formatVal(Math.abs(rateAnalysis.perDay))}${rateAnalysis.isAccelerating ? " ⚡" : ""}` : "—", z: rateAnalysis?.isTrendingBad ? (rateAnalysis.isAccelerating ? "poor" : "needs_improvement") : "good" },
+              ].map((r, i) => (
+                <div key={i} style={{ padding: "14px 16px", textAlign: "center", borderRight: i < 2 ? "1px solid rgba(128,128,128,0.1)" : "none" }}>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 6 }}>{r.lbl}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: r.z === "poor" ? "#E00000" : r.z === "needs_improvement" ? "#FFC800" : r.z === "good" ? "#0D9C29" : "rgba(255,255,255,0.85)" }}>{r.val}</div>
+                  {r.z !== "unknown" && i < 2 && <div style={{ fontSize: 10, marginTop: 4, color: r.z === "good" ? "#0D9C29" : r.z === "needs_improvement" ? "#FFC800" : "#E00000" }}>{r.z === "good" ? "✓ Good" : r.z === "needs_improvement" ? "⚠ Needs Improvement" : "✗ Poor"}</div>}
+                  {i === 2 && rateAnalysis?.isAccelerating && <div style={{ fontSize: 10, marginTop: 4, color: "#FFC800" }}>Accelerating</div>}
+                </div>
+              ))}
+            </div>
+
+            {/* Breach timeline + recovery */}
+            {(breachAnalysis.daysToGoodBreach != null || breachAnalysis.daysToPoorBreach != null || true) && (
+              <div style={{ padding: "10px 20px", borderBottom: "1px solid rgba(128,128,128,0.1)", display: "flex", gap: 20, flexWrap: "wrap" as const, alignItems: "center" }}>
+                {breachAnalysis.daysToGoodBreach != null && (
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>⚠ Exits "Good" in <strong style={{ color: "#FFC800" }}>~{Math.ceil(breachAnalysis.daysToGoodBreach)}d</strong></span>
+                )}
+                {breachAnalysis.daysToPoorBreach != null && (
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>✗ Enters "Poor" in <strong style={{ color: "#E00000" }}>~{Math.ceil(breachAnalysis.daysToPoorBreach)}d</strong></span>
+                )}
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginLeft: "auto" }}>
+                  Recovery probability: <strong style={{ color: recoveryProb.level === "low" ? "#E00000" : recoveryProb.level === "medium" ? "#FFC800" : "#0D9C29" }}>
+                    {recoveryProb.level === "low" ? "Low" : recoveryProb.level === "medium" ? "Medium" : "High"}
+                  </strong>
+                  <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.6 }}>({recoveryProb.reason})</span>
+                </span>
+              </div>
+            )}
+
+            {/* Business impact */}
+            {businessImpact && (
+              <div style={{ padding: "12px 20px", borderBottom: "1px solid rgba(128,128,128,0.1)", background: "rgba(224,0,0,0.04)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#E00000", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 8 }}>
+                  If nothing is done — {appliedForecastDays}-day impact estimate
+                </div>
+                <div style={{ display: "flex", gap: 28, flexWrap: "wrap" as const }}>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)" }}>📉 Est. conversion drop: <strong style={{ color: "#E00000" }}>−{businessImpact.convDropPct}%</strong></div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)" }}>🚪 Session abandonment: <strong style={{ color: "#FFC800" }}>+{businessImpact.abandonmentPct}%</strong></div>
+                  {metricMeta.cwvType && <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)" }}>📊 CWV score will likely decline further</div>}
+                  {/LCP|FCP|INP|TTFB/i.test(label) && <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)" }}>⭐ Apdex likely to follow without intervention</div>}
+                </div>
+              </div>
+            )}
+
+            {/* Next steps */}
+            <div style={{ padding: "14px 20px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: color, textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 10 }}>Recommended Next Steps</div>
+              {nextSteps.map((step, i) => (
+                <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 10, fontSize: 12, color: "rgba(255,255,255,0.72)", lineHeight: 1.55 }}>
+                  <span style={{ color, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                  <div style={{ flex: 1 }}>
+                    <span>{step.text}</span>
+                    {(step.copyDql || step.anomalyLink) && (
+                      <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" as const }}>
+                        {step.copyDql && (
+                          <button onClick={() => { navigator.clipboard.writeText(step.copyDql!); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 5, border: "1px solid rgba(128,128,128,0.35)", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.75)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }} title={step.copyDql}>
+                            📋 Copy DQL
+                          </button>
+                        )}
+                        {step.anomalyLink && (
+                          <a href={`${window.location.origin}/ui/apps/dynatrace.davis.anomalydetection/`} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 5, border: "1px solid rgba(128,128,128,0.35)", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.75)", fontSize: 11, textDecoration: "none", fontFamily: "inherit" }}>
+                            🔔 Open Anomaly Detection
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
