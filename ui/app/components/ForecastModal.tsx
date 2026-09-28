@@ -437,6 +437,13 @@ function detectMetricMeta(label: string, historicalData: number[]): MetricMeta {
   return { higherIsBetter: true, good: null, poor: null, unit: "", formatVal: formatAxisValue, cwvType: false, convImpactPer1pct: null };
 }
 
+function getDtTenantBase(): string {
+  // Inside a DT app the origin is a sandboxed subdomain: "hash--tenantId.prodN.apps.dynatrace.com"
+  // Strip the hash prefix and prodN segment to get the canonical tenant URL.
+  const m = window.location.origin.match(/--([^.]+)\.(prod|dev)\d*\.apps\.dynatrace\.com$/i);
+  return m ? `https://${m[1]}.apps.dynatrace.com` : window.location.origin;
+}
+
 function buildAnomalyDql(label: string, meta: MetricMeta): string | null {
   const lbl = label.toUpperCase();
   const threshold = meta.poor ?? meta.good;
@@ -986,7 +993,7 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
                         )}
                         {step.anomalyLink && (
                           <a
-                            href={`${window.location.origin}/ui/apps/dynatrace.settings/settings/all-alerts/`}
+                            href={`${getDtTenantBase()}/ui/apps/dynatrace.settings/settings/all-alerts/`}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={() => { if (step.copyDql) navigator.clipboard.writeText(step.copyDql); }}
