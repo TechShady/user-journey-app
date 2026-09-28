@@ -1555,7 +1555,7 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
           document.body
         );
       })()}
-      {activePanel && <KpiPanelOverlay label={label} rawValue={rawValue} sparkline={sparkline} color={color} panel={activePanel} onClose={() => setActivePanel(null)} effectiveHigherIsBetter={effectiveHigherIsBetter} onOpenPanel={(p) => setActivePanel(p)} />}
+      {activePanel && <KpiPanelOverlay label={label} rawValue={rawValue} sparkline={sparkline} color={color} panel={activePanel} onClose={() => setActivePanel(null)} effectiveHigherIsBetter={effectiveHigherIsBetter} onOpenPanel={(p) => { setMenuOpen(false); setActivePanel(p); }} />}
     </div>
   );
 }
@@ -6895,14 +6895,14 @@ export function UserJourney() {
   const kpiMenuContextValue: KpiMenuContextValue = React.useMemo(() => ({
     openDimension: ({ label: lbl, sparkline: sp, color: col }) => {
       const upper = lbl.toUpperCase();
-      // web_vitals.* timing fields are stored in nanoseconds; CLS is dimensionless (divisor 1)
+      // web_vitals.* timing fields are stored in microseconds (÷1e6 → seconds); CLS is dimensionless (divisor 1)
       const vitalMap: Array<[RegExp, string, number]> = [
-        [/\bLCP\b|LARGEST CONTENTFUL PAINT/, "web_vitals.largest_contentful_paint", 1e9],
-        [/\bFCP\b|FIRST CONTENTFUL PAINT/, "web_vitals.first_contentful_paint", 1e9],
+        [/\bLCP\b|LARGEST CONTENTFUL PAINT/, "web_vitals.largest_contentful_paint", 1e6],
+        [/\bFCP\b|FIRST CONTENTFUL PAINT/, "web_vitals.first_contentful_paint", 1e6],
         [/\bCLS\b|CUMULATIVE LAYOUT SHIFT/, "web_vitals.cumulative_layout_shift", 1],
-        [/\bINP\b|INTERACTION TO NEXT PAINT/, "web_vitals.interaction_to_next_paint", 1e9],
-        [/\bTTFB\b|TIME TO FIRST BYTE/, "web_vitals.time_to_first_byte", 1e9],
-        [/\bFID\b|FIRST INPUT DELAY/, "web_vitals.first_input_delay", 1e9],
+        [/\bINP\b|INTERACTION TO NEXT PAINT/, "web_vitals.interaction_to_next_paint", 1e6],
+        [/\bTTFB\b|TIME TO FIRST BYTE/, "web_vitals.time_to_first_byte", 1e6],
+        [/\bFID\b|FIRST INPUT DELAY/, "web_vitals.first_input_delay", 1e6],
       ];
       const vitalEntry = vitalMap.find(([pat]) => pat.test(upper));
       const vitalField = vitalEntry ? vitalEntry[1] : null;
