@@ -437,6 +437,24 @@ function detectMetricMeta(label: string, historicalData: number[]): MetricMeta {
   return { higherIsBetter: true, good: null, poor: null, unit: "", formatVal: formatAxisValue, cwvType: false, convImpactPer1pct: null };
 }
 
+function copyText(text: string): void {
+  if (navigator?.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  } else {
+    fallbackCopy(text);
+  }
+}
+function fallbackCopy(text: string): void {
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+  document.body.appendChild(el);
+  el.focus();
+  el.select();
+  try { document.execCommand("copy"); } catch { /* silent */ }
+  document.body.removeChild(el);
+}
+
 function getDtTenantBase(): string {
   // Inside a DT app the origin is a sandboxed subdomain: "hash--tenantId.prodN.apps.dynatrace.com"
   // Strip the hash prefix and prodN segment to get the canonical tenant URL.
@@ -470,6 +488,7 @@ interface NextStep { text: string; copyDql?: string; anomalyLink?: boolean; }
 export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, getRequeryData }: ForecastModalProps) {
   const [method, setMethod] = useState<ForecastMethod>("prophet");
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [copiedStepIdx, setCopiedStepIdx] = useState<number | null>(null);
 
   // Pending (uncommitted) selections
   const [pendingAnalyzeDays, setPendingAnalyzeDays] = useState(DEFAULT_ANALYZE_DAYS);
@@ -980,15 +999,23 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
             <div style={{ padding: "14px 20px" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: color, textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 10 }}>Recommended Next Steps</div>
               {nextSteps.map((step, i) => (
-                <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 10, fontSize: 12, color: "rgba(255,255,255,0.72)", lineHeight: 1.55 }}>
+                <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 12, fontSize: 12, color: "rgba(255,255,255,0.72)", lineHeight: 1.55 }}>
                   <span style={{ color, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
                   <div style={{ flex: 1 }}>
                     <span>{step.text}</span>
+                    {step.copyDql && (
+                      <pre style={{ margin: "8px 0 6px", padding: "8px 12px", background: "rgba(0,0,0,0.35)", border: "1px solid rgba(128,128,128,0.2)", borderRadius: 6, fontSize: 10.5, fontFamily: "Consolas,monospace", color: "rgba(255,255,255,0.75)", whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: 1.6, userSelect: "text" }}>
+                        {step.copyDql}
+                      </pre>
+                    )}
                     {(step.copyDql || step.anomalyLink) && (
-                      <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" as const }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const }}>
                         {step.copyDql && (
-                          <button onClick={() => { navigator.clipboard.writeText(step.copyDql!); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 5, border: "1px solid rgba(128,128,128,0.35)", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.75)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }} title={step.copyDql}>
-                            📋 Copy DQL
+                          <button
+                            onClick={() => { copyText(step.copyDql!); setCopiedStepIdx(i); setTimeout(() => setCopiedStepIdx(null), 2000); }}
+                            style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 5, border: `1px solid ${copiedStepIdx === i ? "#0D9C29" : "rgba(128,128,128,0.35)"}`, background: copiedStepIdx === i ? "rgba(13,156,41,0.15)" : "rgba(255,255,255,0.07)", color: copiedStepIdx === i ? "#0D9C29" : "rgba(255,255,255,0.75)", fontSize: 11, cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}
+                          >
+                            {copiedStepIdx === i ? "✓ Copied!" : "📋 Copy DQL"}
                           </button>
                         )}
                         {step.anomalyLink && (
@@ -996,11 +1023,9 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
                             href={`${getDtTenantBase()}/ui/apps/dynatrace.settings/settings/all-alerts/`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={() => { if (step.copyDql) navigator.clipboard.writeText(step.copyDql); }}
-                            title={step.copyDql ? "Opens anomaly detection settings and copies DQL to clipboard" : "Opens anomaly detection settings"}
                             style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 5, border: "1px solid rgba(128,128,128,0.35)", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.75)", fontSize: 11, textDecoration: "none", fontFamily: "inherit" }}
                           >
-                            🔔 Open Alert Settings{step.copyDql ? " + Copy DQL" : ""}
+                            🔔 Open Alert Settings
                           </a>
                         )}
                       </div>
