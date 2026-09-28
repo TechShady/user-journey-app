@@ -986,7 +986,7 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
                         )}
                         {step.anomalyLink && (
                           <a
-                            href={`${window.location.href.split("/ui/apps/")[0]}/ui/apps/dynatrace.settings/settings/all-alerts/`}
+                            href={`${window.location.origin}/ui/apps/dynatrace.settings/settings/all-alerts/`}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={() => { if (step.copyDql) navigator.clipboard.writeText(step.copyDql); }}
