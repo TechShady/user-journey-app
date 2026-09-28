@@ -469,12 +469,12 @@ function buildAnomalyDql(label: string, meta: MetricMeta): string | null {
   const op = meta.higherIsBetter ? "<" : ">";
   type Spec = { expr: string; name: string; extra: string };
   const spec: Spec | null =
-    /\bLCP\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.largest_contentful_paint) / 1000000.0, 75)", name: "p75_lcp", extra: "\n| filter characteristics.has_page_summary == true" } :
-    /\bINP\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.interaction_to_next_paint) / 1000000.0, 75)", name: "p75_inp", extra: "\n| filter isNotNull(web_vitals.interaction_to_next_paint) and toDouble(web_vitals.interaction_to_next_paint) > 0" } :
-    /\bFCP\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.first_contentful_paint) / 1000000.0, 75)", name: "p75_fcp", extra: "\n| filter characteristics.has_page_summary == true" } :
-    /\bTTFB\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.time_to_first_byte) / 1000000.0, 75)", name: "p75_ttfb", extra: "\n| filter characteristics.has_page_summary == true" } :
-    /\bCLS\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.cumulative_layout_shift), 75)", name: "p75_cls", extra: "\n| filter characteristics.has_page_summary == true" } :
-    /\bFID\b/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.first_input_delay) / 1000000.0, 75)", name: "p75_fid", extra: "" } :
+    /\bLCP\b|LARGEST.CONTENTFUL/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.largest_contentful_paint) / 1000000.0, 75)", name: "p75_lcp", extra: "\n| filter characteristics.has_page_summary == true" } :
+    /\bINP\b|INTERACTION.TO.NEXT/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.interaction_to_next_paint) / 1000000.0, 75)", name: "p75_inp", extra: "\n| filter isNotNull(web_vitals.interaction_to_next_paint) and toDouble(web_vitals.interaction_to_next_paint) > 0" } :
+    /\bFCP\b|FIRST.CONTENTFUL/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.first_contentful_paint) / 1000000.0, 75)", name: "p75_fcp", extra: "\n| filter characteristics.has_page_summary == true" } :
+    /\bTTFB\b|TIME.TO.FIRST.BYTE/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.time_to_first_byte) / 1000000.0, 75)", name: "p75_ttfb", extra: "\n| filter characteristics.has_page_summary == true" } :
+    /\bCLS\b|CUMULATIVE.LAYOUT/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.cumulative_layout_shift), 75)", name: "p75_cls", extra: "\n| filter characteristics.has_page_summary == true" } :
+    /\bFID\b|FIRST.INPUT.DELAY/.test(lbl) ? { expr: "percentile(toDouble(web_vitals.first_input_delay) / 1000000.0, 75)", name: "p75_fid", extra: "" } :
     /APDEX/.test(lbl) ? { expr: "avg(toDouble(apdex_score))", name: "avg_apdex", extra: "" } :
     /ERROR.?RATE|ERROR\s*%/.test(lbl) ? { expr: "countIf(error == true) / toDouble(count()) * 100", name: "error_rate_pct", extra: "" } :
     /DURATION|LOAD.TIME/.test(lbl) ? { expr: "avg(toDouble(duration)) / 1000000.0", name: "avg_dur_s", extra: "" } :
