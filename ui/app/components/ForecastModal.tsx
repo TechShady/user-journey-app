@@ -637,17 +637,23 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
   const nextSteps = useMemo((): NextStep[] => {
     const steps: NextStep[] = [];
     const { good, higherIsBetter, cwvType, formatVal } = metricMeta;
+    const alertStep: NextStep | null = good != null ? {
+      text: `Set a Dynatrace anomaly detection rule when ${label} ${higherIsBetter ? "falls below" : "exceeds"} ${formatVal(good)} to catch degradation early.`,
+      copyDql: buildAnomalyDql(label, metricMeta) ?? undefined,
+      anomalyLink: true,
+    } : null;
     if (urgency === "act_now" || urgency === "monitor") {
       steps.push({ text: "Check the Change Intelligence tab for deployments in the past 72 hours — correlate timing with when the trend started." });
       if (cwvType) steps.push({ text: "Use 🌍 Dimension from the KPI card dropdown to break down by browser, OS, and geography — isolate whether degradation is segment-specific or global." });
       if (urgency === "act_now") steps.push({ text: "Open Dynatrace Davis AI (Causation) for automated root cause analysis on this metric." });
-      if (good != null) steps.push({ text: `Set a Dynatrace anomaly detection rule when ${label} ${higherIsBetter ? "falls below" : "exceeds"} ${formatVal(good)} to catch further degradation early.`, copyDql: buildAnomalyDql(label, metricMeta) ?? undefined, anomalyLink: true });
+      if (alertStep) steps.push(alertStep);
       if (businessImpact && businessImpact.convDropPct > 2) steps.push({ text: `Validate in Business Analytics — a ${businessImpact.convDropPct}% conversion drop at this trajectory should appear in revenue data within 24–48 hours.` });
     } else {
       steps.push({ text: "Metric is on a healthy trajectory — maintain current monitoring and alert thresholds." });
       if (cwvType) steps.push({ text: "Run a periodic 🌍 Dimension check to confirm no specific segment is quietly degrading beneath the aggregate." });
+      if (alertStep) steps.push(alertStep);
     }
-    return steps.slice(0, 4);
+    return steps.slice(0, 5);
   }, [urgency, metricMeta, breachAnalysis, businessImpact, label]);
 
   const allValues = useMemo(() => [...historicalData, ...forecastData, ...confidence.upper], [historicalData, forecastData, confidence.upper]);
@@ -979,8 +985,15 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
                           </button>
                         )}
                         {step.anomalyLink && (
-                          <a href={`${window.location.origin}/ui/apps/dynatrace.davis.anomalydetection/`} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 5, border: "1px solid rgba(128,128,128,0.35)", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.75)", fontSize: 11, textDecoration: "none", fontFamily: "inherit" }}>
-                            🔔 Open Anomaly Detection
+                          <a
+                            href={`${window.location.href.split("/ui/apps/")[0]}/ui/apps/dynatrace.settings/settings/all-alerts/`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => { if (step.copyDql) navigator.clipboard.writeText(step.copyDql); }}
+                            title={step.copyDql ? "Opens anomaly detection settings and copies DQL to clipboard" : "Opens anomaly detection settings"}
+                            style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 5, border: "1px solid rgba(128,128,128,0.35)", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.75)", fontSize: 11, textDecoration: "none", fontFamily: "inherit" }}
+                          >
+                            🔔 Open Alert Settings{step.copyDql ? " + Copy DQL" : ""}
                           </a>
                         )}
                       </div>
