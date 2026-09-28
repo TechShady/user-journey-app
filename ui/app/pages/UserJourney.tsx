@@ -1112,7 +1112,7 @@ function KpiPanelOverlay({ label, rawValue, sparkline, color, panel, onClose, ef
 
   const titles: Record<string, string> = { impact: "👥 Impact Analysis", anomaly: "🔍 Anomaly Detection", attribution: "📋 Change Attribution", baseline: "📊 Baseline Compare", cost: "💰 Cost Impact", diagnose: "🩺 Diagnose" };
   return createPortal(
-    <div style={{ position: "fixed", inset: 0, zIndex: 99998, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 100010, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ background: "rgba(20,24,46,0.98)", border: `1px solid ${color ?? "#4589FF"}40`, borderRadius: 12, padding: "24px 28px", maxWidth: panel === "diagnose" ? 600 : 480, width: "90vw", boxShadow: "0 8px 40px rgba(0,0,0,0.5)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
           <div>
@@ -1430,6 +1430,9 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [menuOpen]);
+
+  // Always close dropdown when a panel opens
+  useEffect(() => { if (activePanel) setMenuOpen(false); }, [activePanel]);
 
   const delta = useMemo<number | null>(() => {
     if (rawValue == null || prevRawValue == null) return null;
@@ -6917,7 +6920,8 @@ export function UserJourney() {
         return divisor !== 1 ? `${aggFn} / ${divisor}` : aggFn;
       };
 
-      const vitalFilter = vitalField ? `\n| filter isNotNull(${vitalField})` : "";
+      // Filter null AND zero — INP/LCP/etc. are 0 for non-interaction events, making P50 collapse to 0
+      const vitalFilter = vitalField ? `\n| filter isNotNull(${vitalField}) and toDouble(${vitalField}) > 0` : "";
       const fetchGeo = async (pct: string): Promise<DimSlice[]> => {
         try {
           const metricExpr = vitalField
