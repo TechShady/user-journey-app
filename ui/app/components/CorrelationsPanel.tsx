@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { Heading, Text, Strong } from "@dynatrace/strato-components/typography";
 import { Flex } from "@dynatrace/strato-components/layouts";
 
@@ -169,6 +169,106 @@ export function CorrelationsPanel({ target, allMetrics, onClose }: {
   const [minStrength, setMinStrength] = useState(0.3);
   const correlations = useMemo(() => computeCorrelations(target, allMetrics, minStrength), [target, allMetrics, minStrength]);
 
+  const exportCorrelationsPdf = useCallback(() => {
+    const strengthLbl = `${minStrength * 100}%+`;
+
+    const sparklineSvg = (data: number[], color: string) => {
+      const W = 72, H = 22;
+      const valid = data.filter(v => v != null && !isNaN(v) && isFinite(v));
+      if (valid.length < 2) return "";
+      const min = Math.min(...valid);
+      const max = Math.max(...valid);
+      const range = max - min || 1;
+      const points = valid.map((v, i) => ({
+        x: (i / (valid.length - 1)) * W,
+        y: H - ((v - min) / range) * (H - 3) - 1.5,
+      }));
+      const pts = points.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+      const last = points[points.length - 1];
+      return `<svg width="${W}" height="${H}" style="display:block;opacity:0.8;flex-shrink:0"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="2" fill="${color}"/></svg>`;
+    };
+
+    const cardsHtml = correlations.map((c, idx) => {
+      const pct = Math.round(c.strength * 100);
+      const barColor = c.r > 0 ? "#0D9C29" : "#C21930";
+      const badgeColor = c.r > 0 ? "#0D9C29" : "#C21930";
+      const badgeBg = c.r > 0 ? "rgba(13,156,41,0.12)" : "rgba(194,25,48,0.12)";
+      const badgeBorder = c.r > 0 ? "rgba(13,156,41,0.3)" : "rgba(194,25,48,0.3)";
+      const borderColor = c.r > 0 ? "rgba(13,156,41,0.6)" : "rgba(194,25,48,0.6)";
+      return `<div class="card" style="border-left:3px solid ${borderColor}">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:11px;opacity:0.35;font-weight:600">#${idx + 1}</span>
+            <strong style="font-size:13px;color:${c.color ?? "#4589FF"}">${c.label}</strong>
+            <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:${badgeBg};color:${badgeColor};border:1px solid ${badgeBorder}">r = ${c.r > 0 ? "+" : ""}${c.r.toFixed(2)}</span>
+          </div>
+          ${sparklineSvg(c.sparkline, c.color ?? "#4589FF")}
+        </div>
+        <div class="strength-bar-wrap">
+          <div class="strength-bar-bg"><div class="strength-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+          <span style="font-size:10px;font-weight:700;color:${barColor};min-width:28px;text-align:right">${pct}%</span>
+        </div>
+        <div class="direction">${c.direction}</div>
+        <div class="narrative">${c.narrative}</div>
+      </div>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Related Metrics — ${target.label}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0e1224;color:#e0e0f0;font-family:'Segoe UI',system-ui,sans-serif;padding:32px;font-size:13px}
+@media print{body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;padding:.4in}@page{margin:.5in;size:A4}.no-print{display:none!important}}
+.header-row{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;border-bottom:1px solid rgba(128,128,128,.2);padding-bottom:14px}
+h1{font-size:18px;font-weight:800;color:#fff;margin-bottom:4px}
+.subtitle{font-size:12px;opacity:0.5}
+.meta{font-size:11px;opacity:.5;text-align:right}
+.card{background:rgba(128,128,128,.05);border:1px solid rgba(128,128,128,.15);border-radius:10px;padding:12px 16px;margin-bottom:10px}
+.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.strength-bar-wrap{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.strength-bar-bg{flex:1;height:5px;background:rgba(128,128,128,.15);border-radius:3px;overflow:hidden}
+.strength-bar-fill{height:100%;border-radius:3px}
+.direction{font-size:11px;opacity:0.6;margin-top:6px}
+.narrative{font-size:11px;opacity:0.5;margin-top:2px;font-style:italic}
+.legend-box{margin-top:20px;padding:10px 14px;background:rgba(128,128,128,.04);border-radius:8px;border:1px solid rgba(128,128,128,.1)}
+.print-btn{margin-top:24px;display:flex;justify-content:center}
+button.print-action{padding:8px 24px;background:rgba(69,137,255,.85);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="header-row">
+  <div>
+    <h1>Related Metrics</h1>
+    <div class="subtitle">Metrics correlated with <strong style="color:${target.color ?? "#4589FF"}">${target.label}</strong> &middot; Min strength: ${strengthLbl}</div>
+  </div>
+  <div class="meta">
+    <div>Generated: ${new Date().toLocaleString()}</div>
+    <div>${correlations.length} correlation${correlations.length !== 1 ? "s" : ""} found</div>
+  </div>
+</div>
+${correlations.length === 0
+  ? `<div style="padding:32px 0;text-align:center;opacity:0.5">No metrics found with correlation strength above ${minStrength * 100}%</div>`
+  : cardsHtml}
+<div class="legend-box">
+  <div style="font-size:10px;opacity:0.4;display:block;margin-bottom:4px">How it works</div>
+  <div style="font-size:11px;opacity:0.5">Pearson correlation coefficient (r) measures linear relationship between two time-series sparklines. Values near +1 indicate strong positive co-movement; values near -1 indicate strong inverse movement. A green bar means the metrics move together; a red bar means they move in opposite directions. Relationships with |r| below the threshold are filtered out.</div>
+</div>
+<div class="print-btn no-print">
+  <button class="print-action" onclick="window.print()">Print / Save PDF</button>
+</div>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+  }, [target, correlations, minStrength]);
+
   return (
     <div
       style={{
@@ -195,6 +295,15 @@ export function CorrelationsPanel({ target, allMetrics, onClose }: {
               Metrics correlated with <Strong style={{ color: target.color ?? "#4589FF" }}>{target.label}</Strong> based on time-series similarity
             </Text>
           </div>
+          <button
+            onClick={exportCorrelationsPdf}
+            style={{
+              background: "rgba(69,137,255,0.1)", border: "1px solid rgba(69,137,255,0.35)",
+              borderRadius: 8, padding: "6px 14px", color: "#4589FF", cursor: "pointer", fontSize: 12, fontWeight: 600,
+            }}
+          >
+            📄 PDF
+          </button>
           <button
             onClick={onClose}
             style={{

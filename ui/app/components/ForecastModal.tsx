@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from "react";
+import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
 
 // ─── Linear regression forecast ───
 export function linearForecast(data: number[], forecastBuckets: number): number[] {
@@ -682,6 +682,191 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
     return steps.slice(0, 5);
   }, [urgency, metricMeta, breachAnalysis, businessImpact, label]);
 
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const exportForecastPdf = useCallback(() => {
+    const svgEl = svgRef.current;
+    let svgString = svgEl ? new XMLSerializer().serializeToString(svgEl) : "";
+    // Make SVG responsive in the PDF by adding viewBox and removing fixed dimensions
+    svgString = svgString
+      .replace(/ width="\d+"/, "")
+      .replace(/ height="\d+"/, "")
+      .replace("<svg ", `<svg viewBox="0 0 900 400" `);
+
+    const confidenceColor = (confidenceScore ?? 0) >= 80 ? "#0D9C29" : (confidenceScore ?? 0) >= 60 ? "#FFC800" : "#FF9040";
+    const confidenceLabel = (confidenceScore ?? 0) >= 80 ? "High" : (confidenceScore ?? 0) >= 60 ? "Moderate" : "Low";
+    const urgencyColor = urgency === "act_now" ? "#E00000" : urgency === "monitor" ? "#FFC800" : "#0D9C29";
+    const urgencyLabel = urgency === "act_now" ? "ACT NOW" : urgency === "monitor" ? "MONITOR" : "ON TRACK";
+    const urgencyEmoji = urgency === "act_now" ? "🔴" : urgency === "monitor" ? "🟡" : "🟢";
+    const urgencyDesc = urgency === "act_now"
+      ? breachAnalysis?.currentZone === "poor"
+        ? `${label} is already in the "Poor" zone — immediate investigation recommended`
+        : breachAnalysis?.daysToPoorBreach != null
+          ? `Projected to breach "Poor" in ~${Math.ceil(breachAnalysis.daysToPoorBreach)}d at current rate${rateAnalysis?.isAccelerating ? " — and accelerating" : ""}`
+          : "Trend is degrading rapidly — intervention recommended"
+      : urgency === "monitor"
+      ? breachAnalysis?.daysToPoorBreach != null
+        ? `Trending toward "Poor" threshold — possible breach in ~${Math.ceil(breachAnalysis.daysToPoorBreach)}d`
+        : `${label} is in "Needs Improvement" — watch for continued degradation`
+      : `${label} is within healthy bounds across the ${appliedForecastDays}-day horizon`;
+
+    const methodLabels: Record<string, string> = {
+      "holt-winters": "Holt-Winters (Double Exp.)",
+      "triple-exp": "Triple Exp. Smoothing",
+      prophet: "Prophet",
+      arima: "ARIMA",
+      sarima: "SARIMA",
+      linear: "Linear Regression",
+    };
+
+    const zoneLabel = (z: string) => z === "good" ? "✓ Good" : z === "needs_improvement" ? "⚠ Needs Improvement" : "✗ Poor";
+
+    const metricsHtml = breachAnalysis ? `
+      <div class="metrics-row">
+        <div class="metric-cell">
+          <div class="metric-label">Current Value</div>
+          <div class="metric-val zone-${breachAnalysis.currentZone}">${metricMeta.formatVal(breachAnalysis.current)}</div>
+          ${breachAnalysis.currentZone !== "unknown" ? `<div class="zone-badge zone-${breachAnalysis.currentZone}">${zoneLabel(breachAnalysis.currentZone)}</div>` : ""}
+        </div>
+        <div class="metric-cell">
+          <div class="metric-label">${appliedForecastDays}d Projection</div>
+          <div class="metric-val zone-${breachAnalysis.projectedZone}">${metricMeta.formatVal(breachAnalysis.projected)}</div>
+          ${breachAnalysis.projectedZone !== "unknown" ? `<div class="zone-badge zone-${breachAnalysis.projectedZone}">${zoneLabel(breachAnalysis.projectedZone)}</div>` : ""}
+        </div>
+        <div class="metric-cell">
+          <div class="metric-label">Rate / Day</div>
+          <div class="metric-val zone-${rateAnalysis?.isTrendingBad ? (rateAnalysis.isAccelerating ? "poor" : "needs_improvement") : "good"}">${rateAnalysis ? `${rateAnalysis.perDay > 0 ? "+" : ""}${metricMeta.formatVal(Math.abs(rateAnalysis.perDay))}${rateAnalysis.isAccelerating ? " ⚡" : ""}` : "—"}</div>
+          ${rateAnalysis?.isAccelerating ? `<div class="accel">Accelerating</div>` : ""}
+        </div>
+      </div>` : "";
+
+    const breachHtml = breachAnalysis && (breachAnalysis.daysToGoodBreach != null || breachAnalysis.daysToPoorBreach != null) ? `
+      <div class="breach-row">
+        ${breachAnalysis.daysToGoodBreach != null ? `<span>⚠ Exits "Good" in <strong style="color:#FFC800">~${Math.ceil(breachAnalysis.daysToGoodBreach)}d</strong></span>` : ""}
+        ${breachAnalysis.daysToPoorBreach != null ? `<span>✗ Enters "Poor" in <strong style="color:#E00000">~${Math.ceil(breachAnalysis.daysToPoorBreach)}d</strong></span>` : ""}
+        <span style="margin-left:auto">Recovery probability: <strong style="color:${recoveryProb.level === "low" ? "#E00000" : recoveryProb.level === "medium" ? "#FFC800" : "#0D9C29"}">${recoveryProb.level === "low" ? "Low" : recoveryProb.level === "medium" ? "Medium" : "High"}</strong> <span style="font-size:10px;opacity:0.6">(${recoveryProb.reason})</span></span>
+      </div>` : "";
+
+    const businessHtml = businessImpact ? `
+      <div class="business-impact">
+        <div class="section-title" style="color:#E00000">If nothing is done — ${appliedForecastDays}-day impact estimate</div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap">
+          <span>📉 Est. conversion drop: <strong style="color:#E00000">−${businessImpact.convDropPct}%</strong></span>
+          <span>🚪 Session abandonment: <strong style="color:#FFC800">+${businessImpact.abandonmentPct}%</strong></span>
+          ${metricMeta.cwvType ? "<span>📊 CWV score will likely decline further</span>" : ""}
+          ${/LCP|FCP|INP|TTFB/i.test(label) ? "<span>⭐ Apdex likely to follow without intervention</span>" : ""}
+        </div>
+      </div>` : "";
+
+    const stepsHtml = nextSteps.map((step, i) => `
+      <div class="step">
+        <span class="step-num">${i + 1}.</span>
+        <div class="step-body">
+          <p>${step.text}</p>
+          ${step.copyDql ? `<pre class="dql">${step.copyDql}</pre>` : ""}
+        </div>
+      </div>`).join("");
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>${label} — ${appliedForecastDays}-Day Forecast</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0e1224;color:#e0e0f0;font-family:'Segoe UI',system-ui,sans-serif;padding:32px;font-size:13px}
+@media print{body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;padding:.4in}@page{margin:.5in;size:A4 landscape}.no-print{display:none!important}}
+h1{font-size:20px;font-weight:800;color:#fff;margin-bottom:2px}
+.subtitle{font-size:11px;color:rgba(255,255,255,.45);margin-bottom:6px}
+.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;border-bottom:1px solid rgba(128,128,128,.2);padding-bottom:14px}
+.header-meta{font-size:11px;color:rgba(255,255,255,.5);text-align:right}
+.chart-wrap{margin-bottom:16px}
+.chart-wrap svg{width:100%!important;height:auto!important;display:block}
+.confidence-row{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:16px;font-size:12px}
+.conf-bar-bg{width:100px;height:5px;border-radius:3px;background:rgba(128,128,128,.2);overflow:hidden}
+.conf-bar-fill{height:100%;border-radius:3px}
+.legend{display:flex;gap:24px;justify-content:center;margin-bottom:20px;font-size:12px;color:rgba(255,255,255,.7);flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:6px}
+.deep-dive{border:1px solid rgba(128,128,128,.15);border-radius:10px;overflow:hidden}
+.urgency-header{padding:12px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(128,128,128,.1)}
+.urgency-label{font-size:16px;font-weight:800;letter-spacing:.03em}
+.urgency-desc{font-size:12px;color:rgba(255,255,255,.6);margin-top:2px}
+.metrics-row{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid rgba(128,128,128,.1)}
+.metric-cell{padding:14px 16px;text-align:center;border-right:1px solid rgba(128,128,128,.1)}
+.metric-cell:last-child{border-right:none}
+.metric-label{font-size:10px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.metric-val{font-size:22px;font-weight:800}
+.zone-good{color:#0D9C29}.zone-needs_improvement{color:#FFC800}.zone-poor{color:#E00000}.zone-unknown{color:rgba(255,255,255,.85)}
+.zone-badge{font-size:10px;margin-top:4px}
+.accel{font-size:10px;margin-top:4px;color:#FFC800}
+.breach-row{padding:10px 20px;border-bottom:1px solid rgba(128,128,128,.1);display:flex;gap:20px;flex-wrap:wrap;align-items:center;font-size:12px;color:rgba(255,255,255,.6)}
+.business-impact{padding:12px 20px;border-bottom:1px solid rgba(128,128,128,.1);background:rgba(224,0,0,.04);font-size:12px;color:rgba(255,255,255,.65)}
+.section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.next-steps{padding:14px 20px}
+.step{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px;font-size:12px;color:rgba(255,255,255,.72);line-height:1.55}
+.step-num{font-weight:700;flex-shrink:0;color:${color}}
+.step-body{flex:1}.step-body p{margin:0 0 4px}
+.dql{margin:6px 0;padding:8px 12px;background:rgba(0,0,0,.35);border:1px solid rgba(128,128,128,.2);border-radius:6px;font-size:10px;font-family:Consolas,monospace;color:rgba(255,255,255,.75);white-space:pre-wrap;word-break:break-all;line-height:1.6}
+.print-btn{margin-top:24px;display:flex;justify-content:center}
+button.print-action{padding:8px 24px;background:rgba(69,137,255,.85);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>${label} — ${appliedForecastDays}-Day Forecast</h1>
+    <div class="subtitle">${formatDate(activeFromMs)} → ${formatDate(activeToMs + appliedForecastDays * 24 * 3600 * 1000)}</div>
+  </div>
+  <div class="header-meta">
+    <div>Method: ${methodLabels[method] ?? method}</div>
+    <div>Analyze: ${appliedAnalyzeDays}d &nbsp;|&nbsp; Datapoints: ${datapointLabel(appliedDatapoints)} &nbsp;|&nbsp; Forecast: ${appliedForecastDays}d</div>
+    <div style="margin-top:4px;opacity:0.6">Generated: ${new Date().toLocaleString()}</div>
+  </div>
+</div>
+<div class="chart-wrap">${svgString}</div>
+${confidenceScore !== null ? `
+<div class="confidence-row">
+  <span style="color:rgba(255,255,255,.45)">Forecast Confidence:</span>
+  <span style="font-size:14px;font-weight:700;color:${confidenceColor}">${confidenceScore}%</span>
+  <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:${confidenceScore}%;background:${confidenceColor}"></div></div>
+  <span style="font-size:11px;color:rgba(255,255,255,.3)">${confidenceLabel} — based on historical volatility</span>
+</div>` : ""}
+<div class="legend">
+  <div class="legend-item"><svg width="24" height="3"><line x1="0" y1="1.5" x2="24" y2="1.5" stroke="${color}" stroke-width="2"/></svg><span>Historical (${appliedAnalyzeDays}d)</span></div>
+  <div class="legend-item"><svg width="24" height="3"><line x1="0" y1="1.5" x2="24" y2="1.5" stroke="${color}" stroke-width="2" stroke-dasharray="4,3"/></svg><span>Forecast (${appliedForecastDays}d)</span></div>
+  <div class="legend-item"><svg width="16" height="12"><rect x="0" y="0" width="16" height="12" fill="${color}" fill-opacity="0.15" rx="2"/></svg><span>Confidence Band</span></div>
+  <div class="legend-item"><svg width="8" height="8"><circle cx="4" cy="4" r="3" fill="${color}"/></svg><span>Data Points (${datapointLabel(appliedDatapoints)})</span></div>
+</div>
+${breachAnalysis ? `
+<div class="deep-dive">
+  <div class="urgency-header" style="background:${urgency === "act_now" ? "rgba(224,0,0,.12)" : urgency === "monitor" ? "rgba(255,200,0,.08)" : "rgba(13,156,41,.08)"}">
+    <span style="font-size:22px">${urgencyEmoji}</span>
+    <div>
+      <div class="urgency-label" style="color:${urgencyColor}">${urgencyLabel}</div>
+      <div class="urgency-desc">${urgencyDesc}</div>
+    </div>
+  </div>
+  ${metricsHtml}
+  ${breachHtml}
+  ${businessHtml}
+  <div class="next-steps">
+    <div class="section-title" style="color:${color};margin-bottom:10px">Recommended Next Steps</div>
+    ${stepsHtml}
+  </div>
+</div>` : ""}
+<div class="print-btn no-print">
+  <button class="print-action" onclick="window.print()">Print / Save PDF</button>
+</div>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+  }, [label, appliedForecastDays, appliedAnalyzeDays, appliedDatapoints, method, confidenceScore, breachAnalysis, businessImpact, nextSteps, urgency, metricMeta, rateAnalysis, recoveryProb, color, activeFromMs, activeToMs]);
+
   const allValues = useMemo(() => [...historicalData, ...forecastData, ...confidence.upper], [historicalData, forecastData, confidence.upper]);
   const totalPoints = historicalData.length + forecastData.length;
 
@@ -783,6 +968,9 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
               <option value="sarima" style={{ background: "#1a1e38", color: "#fff" }}>SARIMA</option>
               <option value="linear" style={{ background: "#1a1e38", color: "#fff" }}>Linear Regression</option>
             </select>
+            <button onClick={exportForecastPdf} style={{ background: "rgba(69,137,255,0.1)", color: "#4589FF", border: "1px solid rgba(69,137,255,0.35)", borderRadius: 6, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+              📄 PDF
+            </button>
             <button onClick={onClose} style={{ background: "rgba(128,128,128,0.2)", color: "#fff", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, padding: "6px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
               ✕ Close
             </button>
@@ -838,7 +1026,7 @@ export function ForecastModal({ label, sparkline, color = "#4589FF", onClose, ge
               <span style={{ fontSize: 13, color: "rgba(255,255,255,0.7)" }}>Loading data…</span>
             </div>
           )}
-          <svg width={W} height={H} style={{ display: "block", cursor: "crosshair" }} onMouseMove={handleMouseMove} onMouseLeave={() => setHoverIdx(null)}>
+          <svg ref={svgRef} width={W} height={H} style={{ display: "block", cursor: "crosshair" }} onMouseMove={handleMouseMove} onMouseLeave={() => setHoverIdx(null)}>
             {yTicks.map((t, i) => (
               <g key={i}>
                 <line x1={MARGIN.left} y1={t.y} x2={W - MARGIN.right} y2={t.y} stroke="rgba(128,128,128,0.15)" strokeWidth={1} />

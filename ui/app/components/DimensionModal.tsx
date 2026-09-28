@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export interface DimSlice { name: string; value: number; avg?: number; unit?: string; }
@@ -164,6 +164,101 @@ export function DimensionModal({ label, color, onClose, fetchGeo, fetchBrowser }
     return () => { active = false; };
   }, [selectedPct]);
 
+  const exportDimensionPdf = useCallback(() => {
+    const pieSvg = (data: DimSlice[], colors: string[]) => {
+      const total = data.reduce((s, d) => s + d.value, 0);
+      if (!total) return `<p style="opacity:0.4;font-size:12px;text-align:center;padding:32px">No data</p>`;
+      const R = 78, cx = 92, cy = 92;
+      let startAngle = -Math.PI / 2;
+      const paths = data.map((d, i) => {
+        const angle = (d.value / total) * Math.PI * 2;
+        const endAngle = startAngle + angle;
+        const x1 = cx + R * Math.cos(startAngle);
+        const y1 = cy + R * Math.sin(startAngle);
+        const x2 = cx + R * Math.cos(endAngle);
+        const y2 = cy + R * Math.sin(endAngle);
+        const largeArc = angle > Math.PI ? 1 : 0;
+        const path = `M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${R} ${R} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
+        startAngle = endAngle;
+        return `<path d="${path}" fill="${colors[i % colors.length]}" stroke="#151829" stroke-width="1.5"/>`;
+      }).join("");
+      return `<svg width="184" height="184" style="flex-shrink:0">${paths}<circle cx="${cx}" cy="${cy}" r="34" fill="#151829"/></svg>`;
+    };
+
+    const legendRows = (data: DimSlice[], colors: string[]) => {
+      const total = data.reduce((s, d) => s + d.value, 0);
+      return data.map((d, i) => {
+        const pct = total ? ((d.value / total) * 100).toFixed(1) : "0.0";
+        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+          <span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${colors[i % colors.length]};flex-shrink:0"></span>
+          <span style="font-size:11px;flex:1;opacity:0.85">${d.name}</span>
+          ${d.avg != null ? `<span style="font-size:10px;font-weight:700">${formatAvg(d.avg, d.unit)}</span>` : ""}
+          <span style="font-size:10px;opacity:0.45;font-weight:600;min-width:30px;text-align:right">${pct}%</span>
+        </div>`;
+      }).join("");
+    };
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Dimension Breakdown — ${label}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#151829;color:#e8eaf0;font-family:'Segoe UI',system-ui,sans-serif;padding:32px;font-size:13px}
+@media print{body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;padding:.4in}@page{margin:.5in;size:A4 landscape}.no-print{display:none!important}}
+.header-row{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;border-bottom:1px solid rgba(255,255,255,.07);padding-bottom:16px}
+h1{font-size:16px;font-weight:800;margin-bottom:3px}
+.subtitle{font-size:11px;opacity:0.4}
+.meta{font-size:11px;opacity:.4;text-align:right}
+.charts{display:grid;grid-template-columns:1fr 1px 1fr;gap:28px;align-items:start}
+.chart-block{display:flex;align-items:flex-start;gap:16px}
+.chart-title{font-size:10px;font-weight:700;opacity:0.45;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px}
+.divider{background:rgba(255,255,255,.07);min-height:200px}
+.footer{margin-top:20px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06);font-size:10px;opacity:0.3;text-align:right}
+.print-btn{margin-top:24px;display:flex;justify-content:center}
+button.print-action{padding:8px 24px;background:rgba(69,137,255,.85);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="header-row">
+  <div>
+    <h1>🌍 Dimension Breakdown</h1>
+    <div class="subtitle"><span style="color:${color ?? "#4589FF"};font-weight:700">${label}</span> &ensp;&middot;&ensp; Geographic &amp; Browser distribution &middot; ${selectedPct} &middot; last 7 days</div>
+  </div>
+  <div class="meta">Generated: ${new Date().toLocaleString()}</div>
+</div>
+<div class="charts">
+  <div>
+    <div class="chart-title">GEO breakdown (country)</div>
+    <div class="chart-block">
+      ${pieSvg(geoData, GEO_COLORS)}
+      <div style="padding-top:4px;flex:1">${legendRows(geoData, GEO_COLORS)}</div>
+    </div>
+  </div>
+  <div class="divider"></div>
+  <div>
+    <div class="chart-title">Browser breakdown</div>
+    <div class="chart-block">
+      ${pieSvg(browserData, BROWSER_COLORS)}
+      <div style="padding-top:4px;flex:1">${legendRows(browserData, BROWSER_COLORS)}</div>
+    </div>
+  </div>
+</div>
+<div class="footer">Dimension Breakdown &middot; User Journey</div>
+<div class="print-btn no-print">
+  <button class="print-action" onclick="window.print()">Print / Save PDF</button>
+</div>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+  }, [label, color, geoData, browserData, selectedPct]);
+
   return createPortal(
     <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)" }} onClick={onClose} />
@@ -214,6 +309,12 @@ export function DimensionModal({ label, color, onClose, fetchGeo, fetchBrowser }
                 </button>
               ))}
             </div>
+            <button
+              onClick={exportDimensionPdf}
+              style={{ background: "rgba(69,137,255,0.1)", border: "1px solid rgba(69,137,255,0.35)", borderRadius: 6, padding: "5px 12px", color: "#4589FF", cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+            >
+              📄 PDF
+            </button>
             <button
               onClick={onClose}
               style={{ background: "none", border: "none", color: "inherit", fontSize: 18, cursor: "pointer", opacity: 0.35, padding: "4px 8px", lineHeight: 1 }}
