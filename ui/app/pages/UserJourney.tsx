@@ -991,13 +991,21 @@ function KpiPanelOverlay({ label, rawValue, sparkline, color, panel, onClose, ef
       finding: isBusinessOutcome ? `${label} IS the conversion/revenue metric. Focus on what drives it: LCP, Error Rate, TTFB, INP, and Apdex have the strongest correlation.` : isWorsening ? `Recent ${worsePct.toFixed(1)}% ${effectiveHigherIsBetter ? "decline" : "increase"} may drive early funnel exits. Est. ~${funnelImpact.toFixed(1)}% conversion impact.` : `${label} is relatively stable. Low funnel exit risk at current values.`,
       rec: isBusinessOutcome ? "Use the KPI cards for LCP, Error Rate, TTFB, and INP — those metrics have the highest leverage on your conversion/revenue outcomes." : isWorsening ? `A ${worsePct.toFixed(0)}% worsening adds ~${funnelImpact.toFixed(1)}% abandonment. Check the Funnel tab and correlate with Business Analytics revenue data.` : "Continue monitoring. Set an alert if the trend reverses." },
     { id: "browser-geo", icon: "🌍", title: "Browser / Geo Specificity",
-      status: "info" as const,
-      finding: "Sparkline data is aggregated — browser and geo segmentation is not derivable at this level.",
-      rec: "Use 🌍 Dimension from this card's menu to break down by browser/OS and geo. Flag any segment with values 2x+ the overall average." },
+      status: (mean > 0 && std / mean > 0.35) ? "warning" : "ok",
+      finding: (mean > 0 && std / mean > 0.35)
+        ? `High coefficient of variation (${(std / mean * 100).toFixed(0)}%) — metric variability may indicate browser or geo-specific issues masked by aggregation.`
+        : `Metric variance is low (CV: ${mean > 0 ? (std / mean * 100).toFixed(0) : 0}%) — behavior appears relatively uniform across segments.`,
+      rec: (mean > 0 && std / mean > 0.35)
+        ? "Use 🌍 Dimension from this card's menu to break down by browser/OS and geo. Flag any segment with values 2x+ the overall average."
+        : "Use 🌍 Dimension to verify uniform behavior across segments. No urgent action needed." },
     { id: "pages", icon: "📋", title: "Pages / Actions Focus",
-      status: "info" as const,
-      finding: "Page-level breakdown requires per-page dimension data beyond this KPI's sparkline.",
-      rec: "Use 🌍 Dimension → split by page/action. Prioritize pages with high traffic AND poor metric values. Use 📅 Heatmap to find time/page patterns." },
+      status: isWorsening ? "warning" : "ok",
+      finding: isWorsening
+        ? `${label} is declining ${worsePct.toFixed(1)}% recently — specific pages or actions may be driving the degradation.`
+        : `${label} appears stable — page-level distribution is unlikely to reveal an active problem right now.`,
+      rec: isWorsening
+        ? "Use 🌍 Dimension → split by page/action. Prioritize pages with high traffic AND poor metric values. Use 📅 Heatmap to find time/page patterns."
+        : "Page-level breakdown is optional at this time. Use 📅 Heatmap if you suspect a specific page is contributing." },
     { id: "change", icon: "🔄", title: "Change / Deployment",
       status: changeDetected ? (changePct > 20 ? "critical" : "warning") : "ok",
       finding: changeDetected ? `Significant change point at ~${changePos}% into the period. Values shifted by ~${changePct.toFixed(0)}% (${fmt(maxShift)}).` : "No significant change point detected. Values appear to transition smoothly.",
@@ -8230,6 +8238,7 @@ interface HotnessAssistData {
     hotBucketCount: number;
     pct: number;
   }>;
+  rootCauseNarrative: string;
 }
 
 function analyzeHotnessTimelapse(
@@ -8508,6 +8517,25 @@ function analyzeHotnessTimelapse(
   const driftSlope = dn > 1 ? (dn * dSumXY - dSumX * dSumY) / (dn * dSumX2 - dSumX * dSumX) : 0;
   const driftLabel: "worsening" | "stable" | "improving" = driftSlope > 0.02 ? "worsening" : driftSlope < -0.02 ? "improving" : "stable";
 
+  // rootCauseNarrative — second paragraph with technical signal breakdown
+  const rcnParts: string[] = [];
+  if (errZ >= 1.0 && durZ >= 1.0) {
+    rcnParts.push(`Both error rate (+${errZ.toFixed(1)}σ) and latency (+${durZ.toFixed(1)}σ) spiked together, suggesting a compounding failure rather than a single root cause.`);
+  } else if (errZ >= 1.5) {
+    rcnParts.push(`Error-dominated degradation (+${errZ.toFixed(1)}σ above baseline) points to application errors as the primary driver — check 5xx logs and exception traces around ${worstRow.bucket}.`);
+  } else if (durZ >= 1.5) {
+    rcnParts.push(`Latency-dominated degradation (+${durZ.toFixed(1)}σ above baseline) without proportional error increase suggests infrastructure or database slowdowns — check DB query times and downstream dependencies.`);
+  }
+  if (hotBuckets >= 3 && criticalBuckets === 0) {
+    rcnParts.push(`The spread across ${hotBuckets} elevated buckets (none critical) suggests a gradual or background degradation — likely a slow memory leak, connection pool exhaustion, or gradual cache miss buildup.`);
+  }
+  if (worstProblems.length > 0) {
+    rcnParts.push(`Davis confirmed ${worstProblems.length} active problem${worstProblems.length > 1 ? "s" : ""} during the worst window — correlate ${worstProblems[0].displayId || "this"} problem timeline with deployment and infra change log.`);
+  }
+  const rootCauseNarrative = rcnParts.length > 0
+    ? rcnParts.join(" ")
+    : `Performance baseline delta vs best window: error rate ${errorRateDelta >= 0 ? "+" : ""}${errorRateDelta.toFixed(1)}pp, latency ${durationDelta >= 0 ? "+" : ""}${Math.round(durationDelta)}ms, Apdex ${apdexDelta >= 0 ? "-" : "+"}${Math.abs(apdexDelta).toFixed(3)}. Investigate the metrics with the largest Z-score deviation.`;
+
   return {
     summary, analyzedCount,
     worstIdx, worstBucketKey: worstRow.bucket, worstHotZ: worstZ, worstDriver,
@@ -8521,6 +8549,7 @@ function analyzeHotnessTimelapse(
     alertPattern, burstType, maxConsecutiveHot: maxRun,
     problemCorrelation, totalHotBuckets,
     episodeCount, longestEpisodeBuckets, avgRecoveryBuckets, driftSlope, driftLabel,
+    rootCauseNarrative,
   };
 }
 
@@ -8691,7 +8720,7 @@ function HotnessAssistPanel({
   .pat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
   .pat-card{border-radius:8px;padding:12px 14px;}
 </style></head><body>
-<div class="toolbar no-print"><button onclick="window.print()">Print / Save PDF</button></div>
+
 <h1>🔥 Hotness Assist Report</h1>
 <div style="font-size:11px;color:#888;margin-bottom:20px">${data.analyzedCount} of ${data.allHotness.length} buckets analyzed · ${data.hotBuckets} elevated · ${data.criticalBuckets} critical | Generated: ${ts}</div>
 
@@ -8808,7 +8837,7 @@ ${problemsHtml}
   const handleExportPdf = () => {
     const html = generateHotnessReportHtml();
     const win = window.open("", "_blank");
-    if (win) { win.document.write(html); win.document.close(); }
+    if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 400); }
   };
 
   return (
@@ -8848,10 +8877,13 @@ ${problemsHtml}
       <div style={{ overflowY: "auto", flex: 1, padding: "14px 16px" }}>
 
         {/* Summary */}
-        <div style={{ marginBottom: 14 }}>
-          <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: "100ms" }}>Summary</div>
+        <div style={{ marginBottom: 14, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "14px 16px" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "rgba(255,255,255,0.88)", marginBottom: 10, opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: "100ms" }}>🔥 Hotness Assist Analysis</div>
           <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(255,107,53,0.05)", border: "1px solid rgba(255,107,53,0.15)" }}>
             <StreamText text={data.summary} baseDelay={200} style={{ fontSize: 13, lineHeight: "1.6" }} />
+            {data.rootCauseNarrative && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "rgba(255,255,255,0.65)", lineHeight: "1.55" }}>{data.rootCauseNarrative}</div>
+            )}
           </div>
         </div>
 
@@ -8872,8 +8904,8 @@ ${problemsHtml}
         </div>
 
         {/* Hotness mini-chart */}
-        <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${chartDelay}ms` }}>
-          <div className="uj-ai-section-title">Hotness Timeline — Full Period</div>
+        <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${chartDelay}ms`, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "14px 16px" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "rgba(255,255,255,0.88)", marginBottom: 10 }}>📊 Hotness Timeline</div>
           <div style={{ background: "rgba(128,128,128,0.04)", border: "1px solid rgba(128,128,128,0.12)", borderRadius: 8, padding: "8px 10px 6px" }}>
             <svg width="100%" height="130" viewBox={`0 0 ${Math.max(data.allHotness.length * 6, 120)} 130`} preserveAspectRatio="none" style={{ display: "block" }}>
               {/* Threshold reference lines — chart area is y=24 to y=130 (106px) */}
@@ -8916,16 +8948,18 @@ ${problemsHtml}
         </div>
 
         {/* Pattern Analysis + Spike Duration cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${chartDelay + 400}ms` }}>
-          <div style={{ background: `${patternColor}12`, border: `1px solid ${patternColor}40`, borderRadius: 8, padding: "8px 12px" }}>
-            <div style={{ fontSize: 9, opacity: 0.55, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>Pattern Analysis</div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: patternColor }}>{patternLabel}</div>
-            <div style={{ fontSize: 10, opacity: 0.55, marginTop: 2 }}>{patternSubLabel}</div>
-          </div>
-          <div style={{ background: `${burstColor}12`, border: `1px solid ${burstColor}40`, borderRadius: 8, padding: "8px 12px" }}>
-            <div style={{ fontSize: 9, opacity: 0.55, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>Spike Duration</div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: burstColor }}>{burstLabel}</div>
-            <div style={{ fontSize: 10, opacity: 0.55, marginTop: 2 }}>{burstSubLabel}</div>
+        <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${chartDelay + 400}ms`, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "14px 16px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div style={{ background: `${patternColor}12`, border: `1px solid ${patternColor}40`, borderRadius: 8, padding: "8px 12px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.7)", marginBottom: 4 }}>🔍 Pattern Analysis</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: patternColor }}>{patternLabel}</div>
+              <div style={{ fontSize: 10, opacity: 0.55, marginTop: 2 }}>{patternSubLabel}</div>
+            </div>
+            <div style={{ background: `${burstColor}12`, border: `1px solid ${burstColor}40`, borderRadius: 8, padding: "8px 12px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.7)", marginBottom: 4 }}>⚡ Spike Behavior</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: burstColor }}>{burstLabel}</div>
+              <div style={{ fontSize: 10, opacity: 0.55, marginTop: 2 }}>{burstSubLabel}</div>
+            </div>
           </div>
         </div>
 
@@ -9048,8 +9082,8 @@ ${problemsHtml}
           return (
             <>
               {/* Group 1: What's Different — Worst #1 vs Best #1 */}
-              <div style={{ marginBottom: 6 }}>
-                <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${cardsDelay - 150}ms` }}>What's Different — Worst #1 vs Best #1</div>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "rgba(255,255,255,0.88)", opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${cardsDelay - 150}ms` }}>⚖️ What's Different</div>
               </div>
               <div style={{ marginBottom: 10, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${cardsDelay}ms` }}>
                 {cmpCard(
@@ -9103,8 +9137,8 @@ ${problemsHtml}
               {/* Group 2: Common Bad Signals — Worst #1 vs Worst #2 */}
               {data.worst2Idx !== data.worstIdx && (
                 <>
-                  <div style={{ marginBottom: 6 }}>
-                    <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${tableDelay + 150}ms` }}>Common Bad Signals — Worst #1 vs Worst #2</div>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: "rgba(255,255,255,0.88)", opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${tableDelay + 150}ms` }}>🔴 Common Bad Signals</div>
                   </div>
                   <div style={{ marginBottom: 10, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay + 200}ms` }}>
                     {cmpCard(
@@ -9143,8 +9177,8 @@ ${problemsHtml}
               {/* Group 3: Common Good Signals — Best #1 vs Best #2 */}
               {data.best2Idx !== data.bestIdx && (
                 <>
-                  <div style={{ marginBottom: 6 }}>
-                    <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${tableDelay + 500}ms` }}>Common Good Signals — Best #1 vs Best #2</div>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: "rgba(255,255,255,0.88)", opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${tableDelay + 500}ms` }}>✅ Common Good Signals</div>
                   </div>
                   <div style={{ marginBottom: 10, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${tableDelay + 550}ms` }}>
                     {cmpCard(
@@ -9185,8 +9219,8 @@ ${problemsHtml}
 
         {/* Insights */}
         {data.insights.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${insightOffset - 200}ms` }}>Insights</div>
+          <div style={{ marginBottom: 14, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "14px 16px" }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "rgba(255,255,255,0.88)", marginBottom: 10, opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${insightOffset - 200}ms` }}>💡 Insights</div>
             {data.insights.map((ins, i) => {
               const myOffset = insightOffset;
               insightOffset += insightDurations[i] + 240;
@@ -9202,8 +9236,8 @@ ${problemsHtml}
 
         {/* Recommendations */}
         {data.recommendations.length > 0 && (
-          <div style={{ marginBottom: 12 }}>
-            <div className="uj-ai-section-title" style={{ opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${insightOffset}ms` }}>Recommendations</div>
+          <div style={{ marginBottom: 12, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "14px 16px" }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "rgba(255,255,255,0.88)", marginBottom: 10, opacity: 0, animation: "uj-ai-typewriter 0.3s ease forwards", animationDelay: `${insightOffset}ms` }}>🎯 Recommendations</div>
             {data.recommendations.map((rec, i) => {
               const myOffset = insightOffset + 300 + i * 800;
               return (
@@ -9216,11 +9250,22 @@ ${problemsHtml}
           </div>
         )}
 
+        {/* Advanced Signals */}
+        {data.criticalBuckets > 0 && (
+          <div style={{ marginBottom: 14, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,131,43,0.3)", borderRadius: 12, padding: "14px 16px" }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#FF832B", marginBottom: 10 }}>🧠 Advanced Signals</div>
+            <div style={{ padding: "9px 12px", background: "rgba(255,7,58,0.06)", border: "1px solid rgba(255,7,58,0.2)", borderRadius: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#FF073A", marginRight: 8, textTransform: "uppercase" }}>SLO Breach</span>
+              <span style={{ fontSize: 12.5, color: "rgba(255,255,255,0.82)" }}>{data.criticalBuckets} critical bucket{data.criticalBuckets !== 1 ? "s" : ""} (Z≥2.5) of severe degradation detected this session — highest-priority remediation targets with the largest per-window revenue impact.</span>
+            </div>
+          </div>
+        )}
+
         {/* Problem Correlation */}
         {data.problemCorrelation.length > 0 && (
-          <div style={{ marginTop: 0 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
-              Problem Correlation · {data.totalHotBuckets} Hot Bucket{data.totalHotBuckets !== 1 ? "s" : ""}
+          <div style={{ marginBottom: 14, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "14px 16px" }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "rgba(255,255,255,0.88)", marginBottom: 10 }}>
+              🔗 Cross-Metric Correlation · {data.totalHotBuckets} Hot Bucket{data.totalHotBuckets !== 1 ? "s" : ""}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               {data.problemCorrelation.slice(0, 8).map((p, i) => {
@@ -9247,10 +9292,10 @@ ${problemsHtml}
           </div>
         )}
 
-        {/* Active Davis Problems — shown after recommendations */}
+        {/* Active Davis Problems — moved to bottom */}
         {data.worstProblems.length > 0 && (
-          <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${problemsDelay}ms` }}>
-            <div className="uj-ai-section-title">Active Problems During Worst Spike</div>
+          <div style={{ marginBottom: 14, opacity: 0, animation: "uj-ai-typewriter 0.4s ease forwards", animationDelay: `${problemsDelay}ms`, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,7,58,0.2)", borderRadius: 12, padding: "14px 16px" }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "rgba(255,255,255,0.88)", marginBottom: 10 }}>⚠️ Active Davis Problems</div>
             <div style={{ background: "rgba(255,7,58,0.04)", border: "1px solid rgba(255,7,58,0.15)", borderRadius: 8, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
               {data.worstProblems.map((p, i) => (
                 <div key={i} style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, padding: "2px 0", borderBottom: i < data.worstProblems.length - 1 ? "1px solid rgba(128,128,128,0.08)" : "none" }}>
@@ -22500,7 +22545,7 @@ ${whatChanged.length > 0 ? `<h2>Funnel Drop-off Shifts</h2><table><tr><th>From S
 }).join("")}</div>
 </body></html>`;
     const win = window.open("", "_blank");
-    if (win) { win.document.write(html); win.document.close(); }
+    if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 400); }
   };
 
   // ---------- Render ----------
