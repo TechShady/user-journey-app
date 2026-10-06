@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.65";
+const APP_VERSION_LABEL = "4.77.66";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -897,7 +897,7 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
         const goodConv = goodSess.length > 0 ? goodSess.filter(s => s.conv).length / goodSess.length * 100 : 0;
         const poorConv = poorSess.length > 0 ? poorSess.filter(s => s.conv).length / poorSess.length * 100 : 0;
         const sorted = [...sessions].sort((a, b) => a.val - b.val);
-        let bestThres = goodThres, bestDiff = Math.abs(goodConv - poorConv), bestGoodConv = goodConv, bestPoorConv = poorConv;
+        let bestThres = goodThres, bestDiff = 0, bestGoodConv = goodConv, bestPoorConv = poorConv;
         for (let p = 10; p <= 90; p += 5) {
           const idx = Math.floor(p / 100 * sorted.length);
           const thres = sorted[idx]?.val ?? goodThres;
@@ -921,9 +921,10 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
 
   return (
     <div className="uj-kpi-panel" style={{ marginTop: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <Text style={{ fontWeight: 700, fontSize: 13 }}>📉 Conversion Impact — {label}</Text>
-        <button className="kpi-action-btn" style={{ fontSize: 11, padding: "2px 8px" }} onClick={onClose}>✕ Close</button>
+      <div style={{ borderTop: "1px solid rgba(255,255,255,0.15)", margin: "0 -8px 0 -8px" }} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "8px 0 10px 0" }}>
+        <Text style={{ fontWeight: 700, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>📉 Conversion Impact — {label}</Text>
+        <button className="kpi-action-btn" style={{ fontSize: 12, padding: "1px 6px", marginLeft: 8, flexShrink: 0 }} onClick={onClose}>✕</button>
       </div>
       {status === "loading" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}><ProgressCircle size="small" /><Text style={{ fontSize: 12, opacity: 0.7 }}>Analyzing session data…</Text></div>}
       {status === "error" && <Text style={{ color: RED, fontSize: 12 }}>Error: {errMsg}</Text>}
@@ -16030,7 +16031,7 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
   return (
     <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
       {aiPanel}
-      <Flex gap={16} flexWrap="wrap" alignItems="center">
+      <Flex gap={16} flexWrap="wrap" alignItems="flex-start">
         <KpiCard label={tlShared ? "Performance Health (bucket)" : "Performance Health"} value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
         <KpiCard label="Duration" value={effV.duration > 0 ? `${effV.duration.toFixed(2)} s` : "N/A"} color={effV.duration > 5 ? RED : effV.duration > 2 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("duration", 1000000000, 2.0, "s")} />
         <KpiCard label={tlShared ? "Load Event End (bucket)" : "Load Event End"} value={fmt(effV.load)} color={effV.load > 3000 ? RED : effV.load > 1500 ? YELLOW : GREEN} rawValue={effV.load} prevRawValue={syntheticPrev(effV.load, "Load Event End")} sparkline={syntheticSparkline(effV.load, 8, "Load Event End")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("performance.load_event_end", 1000000, 1500, "ms")} />
@@ -16038,7 +16039,7 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
       </Flex>
 
       <SectionHeader title="Core Web Vitals" />
-      <Flex gap={16} flexWrap="wrap">
+      <Flex gap={16} flexWrap="wrap" alignItems="flex-start">
         <CwvCard label={tlShared ? "Largest Contentful Paint (bucket)" : "Largest Contentful Paint"} value={effV.lcp} unit="ms" metric="lcp" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("web_vitals.largest_contentful_paint", 1000000, 2500, "ms")} />
         <CwvCard label={tlShared ? "Cumulative Layout Shift (bucket)" : "Cumulative Layout Shift"} value={effV.cls} unit="" metric="cls" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("web_vitals.cumulative_layout_shift", 1, 0.1, "")} />
         <CwvCard label={tlShared ? "Interaction to Next Paint (bucket)" : "Interaction to Next Paint"} value={effV.inp} unit="ms" metric="inp" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("web_vitals.interaction_to_next_paint", 1000000, 200, "ms")} />
