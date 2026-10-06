@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.64";
+const APP_VERSION_LABEL = "4.77.65";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -874,6 +874,101 @@ function KpiSparkline({ data, color = "#4589FF" }: { data: number[]; color?: str
   );
 }
 
+interface ConversionImpactConfig { buildQuery: () => string; goodThres: number; unitLabel: string; }
+
+function ConversionImpactPanel({ config, label, onClose }: { config: ConversionImpactConfig; label: string; onClose: () => void }) {
+  const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
+  const [result, setResult] = useState<{ goodSessions: number; goodConv: number; poorSessions: number; poorConv: number; optimalThres: number; optimalGoodConv: number; optimalPoorConv: number } | null>(null);
+  const [errMsg, setErrMsg] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const records = await runDqlQuery(config.buildQuery());
+        if (cancelled) return;
+        const sessions = records
+          .map((r: any) => ({ val: Number(r.metric_val ?? 0), conv: r.converted === true || r.converted === "true" }))
+          .filter(s => isFinite(s.val) && s.val >= 0);
+        if (sessions.length === 0) { setStatus("done"); return; }
+        const { goodThres } = config;
+        const goodSess = sessions.filter(s => s.val <= goodThres);
+        const poorSess = sessions.filter(s => s.val > goodThres);
+        const goodConv = goodSess.length > 0 ? goodSess.filter(s => s.conv).length / goodSess.length * 100 : 0;
+        const poorConv = poorSess.length > 0 ? poorSess.filter(s => s.conv).length / poorSess.length * 100 : 0;
+        const sorted = [...sessions].sort((a, b) => a.val - b.val);
+        let bestThres = goodThres, bestDiff = Math.abs(goodConv - poorConv), bestGoodConv = goodConv, bestPoorConv = poorConv;
+        for (let p = 10; p <= 90; p += 5) {
+          const idx = Math.floor(p / 100 * sorted.length);
+          const thres = sorted[idx]?.val ?? goodThres;
+          const below = sorted.slice(0, idx), above = sorted.slice(idx);
+          if (below.length < 5 || above.length < 5) continue;
+          const bConv = below.filter(s => s.conv).length / below.length * 100;
+          const aConv = above.filter(s => s.conv).length / above.length * 100;
+          if (bConv - aConv > bestDiff) { bestDiff = bConv - aConv; bestThres = thres; bestGoodConv = bConv; bestPoorConv = aConv; }
+        }
+        setResult({ goodSessions: goodSess.length, goodConv, poorSessions: poorSess.length, poorConv, optimalThres: bestThres, optimalGoodConv: bestGoodConv, optimalPoorConv: bestPoorConv });
+        setStatus("done");
+      } catch (e: any) { if (!cancelled) { setErrMsg(e?.message ?? "Unknown error"); setStatus("error"); } }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const { goodThres, unitLabel } = config;
+  const fmtV = (v: number) => unitLabel === "" ? v.toFixed(3) : unitLabel === "s" ? `${v.toFixed(2)}s` : `${Math.round(v)}${unitLabel}`;
+  const fmtC = (v: number) => `${v.toFixed(1)}%`;
+
+  return (
+    <div className="uj-kpi-panel" style={{ marginTop: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <Text style={{ fontWeight: 700, fontSize: 13 }}>📉 Conversion Impact — {label}</Text>
+        <button className="kpi-action-btn" style={{ fontSize: 11, padding: "2px 8px" }} onClick={onClose}>✕ Close</button>
+      </div>
+      {status === "loading" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}><ProgressCircle size="small" /><Text style={{ fontSize: 12, opacity: 0.7 }}>Analyzing session data…</Text></div>}
+      {status === "error" && <Text style={{ color: RED, fontSize: 12 }}>Error: {errMsg}</Text>}
+      {status === "done" && !result && <Text style={{ fontSize: 12, opacity: 0.7 }}>No sessions with {label} data found.</Text>}
+      {status === "done" && result && (() => {
+        const total = result.goodSessions + result.poorSessions;
+        const lift = result.goodConv - result.poorConv;
+        const hasImpact = Math.abs(lift) >= 3;
+        return (
+          <div style={{ fontSize: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+              <div style={{ background: "rgba(13,156,41,0.08)", border: "1px solid rgba(13,156,41,0.25)", borderRadius: 6, padding: "8px 12px" }}>
+                <div style={{ color: GREEN, fontWeight: 700, marginBottom: 2 }}>Good (≤ {fmtV(goodThres)})</div>
+                <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtC(result.goodConv)}</div>
+                <div style={{ opacity: 0.6 }}>{result.goodSessions.toLocaleString()} sessions ({total > 0 ? Math.round(result.goodSessions / total * 100) : 0}%)</div>
+              </div>
+              <div style={{ background: "rgba(224,0,0,0.08)", border: "1px solid rgba(224,0,0,0.25)", borderRadius: 6, padding: "8px 12px" }}>
+                <div style={{ color: RED, fontWeight: 700, marginBottom: 2 }}>Poor (&gt; {fmtV(goodThres)})</div>
+                <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtC(result.poorConv)}</div>
+                <div style={{ opacity: 0.6 }}>{result.poorSessions.toLocaleString()} sessions ({total > 0 ? Math.round(result.poorSessions / total * 100) : 0}%)</div>
+              </div>
+            </div>
+            {hasImpact ? (
+              <>
+                <div style={{ background: "rgba(70,137,255,0.08)", border: "1px solid rgba(70,137,255,0.25)", borderRadius: 6, padding: "8px 12px", marginBottom: 8 }}>
+                  <span style={{ fontWeight: 700 }}>{lift > 0 ? `✅ +${lift.toFixed(1)}pp conversion lift` : `⚠️ ${lift.toFixed(1)}pp conversion drag`}</span>{" "}when {label} is within good threshold
+                </div>
+                {Math.abs(result.optimalThres - goodThres) / (goodThres || 1) > 0.05 && (
+                  <div style={{ background: "rgba(255,200,0,0.08)", border: "1px solid rgba(255,200,0,0.35)", borderRadius: 6, padding: "8px 12px" }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>🎯 Optimal threshold: {fmtV(result.optimalThres)}</div>
+                    <div style={{ opacity: 0.85 }}>Sessions ≤ {fmtV(result.optimalThres)} → <strong>{fmtC(result.optimalGoodConv)}</strong> conv &nbsp;|&nbsp; &gt; {fmtV(result.optimalThres)} → <strong>{fmtC(result.optimalPoorConv)}</strong> conv</div>
+                    <div style={{ marginTop: 4, opacity: 0.7 }}>Tune {label} to ≤ {fmtV(result.optimalThres)} to maximize conversions.</div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{ opacity: 0.7, fontStyle: "italic" }}>No significant conversion impact detected (difference &lt; 3pp between good and poor sessions).</div>
+            )}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 // Inline analysis panels launched from KPI card dropdown
 function KpiPanelOverlay({ label, rawValue, sparkline, color, panel, onClose, effectiveHigherIsBetter, onOpenPanel }: { label: string; rawValue?: number; sparkline?: number[]; color?: string; panel: "impact" | "anomaly" | "attribution" | "baseline" | "cost" | "diagnose"; onClose: () => void; effectiveHigherIsBetter: boolean; onOpenPanel?: (p: "impact" | "anomaly" | "attribution" | "baseline" | "cost" | "diagnose") => void }) {
   const valid = (sparkline ?? []).filter((v) => isFinite(v) && v != null);
@@ -1376,6 +1471,7 @@ interface KpiCardProps {
   isLoading?: boolean;
   style?: React.CSSProperties;
   query?: string;
+  conversionImpactConfig?: ConversionImpactConfig;
 }
 
 // Time-Lapse effective-value helper. When TL is playing, returns per-bucket shared metrics
@@ -1417,13 +1513,13 @@ function useEffectiveTL(baseSessions: number | undefined = undefined) {
   };
 }
 
-function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, inverted = false, sparkline, onDrillToForecast, customContent, isLoading, style, query }: KpiCardProps) {
+function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, inverted = false, sparkline, onDrillToForecast, customContent, isLoading, style, query, conversionImpactConfig }: KpiCardProps) {
   const forecastOpener = useContext(ForecastContext);
   const correlationsCtx = useContext(CorrelationsContext);
   const kpiMenuCtx = useContext(KpiMenuContext);
   const cardRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [activePanel, setActivePanel] = useState<"impact" | "anomaly" | "attribution" | "baseline" | "cost" | "diagnose" | null>(null);
+  const [activePanel, setActivePanel] = useState<"impact" | "anomaly" | "attribution" | "baseline" | "cost" | "diagnose" | "conversion" | null>(null);
   const hasSpark = sparkline && sparkline.length >= 2;
 
   useEffect(() => {
@@ -1564,11 +1660,16 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
             <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("baseline"); }}>📊 Baseline Compare</button>
             <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("cost"); }}>💰 Cost Impact</button>
             <button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("diagnose"); }}>🩺 Diagnose</button>
+            {conversionImpactConfig && <><div className="kpi-action-sep" /><button className="kpi-action-btn" onClick={() => { setMenuOpen(false); setActivePanel("conversion"); }}>📉 Conversion Impact</button></>}
           </div>,
           document.body
         );
       })()}
-      {activePanel && <KpiPanelOverlay label={label} rawValue={rawValue} sparkline={sparkline} color={color} panel={activePanel} onClose={() => setActivePanel(null)} effectiveHigherIsBetter={effectiveHigherIsBetter} onOpenPanel={(p) => { setMenuOpen(false); setActivePanel(p); }} />}
+      {activePanel === "conversion" && conversionImpactConfig
+        ? <ConversionImpactPanel config={conversionImpactConfig} label={label} onClose={() => setActivePanel(null)} />
+        : activePanel && activePanel !== "conversion"
+          ? <KpiPanelOverlay label={label} rawValue={rawValue} sparkline={sparkline} color={color} panel={activePanel} onClose={() => setActivePanel(null)} effectiveHigherIsBetter={effectiveHigherIsBetter} onOpenPanel={(p) => { setMenuOpen(false); setActivePanel(p); }} />
+          : null}
     </div>
   );
 }
@@ -2104,6 +2205,27 @@ fetch user.events, ${period}
     satisfied = countIf(dur_ms <= ${APDEX_T}.0),
     tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
     frustrated = countIf(dur_ms > ${APDEX_4T}.0)`;
+}
+
+function conversionImpactQuery(days: number, frontend: string, steps: StepDef[], metricField: string, divisor: number): string {
+  const period = periodClause(days);
+  const n = steps.length;
+  if (n === 0) return "fetch user.events | limit 0";
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const metricExpr = divisor !== 1 ? `toDouble(${metricField}) / ${divisor}.0` : `toDouble(${metricField})`;
+  return `fetch user.events, ${period}
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd metric_val = ${metricExpr}
+| summarize
+    steps = collectDistinct(step_tag),
+    metric_val = avg(metric_val),
+    by: {dt.rum.session.id}
+| fieldsAdd converted = iAny(steps[] == "step${n}")
+| fields metric_val, converted
+| filterOut isNull(metric_val) or metric_val < 0
+| limit 5000`;
 }
 
 // Per-funnel quality query for grade cards — mirrors sessionQualityQuery exactly.
@@ -3718,7 +3840,7 @@ function ApdexGauge({ score, size = 80, label }: { score: number; size?: number;
   );
 }
 
-function CwvCard({ label, value, unit, metric, onDrillToForecast, query }: { label: string; value: number; unit: string; metric: keyof typeof CWV; onDrillToForecast?: (label: string, sparkline: number[], color?: string) => void; query?: string }) {
+function CwvCard({ label, value, unit, metric, onDrillToForecast, query, conversionImpactConfig }: { label: string; value: number; unit: string; metric: keyof typeof CWV; onDrillToForecast?: (label: string, sparkline: number[], color?: string) => void; query?: string; conversionImpactConfig?: ConversionImpactConfig }) {
   const color = cwvClr(value, metric);
   const displayVal = metric === "cls" ? (isFinite(value) ? value.toFixed(3) : "—") : fmt(value);
   return (
@@ -3731,6 +3853,7 @@ function CwvCard({ label, value, unit, metric, onDrillToForecast, query }: { lab
       sparkline={syntheticSparkline(value, 8, label)}
       higherIsBetter={false}
       query={query}
+      conversionImpactConfig={conversionImpactConfig}
       onDrillToForecast={onDrillToForecast}
     />
   );
@@ -8077,7 +8200,7 @@ export function UserJourney() {
             case "Funnel Analysis": content = <FunnelAnalysisTab frontend={frontend} funnels={funnels} saveFunnels={saveFunnels} saveActiveFunnelIndex={saveActiveFunnelIndex} aov={aov} onJumpToTab={(t) => setActiveSubTabKey(t)} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
             case "Business Vitals": content = <BusinessVitalsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} cwv={cwv} aov={aov} isLoading={qualityData.isLoading || cwvResult.isLoading} onDrillToForecast={openForecast} qualityQuery={sessionQualityQuery(timeframeDays, frontend, steps, false)} />; break;
-            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvPages={cwvPages} cwvViews={cwvViews} cwvByPage={cwvByPage} cwvByPagePages={cwvByPagePages} cwvByPageViews={cwvByPageViews} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} cwvNotebookQuery={cwvQuery(timeframeDays, frontend, steps, "actions")} />; break;
+            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvPages={cwvPages} cwvViews={cwvViews} cwvByPage={cwvByPage} cwvByPagePages={cwvByPagePages} cwvByPageViews={cwvByPageViews} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} cwvNotebookQuery={cwvQuery(timeframeDays, frontend, steps, "actions")} buildConversionQuery={(metricField, divisor) => conversionImpactQuery(timeframeDays, frontend, steps, metricField, divisor)} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} stepQuery={stepMetricsQuery(timeframeDays, frontend, steps)} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} onDrillToForecast={openForecast} />; break;
             case "Exceptions": content = <JSErrorsTab data={jsErrorsData} prevData={jsErrorsPrevData} isLoading={jsErrorsData.isLoading} frontend={frontend} onDrillToForecast={openForecast} />; break;
@@ -15819,11 +15942,13 @@ function BusinessVitalsTab({ quality, qualityPrev, overallApdex, overallApdexPre
 
 // TAB: Web Vitals
 // ===========================================================================
-function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvByPage, cwvByPagePages, cwvByPageViews, cwvTrend, isLoading, appEntityId, onDrillToForecast, cwvNotebookQuery }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvPages: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvViews: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvByPagePages: any; cwvByPageViews: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; cwvNotebookQuery?: string }) {
+function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvByPage, cwvByPagePages, cwvByPageViews, cwvTrend, isLoading, appEntityId, onDrillToForecast, cwvNotebookQuery, buildConversionQuery }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvPages: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvViews: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvByPagePages: any; cwvByPageViews: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; cwvNotebookQuery?: string; buildConversionQuery?: (metricField: string, divisor: number) => string }) {
   const [cwvMode, setCwvMode] = React.useState<CwvMode>("actions");
   const v = cwvMode === "pages" ? vPages : cwvMode === "views" ? vViews : vActions;
   const activeByPage = cwvMode === "pages" ? cwvByPagePages : cwvMode === "views" ? cwvByPageViews : cwvByPage;
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWebVitals(v), [v]));
+  const makeConvImpact = (metricField: string, divisor: number, goodThres: number, unitLabel: string): ConversionImpactConfig | undefined =>
+    buildConversionQuery ? { buildQuery: () => buildConversionQuery(metricField, divisor), goodThres, unitLabel } : undefined;
   const tl = useTimelapse();
   if (isLoading) return <Loading />;
 
@@ -15907,17 +16032,17 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
       {aiPanel}
       <Flex gap={16} flexWrap="wrap" alignItems="center">
         <KpiCard label={tlShared ? "Performance Health (bucket)" : "Performance Health"} value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
-        <KpiCard label="Duration" value={effV.duration > 0 ? `${effV.duration.toFixed(2)} s` : "N/A"} color={effV.duration > 5 ? RED : effV.duration > 2 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
-        <KpiCard label={tlShared ? "Load Event End (bucket)" : "Load Event End"} value={fmt(effV.load)} color={effV.load > 3000 ? RED : effV.load > 1500 ? YELLOW : GREEN} rawValue={effV.load} prevRawValue={syntheticPrev(effV.load, "Load Event End")} sparkline={syntheticSparkline(effV.load, 8, "Load Event End")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
+        <KpiCard label="Duration" value={effV.duration > 0 ? `${effV.duration.toFixed(2)} s` : "N/A"} color={effV.duration > 5 ? RED : effV.duration > 2 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("duration", 1000000000, 2.0, "s")} />
+        <KpiCard label={tlShared ? "Load Event End (bucket)" : "Load Event End"} value={fmt(effV.load)} color={effV.load > 3000 ? RED : effV.load > 1500 ? YELLOW : GREEN} rawValue={effV.load} prevRawValue={syntheticPrev(effV.load, "Load Event End")} sparkline={syntheticSparkline(effV.load, 8, "Load Event End")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("performance.load_event_end", 1000000, 1500, "ms")} />
         <KpiCard label={tlShared ? "Failing Vitals (bucket)" : "Failing Vitals"} value={`${remediations.length}/4`} color={remediations.length > 2 ? RED : remediations.length > 0 ? YELLOW : GREEN} rawValue={remediations.length} prevRawValue={syntheticPrev(remediations.length, "Failing Vitals")} inverted sparkline={syntheticSparkline(remediations.length, 8, "Failing Vitals")} onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
       </Flex>
 
       <SectionHeader title="Core Web Vitals" />
       <Flex gap={16} flexWrap="wrap">
-        <CwvCard label={tlShared ? "Largest Contentful Paint (bucket)" : "Largest Contentful Paint"} value={effV.lcp} unit="ms" metric="lcp" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
-        <CwvCard label={tlShared ? "Cumulative Layout Shift (bucket)" : "Cumulative Layout Shift"} value={effV.cls} unit="" metric="cls" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
-        <CwvCard label={tlShared ? "Interaction to Next Paint (bucket)" : "Interaction to Next Paint"} value={effV.inp} unit="ms" metric="inp" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
-        <CwvCard label={tlShared ? "Time to First Byte (bucket)" : "Time to First Byte"} value={effV.ttfb} unit="ms" metric="ttfb" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
+        <CwvCard label={tlShared ? "Largest Contentful Paint (bucket)" : "Largest Contentful Paint"} value={effV.lcp} unit="ms" metric="lcp" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("web_vitals.largest_contentful_paint", 1000000, 2500, "ms")} />
+        <CwvCard label={tlShared ? "Cumulative Layout Shift (bucket)" : "Cumulative Layout Shift"} value={effV.cls} unit="" metric="cls" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("web_vitals.cumulative_layout_shift", 1, 0.1, "")} />
+        <CwvCard label={tlShared ? "Interaction to Next Paint (bucket)" : "Interaction to Next Paint"} value={effV.inp} unit="ms" metric="inp" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("web_vitals.interaction_to_next_paint", 1000000, 200, "ms")} />
+        <CwvCard label={tlShared ? "Time to First Byte (bucket)" : "Time to First Byte"} value={effV.ttfb} unit="ms" metric="ttfb" onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("web_vitals.time_to_first_byte", 1000000, 800, "ms")} />
       </Flex>
 
       {/* CWV Trend Chart */}
