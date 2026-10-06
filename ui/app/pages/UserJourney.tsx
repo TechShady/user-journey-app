@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.58";
+const APP_VERSION_LABEL = "4.77.63";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -374,7 +374,7 @@ const TRAFFIC_MULTIPLIERS = [0, 1, 2, 3, 4, 5, 10, 20, 30, 40, 50, 60, 70, 80, 9
 const APDEX_4T = 12000;
 
 const TAB_KEYS = [
-  "Funnel Overview", "Funnel Analysis", "Trends", "Web Vitals", "Step Details", "Worst Sessions",
+  "Funnel Overview", "Funnel Analysis", "Trends", "Business Vitals", "Web Vitals", "Step Details", "Worst Sessions",
   "Exceptions", "Click Issues", "Perf Budgets",
   "Geo Heatmap", "Maps", "Navigation Paths", "Sankey", "Anomaly Detection",
   "Conversion Attribution", "Executive Summary", "Segmentation",
@@ -396,7 +396,7 @@ type TabGroupDef = { label: string; subTabs: TabKey[] };
 const TAB_GROUPS: TabGroupDef[] = [
   { label: "Executive Summary", subTabs: ["Executive Summary"] },
   { label: "Funnel & Conversion", subTabs: ["Funnel Overview", "Funnel Analysis", "Step Details", "Trends", "Conversion Attribution", "Errors & Drop-offs"] },
-  { label: "User Experience", subTabs: ["Web Vitals", "Worst Sessions", "Click Issues", "Perf Budgets", "Resource Waterfall", "Third-Party Impact", "Hyperlyzer"] },
+  { label: "User Experience", subTabs: ["Business Vitals", "Web Vitals", "Worst Sessions", "Click Issues", "Perf Budgets", "Resource Waterfall", "Third-Party Impact", "Hyperlyzer"] },
   { label: "Navigation & Flows", subTabs: ["Navigation Paths", "Sankey", "Geo Heatmap", "Maps", "Session Replay Spotlight"] },
   { label: "Intelligence & AI", subTabs: ["Anomaly Detection", "Root Cause Correlation", "Predictive Forecasting", "Change Intelligence", "What-If Analysis"] },
   { label: "Engagement & Revenue", subTabs: ["Segmentation", "Cohort Retention", "Session Engagement", "Revenue Intelligence", "A/B Comparison"] },
@@ -6218,14 +6218,14 @@ export function UserJourney() {
     const enabled = tabs.some(t => visitedTabs.has(t) || t === activeSubTabKey || t === firstVisibleSubTab);
     return enabled ? refetchOpts : { ...refetchOpts, enabled: false };
   };
-  const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, false) }, lazyOpts(["Funnel Overview"]));
+  const funnelResult = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, false) }, lazyOpts(["Funnel Overview", "Business Vitals"]));
   const stepMetrics = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps) }, lazyOpts(["Funnel Overview"]));
   const stepMetricsPrev = useDql({ query: stepMetricsQuery(timeframeDays, frontend, steps, 1, true) }, lazyOpts(["Step Details"]));
   const hasMultiPageSteps = steps.some(s => s.identifiers.length > 1);
   const pageMetrics = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, baseOpts);
   const pageMetricsPrev = useDql({ query: hasMultiPageSteps ? pageMetricsQuery(timeframeDays, frontend, steps, 1, true) : "fetch user.events | limit 0" }, baseOpts);
   const pageSparklineData = useDql({ query: hasMultiPageSteps ? pageSparklineQuery(timeframeDays, frontend, steps) : "fetch user.events | limit 0" }, baseOpts);
-  const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend, steps, "actions") }, lazyOpts(["Web Vitals", "Executive Summary", "SLO Tracker"]));
+  const cwvResult = useDql({ query: cwvQuery(timeframeDays, frontend, steps, "actions") }, lazyOpts(["Web Vitals", "Business Vitals", "Executive Summary", "SLO Tracker"]));
   const cwvResultPages = useDql({ query: cwvQuery(timeframeDays, frontend, steps, "pages") }, lazyOpts(["Web Vitals"]));
   const cwvResultViews = useDql({ query: cwvQuery(timeframeDays, frontend, steps, "views") }, lazyOpts(["Web Vitals"]));
   const cwvByPage = useDql({ query: cwvByPageQuery(timeframeDays, frontend, steps, "actions") }, lazyOpts(["Web Vitals", "Step Details"]));
@@ -6235,11 +6235,11 @@ export function UserJourney() {
   const browserData = useDql({ query: browserQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
   const geoData = useDql({ query: geoQuery(timeframeDays, frontend, steps) }, lazyOpts(["Segmentation"]));
   const errorData = useDql({ query: errorQuery(timeframeDays, frontend, steps) }, lazyOpts(["Errors & Drop-offs"]));
-  const qualityData = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, false) }, lazyOpts(["Funnel Overview"]));
+  const qualityData = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, false) }, lazyOpts(["Funnel Overview", "Business Vitals"]));
 
   // Previous period queries (for Trends + Funnel Compare)
   const funnelResultPrev = useDql({ query: sessionFlowQuery(timeframeDays, frontend, steps, true) }, lazyOpts(["Funnel Overview"]));
-  const qualityDataPrev = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, true) }, lazyOpts(["Funnel Overview"]));
+  const qualityDataPrev = useDql({ query: sessionQualityQuery(timeframeDays, frontend, steps, true) }, lazyOpts(["Funnel Overview", "Business Vitals"]));
   const sparklineData = useDql({ query: trendsSparklineQuery(timeframeDays, frontend, steps) }, lazyOpts(["Funnel Overview"]));
   const convSparklineData = useDql({ query: trendsConvSparklineQuery(timeframeDays, frontend, steps) }, lazyOpts(["Funnel Overview"]));
 
@@ -8074,6 +8074,7 @@ export function UserJourney() {
             case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} timeframeDays={timeframeDays} frontend={frontend} hotnessMode={hotnessMode} />; break;
             case "Funnel Analysis": content = <FunnelAnalysisTab frontend={frontend} funnels={funnels} saveFunnels={saveFunnels} saveActiveFunnelIndex={saveActiveFunnelIndex} aov={aov} onJumpToTab={(t) => setActiveSubTabKey(t)} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
+            case "Business Vitals": content = <BusinessVitalsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} cwv={cwv} aov={aov} isLoading={qualityData.isLoading || cwvResult.isLoading} onDrillToForecast={openForecast} qualityQuery={sessionQualityQuery(timeframeDays, frontend, steps, false)} />; break;
             case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvPages={cwvPages} cwvViews={cwvViews} cwvByPage={cwvByPage} cwvByPagePages={cwvByPagePages} cwvByPageViews={cwvByPageViews} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} cwvNotebookQuery={cwvQuery(timeframeDays, frontend, steps, "actions")} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} stepQuery={stepMetricsQuery(timeframeDays, frontend, steps)} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} onDrillToForecast={openForecast} />; break;
@@ -9851,6 +9852,44 @@ function analyzeTrends(quality: any, qualityPrev: any, overallApdex: number, ove
   }
 
   const summary = `Trends provides period-over-period comparison of every key performance and business metric, enabling you to detect regressions, validate improvements, and understand momentum. It is designed for Engineering Managers tracking release impact, Product Owners monitoring business health, and SREs validating incident resolution. It answers: Are we improving or regressing? How do sessions, conversion, Apdex, errors, and duration compare to the previous equivalent period? Currently, sessions are ${sessionDelta >= 0 ? "up" : "down"} ${Math.abs(sessionDelta).toFixed(1)}%, conversion is ${convDelta >= 0 ? "up" : "down"} ${Math.abs(convDelta).toFixed(1)}%, and Apdex is ${apdexDelta >= 0 ? "up" : "down"} ${Math.abs(apdexDelta).toFixed(1)}%. ${convDelta < -5 || apdexDelta < -10 ? "A regression has been detected — correlate with recent deployments or infrastructure changes. Click any KPI card in Funnel Overview to drill into Predictive Forecasting for trajectory analysis." : "Metrics are trending stable or positive."} Each metric card includes a daily sparkline tracing the metric's shape across the current period, and an inline anomaly badge powered by z-score analysis: ⚠ Anomaly (>2 std dev from daily mean — statistically significant change), ↑ Notable (1.2–2 std dev), or ∿ Normal (<1.2 std dev — within expected noise). Use the anomaly badges to quickly distinguish real regressions from day-to-day variance before digging into root cause. When AOV is configured, a Revenue trend card shows estimated revenue change. Use this tab after every deployment or campaign launch to verify impact.`;
+  return { summary, insights, recommendations: recs };
+}
+
+function analyzeBusinessVitals(opts: {
+  apdex: number; frustrationRate: number; satisfiedRate: number;
+  perfSuccessRate: number; experienceScore: number; journeyScore: number;
+  riskAmt: number | null; perfConvIndex: number | null; impactPct: number; digitalHealth: number;
+  aov: number; overallConv: number; totalFrustrated: number;
+}): AIInsightsData {
+  const { apdex, frustrationRate, satisfiedRate, perfSuccessRate, experienceScore, journeyScore, riskAmt, perfConvIndex, impactPct, digitalHealth, aov, overallConv, totalFrustrated } = opts;
+  const insights: InsightItem[] = [];
+  const recs: RecommendationItem[] = [];
+
+  if (apdex >= 0.85) insights.push({ severity: "good", icon: "✅", text: `Apdex of ${apdex.toFixed(2)} is Excellent (≥0.85). Users are highly satisfied with application performance.` });
+  else if (apdex >= 0.70) { insights.push({ severity: "warning", icon: "⚠️", text: `Apdex of ${apdex.toFixed(2)} is Fair (0.70–0.84). A notable share of users are tolerating or frustrated.` }); recs.push({ impact: "high", text: "Improve Apdex by reducing p90 response times — profile the slowest user actions and optimize server-side processing or introduce caching." }); }
+  else { insights.push({ severity: "critical", icon: "🔴", text: `Apdex of ${apdex.toFixed(2)} is Poor (<0.70). The majority of user interactions are unacceptably slow.` }); recs.push({ impact: "high", text: "Critical Apdex: Audit all funnel-step response times. Prioritize backend optimizations — database queries, API latency, and CDN edge caching." }); }
+
+  if (frustrationRate < 5) insights.push({ severity: "good", icon: "✅", text: `Frustration Rate of ${frustrationRate.toFixed(1)}% is healthy. Fewer than 1 in 20 interactions are frustrating.` });
+  else if (frustrationRate < 15) { insights.push({ severity: "warning", icon: "⚠️", text: `Frustration Rate of ${frustrationRate.toFixed(1)}% (${fmtCount(totalFrustrated)} users) indicates a growing performance problem.` }); recs.push({ impact: "medium", text: "Reduce frustration by targeting the slowest pages in your funnel — use the Step Details and Web Vitals tabs to pinpoint offenders." }); }
+  else { insights.push({ severity: "critical", icon: "🔴", text: `Frustration Rate of ${frustrationRate.toFixed(1)}% (${fmtCount(totalFrustrated)} users) is high — over 1 in 7 interactions are frustrating.` }); recs.push({ impact: "high", text: "Immediate action needed: high frustration rates directly correlate with increased bounce rates and conversion loss. Use Root Cause Correlation to identify backend contributors." }); }
+
+  if (digitalHealth >= 80) insights.push({ severity: "good", icon: "✅", text: `Digital Health Score of ${digitalHealth}/100 indicates strong overall experience across performance, reliability, and business metrics.` });
+  else if (digitalHealth >= 60) insights.push({ severity: "warning", icon: "⚠️", text: `Digital Health Score of ${digitalHealth}/100 signals room for improvement in one or more experience dimensions.` });
+  else { insights.push({ severity: "critical", icon: "🔴", text: `Digital Health Score of ${digitalHealth}/100 indicates systemic experience problems affecting user satisfaction and business outcomes.` }); recs.push({ impact: "high", text: "Holistic remediation required: address performance (Apdex), Core Web Vitals, and error rates in parallel to lift the Digital Health Score." }); }
+
+  if (riskAmt !== null && riskAmt > 0) {
+    insights.push({ severity: riskAmt > 10000 ? "critical" : "warning", icon: riskAmt > 10000 ? "🔴" : "⚠️", text: `${fmtCurrency(riskAmt)} revenue at risk from ${fmtCount(totalFrustrated)} frustrated users who failed to convert.` });
+    recs.push({ impact: "high", text: `Reducing frustration rate by 5 percentage points could recover an estimated ${fmtCurrency(Math.round(riskAmt * 0.5))} in at-risk revenue based on current AOV and conversion rate.` });
+  } else if (aov === 0) {
+    insights.push({ severity: "info", icon: "💡", text: "Revenue-at-Risk calculation is unavailable — configure Average Order Value (AOV) in app settings to unlock this metric." });
+  }
+
+  if (perfConvIndex !== null && overallConv > 0 && apdex < 0.85) {
+    const perfPenalty = overallConv - perfConvIndex;
+    recs.push({ impact: "medium", text: `Performance is reducing conversion efficiency by ~${perfPenalty.toFixed(1)} percentage points. Improving Apdex to 1.0 could recover ${fmtPct(perfPenalty)} in conversion rate.` });
+  }
+
+  const summary = `Business Vitals translates raw performance metrics into executive-ready business KPIs. It answers the question "Is our digital experience helping or hurting the business?" by combining user satisfaction (Apdex, Frustration Rate, Satisfied User Rate), performance quality (Performance Success Rate, Experience Score), and business impact (Business Journey Score, Revenue-at-Risk, Perf-to-Conversion Index, User Impact Score, Digital Health Score) into a single unified view. Current Digital Health Score: ${digitalHealth}/100. Apdex: ${apdex.toFixed(2)} — ${apdex >= 0.85 ? "Excellent" : apdex >= 0.70 ? "Fair" : "Poor"}. Frustration Rate: ${frustrationRate.toFixed(1)}% (${fmtCount(totalFrustrated)} users affected). ${riskAmt !== null ? `Revenue at Risk: ${fmtCurrency(riskAmt)} based on current conversion rate and AOV.` : "Configure AOV in settings to unlock Revenue-at-Risk calculations."} ${satisfiedRate >= 80 ? "Satisfaction levels are strong." : `${satisfiedRate.toFixed(0)}% of users are satisfied — ${100 - satisfiedRate < 20 ? "close to the 80% target" : "well below the 80% benchmark"}.`} The Experience Score (${experienceScore}/100) synthesizes Apdex, CWV health, and reliability into a single user-centric quality signal, while the Digital Health Score (${digitalHealth}/100) layers in business conversion context to give an executive-level health indicator.`;
   return { summary, insights, recommendations: recs };
 }
 
@@ -15562,6 +15601,220 @@ function TrendsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overa
 }
 
 // ===========================================================================
+// TAB: Business Vitals
+// ===========================================================================
+type BizQuality = { total: number; sessions: number; avg: number; p50: number; p90: number; errors: number; satisfied: number; tolerating: number; frustrated: number };
+function BusinessVitalsTab({ quality, qualityPrev, overallApdex, overallApdexPrev, overallConv, overallConvPrev, cwv, aov, isLoading, onDrillToForecast, qualityQuery }: {
+  quality: BizQuality; qualityPrev: BizQuality;
+  overallApdex: number; overallApdexPrev: number;
+  overallConv: number; overallConvPrev: number;
+  cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number };
+  aov: number; isLoading: boolean;
+  onDrillToForecast: (label: string, sparkline: number[], color?: string) => void;
+  qualityQuery?: string;
+}) {
+  const eff = useEffectiveTL(quality.sessions);
+  const tlShared = eff.on ? eff.shared : null;
+
+  const effSatisfied  = tlShared?.satisfied  ?? quality.satisfied;
+  const effTolerating = tlShared?.tolerating ?? quality.tolerating;
+  const effFrustrated = tlShared?.frustrated ?? quality.frustrated;
+  const effSessions   = tlShared?.sessions   ?? quality.sessions;
+  const effApdex      = tlShared?.apdex      ?? overallApdex;
+  const effErrors     = tlShared?.errorCount ?? quality.errors;
+  const effTotal      = Math.max(effSatisfied + effTolerating + effFrustrated, quality.total, 1);
+  const prevTotal     = Math.max(qualityPrev.total, 1);
+
+  // --- 1. Apdex ---
+  const apdex     = effApdex;
+  const apdexPrev = overallApdexPrev;
+
+  // --- 2. Frustration Rate ---
+  const frustrationRate     = (effFrustrated / effTotal) * 100;
+  const frustrationRatePrev = (qualityPrev.frustrated / prevTotal) * 100;
+
+  // --- 3. Satisfied User Rate ---
+  const satisfiedRate     = (effSatisfied / effTotal) * 100;
+  const satisfiedRatePrev = (qualityPrev.satisfied / prevTotal) * 100;
+
+  // --- 4. Performance Success Rate (not frustrated = within 4×T) ---
+  const perfSuccessRate     = ((effSatisfied + effTolerating) / effTotal) * 100;
+  const perfSuccessRatePrev = ((qualityPrev.satisfied + qualityPrev.tolerating) / prevTotal) * 100;
+
+  // --- CWV component scores (for composite metrics) ---
+  const lcpScore  = cwv.lcp  <= CWV.lcp.good  ? 100 : cwv.lcp  <= CWV.lcp.poor  ? 50 : 0;
+  const clsScore  = cwv.cls  <= CWV.cls.good  ? 100 : cwv.cls  <= CWV.cls.poor  ? 50 : 0;
+  const inpScore  = cwv.inp  <= CWV.inp.good  ? 100 : cwv.inp  <= CWV.inp.poor  ? 50 : 0;
+  const ttfbScore = cwv.ttfb <= CWV.ttfb.good ? 100 : cwv.ttfb <= CWV.ttfb.poor ? 50 : 0;
+  const cwvHealth = cwv.lcp > 0 ? Math.round(lcpScore * 0.35 + clsScore * 0.25 + inpScore * 0.25 + ttfbScore * 0.15) : 50;
+  const effErrorFreeRate = effTotal > 0 ? ((effTotal - effErrors) / effTotal) * 100 : 100;
+
+  // --- 5. Experience Score (user-centric composite 0–100) ---
+  // Apdex 40% + CWV health 30% + error-free reliability 20% + satisfied rate 10%
+  const experienceScore = Math.round(apdex * 100 * 0.40 + cwvHealth * 0.30 + effErrorFreeRate * 0.20 + satisfiedRate * 0.10);
+
+  // --- 6. Business Journey Score (funnel conv 50% + Apdex 50%, 0–100) ---
+  const convScore     = overallConv > 0 ? Math.min(overallConv * 2, 100) : apdex * 100;
+  const convScorePrev = overallConvPrev > 0 ? Math.min(overallConvPrev * 2, 100) : apdexPrev * 100;
+  const journeyScore     = Math.round(convScore * 0.50 + apdex * 100 * 0.50);
+  const journeyScorePrev = Math.round(convScorePrev * 0.50 + apdexPrev * 100 * 0.50);
+
+  // --- 7. Revenue-at-Risk ---
+  const riskAmt     = aov > 0 && effTotal > 0 ? Math.round(effFrustrated * (overallConv / 100) * aov) : null;
+  const riskAmtPrev = aov > 0 && prevTotal > 0 ? Math.round(qualityPrev.frustrated * (overallConvPrev / 100) * aov) : null;
+
+  // --- 8. Perf-to-Conversion Index (performance-weighted conversion efficiency) ---
+  const perfConvIndex     = overallConv > 0 ? overallConv * apdex : null;
+  const perfConvIndexPrev = overallConvPrev > 0 ? overallConvPrev * apdexPrev : null;
+
+  // --- 9. User Impact Score (% of sessions frustrated) ---
+  const impactPct     = effSessions > 0 ? (effFrustrated / effSessions) * 100 : 0;
+  const impactPctPrev = qualityPrev.sessions > 0 ? (qualityPrev.frustrated / qualityPrev.sessions) * 100 : 0;
+
+  // --- 10. Digital Health Score (executive composite 0–100) ---
+  // Experience 40% + CWV health 30% + business conversion signal 20% + inverse user impact 10%
+  const businessSignal  = overallConv > 0 ? Math.min(overallConv * 2, 100) : apdex * 100;
+  const inverseImpact   = Math.max(0, 100 - impactPct * 2);
+  const digitalHealth   = Math.round(experienceScore * 0.40 + cwvHealth * 0.30 + businessSignal * 0.20 + inverseImpact * 0.10);
+
+  const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeBusinessVitals({
+    apdex, frustrationRate, satisfiedRate, perfSuccessRate, experienceScore, journeyScore,
+    riskAmt, perfConvIndex, impactPct, digitalHealth, aov, overallConv, totalFrustrated: effFrustrated,
+  }), [apdex, frustrationRate, satisfiedRate, perfSuccessRate, experienceScore, journeyScore, riskAmt, perfConvIndex, impactPct, digitalHealth, aov, overallConv, effFrustrated]));
+
+  if (isLoading) return <Loading />;
+
+  const q = qualityQuery;
+
+  return (
+    <Flex flexDirection="column" gap={20} style={{ paddingTop: 16 }}>
+      {aiPanel}
+
+      <SectionHeader title="Satisfaction Metrics" />
+      <Flex gap={16} flexWrap="wrap">
+        <KpiCard
+          label={eff.label("Apdex")}
+          value={apdex.toFixed(2)}
+          color={apdex >= 0.85 ? GREEN : apdex >= 0.70 ? YELLOW : RED}
+          rawValue={apdex}
+          prevRawValue={apdexPrev}
+          higherIsBetter
+          sparkline={syntheticSparkline(apdex, 8, "Apdex")}
+          onDrillToForecast={onDrillToForecast}
+          query={q}
+        />
+        <KpiCard
+          label={eff.label("Frustration Rate")}
+          value={fmtPct(frustrationRate)}
+          color={frustrationRate < 5 ? GREEN : frustrationRate < 15 ? YELLOW : RED}
+          rawValue={frustrationRate}
+          prevRawValue={frustrationRatePrev}
+          inverted
+          sparkline={syntheticSparkline(frustrationRate, 8, "Frustration Rate")}
+          onDrillToForecast={onDrillToForecast}
+          query={q}
+        />
+        <KpiCard
+          label={eff.label("Satisfied User Rate")}
+          value={fmtPct(satisfiedRate)}
+          color={satisfiedRate >= 80 ? GREEN : satisfiedRate >= 60 ? YELLOW : RED}
+          rawValue={satisfiedRate}
+          prevRawValue={satisfiedRatePrev}
+          higherIsBetter
+          sparkline={syntheticSparkline(satisfiedRate, 8, "Satisfied User Rate")}
+          onDrillToForecast={onDrillToForecast}
+          query={q}
+        />
+      </Flex>
+
+      <SectionHeader title="Performance Scores" />
+      <Flex gap={16} flexWrap="wrap">
+        <KpiCard
+          label={eff.label("Performance Success Rate")}
+          value={fmtPct(perfSuccessRate)}
+          color={perfSuccessRate >= 95 ? GREEN : perfSuccessRate >= 80 ? YELLOW : RED}
+          rawValue={perfSuccessRate}
+          prevRawValue={perfSuccessRatePrev}
+          higherIsBetter
+          sparkline={syntheticSparkline(perfSuccessRate, 8, "Performance Success Rate")}
+          onDrillToForecast={onDrillToForecast}
+          query={q}
+        />
+        <KpiCard
+          label={eff.label("Experience Score")}
+          value={`${experienceScore}/100`}
+          color={experienceScore >= 80 ? GREEN : experienceScore >= 60 ? YELLOW : RED}
+          rawValue={experienceScore}
+          prevRawValue={null}
+          higherIsBetter
+          sparkline={syntheticSparkline(experienceScore, 8, "Experience Score")}
+          onDrillToForecast={onDrillToForecast}
+          query={q}
+        />
+        <KpiCard
+          label={eff.label("Digital Health Score")}
+          value={`${digitalHealth}/100`}
+          color={digitalHealth >= 80 ? GREEN : digitalHealth >= 60 ? YELLOW : RED}
+          rawValue={digitalHealth}
+          prevRawValue={null}
+          higherIsBetter
+          sparkline={syntheticSparkline(digitalHealth, 8, "Digital Health Score")}
+          onDrillToForecast={onDrillToForecast}
+          query={q}
+        />
+      </Flex>
+
+      <SectionHeader title="Business Impact" />
+      <Flex gap={16} flexWrap="wrap">
+        <KpiCard
+          label={eff.label("Business Journey Score")}
+          value={`${journeyScore}/100`}
+          color={journeyScore >= 80 ? GREEN : journeyScore >= 60 ? YELLOW : RED}
+          rawValue={journeyScore}
+          prevRawValue={journeyScorePrev}
+          higherIsBetter
+          sparkline={syntheticSparkline(journeyScore, 8, "Business Journey Score")}
+          onDrillToForecast={onDrillToForecast}
+          query={q}
+        />
+        <KpiCard
+          label={eff.label("Revenue at Risk")}
+          value={riskAmt !== null ? fmtCurrency(riskAmt) : "N/A"}
+          color={riskAmt === null ? BLUE : riskAmt === 0 ? GREEN : frustrationRate < 5 ? YELLOW : RED}
+          rawValue={riskAmt ?? 0}
+          prevRawValue={riskAmtPrev}
+          inverted
+          sparkline={syntheticSparkline(riskAmt ?? 0, 8, "Revenue at Risk")}
+          onDrillToForecast={onDrillToForecast}
+          query={q}
+        />
+        <KpiCard
+          label={eff.label("Perf-to-Conversion Index")}
+          value={perfConvIndex !== null ? fmtPct(perfConvIndex) : "N/A"}
+          color={perfConvIndex === null ? BLUE : perfConvIndex >= 25 ? GREEN : perfConvIndex >= 10 ? YELLOW : RED}
+          rawValue={perfConvIndex ?? 0}
+          prevRawValue={perfConvIndexPrev}
+          higherIsBetter
+          sparkline={syntheticSparkline(perfConvIndex ?? 0, 8, "Perf-to-Conversion Index")}
+          onDrillToForecast={onDrillToForecast}
+          query={q}
+        />
+        <KpiCard
+          label={eff.label("User Impact Score")}
+          value={fmtPct(impactPct)}
+          color={impactPct < 5 ? GREEN : impactPct < 20 ? YELLOW : RED}
+          rawValue={impactPct}
+          prevRawValue={impactPctPrev}
+          inverted
+          sparkline={syntheticSparkline(impactPct, 8, "User Impact Score")}
+          onDrillToForecast={onDrillToForecast}
+          query={q}
+        />
+      </Flex>
+    </Flex>
+  );
+}
+
 // TAB: Web Vitals
 // ===========================================================================
 function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvByPage, cwvByPagePages, cwvByPageViews, cwvTrend, isLoading, appEntityId, onDrillToForecast, cwvNotebookQuery }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvPages: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvViews: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvByPagePages: any; cwvByPageViews: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; cwvNotebookQuery?: string }) {
