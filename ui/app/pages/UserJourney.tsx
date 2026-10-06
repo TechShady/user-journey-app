@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.67";
+const APP_VERSION_LABEL = "4.77.69";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -917,13 +917,13 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
 
   const { goodThres, unitLabel } = config;
   const fmtV = (v: number) => unitLabel === "" ? v.toFixed(3) : unitLabel === "s" ? `${v.toFixed(2)}s` : `${Math.round(v)}${unitLabel}`;
-  const fmtC = (v: number) => `${v.toFixed(1)}%`;
+  const fmtC = (v: number) => `${v.toFixed(1)}% conv`;
 
   return (
     <div className="uj-kpi-panel" style={{ marginTop: 8 }}>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.15)", margin: "0 -8px 8px -8px" }} />
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-        <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>📉 Conversion Impact — {label}</span>
+        <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "rgba(255,255,255,0.9)" }}>📉 Conversion Impact — {label}</span>
         <button className="kpi-action-btn" style={{ fontSize: 12, padding: "1px 6px", flexShrink: 0 }} onClick={onClose}>✕</button>
       </div>
       {status === "loading" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}><ProgressCircle size="small" /><Text style={{ fontSize: 12, opacity: 0.7 }}>Analyzing session data…</Text></div>}
