@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.63";
+const APP_VERSION_LABEL = "4.77.64";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1540,8 +1540,10 @@ function KpiCard({ label, value, color, rawValue, prevRawValue, higherIsBetter, 
         const rect = cardRef.current?.getBoundingClientRect();
         if (!rect) return null;
         const menuW = 200;
+        const menuH = 340; // approximate max menu height (10 items + separators)
         const left = Math.max(8, Math.min(window.innerWidth - menuW - 8, rect.left + rect.width / 2 - menuW / 2));
-        const top = rect.bottom + 6;
+        const spaceBelow = window.innerHeight - rect.bottom - 6;
+        const top = spaceBelow >= menuH ? rect.bottom + 6 : Math.max(8, rect.top - menuH - 6);
         return createPortal(
           <div
             className="kpi-action-menu kpi-action-menu-portal"
