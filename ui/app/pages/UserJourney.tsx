@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.72";
+const APP_VERSION_LABEL = "4.77.73";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -957,7 +957,7 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
         <td style="padding:6px 8px;border-bottom:1px solid #2a2e4a;color:#0D9C29">${fmtC(sr.goodConv)}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #2a2e4a;color:#E00000">${fmtC(sr.poorConv)}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #2a2e4a;color:${liftClr};font-weight:700">${Math.abs(sl) >= 3 ? (sl > 0 ? `+${sl.toFixed(1)}pp` : `${sl.toFixed(1)}pp`) : "—"}</td>
-        <td style="padding:6px 8px;border-bottom:1px solid #2a2e4a;color:#FFC800">${sHasOpt && Math.abs(sl) >= 3 ? fmtV(sr.optimalThres) : "—"}</td></tr>`;
+        <td style="padding:6px 8px;border-bottom:1px solid #2a2e4a;color:#B8860B">${Math.abs(sl) >= 3 ? fmtV(sr.optimalThres) : "—"}</td></tr>`;
     }).join("");
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>📉 Conversion Impact — ${label}</title>
     <style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0f1221;color:#e8eaf0;font-family:'Segoe UI',system-ui,sans-serif;padding:32px;font-size:13px}
@@ -1025,40 +1025,41 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
 
   return (
     <div className="uj-kpi-panel" style={{ marginTop: 8 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, borderTop: "1px solid rgba(255,255,255,0.18)", paddingTop: 8, marginBottom: 10 }}>
-        <div style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 12, color: "#e8eaf0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>📉 Conversion Impact — {label}</div>
-        {status === "done" && overall && <button onClick={exportPdf} style={{ background: "rgba(69,137,255,0.15)", border: "1px solid rgba(69,137,255,0.3)", borderRadius: 6, color: "#4589FF", padding: "2px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600, flexShrink: 0 }}>📄 PDF</button>}
-        <button className="kpi-action-btn" style={{ fontSize: 12, padding: "1px 6px", flexShrink: 0 }} onClick={onClose}>✕</button>
+      <div style={{ borderTop: "1px solid rgba(255,255,255,0.18)", paddingTop: 8, marginBottom: 10 }}>
+        <div style={{ textAlign: "left", fontWeight: 700, fontSize: 13, color: "#ffffff", marginBottom: 6, lineHeight: 1.3 }}>📉 Conversion Impact — {label}</div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+          {status === "done" && overall && <button onClick={exportPdf} style={{ background: "rgba(69,137,255,0.15)", border: "1px solid rgba(69,137,255,0.3)", borderRadius: 6, color: "#4589FF", padding: "2px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>📄 PDF</button>}
+          <button onClick={onClose} style={{ background: "rgba(128,128,128,0.2)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, color: "#fff", padding: "2px 8px", cursor: "pointer", fontSize: 12 }}>✕</button>
+        </div>
       </div>
       {status === "loading" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}><ProgressCircle size="small" /><Text style={{ fontSize: 12, opacity: 0.7 }}>Analyzing session data…</Text></div>}
       {status === "error" && <Text style={{ color: RED, fontSize: 12 }}>Error: {errMsg}</Text>}
       {status === "done" && !overall && <Text style={{ fontSize: 12, opacity: 0.7 }}>No sessions with {label} data found.</Text>}
       {status === "done" && overall && (
-        <div style={{ fontSize: 12 }}>
+        <div style={{ fontSize: 12, textAlign: "left" }}>
           {renderBuckets(overall)}
           {byStep.length > 0 && (
             <>
-              <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", margin: "4px 0 8px 0", paddingTop: 8, fontWeight: 600, fontSize: 11, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.05em" }}>By Funnel Step</div>
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", margin: "4px 0 8px 0", paddingTop: 8, fontWeight: 600, fontSize: 11, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "left" }}>By Funnel Step</div>
               {byStep.map((sr, i) => {
                 const stepLift = sr.goodConv - sr.poorConv;
                 const stepHasImpact = Math.abs(stepLift) >= 3;
                 const liftColor = stepLift >= 3 ? GREEN : stepLift <= -3 ? RED : "rgba(255,255,255,0.4)";
-                const sHasOpt = Math.abs(sr.optimalThres - goodThres) / (goodThres || 1) > 0.05;
                 return (
                   <div key={i} style={{ borderBottom: i < byStep.length - 1 ? "1px solid rgba(255,255,255,0.06)" : undefined, paddingBottom: 8, marginBottom: 8 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3, textAlign: "left" }}>
                       <span style={{ fontWeight: 600, color: "#e8eaf0" }}>{sr.label} <span style={{ fontWeight: 400, color: "rgba(255,255,255,0.45)", fontSize: 11 }}>avg {fmtV(sr.currentAvg)}</span></span>
                       <span style={{ fontWeight: 700, color: liftColor, fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
                         {stepHasImpact ? (stepLift > 0 ? `+${stepLift.toFixed(1)}pp` : `${stepLift.toFixed(1)}pp`) : "—"}
                       </span>
                     </div>
-                    <div style={{ display: "flex", gap: 10, fontSize: 11, marginBottom: stepHasImpact && sHasOpt ? 4 : 0 }}>
+                    <div style={{ display: "flex", gap: 10, fontSize: 11, marginBottom: stepHasImpact ? 4 : 0, textAlign: "left" }}>
                       <span style={{ color: GREEN }}>Good: {fmtC(sr.goodConv)}</span>
                       <span style={{ color: RED }}>Poor: {fmtC(sr.poorConv)}</span>
                     </div>
-                    {stepHasImpact && sHasOpt && (
-                      <div style={{ fontSize: 11, color: "rgba(255,200,0,0.85)", marginTop: 2 }}>
-                        Sessions ≤ {fmtV(sr.optimalThres)} → {fmtC(sr.optimalGoodConv)} &nbsp;|&nbsp; &gt; {fmtV(sr.optimalThres)} → {fmtC(sr.optimalPoorConv)}<br />
+                    {stepHasImpact && (
+                      <div style={{ fontSize: 11, color: "rgba(255,200,0,0.85)", marginTop: 2, textAlign: "left" }}>
+                        🎯 Sessions ≤ {fmtV(sr.optimalThres)} → {fmtC(sr.optimalGoodConv)} &nbsp;|&nbsp; &gt; {fmtV(sr.optimalThres)} → {fmtC(sr.optimalPoorConv)}<br />
                         <span style={{ opacity: 0.7 }}>Tune {label} to ≤ {fmtV(sr.optimalThres)} to maximize conversions.</span>
                       </div>
                     )}
