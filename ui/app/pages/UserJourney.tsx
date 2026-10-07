@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.69";
+const APP_VERSION_LABEL = "4.77.70";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -874,11 +874,34 @@ function KpiSparkline({ data, color = "#4589FF" }: { data: number[]; color?: str
   );
 }
 
-interface ConversionImpactConfig { buildQuery: () => string; goodThres: number; unitLabel: string; }
+interface ConversionImpactConfig { buildQuery: () => string; goodThres: number; unitLabel: string; stepLabels: string[]; }
+
+type StepAnalysis = { label: string; goodSessions: number; goodConv: number; poorSessions: number; poorConv: number; optimalThres: number; optimalGoodConv: number; optimalPoorConv: number };
+
+function analyzeConvBucket(sessions: { val: number; conv: boolean }[], goodThres: number): { goodSessions: number; goodConv: number; poorSessions: number; poorConv: number; optimalThres: number; optimalGoodConv: number; optimalPoorConv: number } | null {
+  if (sessions.length < 5) return null;
+  const goodSess = sessions.filter(s => s.val <= goodThres);
+  const poorSess = sessions.filter(s => s.val > goodThres);
+  const goodConv = goodSess.length > 0 ? goodSess.filter(s => s.conv).length / goodSess.length * 100 : 0;
+  const poorConv = poorSess.length > 0 ? poorSess.filter(s => s.conv).length / poorSess.length * 100 : 0;
+  const sorted = [...sessions].sort((a, b) => a.val - b.val);
+  let bestThres = goodThres, bestDiff = 0, bestGoodConv = goodConv, bestPoorConv = poorConv;
+  for (let p = 10; p <= 90; p += 5) {
+    const idx = Math.floor(p / 100 * sorted.length);
+    const thres = sorted[idx]?.val ?? goodThres;
+    const below = sorted.slice(0, idx), above = sorted.slice(idx);
+    if (below.length < 5 || above.length < 5) continue;
+    const bConv = below.filter(s => s.conv).length / below.length * 100;
+    const aConv = above.filter(s => s.conv).length / above.length * 100;
+    if (bConv - aConv > bestDiff) { bestDiff = bConv - aConv; bestThres = thres; bestGoodConv = bConv; bestPoorConv = aConv; }
+  }
+  return { goodSessions: goodSess.length, goodConv, poorSessions: poorSess.length, poorConv, optimalThres: bestThres, optimalGoodConv: bestGoodConv, optimalPoorConv: bestPoorConv };
+}
 
 function ConversionImpactPanel({ config, label, onClose }: { config: ConversionImpactConfig; label: string; onClose: () => void }) {
   const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
-  const [result, setResult] = useState<{ goodSessions: number; goodConv: number; poorSessions: number; poorConv: number; optimalThres: number; optimalGoodConv: number; optimalPoorConv: number } | null>(null);
+  const [overall, setOverall] = useState<ReturnType<typeof analyzeConvBucket>>(null);
+  const [byStep, setByStep] = useState<StepAnalysis[]>([]);
   const [errMsg, setErrMsg] = useState("");
 
   useEffect(() => {
@@ -887,27 +910,35 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
       try {
         const records = await runDqlQuery(config.buildQuery());
         if (cancelled) return;
-        const sessions = records
-          .map((r: any) => ({ val: Number(r.metric_val ?? 0), conv: r.converted === true || r.converted === "true" }))
-          .filter(s => isFinite(s.val) && s.val >= 0);
-        if (sessions.length === 0) { setStatus("done"); return; }
-        const { goodThres } = config;
-        const goodSess = sessions.filter(s => s.val <= goodThres);
-        const poorSess = sessions.filter(s => s.val > goodThres);
-        const goodConv = goodSess.length > 0 ? goodSess.filter(s => s.conv).length / goodSess.length * 100 : 0;
-        const poorConv = poorSess.length > 0 ? poorSess.filter(s => s.conv).length / poorSess.length * 100 : 0;
-        const sorted = [...sessions].sort((a, b) => a.val - b.val);
-        let bestThres = goodThres, bestDiff = 0, bestGoodConv = goodConv, bestPoorConv = poorConv;
-        for (let p = 10; p <= 90; p += 5) {
-          const idx = Math.floor(p / 100 * sorted.length);
-          const thres = sorted[idx]?.val ?? goodThres;
-          const below = sorted.slice(0, idx), above = sorted.slice(idx);
-          if (below.length < 5 || above.length < 5) continue;
-          const bConv = below.filter(s => s.conv).length / below.length * 100;
-          const aConv = above.filter(s => s.conv).length / above.length * 100;
-          if (bConv - aConv > bestDiff) { bestDiff = bConv - aConv; bestThres = thres; bestGoodConv = bConv; bestPoorConv = aConv; }
-        }
-        setResult({ goodSessions: goodSess.length, goodConv, poorSessions: poorSess.length, poorConv, optimalThres: bestThres, optimalGoodConv: bestGoodConv, optimalPoorConv: bestPoorConv });
+        const { goodThres, stepLabels } = config;
+        const allSessions = records
+          .map((r: any) => {
+            const conv = r.converted === true || r.converted === "true";
+            const overall_val = r.overall_metric != null ? Number(r.overall_metric) : null;
+            const stepVals = stepLabels.map((_, i) => {
+              const v = r[`step${i + 1}_metric`];
+              return v != null ? Number(v) : null;
+            });
+            return { conv, overall_val, stepVals };
+          })
+          .filter(s => s.overall_val != null && isFinite(s.overall_val!) && s.overall_val! >= 0);
+
+        if (allSessions.length === 0) { setStatus("done"); return; }
+
+        const overallSess = allSessions.map(s => ({ val: s.overall_val!, conv: s.conv }));
+        setOverall(analyzeConvBucket(overallSess, goodThres));
+
+        const stepResults: StepAnalysis[] = [];
+        stepLabels.forEach((stepLabel, i) => {
+          const stepSess = allSessions
+            .filter(s => s.stepVals[i] != null && isFinite(s.stepVals[i]!) && s.stepVals[i]! >= 0)
+            .map(s => ({ val: s.stepVals[i]!, conv: s.conv }));
+          const r = analyzeConvBucket(stepSess, goodThres);
+          if (r) stepResults.push({ label: stepLabel, ...r });
+        });
+        // Sort by absolute lift descending
+        stepResults.sort((a, b) => Math.abs(b.goodConv - b.poorConv) - Math.abs(a.goodConv - a.poorConv));
+        setByStep(stepResults);
         setStatus("done");
       } catch (e: any) { if (!cancelled) { setErrMsg(e?.message ?? "Unknown error"); setStatus("error"); } }
     })();
@@ -919,6 +950,44 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
   const fmtV = (v: number) => unitLabel === "" ? v.toFixed(3) : unitLabel === "s" ? `${v.toFixed(2)}s` : `${Math.round(v)}${unitLabel}`;
   const fmtC = (v: number) => `${v.toFixed(1)}% conv`;
 
+  const renderBuckets = (r: NonNullable<ReturnType<typeof analyzeConvBucket>>) => {
+    const total = r.goodSessions + r.poorSessions;
+    const lift = r.goodConv - r.poorConv;
+    const hasImpact = Math.abs(lift) >= 3;
+    return (
+      <>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+          <div style={{ background: "rgba(13,156,41,0.08)", border: "1px solid rgba(13,156,41,0.25)", borderRadius: 6, padding: "8px 12px" }}>
+            <div style={{ color: GREEN, fontWeight: 700, marginBottom: 2 }}>Good (≤ {fmtV(goodThres)})</div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtC(r.goodConv)}</div>
+            <div style={{ opacity: 0.6 }}>{r.goodSessions.toLocaleString()} sessions ({total > 0 ? Math.round(r.goodSessions / total * 100) : 0}%)</div>
+          </div>
+          <div style={{ background: "rgba(224,0,0,0.08)", border: "1px solid rgba(224,0,0,0.25)", borderRadius: 6, padding: "8px 12px" }}>
+            <div style={{ color: RED, fontWeight: 700, marginBottom: 2 }}>Poor (&gt; {fmtV(goodThres)})</div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtC(r.poorConv)}</div>
+            <div style={{ opacity: 0.6 }}>{r.poorSessions.toLocaleString()} sessions ({total > 0 ? Math.round(r.poorSessions / total * 100) : 0}%)</div>
+          </div>
+        </div>
+        {hasImpact ? (
+          <>
+            <div style={{ background: "rgba(70,137,255,0.08)", border: "1px solid rgba(70,137,255,0.25)", borderRadius: 6, padding: "8px 12px", marginBottom: 8 }}>
+              <span style={{ fontWeight: 700 }}>{lift > 0 ? `✅ +${lift.toFixed(1)}pp conversion lift` : `⚠️ ${lift.toFixed(1)}pp conversion drag`}</span>{" "}when {label} is within good threshold
+            </div>
+            {Math.abs(r.optimalThres - goodThres) / (goodThres || 1) > 0.05 && (
+              <div style={{ background: "rgba(255,200,0,0.08)", border: "1px solid rgba(255,200,0,0.35)", borderRadius: 6, padding: "8px 12px", marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>🎯 Optimal threshold: {fmtV(r.optimalThres)}</div>
+                <div style={{ opacity: 0.85 }}>Sessions ≤ {fmtV(r.optimalThres)} → <strong>{fmtC(r.optimalGoodConv)}</strong> &nbsp;|&nbsp; &gt; {fmtV(r.optimalThres)} → <strong>{fmtC(r.optimalPoorConv)}</strong></div>
+                <div style={{ marginTop: 4, opacity: 0.7 }}>Tune {label} to ≤ {fmtV(r.optimalThres)} to maximize conversions.</div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ opacity: 0.7, fontStyle: "italic", marginBottom: 8 }}>No significant conversion impact detected (difference &lt; 3pp).</div>
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="uj-kpi-panel" style={{ marginTop: 8 }}>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.15)", margin: "0 -8px 8px -8px" }} />
@@ -928,44 +997,38 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
       </div>
       {status === "loading" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}><ProgressCircle size="small" /><Text style={{ fontSize: 12, opacity: 0.7 }}>Analyzing session data…</Text></div>}
       {status === "error" && <Text style={{ color: RED, fontSize: 12 }}>Error: {errMsg}</Text>}
-      {status === "done" && !result && <Text style={{ fontSize: 12, opacity: 0.7 }}>No sessions with {label} data found.</Text>}
-      {status === "done" && result && (() => {
-        const total = result.goodSessions + result.poorSessions;
-        const lift = result.goodConv - result.poorConv;
-        const hasImpact = Math.abs(lift) >= 3;
-        return (
-          <div style={{ fontSize: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-              <div style={{ background: "rgba(13,156,41,0.08)", border: "1px solid rgba(13,156,41,0.25)", borderRadius: 6, padding: "8px 12px" }}>
-                <div style={{ color: GREEN, fontWeight: 700, marginBottom: 2 }}>Good (≤ {fmtV(goodThres)})</div>
-                <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtC(result.goodConv)}</div>
-                <div style={{ opacity: 0.6 }}>{result.goodSessions.toLocaleString()} sessions ({total > 0 ? Math.round(result.goodSessions / total * 100) : 0}%)</div>
-              </div>
-              <div style={{ background: "rgba(224,0,0,0.08)", border: "1px solid rgba(224,0,0,0.25)", borderRadius: 6, padding: "8px 12px" }}>
-                <div style={{ color: RED, fontWeight: 700, marginBottom: 2 }}>Poor (&gt; {fmtV(goodThres)})</div>
-                <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtC(result.poorConv)}</div>
-                <div style={{ opacity: 0.6 }}>{result.poorSessions.toLocaleString()} sessions ({total > 0 ? Math.round(result.poorSessions / total * 100) : 0}%)</div>
-              </div>
-            </div>
-            {hasImpact ? (
-              <>
-                <div style={{ background: "rgba(70,137,255,0.08)", border: "1px solid rgba(70,137,255,0.25)", borderRadius: 6, padding: "8px 12px", marginBottom: 8 }}>
-                  <span style={{ fontWeight: 700 }}>{lift > 0 ? `✅ +${lift.toFixed(1)}pp conversion lift` : `⚠️ ${lift.toFixed(1)}pp conversion drag`}</span>{" "}when {label} is within good threshold
-                </div>
-                {Math.abs(result.optimalThres - goodThres) / (goodThres || 1) > 0.05 && (
-                  <div style={{ background: "rgba(255,200,0,0.08)", border: "1px solid rgba(255,200,0,0.35)", borderRadius: 6, padding: "8px 12px" }}>
-                    <div style={{ fontWeight: 700, marginBottom: 4 }}>🎯 Optimal threshold: {fmtV(result.optimalThres)}</div>
-                    <div style={{ opacity: 0.85 }}>Sessions ≤ {fmtV(result.optimalThres)} → <strong>{fmtC(result.optimalGoodConv)}</strong> conv &nbsp;|&nbsp; &gt; {fmtV(result.optimalThres)} → <strong>{fmtC(result.optimalPoorConv)}</strong> conv</div>
-                    <div style={{ marginTop: 4, opacity: 0.7 }}>Tune {label} to ≤ {fmtV(result.optimalThres)} to maximize conversions.</div>
+      {status === "done" && !overall && <Text style={{ fontSize: 12, opacity: 0.7 }}>No sessions with {label} data found.</Text>}
+      {status === "done" && overall && (
+        <div style={{ fontSize: 12 }}>
+          {renderBuckets(overall)}
+          {byStep.length > 0 && (
+            <>
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", margin: "4px 0 8px 0", paddingTop: 8, fontWeight: 600, fontSize: 11, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.05em" }}>By Funnel Step</div>
+              {byStep.map((sr, i) => {
+                const stepLift = sr.goodConv - sr.poorConv;
+                const stepHasImpact = Math.abs(stepLift) >= 3;
+                const liftColor = stepLift >= 3 ? GREEN : stepLift <= -3 ? RED : "rgba(255,255,255,0.5)";
+                const hasOptimal = Math.abs(sr.optimalThres - goodThres) / (goodThres || 1) > 0.05;
+                return (
+                  <div key={i} style={{ borderBottom: i < byStep.length - 1 ? "1px solid rgba(255,255,255,0.06)" : undefined, paddingBottom: 8, marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3 }}>
+                      <span style={{ fontWeight: 600, color: "rgba(255,255,255,0.85)" }}>{sr.label}</span>
+                      <span style={{ fontWeight: 700, color: liftColor, fontSize: 11 }}>
+                        {stepHasImpact ? (stepLift > 0 ? `+${stepLift.toFixed(1)}pp` : `${stepLift.toFixed(1)}pp`) : "—"}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 12, opacity: 0.75, fontSize: 11 }}>
+                      <span style={{ color: GREEN }}>Good: {fmtC(sr.goodConv)}</span>
+                      <span style={{ color: RED }}>Poor: {fmtC(sr.poorConv)}</span>
+                      {stepHasImpact && hasOptimal && <span style={{ color: "rgba(255,200,0,0.9)" }}>🎯 {fmtV(sr.optimalThres)}</span>}
+                    </div>
                   </div>
-                )}
-              </>
-            ) : (
-              <div style={{ opacity: 0.7, fontStyle: "italic" }}>No significant conversion impact detected (difference &lt; 3pp between good and poor sessions).</div>
-            )}
-          </div>
-        );
-      })()}
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2214,6 +2277,8 @@ function conversionImpactQuery(days: number, frontend: string, steps: StepDef[],
   if (n === 0) return "fetch user.events | limit 0";
   const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
   const metricExpr = divisor !== 1 ? `toDouble(${metricField}) / ${divisor}.0` : `toDouble(${metricField})`;
+  const stepMetricLines = steps.map((_, i) => `    step${i + 1}_metric = avgIf(metric_val, step_tag == "step${i + 1}")`).join(",\n");
+  const stepFields = steps.map((_, i) => `step${i + 1}_metric`).join(", ");
   return `fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend)}
 | filter ${anyStepFilter(steps)}
@@ -2221,11 +2286,12 @@ function conversionImpactQuery(days: number, frontend: string, steps: StepDef[],
 | fieldsAdd metric_val = ${metricExpr}
 | summarize
     steps = collectDistinct(step_tag),
-    metric_val = avg(metric_val),
+    overall_metric = avg(metric_val),
+${stepMetricLines},
     by: {dt.rum.session.id}
 | fieldsAdd converted = iAny(steps[] == "step${n}")
-| fields metric_val, converted
-| filterOut isNull(metric_val) or metric_val < 0
+| fields converted, overall_metric, ${stepFields}
+| filterOut isNull(overall_metric) or overall_metric < 0
 | limit 5000`;
 }
 
@@ -8201,7 +8267,7 @@ export function UserJourney() {
             case "Funnel Analysis": content = <FunnelAnalysisTab frontend={frontend} funnels={funnels} saveFunnels={saveFunnels} saveActiveFunnelIndex={saveActiveFunnelIndex} aov={aov} onJumpToTab={(t) => setActiveSubTabKey(t)} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
             case "Business Vitals": content = <BusinessVitalsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} cwv={cwv} aov={aov} isLoading={qualityData.isLoading || cwvResult.isLoading} onDrillToForecast={openForecast} qualityQuery={sessionQualityQuery(timeframeDays, frontend, steps, false)} />; break;
-            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvPages={cwvPages} cwvViews={cwvViews} cwvByPage={cwvByPage} cwvByPagePages={cwvByPagePages} cwvByPageViews={cwvByPageViews} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} cwvNotebookQuery={cwvQuery(timeframeDays, frontend, steps, "actions")} buildConversionQuery={(metricField, divisor) => conversionImpactQuery(timeframeDays, frontend, steps, metricField, divisor)} />; break;
+            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvPages={cwvPages} cwvViews={cwvViews} cwvByPage={cwvByPage} cwvByPagePages={cwvByPagePages} cwvByPageViews={cwvByPageViews} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} cwvNotebookQuery={cwvQuery(timeframeDays, frontend, steps, "actions")} buildConversionQuery={(metricField, divisor) => conversionImpactQuery(timeframeDays, frontend, steps, metricField, divisor)} stepLabels={steps.map(s => s.label)} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} stepQuery={stepMetricsQuery(timeframeDays, frontend, steps)} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} onDrillToForecast={openForecast} />; break;
             case "Exceptions": content = <JSErrorsTab data={jsErrorsData} prevData={jsErrorsPrevData} isLoading={jsErrorsData.isLoading} frontend={frontend} onDrillToForecast={openForecast} />; break;
@@ -15943,13 +16009,13 @@ function BusinessVitalsTab({ quality, qualityPrev, overallApdex, overallApdexPre
 
 // TAB: Web Vitals
 // ===========================================================================
-function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvByPage, cwvByPagePages, cwvByPageViews, cwvTrend, isLoading, appEntityId, onDrillToForecast, cwvNotebookQuery, buildConversionQuery }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvPages: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvViews: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvByPagePages: any; cwvByPageViews: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; cwvNotebookQuery?: string; buildConversionQuery?: (metricField: string, divisor: number) => string }) {
+function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvByPage, cwvByPagePages, cwvByPageViews, cwvTrend, isLoading, appEntityId, onDrillToForecast, cwvNotebookQuery, buildConversionQuery, stepLabels }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvPages: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvViews: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvByPagePages: any; cwvByPageViews: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; cwvNotebookQuery?: string; buildConversionQuery?: (metricField: string, divisor: number) => string; stepLabels?: string[] }) {
   const [cwvMode, setCwvMode] = React.useState<CwvMode>("actions");
   const v = cwvMode === "pages" ? vPages : cwvMode === "views" ? vViews : vActions;
   const activeByPage = cwvMode === "pages" ? cwvByPagePages : cwvMode === "views" ? cwvByPageViews : cwvByPage;
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWebVitals(v), [v]));
   const makeConvImpact = (metricField: string, divisor: number, goodThres: number, unitLabel: string): ConversionImpactConfig | undefined =>
-    buildConversionQuery ? { buildQuery: () => buildConversionQuery(metricField, divisor), goodThres, unitLabel } : undefined;
+    buildConversionQuery ? { buildQuery: () => buildConversionQuery(metricField, divisor), goodThres, unitLabel, stepLabels: stepLabels ?? [] } : undefined;
   const tl = useTimelapse();
   if (isLoading) return <Loading />;
 
