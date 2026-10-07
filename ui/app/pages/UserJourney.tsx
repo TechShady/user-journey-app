@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.78";
+const APP_VERSION_LABEL = "4.77.79";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -905,6 +905,7 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
   const [overall, setOverall] = useState<BucketResult | null>(null);
   const [byStep, setByStep] = useState<StepAnalysis[]>([]);
   const [errMsg, setErrMsg] = useState("");
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1029,17 +1030,53 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
         <div style={{ textAlign: "left", fontWeight: 700, fontSize: 13, color: "#ffffff", marginBottom: 6, lineHeight: 1.3 }}>📉 Conversion Impact — {label}</div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
           {status === "done" && overall && <button onClick={exportPdf} style={{ background: "rgba(69,137,255,0.15)", border: "1px solid rgba(69,137,255,0.3)", borderRadius: 6, color: "#4589FF", padding: "2px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>📄 PDF</button>}
+          <button onClick={() => setShowHelp(true)} style={{ background: "rgba(69,137,255,0.12)", border: "1px solid rgba(69,137,255,0.25)", borderRadius: 6, color: "rgba(120,170,255,0.9)", padding: "2px 8px", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>?</button>
           <button onClick={onClose} style={{ background: "rgba(128,128,128,0.2)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, color: "#fff", padding: "2px 8px", cursor: "pointer", fontSize: 12 }}>✕</button>
         </div>
       </div>
-      {label === "Duration" && (
-        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontStyle: "italic", marginBottom: 4, textAlign: "left", lineHeight: 1.4 }}>
-          Measures per-step page view load time (same as the Duration KPI). Shows whether faster-loading funnel pages correlate with higher conversion.
+      {showHelp && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)" }} onClick={() => setShowHelp(false)}>
+          <div style={{ background: "#1a1d2e", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 10, padding: "24px 28px", maxWidth: 560, width: "90vw", maxHeight: "80vh", overflowY: "auto", color: "#e0e4f0", fontSize: 13, lineHeight: 1.65, textAlign: "left" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: "#fff" }}>📉 How Conversion Impact Works</div>
+              <button onClick={() => setShowHelp(false)} style={{ background: "rgba(128,128,128,0.2)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, color: "#fff", padding: "2px 8px", cursor: "pointer", fontSize: 12 }}>✕</button>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, color: "#78aaff", marginBottom: 6 }}>Good vs. Poor — What Do These Mean?</div>
+              <div>Sessions are split into two buckets based on the metric value (e.g., LCP, Duration) relative to a threshold — the industry-standard "good" cutoff for that metric. A session lands in <span style={{ color: "#4CAF50", fontWeight: 600 }}>Good</span> if its metric was at or below the threshold, and <span style={{ color: "#ef5350", fontWeight: 600 }}>Poor</span> if it exceeded it. The conversion rate shown is: <em>how many sessions in that bucket completed all funnel steps</em>.</div>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, color: "#78aaff", marginBottom: 6 }}>Why Don't Good% + Poor% Add Up to 100%?</div>
+              <div>They're not shares of a pie — they're independent conversion rates within each bucket. Example: 97% of sessions may have Good LCP (converting at 58%), and 3% have Poor LCP (converting at 6.5%). Those percentages describe performance <em>within</em> each group, not how the groups relate to each other. What adds to 100% is the session split (97% + 3%).</div>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, color: "#78aaff", marginBottom: 6 }}>Why Does Overall Poor CR Look Much Lower Than Step-Level Poor CR?</div>
+              <div>These two "Poor" numbers describe different populations. <strong>Overall Poor</strong> = sessions where the metric was slow on average <em>across the entire journey</em>. Only the most consistently sluggish sessions qualify, and they tend to abandon early — hence very low conversion (e.g., 6.5%). <strong>Step-level Poor</strong> = sessions where the metric was slow at <em>just that one step</em>. Many of those sessions still had fast performance elsewhere, recovered, and converted — so their CR is much higher (e.g., 42%). Think of it as: "your overall race pace was slow" (consistently bad) vs. "you had one slow mile" (one bad moment).</div>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, color: "#78aaff", marginBottom: 6 }}>What Is the Optimal Threshold?</div>
+              <div>The algorithm scans possible threshold values (between the 10th and 90th percentile of actual session data) and finds the split point where the conversion gap between the two buckets is largest — this is the conversion "cliff." Sessions below it convert well; above it, conversion drops sharply. The optimal is not simply the good/poor threshold — it's data-driven and specific to your funnel.</div>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, color: "#78aaff", marginBottom: 6 }}>What Does "Optimal Higher Than Avg" Mean?</div>
+              <div>If the optimal threshold is higher than the current average, it means most sessions are already comfortably below the conversion cliff — a good sign. It also means you have some headroom: even if performance degraded slightly (e.g., a step's Load Event End increased from 720ms to 1440ms), you'd still be below the cliff and wouldn't expect a significant conversion drop. The optimal is effectively telling you where the danger zone begins.</div>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, color: "#78aaff", marginBottom: 6 }}>What Is "Lift"?</div>
+              <div>Lift (shown in percentage points, "pp") is simply Good Conv% minus Poor Conv% for that step. A lift of +18.6pp means sessions with good metric performance at that step converted 18.6 percentage points more than sessions with poor performance. Steps with lift below ±3pp are considered statistically insignificant and show "—".</div>
+            </div>
+            {label === "Duration" && (
+              <div style={{ marginBottom: 14, padding: "10px 14px", background: "rgba(255,200,0,0.07)", border: "1px solid rgba(255,200,0,0.2)", borderRadius: 8 }}>
+                <div style={{ fontWeight: 700, color: "#f5c842", marginBottom: 6 }}>ℹ️ Duration — What Is Being Measured?</div>
+                <div>The Duration metric here measures <strong>page view load time</strong> — how long each page in the funnel took to load — not the total session duration or how long a user spent on the site. This matches what the Duration KPI card shows. It answers: "Do users convert more when individual pages load faster?" A session with fast-loading pages (e.g., avg 1.2s) is in the Good bucket; one with slow-loading pages (e.g., avg 3.5s) is in the Poor bucket.</div>
+              </div>
+            )}
+            <div style={{ textAlign: "center", marginTop: 4 }}>
+              <button onClick={() => setShowHelp(false)} style={{ background: "rgba(69,137,255,0.2)", border: "1px solid rgba(69,137,255,0.4)", borderRadius: 6, color: "#78aaff", padding: "5px 20px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Got it</button>
+            </div>
+          </div>
         </div>
       )}
-      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", fontStyle: "italic", marginBottom: 8, textAlign: "left", lineHeight: 1.4 }}>
-        Optimal = the value where the conversion lift is greatest (the "cliff"). Sessions below it convert well; above it, conversion drops. An optimal higher than the avg means most sessions are already below the cliff — a good sign.
-      </div>
       {status === "loading" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}><ProgressCircle size="small" /><Text style={{ fontSize: 12, opacity: 0.7 }}>Analyzing session data…</Text></div>}
       {status === "error" && <Text style={{ color: RED, fontSize: 12 }}>Error: {errMsg}</Text>}
       {status === "done" && !overall && <Text style={{ fontSize: 12, opacity: 0.7 }}>No sessions with {label} data found.</Text>}
