@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.70";
+const APP_VERSION_LABEL = "4.77.71";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -2277,7 +2277,7 @@ function conversionImpactQuery(days: number, frontend: string, steps: StepDef[],
   if (n === 0) return "fetch user.events | limit 0";
   const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
   const metricExpr = divisor !== 1 ? `toDouble(${metricField}) / ${divisor}.0` : `toDouble(${metricField})`;
-  const stepMetricLines = steps.map((_, i) => `    step${i + 1}_metric = avgIf(metric_val, step_tag == "step${i + 1}")`).join(",\n");
+  const stepMetricLines = steps.map((_, i) => `    step${i + 1}_metric = avg(if(step_tag == "step${i + 1}", metric_val))`).join(",\n");
   const stepFields = steps.map((_, i) => `step${i + 1}_metric`).join(", ");
   return `fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend)}
