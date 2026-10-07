@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.71";
+const APP_VERSION_LABEL = "4.77.72";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -876,10 +876,12 @@ function KpiSparkline({ data, color = "#4589FF" }: { data: number[]; color?: str
 
 interface ConversionImpactConfig { buildQuery: () => string; goodThres: number; unitLabel: string; stepLabels: string[]; }
 
-type StepAnalysis = { label: string; goodSessions: number; goodConv: number; poorSessions: number; poorConv: number; optimalThres: number; optimalGoodConv: number; optimalPoorConv: number };
+type StepAnalysis = { label: string; currentAvg: number; goodSessions: number; goodConv: number; poorSessions: number; poorConv: number; optimalThres: number; optimalGoodConv: number; optimalPoorConv: number };
+type BucketResult = { currentAvg: number; goodSessions: number; goodConv: number; poorSessions: number; poorConv: number; optimalThres: number; optimalGoodConv: number; optimalPoorConv: number };
 
-function analyzeConvBucket(sessions: { val: number; conv: boolean }[], goodThres: number): { goodSessions: number; goodConv: number; poorSessions: number; poorConv: number; optimalThres: number; optimalGoodConv: number; optimalPoorConv: number } | null {
+function analyzeConvBucket(sessions: { val: number; conv: boolean }[], goodThres: number): BucketResult | null {
   if (sessions.length < 5) return null;
+  const currentAvg = sessions.reduce((a, s) => a + s.val, 0) / sessions.length;
   const goodSess = sessions.filter(s => s.val <= goodThres);
   const poorSess = sessions.filter(s => s.val > goodThres);
   const goodConv = goodSess.length > 0 ? goodSess.filter(s => s.conv).length / goodSess.length * 100 : 0;
@@ -895,12 +897,12 @@ function analyzeConvBucket(sessions: { val: number; conv: boolean }[], goodThres
     const aConv = above.filter(s => s.conv).length / above.length * 100;
     if (bConv - aConv > bestDiff) { bestDiff = bConv - aConv; bestThres = thres; bestGoodConv = bConv; bestPoorConv = aConv; }
   }
-  return { goodSessions: goodSess.length, goodConv, poorSessions: poorSess.length, poorConv, optimalThres: bestThres, optimalGoodConv: bestGoodConv, optimalPoorConv: bestPoorConv };
+  return { currentAvg, goodSessions: goodSess.length, goodConv, poorSessions: poorSess.length, poorConv, optimalThres: bestThres, optimalGoodConv: bestGoodConv, optimalPoorConv: bestPoorConv };
 }
 
 function ConversionImpactPanel({ config, label, onClose }: { config: ConversionImpactConfig; label: string; onClose: () => void }) {
   const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
-  const [overall, setOverall] = useState<ReturnType<typeof analyzeConvBucket>>(null);
+  const [overall, setOverall] = useState<BucketResult | null>(null);
   const [byStep, setByStep] = useState<StepAnalysis[]>([]);
   const [errMsg, setErrMsg] = useState("");
 
@@ -915,28 +917,18 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
           .map((r: any) => {
             const conv = r.converted === true || r.converted === "true";
             const overall_val = r.overall_metric != null ? Number(r.overall_metric) : null;
-            const stepVals = stepLabels.map((_, i) => {
-              const v = r[`step${i + 1}_metric`];
-              return v != null ? Number(v) : null;
-            });
+            const stepVals = stepLabels.map((_, i) => { const v = r[`step${i + 1}_metric`]; return v != null ? Number(v) : null; });
             return { conv, overall_val, stepVals };
           })
           .filter(s => s.overall_val != null && isFinite(s.overall_val!) && s.overall_val! >= 0);
-
         if (allSessions.length === 0) { setStatus("done"); return; }
-
-        const overallSess = allSessions.map(s => ({ val: s.overall_val!, conv: s.conv }));
-        setOverall(analyzeConvBucket(overallSess, goodThres));
-
+        setOverall(analyzeConvBucket(allSessions.map(s => ({ val: s.overall_val!, conv: s.conv })), goodThres));
         const stepResults: StepAnalysis[] = [];
         stepLabels.forEach((stepLabel, i) => {
-          const stepSess = allSessions
-            .filter(s => s.stepVals[i] != null && isFinite(s.stepVals[i]!) && s.stepVals[i]! >= 0)
-            .map(s => ({ val: s.stepVals[i]!, conv: s.conv }));
+          const stepSess = allSessions.filter(s => s.stepVals[i] != null && isFinite(s.stepVals[i]!) && s.stepVals[i]! >= 0).map(s => ({ val: s.stepVals[i]!, conv: s.conv }));
           const r = analyzeConvBucket(stepSess, goodThres);
           if (r) stepResults.push({ label: stepLabel, ...r });
         });
-        // Sort by absolute lift descending
         stepResults.sort((a, b) => Math.abs(b.goodConv - b.poorConv) - Math.abs(a.goodConv - a.poorConv));
         setByStep(stepResults);
         setStatus("done");
@@ -950,10 +942,53 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
   const fmtV = (v: number) => unitLabel === "" ? v.toFixed(3) : unitLabel === "s" ? `${v.toFixed(2)}s` : `${Math.round(v)}${unitLabel}`;
   const fmtC = (v: number) => `${v.toFixed(1)}% conv`;
 
-  const renderBuckets = (r: NonNullable<ReturnType<typeof analyzeConvBucket>>) => {
+  const exportPdf = () => {
+    if (!overall) return;
+    const w = window.open("", "_blank");
+    if (!w) return;
+    const lift = overall.goodConv - overall.poorConv;
+    const hasOptimal = Math.abs(overall.optimalThres - goodThres) / (goodThres || 1) > 0.05;
+    const stepRows = byStep.map(sr => {
+      const sl = sr.goodConv - sr.poorConv;
+      const sHasOpt = Math.abs(sr.optimalThres - goodThres) / (goodThres || 1) > 0.05;
+      const liftClr = sl >= 3 ? "#0D9C29" : sl <= -3 ? "#E00000" : "#888";
+      return `<tr><td style="padding:6px 8px;border-bottom:1px solid #2a2e4a;font-weight:600">${sr.label}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #2a2e4a;color:#9ca3af">${fmtV(sr.currentAvg)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #2a2e4a;color:#0D9C29">${fmtC(sr.goodConv)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #2a2e4a;color:#E00000">${fmtC(sr.poorConv)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #2a2e4a;color:${liftClr};font-weight:700">${Math.abs(sl) >= 3 ? (sl > 0 ? `+${sl.toFixed(1)}pp` : `${sl.toFixed(1)}pp`) : "—"}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #2a2e4a;color:#FFC800">${sHasOpt && Math.abs(sl) >= 3 ? fmtV(sr.optimalThres) : "—"}</td></tr>`;
+    }).join("");
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>📉 Conversion Impact — ${label}</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0f1221;color:#e8eaf0;font-family:'Segoe UI',system-ui,sans-serif;padding:32px;font-size:13px}
+    h1{font-size:20px;margin-bottom:4px}.sub{color:#6b7280;font-size:12px;margin-bottom:20px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}.box{padding:12px 16px;border-radius:8px}
+    table{width:100%;border-collapse:collapse;margin-top:12px}th{text-align:left;padding:6px 8px;border-bottom:2px solid #2a2e4a;color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:0.05em}
+    strong{color:#e8eaf0}@media print{body{background:#fff;color:#111}strong{color:#111}@page{margin:1cm}}</style>
+    </head><body>
+    <h1>📉 Conversion Impact — ${label}</h1>
+    <div class="sub">Current avg: ${fmtV(overall.currentAvg)} &middot; Generated ${new Date().toLocaleString()}</div>
+    <div class="grid">
+      <div class="box" style="background:rgba(13,156,41,0.1);border:1px solid rgba(13,156,41,0.3)"><div style="color:#0D9C29;font-weight:700;margin-bottom:4px">Good (≤ ${fmtV(goodThres)})</div><div style="font-size:22px;font-weight:700">${fmtC(overall.goodConv)}</div><div style="opacity:0.6">${overall.goodSessions.toLocaleString()} sessions</div></div>
+      <div class="box" style="background:rgba(224,0,0,0.1);border:1px solid rgba(224,0,0,0.3)"><div style="color:#E00000;font-weight:700;margin-bottom:4px">Poor (&gt; ${fmtV(goodThres)})</div><div style="font-size:22px;font-weight:700">${fmtC(overall.poorConv)}</div><div style="opacity:0.6">${overall.poorSessions.toLocaleString()} sessions</div></div>
+    </div>
+    <div style="padding:10px 14px;border-radius:6px;border-left:3px solid ${lift >= 3 ? "#0D9C29" : lift <= -3 ? "#E00000" : "#4589FF"};background:rgba(70,137,255,0.08);margin-bottom:12px;font-weight:600">
+      ${Math.abs(lift) >= 3 ? (lift > 0 ? `✅ +${lift.toFixed(1)}pp conversion lift` : `⚠️ ${lift.toFixed(1)}pp conversion drag`) + ` when ${label} is within good threshold` : "No significant overall conversion impact detected (< 3pp difference)."}
+    </div>
+    ${hasOptimal ? `<div style="padding:10px 14px;border-radius:6px;border:1px solid rgba(255,200,0,0.4);margin-bottom:16px"><strong>🎯 Optimal threshold: ${fmtV(overall.optimalThres)}</strong><br>Sessions ≤ ${fmtV(overall.optimalThres)} → ${fmtC(overall.optimalGoodConv)} &nbsp;|&nbsp; &gt; ${fmtV(overall.optimalThres)} → ${fmtC(overall.optimalPoorConv)}<br><span style="opacity:0.7">Tune ${label} to ≤ ${fmtV(overall.optimalThres)} to maximize conversions.</span></div>` : ""}
+    ${byStep.length > 0 ? `<strong style="font-size:12px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6">By Funnel Step</strong>
+    <table><thead><tr><th>Step</th><th>Avg</th><th>Good Conv</th><th>Poor Conv</th><th>Lift</th><th>Optimal</th></tr></thead><tbody>${stepRows}</tbody></table>` : ""}
+    </body></html>`;
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+  };
+
+  const renderBuckets = (r: BucketResult) => {
     const total = r.goodSessions + r.poorSessions;
     const lift = r.goodConv - r.poorConv;
     const hasImpact = Math.abs(lift) >= 3;
+    const hasOptimal = Math.abs(r.optimalThres - goodThres) / (goodThres || 1) > 0.05;
     return (
       <>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
@@ -973,7 +1008,7 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
             <div style={{ background: "rgba(70,137,255,0.08)", border: "1px solid rgba(70,137,255,0.25)", borderRadius: 6, padding: "8px 12px", marginBottom: 8 }}>
               <span style={{ fontWeight: 700 }}>{lift > 0 ? `✅ +${lift.toFixed(1)}pp conversion lift` : `⚠️ ${lift.toFixed(1)}pp conversion drag`}</span>{" "}when {label} is within good threshold
             </div>
-            {Math.abs(r.optimalThres - goodThres) / (goodThres || 1) > 0.05 && (
+            {hasOptimal && (
               <div style={{ background: "rgba(255,200,0,0.08)", border: "1px solid rgba(255,200,0,0.35)", borderRadius: 6, padding: "8px 12px", marginBottom: 8 }}>
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>🎯 Optimal threshold: {fmtV(r.optimalThres)}</div>
                 <div style={{ opacity: 0.85 }}>Sessions ≤ {fmtV(r.optimalThres)} → <strong>{fmtC(r.optimalGoodConv)}</strong> &nbsp;|&nbsp; &gt; {fmtV(r.optimalThres)} → <strong>{fmtC(r.optimalPoorConv)}</strong></div>
@@ -990,9 +1025,9 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
 
   return (
     <div className="uj-kpi-panel" style={{ marginTop: 8 }}>
-      <div style={{ borderTop: "1px solid rgba(255,255,255,0.15)", margin: "0 -8px 8px -8px" }} />
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-        <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "rgba(255,255,255,0.9)" }}>📉 Conversion Impact — {label}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, borderTop: "1px solid rgba(255,255,255,0.18)", paddingTop: 8, marginBottom: 10 }}>
+        <div style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 12, color: "#e8eaf0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>📉 Conversion Impact — {label}</div>
+        {status === "done" && overall && <button onClick={exportPdf} style={{ background: "rgba(69,137,255,0.15)", border: "1px solid rgba(69,137,255,0.3)", borderRadius: 6, color: "#4589FF", padding: "2px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600, flexShrink: 0 }}>📄 PDF</button>}
         <button className="kpi-action-btn" style={{ fontSize: 12, padding: "1px 6px", flexShrink: 0 }} onClick={onClose}>✕</button>
       </div>
       {status === "loading" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}><ProgressCircle size="small" /><Text style={{ fontSize: 12, opacity: 0.7 }}>Analyzing session data…</Text></div>}
@@ -1007,21 +1042,26 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
               {byStep.map((sr, i) => {
                 const stepLift = sr.goodConv - sr.poorConv;
                 const stepHasImpact = Math.abs(stepLift) >= 3;
-                const liftColor = stepLift >= 3 ? GREEN : stepLift <= -3 ? RED : "rgba(255,255,255,0.5)";
-                const hasOptimal = Math.abs(sr.optimalThres - goodThres) / (goodThres || 1) > 0.05;
+                const liftColor = stepLift >= 3 ? GREEN : stepLift <= -3 ? RED : "rgba(255,255,255,0.4)";
+                const sHasOpt = Math.abs(sr.optimalThres - goodThres) / (goodThres || 1) > 0.05;
                 return (
                   <div key={i} style={{ borderBottom: i < byStep.length - 1 ? "1px solid rgba(255,255,255,0.06)" : undefined, paddingBottom: 8, marginBottom: 8 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3 }}>
-                      <span style={{ fontWeight: 600, color: "rgba(255,255,255,0.85)" }}>{sr.label}</span>
-                      <span style={{ fontWeight: 700, color: liftColor, fontSize: 11 }}>
+                      <span style={{ fontWeight: 600, color: "#e8eaf0" }}>{sr.label} <span style={{ fontWeight: 400, color: "rgba(255,255,255,0.45)", fontSize: 11 }}>avg {fmtV(sr.currentAvg)}</span></span>
+                      <span style={{ fontWeight: 700, color: liftColor, fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
                         {stepHasImpact ? (stepLift > 0 ? `+${stepLift.toFixed(1)}pp` : `${stepLift.toFixed(1)}pp`) : "—"}
                       </span>
                     </div>
-                    <div style={{ display: "flex", gap: 12, opacity: 0.75, fontSize: 11 }}>
+                    <div style={{ display: "flex", gap: 10, fontSize: 11, marginBottom: stepHasImpact && sHasOpt ? 4 : 0 }}>
                       <span style={{ color: GREEN }}>Good: {fmtC(sr.goodConv)}</span>
                       <span style={{ color: RED }}>Poor: {fmtC(sr.poorConv)}</span>
-                      {stepHasImpact && hasOptimal && <span style={{ color: "rgba(255,200,0,0.9)" }}>🎯 {fmtV(sr.optimalThres)}</span>}
                     </div>
+                    {stepHasImpact && sHasOpt && (
+                      <div style={{ fontSize: 11, color: "rgba(255,200,0,0.85)", marginTop: 2 }}>
+                        Sessions ≤ {fmtV(sr.optimalThres)} → {fmtC(sr.optimalGoodConv)} &nbsp;|&nbsp; &gt; {fmtV(sr.optimalThres)} → {fmtC(sr.optimalPoorConv)}<br />
+                        <span style={{ opacity: 0.7 }}>Tune {label} to ≤ {fmtV(sr.optimalThres)} to maximize conversions.</span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
