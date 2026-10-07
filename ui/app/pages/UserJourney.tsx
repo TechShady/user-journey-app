@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.79";
+const APP_VERSION_LABEL = "4.77.80";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1025,21 +1025,21 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
   };
 
   return (
-    <div className="uj-kpi-panel" style={{ marginTop: 8 }}>
+    <div className="uj-kpi-panel" style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.18)", paddingTop: 8, marginBottom: 10 }}>
         <div style={{ textAlign: "left", fontWeight: 700, fontSize: 13, color: "#ffffff", marginBottom: 6, lineHeight: 1.3 }}>📉 Conversion Impact — {label}</div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
-          {status === "done" && overall && <button onClick={exportPdf} style={{ background: "rgba(69,137,255,0.15)", border: "1px solid rgba(69,137,255,0.3)", borderRadius: 6, color: "#4589FF", padding: "2px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>📄 PDF</button>}
-          <button onClick={() => setShowHelp(true)} style={{ background: "rgba(69,137,255,0.12)", border: "1px solid rgba(69,137,255,0.25)", borderRadius: 6, color: "rgba(120,170,255,0.9)", padding: "2px 8px", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>?</button>
-          <button onClick={onClose} style={{ background: "rgba(128,128,128,0.2)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, color: "#fff", padding: "2px 8px", cursor: "pointer", fontSize: 12 }}>✕</button>
+          {status === "done" && overall && <button onClick={e => { e.stopPropagation(); exportPdf(); }} style={{ background: "rgba(69,137,255,0.15)", border: "1px solid rgba(69,137,255,0.3)", borderRadius: 6, color: "#4589FF", padding: "2px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>📄 PDF</button>}
+          <button onClick={e => { e.stopPropagation(); setShowHelp(true); }} style={{ background: "rgba(69,137,255,0.12)", border: "1px solid rgba(69,137,255,0.25)", borderRadius: 6, color: "rgba(120,170,255,0.9)", padding: "2px 8px", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>?</button>
+          <button onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "rgba(128,128,128,0.2)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, color: "#fff", padding: "2px 8px", cursor: "pointer", fontSize: 12 }}>✕</button>
         </div>
       </div>
       {showHelp && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)" }} onClick={() => setShowHelp(false)}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)" }} onClick={e => { e.stopPropagation(); setShowHelp(false); }}>
           <div style={{ background: "#1a1d2e", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 10, padding: "24px 28px", maxWidth: 560, width: "90vw", maxHeight: "80vh", overflowY: "auto", color: "#e0e4f0", fontSize: 13, lineHeight: 1.65, textAlign: "left" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: "#fff" }}>📉 How Conversion Impact Works</div>
-              <button onClick={() => setShowHelp(false)} style={{ background: "rgba(128,128,128,0.2)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, color: "#fff", padding: "2px 8px", cursor: "pointer", fontSize: 12 }}>✕</button>
+              <button onClick={e => { e.stopPropagation(); setShowHelp(false); }} style={{ background: "rgba(128,128,128,0.2)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, color: "#fff", padding: "2px 8px", cursor: "pointer", fontSize: 12 }}>✕</button>
             </div>
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontWeight: 700, color: "#78aaff", marginBottom: 6 }}>Good vs. Poor — What Do These Mean?</div>
@@ -1072,7 +1072,7 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
               </div>
             )}
             <div style={{ textAlign: "center", marginTop: 4 }}>
-              <button onClick={() => setShowHelp(false)} style={{ background: "rgba(69,137,255,0.2)", border: "1px solid rgba(69,137,255,0.4)", borderRadius: 6, color: "#78aaff", padding: "5px 20px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Got it</button>
+              <button onClick={e => { e.stopPropagation(); setShowHelp(false); }} style={{ background: "rgba(69,137,255,0.2)", border: "1px solid rgba(69,137,255,0.4)", borderRadius: 6, color: "#78aaff", padding: "5px 20px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Got it</button>
             </div>
           </div>
         </div>
