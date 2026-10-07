@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.80";
+const APP_VERSION_LABEL = "4.77.81";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1086,11 +1086,19 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
           {byStep.length > 0 && (
             <>
               <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", margin: "4px 0 0 0" }} />
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
+                <colgroup>
+                  <col style={{ width: "28%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "13%" }} />
+                  <col style={{ width: "13%" }} />
+                </colgroup>
                 <thead>
                   <tr>
-                    {["STEP", "AVG", "GOOD CONV", "POOR CONV", "LIFT", "OPTIMAL"].map(h => (
-                      <th key={h} style={{ padding: "7px 6px 5px", textAlign: h === "STEP" ? "left" : "right", fontWeight: 600, fontSize: 10, color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em", borderBottom: "1px solid rgba(255,255,255,0.1)", whiteSpace: "nowrap" }}>{h}</th>
+                    {["STEP", "AVG", "GOOD%", "POOR%", "LIFT", "OPTIMAL"].map(h => (
+                      <th key={h} style={{ padding: "6px 4px 4px", textAlign: h === "STEP" ? "left" : "right", fontWeight: 600, fontSize: 10, color: "rgba(255,255,255,0.35)", letterSpacing: "0.05em", borderBottom: "1px solid rgba(255,255,255,0.1)", whiteSpace: "nowrap", overflow: "hidden" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1102,14 +1110,14 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
                     const rowBorder = i < byStep.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined;
                     return (
                       <tr key={i}>
-                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, fontWeight: 600, color: "#e8eaf0", textAlign: "left" }}>{sr.label}</td>
-                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, color: "rgba(255,255,255,0.4)", textAlign: "right", whiteSpace: "nowrap" }}>{fmtV(sr.currentAvg)}</td>
-                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, color: GREEN, textAlign: "right", whiteSpace: "nowrap" }}>{fmtC(sr.goodConv)}</td>
-                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, color: RED, textAlign: "right", whiteSpace: "nowrap" }}>{fmtC(sr.poorConv)}</td>
-                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, color: liftColor, fontWeight: 700, textAlign: "right", whiteSpace: "nowrap" }}>
-                          {stepHasImpact ? (stepLift > 0 ? `+${stepLift.toFixed(1)}pp` : `${stepLift.toFixed(1)}pp`) : "—"}
+                        <td style={{ padding: "6px 4px", borderBottom: rowBorder, fontWeight: 600, color: "#e8eaf0", textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sr.label}</td>
+                        <td style={{ padding: "6px 4px", borderBottom: rowBorder, color: "rgba(255,255,255,0.4)", textAlign: "right", whiteSpace: "nowrap" }}>{fmtV(sr.currentAvg)}</td>
+                        <td style={{ padding: "6px 4px", borderBottom: rowBorder, color: GREEN, textAlign: "right", whiteSpace: "nowrap" }}>{sr.goodConv.toFixed(1)}%</td>
+                        <td style={{ padding: "6px 4px", borderBottom: rowBorder, color: RED, textAlign: "right", whiteSpace: "nowrap" }}>{sr.poorConv.toFixed(1)}%</td>
+                        <td style={{ padding: "6px 4px", borderBottom: rowBorder, color: liftColor, fontWeight: 700, textAlign: "right", whiteSpace: "nowrap" }}>
+                          {stepHasImpact ? (stepLift > 0 ? `+${stepLift.toFixed(1)}` : `${stepLift.toFixed(1)}`) : "—"}
                         </td>
-                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, color: stepHasImpact ? "rgba(255,200,0,0.85)" : "rgba(255,255,255,0.25)", textAlign: "right", whiteSpace: "nowrap" }}>
+                        <td style={{ padding: "6px 4px", borderBottom: rowBorder, color: stepHasImpact ? "rgba(255,200,0,0.85)" : "rgba(255,255,255,0.25)", textAlign: "right", whiteSpace: "nowrap" }}>
                           {stepHasImpact ? fmtV(sr.optimalThres) : "—"}
                         </td>
                       </tr>
