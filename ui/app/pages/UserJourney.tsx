@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.77";
+const APP_VERSION_LABEL = "4.77.78";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1033,10 +1033,13 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
         </div>
       </div>
       {label === "Duration" && (
-        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontStyle: "italic", marginBottom: 8, textAlign: "left", lineHeight: 1.4 }}>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontStyle: "italic", marginBottom: 4, textAlign: "left", lineHeight: 1.4 }}>
           Measures per-step page view load time (same as the Duration KPI). Shows whether faster-loading funnel pages correlate with higher conversion.
         </div>
       )}
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", fontStyle: "italic", marginBottom: 8, textAlign: "left", lineHeight: 1.4 }}>
+        Optimal = the value where the conversion lift is greatest (the "cliff"). Sessions below it convert well; above it, conversion drops. An optimal higher than the avg means most sessions are already below the cliff — a good sign.
+      </div>
       {status === "loading" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}><ProgressCircle size="small" /><Text style={{ fontSize: 12, opacity: 0.7 }}>Analyzing session data…</Text></div>}
       {status === "error" && <Text style={{ color: RED, fontSize: 12 }}>Error: {errMsg}</Text>}
       {status === "done" && !overall && <Text style={{ fontSize: 12, opacity: 0.7 }}>No sessions with {label} data found.</Text>}
