@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.73";
+const APP_VERSION_LABEL = "4.77.76";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1032,6 +1032,11 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
           <button onClick={onClose} style={{ background: "rgba(128,128,128,0.2)", border: "1px solid rgba(128,128,128,0.3)", borderRadius: 6, color: "#fff", padding: "2px 8px", cursor: "pointer", fontSize: 12 }}>✕</button>
         </div>
       </div>
+      {label === "Duration" && (
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontStyle: "italic", marginBottom: 8, textAlign: "left", lineHeight: 1.4 }}>
+          Measures total session duration, not per-step page load time. Step averages show how long sessions that visited each step took end-to-end.
+        </div>
+      )}
       {status === "loading" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}><ProgressCircle size="small" /><Text style={{ fontSize: 12, opacity: 0.7 }}>Analyzing session data…</Text></div>}
       {status === "error" && <Text style={{ color: RED, fontSize: 12 }}>Error: {errMsg}</Text>}
       {status === "done" && !overall && <Text style={{ fontSize: 12, opacity: 0.7 }}>No sessions with {label} data found.</Text>}
@@ -1040,32 +1045,38 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
           {renderBuckets(overall)}
           {byStep.length > 0 && (
             <>
-              <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", margin: "4px 0 8px 0", paddingTop: 8, fontWeight: 600, fontSize: 11, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "left" }}>By Funnel Step</div>
-              {byStep.map((sr, i) => {
-                const stepLift = sr.goodConv - sr.poorConv;
-                const stepHasImpact = Math.abs(stepLift) >= 3;
-                const liftColor = stepLift >= 3 ? GREEN : stepLift <= -3 ? RED : "rgba(255,255,255,0.4)";
-                return (
-                  <div key={i} style={{ borderBottom: i < byStep.length - 1 ? "1px solid rgba(255,255,255,0.06)" : undefined, paddingBottom: 8, marginBottom: 8 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3, textAlign: "left" }}>
-                      <span style={{ fontWeight: 600, color: "#e8eaf0" }}>{sr.label} <span style={{ fontWeight: 400, color: "rgba(255,255,255,0.45)", fontSize: 11 }}>avg {fmtV(sr.currentAvg)}</span></span>
-                      <span style={{ fontWeight: 700, color: liftColor, fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
-                        {stepHasImpact ? (stepLift > 0 ? `+${stepLift.toFixed(1)}pp` : `${stepLift.toFixed(1)}pp`) : "—"}
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", gap: 10, fontSize: 11, marginBottom: stepHasImpact ? 4 : 0, textAlign: "left" }}>
-                      <span style={{ color: GREEN }}>Good: {fmtC(sr.goodConv)}</span>
-                      <span style={{ color: RED }}>Poor: {fmtC(sr.poorConv)}</span>
-                    </div>
-                    {stepHasImpact && (
-                      <div style={{ fontSize: 11, color: "rgba(255,200,0,0.85)", marginTop: 2, textAlign: "left" }}>
-                        🎯 Sessions ≤ {fmtV(sr.optimalThres)} → {fmtC(sr.optimalGoodConv)} &nbsp;|&nbsp; &gt; {fmtV(sr.optimalThres)} → {fmtC(sr.optimalPoorConv)}<br />
-                        <span style={{ opacity: 0.7 }}>Tune {label} to ≤ {fmtV(sr.optimalThres)} to maximize conversions.</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", margin: "4px 0 0 0" }} />
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <thead>
+                  <tr>
+                    {["STEP", "AVG", "GOOD CONV", "POOR CONV", "LIFT", "OPTIMAL"].map(h => (
+                      <th key={h} style={{ padding: "7px 6px 5px", textAlign: h === "STEP" ? "left" : "right", fontWeight: 600, fontSize: 10, color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em", borderBottom: "1px solid rgba(255,255,255,0.1)", whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {byStep.map((sr, i) => {
+                    const stepLift = sr.goodConv - sr.poorConv;
+                    const stepHasImpact = Math.abs(stepLift) >= 3;
+                    const liftColor = stepLift >= 3 ? GREEN : stepLift <= -3 ? RED : "rgba(255,255,255,0.3)";
+                    const rowBorder = i < byStep.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined;
+                    return (
+                      <tr key={i}>
+                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, fontWeight: 600, color: "#e8eaf0", textAlign: "left" }}>{sr.label}</td>
+                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, color: "rgba(255,255,255,0.4)", textAlign: "right", whiteSpace: "nowrap" }}>{fmtV(sr.currentAvg)}</td>
+                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, color: GREEN, textAlign: "right", whiteSpace: "nowrap" }}>{fmtC(sr.goodConv)}</td>
+                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, color: RED, textAlign: "right", whiteSpace: "nowrap" }}>{fmtC(sr.poorConv)}</td>
+                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, color: liftColor, fontWeight: 700, textAlign: "right", whiteSpace: "nowrap" }}>
+                          {stepHasImpact ? (stepLift > 0 ? `+${stepLift.toFixed(1)}pp` : `${stepLift.toFixed(1)}pp`) : "—"}
+                        </td>
+                        <td style={{ padding: "7px 6px", borderBottom: rowBorder, color: stepHasImpact ? "rgba(255,200,0,0.85)" : "rgba(255,255,255,0.25)", textAlign: "right", whiteSpace: "nowrap" }}>
+                          {stepHasImpact ? fmtV(sr.optimalThres) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </>
           )}
         </div>
@@ -2310,6 +2321,31 @@ fetch user.events, ${period}
     satisfied = countIf(dur_ms <= ${APDEX_T}.0),
     tolerating = countIf(dur_ms > ${APDEX_T}.0 and dur_ms <= ${APDEX_4T}.0),
     frustrated = countIf(dur_ms > ${APDEX_4T}.0)`;
+}
+
+function durationConversionImpactQuery(days: number, frontend: string, steps: StepDef[]): string {
+  const period = periodClause(days);
+  const n = steps.length;
+  if (n === 0) return "fetch user.events | limit 0";
+  const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
+  const stepMetricLines = steps.map((_, i) => `| fieldsAdd step${i + 1}_metric = if(iAny(steps[] == "step${i + 1}"), overall_metric)`).join("\n");
+  const stepFields = steps.map((_, i) => `step${i + 1}_metric`).join(", ");
+  return `fetch user.events, ${period}
+| filter ${frontendFilter(steps, frontend)}
+| filter ${anyStepFilter(steps)}
+| fieldsAdd step_tag = ${tagExpr}
+| fieldsAdd event_ts = coalesce(start_time, timestamp)
+| summarize
+    steps = collectDistinct(step_tag),
+    min_ts = min(toLong(event_ts)),
+    max_ts = max(toLong(event_ts)),
+    by: {dt.rum.session.id}
+| fieldsAdd converted = iAny(steps[] == "step${n}")
+| fieldsAdd overall_metric = toDouble(max_ts - min_ts) / 1000000000.0
+${stepMetricLines}
+| fields converted, overall_metric, ${stepFields}
+| filterOut isNull(overall_metric) or overall_metric <= 0
+| limit 5000`;
 }
 
 function conversionImpactQuery(days: number, frontend: string, steps: StepDef[], metricField: string, divisor: number): string {
@@ -8308,7 +8344,7 @@ export function UserJourney() {
             case "Funnel Analysis": content = <FunnelAnalysisTab frontend={frontend} funnels={funnels} saveFunnels={saveFunnels} saveActiveFunnelIndex={saveActiveFunnelIndex} aov={aov} onJumpToTab={(t) => setActiveSubTabKey(t)} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
             case "Business Vitals": content = <BusinessVitalsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} cwv={cwv} aov={aov} isLoading={qualityData.isLoading || cwvResult.isLoading} onDrillToForecast={openForecast} qualityQuery={sessionQualityQuery(timeframeDays, frontend, steps, false)} />; break;
-            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvPages={cwvPages} cwvViews={cwvViews} cwvByPage={cwvByPage} cwvByPagePages={cwvByPagePages} cwvByPageViews={cwvByPageViews} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} cwvNotebookQuery={cwvQuery(timeframeDays, frontend, steps, "actions")} buildConversionQuery={(metricField, divisor) => conversionImpactQuery(timeframeDays, frontend, steps, metricField, divisor)} stepLabels={steps.map(s => s.label)} />; break;
+            case "Web Vitals": content = <WebVitalsTab cwv={cwv} cwvPages={cwvPages} cwvViews={cwvViews} cwvByPage={cwvByPage} cwvByPagePages={cwvByPagePages} cwvByPageViews={cwvByPageViews} cwvTrend={sloCwvTrendData} isLoading={cwvResult.isLoading || cwvByPage.isLoading} appEntityId={appEntityId} onDrillToForecast={openForecast} cwvNotebookQuery={cwvQuery(timeframeDays, frontend, steps, "actions")} buildConversionQuery={(metricField, divisor) => conversionImpactQuery(timeframeDays, frontend, steps, metricField, divisor)} buildDurationConvImpact={() => durationConversionImpactQuery(timeframeDays, frontend, steps)} stepLabels={steps.map(s => s.label)} />; break;
             case "Step Details": content = <StepDetailsTab stepMap={stepMap} stepMapPrev={stepMapPrev} stepSparklines={stepSparklines} pageMap={pageMap} pageMapPrev={pageMapPrev} pageSparklines={pageSparklines} cwvByPage={cwvByPage} isLoading={stepMetrics.isLoading} appEntityId={appEntityId} steps={steps} aov={aov} funnelCounts={funnelCounts} onDrillToForecast={openForecast} stepQuery={stepMetricsQuery(timeframeDays, frontend, steps)} />; break;
             case "Worst Sessions": content = <WorstSessionsTab data={worstSessionsData} isLoading={worstSessionsData.isLoading} onDrillToForecast={openForecast} />; break;
             case "Exceptions": content = <JSErrorsTab data={jsErrorsData} prevData={jsErrorsPrevData} isLoading={jsErrorsData.isLoading} frontend={frontend} onDrillToForecast={openForecast} />; break;
@@ -16050,7 +16086,7 @@ function BusinessVitalsTab({ quality, qualityPrev, overallApdex, overallApdexPre
 
 // TAB: Web Vitals
 // ===========================================================================
-function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvByPage, cwvByPagePages, cwvByPageViews, cwvTrend, isLoading, appEntityId, onDrillToForecast, cwvNotebookQuery, buildConversionQuery, stepLabels }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvPages: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvViews: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvByPagePages: any; cwvByPageViews: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; cwvNotebookQuery?: string; buildConversionQuery?: (metricField: string, divisor: number) => string; stepLabels?: string[] }) {
+function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvByPage, cwvByPagePages, cwvByPageViews, cwvTrend, isLoading, appEntityId, onDrillToForecast, cwvNotebookQuery, buildConversionQuery, buildDurationConvImpact, stepLabels }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvPages: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvViews: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvByPagePages: any; cwvByPageViews: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; cwvNotebookQuery?: string; buildConversionQuery?: (metricField: string, divisor: number) => string; buildDurationConvImpact?: () => string; stepLabels?: string[] }) {
   const [cwvMode, setCwvMode] = React.useState<CwvMode>("actions");
   const v = cwvMode === "pages" ? vPages : cwvMode === "views" ? vViews : vActions;
   const activeByPage = cwvMode === "pages" ? cwvByPagePages : cwvMode === "views" ? cwvByPageViews : cwvByPage;
@@ -16140,7 +16176,7 @@ function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvBy
       {aiPanel}
       <Flex gap={16} flexWrap="wrap" alignItems="flex-start">
         <KpiCard label={tlShared ? "Performance Health (bucket)" : "Performance Health"} value={`${healthScore}/100`} color={healthScore >= 80 ? GREEN : healthScore >= 50 ? YELLOW : RED} rawValue={healthScore} prevRawValue={syntheticPrev(healthScore, "Performance Health")} sparkline={syntheticSparkline(healthScore, 8, "Performance Health")} onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
-        <KpiCard label="Duration" value={effV.duration > 0 ? `${effV.duration.toFixed(2)} s` : "N/A"} color={effV.duration > 5 ? RED : effV.duration > 2 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("duration", 1000000000, 2.0, "s")} />
+        <KpiCard label="Duration" value={effV.duration > 0 ? `${effV.duration.toFixed(2)} s` : "N/A"} color={effV.duration > 5 ? RED : effV.duration > 2 ? YELLOW : GREEN} rawValue={effV.duration} prevRawValue={syntheticPrev(effV.duration, "Duration")} sparkline={syntheticSparkline(effV.duration, 8, "Duration")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={buildDurationConvImpact ? { buildQuery: buildDurationConvImpact, goodThres: 2.0, unitLabel: "s", stepLabels: stepLabels ?? [] } : undefined} />
         <KpiCard label={tlShared ? "Load Event End (bucket)" : "Load Event End"} value={fmt(effV.load)} color={effV.load > 3000 ? RED : effV.load > 1500 ? YELLOW : GREEN} rawValue={effV.load} prevRawValue={syntheticPrev(effV.load, "Load Event End")} sparkline={syntheticSparkline(effV.load, 8, "Load Event End")} inverted onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} conversionImpactConfig={makeConvImpact("performance.load_event_end", 1000000, 1500, "ms")} />
         <KpiCard label={tlShared ? "Failing Vitals (bucket)" : "Failing Vitals"} value={`${remediations.length}/4`} color={remediations.length > 2 ? RED : remediations.length > 0 ? YELLOW : GREEN} rawValue={remediations.length} prevRawValue={syntheticPrev(remediations.length, "Failing Vitals")} inverted sparkline={syntheticSparkline(remediations.length, 8, "Failing Vitals")} onDrillToForecast={onDrillToForecast} query={cwvNotebookQuery} />
       </Flex>
