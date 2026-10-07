@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.76";
+const APP_VERSION_LABEL = "4.77.77";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1034,7 +1034,7 @@ function ConversionImpactPanel({ config, label, onClose }: { config: ConversionI
       </div>
       {label === "Duration" && (
         <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontStyle: "italic", marginBottom: 8, textAlign: "left", lineHeight: 1.4 }}>
-          Measures total session duration, not per-step page load time. Step averages show how long sessions that visited each step took end-to-end.
+          Measures per-step page view load time (same as the Duration KPI). Shows whether faster-loading funnel pages correlate with higher conversion.
         </div>
       )}
       {status === "loading" && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}><ProgressCircle size="small" /><Text style={{ fontSize: 12, opacity: 0.7 }}>Analyzing session data…</Text></div>}
@@ -2328,21 +2328,21 @@ function durationConversionImpactQuery(days: number, frontend: string, steps: St
   const n = steps.length;
   if (n === 0) return "fetch user.events | limit 0";
   const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
-  const stepMetricLines = steps.map((_, i) => `| fieldsAdd step${i + 1}_metric = if(iAny(steps[] == "step${i + 1}"), overall_metric)`).join("\n");
+  const metricExpr = `toDouble(duration) / 1000000000.0`;
+  const stepMetricLines = steps.map((_, i) => `    step${i + 1}_metric = avg(if(step_tag == "step${i + 1}", metric_val))`).join(",\n");
   const stepFields = steps.map((_, i) => `step${i + 1}_metric`).join(", ");
   return `fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend)}
 | filter ${anyStepFilter(steps)}
+| filter characteristics.has_page_summary == true
 | fieldsAdd step_tag = ${tagExpr}
-| fieldsAdd event_ts = coalesce(start_time, timestamp)
+| fieldsAdd metric_val = ${metricExpr}
 | summarize
     steps = collectDistinct(step_tag),
-    min_ts = min(toLong(event_ts)),
-    max_ts = max(toLong(event_ts)),
+    overall_metric = avg(metric_val),
+${stepMetricLines},
     by: {dt.rum.session.id}
 | fieldsAdd converted = iAny(steps[] == "step${n}")
-| fieldsAdd overall_metric = toDouble(max_ts - min_ts) / 1000000000.0
-${stepMetricLines}
 | fields converted, overall_metric, ${stepFields}
 | filterOut isNull(overall_metric) or overall_metric <= 0
 | limit 5000`;
