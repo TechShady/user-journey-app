@@ -108,7 +108,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.81";
+const APP_VERSION_LABEL = "4.77.82";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -4562,6 +4562,21 @@ function HelpSection({ title, children }: { title: string; children: React.React
 function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }) {
   return (
     <div style={{ padding: "4px 0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, padding: "12px 16px", background: "rgba(69,137,255,0.07)", border: "1px solid rgba(69,137,255,0.2)", borderRadius: 10 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#fff", marginBottom: 3 }}>User Journey & Experience — User Guide</div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>Comprehensive reference for all 43 tabs, funnel configuration, Time-Lapse, AI Insights, exports, and more.</div>
+        </div>
+        <a
+          href="https://github.com/TechShady/user-journey-app/raw/main/USER_GUIDE.docx"
+          target="_blank"
+          rel="noreferrer"
+          title="Download User Guide as Word document"
+          style={{ background: "rgba(69,137,255,0.15)", border: "1px solid rgba(69,137,255,0.35)", borderRadius: 8, color: "#7ab4ff", fontSize: 13, padding: "8px 16px", cursor: "pointer", textDecoration: "none", fontWeight: 600, whiteSpace: "nowrap" }}
+        >
+          📄 User Guide
+        </a>
+      </div>
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(255,131,43,0.7)" }}>
