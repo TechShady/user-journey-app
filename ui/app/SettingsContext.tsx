@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { useAppState, useSetAppState, useUserAppState } from "@dynatrace-sdk/react-hooks";
+import { useAppState, useSetAppState, useUserAppState, useSetUserAppState } from "@dynatrace-sdk/react-hooks";
 
 // ---------------------------------------------------------------------------
 // Types & defaults
@@ -190,6 +190,10 @@ interface SettingsContextValue {
   saveCostPerGb: (v: number) => void;
   saveEngineerHourlyRate: (v: number) => void;
   saveIndustry: (v: IndustryType) => void;
+  aiAssistEnabled?: boolean;
+  setAiAssistEnabled: (v: boolean) => void;
+  dtIntelligenceEnabled?: boolean;
+  setDtIntelligenceEnabled: (v: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -201,6 +205,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [funnels, setFunnels] = useState<FunnelDef[]>(DEFAULT_FUNNELS);
   const [activeFunnelIndex, setActiveFunnelIndex] = useState<number>(0);
   const [pageLabels, setPageLabels] = useState<Record<string, string>>({});
+  const [aiAssistEnabled, setAiAssistEnabledState] = useState<boolean>(false);
+  const [dtIntelligenceEnabled, setDtIntelligenceEnabledState] = useState<boolean>(false);
 
   // Global (app-scoped) reads — shared across every user of this app in the Dynatrace environment.
   const savedFunnels = useAppState({ key: FUNNELS_STATE_KEY });
@@ -230,6 +236,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const userLegacyEngineer = useUserAppState({ key: ENGINEER_HOURLY_RATE_STATE_KEY });
   const userLegacyIndustry = useUserAppState({ key: INDUSTRY_STATE_KEY });
   const { execute: saveState } = useSetAppState();
+  const savedAiAssistEnabled = useUserAppState({ key: "uj-ai-assist-enabled" });
+  const savedDtIntelligenceEnabled = useUserAppState({ key: "uj-dt-intelligence-enabled" });
+  const { execute: saveUserState } = useSetUserAppState();
 
   // Load multi-funnel state (or migrate from legacy single-funnel).
   // Prefer the shared/global bucket; fall back to the per-user bucket for pre-migration data.
@@ -425,8 +434,28 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const saveGradeSettings = (weights: GradeWeights, enabled: GradeMetricEnabled, thresholds: GradeMetricThresholds) =>
     persistActiveFunnel({ gradeWeights: weights, gradeMetricEnabled: enabled, gradeMetricThresholds: thresholds });
 
+  useEffect(() => {
+    const raw = savedAiAssistEnabled.data?.value;
+    if (raw !== undefined && raw !== null) setAiAssistEnabledState(raw === "true");
+  }, [savedAiAssistEnabled.data?.value]);
+
+  const setAiAssistEnabled = (v: boolean) => {
+    setAiAssistEnabledState(v);
+    saveUserState({ key: "uj-ai-assist-enabled", body: { value: String(v) } });
+  };
+
+  useEffect(() => {
+    const raw = savedDtIntelligenceEnabled.data?.value;
+    if (raw !== undefined && raw !== null) setDtIntelligenceEnabledState(raw === "true");
+  }, [savedDtIntelligenceEnabled.data?.value]);
+
+  const setDtIntelligenceEnabled = (v: boolean) => {
+    setDtIntelligenceEnabledState(v);
+    saveUserState({ key: "uj-dt-intelligence-enabled", body: { value: String(v) } });
+  };
+
   return (
-    <SettingsContext.Provider value={{ frontend, funnels, setFunnels, activeFunnelIndex, setActiveFunnelIndex, saveFunnels, saveActiveFunnelIndex, steps, setSteps, saveSteps, aov, setAov, monthlyInfraCost, setMonthlyInfraCost, cdnMonthlyCost, setCdnMonthlyCost, computeCostPerHour, setComputeCostPerHour, costPerGb, setCostPerGb, engineerHourlyRate, setEngineerHourlyRate, industry, setIndustry, gradeWeights, saveGradeWeights, gradeMetricEnabled, saveGradeMetricEnabled, gradeMetricThresholds, saveGradeMetricThresholds, saveGradeSettings, pageLabels, savePageLabels, saveAov, saveMonthlyInfraCost, saveCdnMonthlyCost, saveComputeCostPerHour, saveCostPerGb, saveEngineerHourlyRate, saveIndustry }}>
+    <SettingsContext.Provider value={{ frontend, funnels, setFunnels, activeFunnelIndex, setActiveFunnelIndex, saveFunnels, saveActiveFunnelIndex, steps, setSteps, saveSteps, aov, setAov, monthlyInfraCost, setMonthlyInfraCost, cdnMonthlyCost, setCdnMonthlyCost, computeCostPerHour, setComputeCostPerHour, costPerGb, setCostPerGb, engineerHourlyRate, setEngineerHourlyRate, industry, setIndustry, gradeWeights, saveGradeWeights, gradeMetricEnabled, saveGradeMetricEnabled, gradeMetricThresholds, saveGradeMetricThresholds, saveGradeSettings, pageLabels, savePageLabels, saveAov, saveMonthlyInfraCost, saveCdnMonthlyCost, saveComputeCostPerHour, saveCostPerGb, saveEngineerHourlyRate, saveIndustry, aiAssistEnabled, setAiAssistEnabled, dtIntelligenceEnabled, setDtIntelligenceEnabled }}>
       {children}
     </SettingsContext.Provider>
   );

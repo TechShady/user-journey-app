@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
+﻿import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
 import { createPortal } from "react-dom";
 import { useDql, useUserAppState, useSetUserAppState, useAppState, useSetAppState } from "@dynatrace-sdk/react-hooks";
 import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment";
@@ -14,7 +14,7 @@ import { ProgressBar, ProgressCircle } from "@dynatrace/strato-components/conten
 import { Button } from "@dynatrace/strato-components/buttons";
 import { Sheet } from "@dynatrace/strato-components/overlays";
 import { Switch } from "@dynatrace/strato-components/forms";
-import { MaximizeIcon, MinimizeIcon } from "@dynatrace/strato-icons";
+import { MaximizeIcon, MinimizeIcon, DocumentIcon } from "@dynatrace/strato-icons";
 import { TimeseriesChart, TimeseriesAnnotations } from "@dynatrace/strato-components/charts";
 import type { Timeseries } from "@dynatrace/strato-components/charts";
 import { DataTable } from "@dynatrace/strato-components-preview/tables";
@@ -37,6 +37,7 @@ import { OnboardingWizard, CommunityWarningBanner, COMMUNITY_WARN_KEY } from "..
 import type { PersonaDef } from "../components/PersonaPickerModal";
 import { CorrelationsPanel, CorrelationsContext, computeCorrelations } from "../components/CorrelationsPanel";
 import type { MetricEntry, CorrelationOpener } from "../components/CorrelationsPanel";
+import { DTIntelligenceContext, DTIntelligenceButton, useDTIntelligence, buildDTPromptUserJourney } from "../components/DynatraceIntelligence";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -108,7 +109,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.82";
+const APP_VERSION_LABEL = "4.77.89";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -4562,23 +4563,15 @@ function HelpSection({ title, children }: { title: string; children: React.React
 function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }) {
   return (
     <div style={{ padding: "4px 0" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, padding: "12px 16px", background: "rgba(69,137,255,0.07)", border: "1px solid rgba(69,137,255,0.2)", borderRadius: 10 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: "#fff", marginBottom: 3 }}>User Journey & Experience — User Guide</div>
-          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>Comprehensive reference for all 43 tabs, funnel configuration, Time-Lapse, AI Insights, exports, and more.</div>
-        </div>
-        <a
-          href="https://github.com/TechShady/user-journey-app/raw/main/USER_GUIDE.docx"
-          target="_blank"
-          rel="noreferrer"
-          title="Download User Guide as Word document"
-          style={{ background: "rgba(69,137,255,0.15)", border: "1px solid rgba(69,137,255,0.35)", borderRadius: 8, color: "#7ab4ff", fontSize: 13, padding: "8px 16px", cursor: "pointer", textDecoration: "none", fontWeight: 600, whiteSpace: "nowrap" }}
-        >
-          📄 User Guide
-        </a>
-      </div>
       <HelpSection title="What's New">
         <div style={{ margin: "8px 0" }}>
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(255,131,43,0.7)" }}>
+            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>October 10, 2026</Paragraph>
+            <Paragraph><Strong>AI Features Settings — AI Assist &amp; Dynatrace Intelligence</Strong></Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>New AI FEATURES section in Settings</Strong>: Two toggle cards let you independently enable AI Assist and Dynatrace Intelligence. Both default to OFF.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>AI Assist</Strong>: Rule-based, deterministic analysis computed instantly from live Dynatrace data. No external AI calls, works offline, zero latency. Toggle controls whether the ✦✦✦ sparkle button appears in the header.</Paragraph>
+            <Paragraph style={{ fontSize: 13 }}>• <Strong>Dynatrace Intelligence</Strong>: Generative analysis via Davis CoPilot (Dynatrace&apos;s built-in AI). Requires the <code>davis-copilot:conversations:execute</code> scope. Adds 2–5 s latency per analysis. The panel now re-fires automatically each time you switch to a different tab or sub-tab — all 37 sub-tabs have their own tailored prompt so analysis always matches what you are viewing.</Paragraph>
+          </div>
           <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(255,131,43,0.7)" }}>
             <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>August 2, 2026</Paragraph>
             <Paragraph><Strong>Funnel Analysis — Weekly Change Intelligence Command Center</Strong></Paragraph>
@@ -4609,224 +4602,6 @@ function HelpContent({ frontend, steps }: { frontend: string; steps: StepDef[] }
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Session parity mode</Strong>: The Navigation Paths tab can now switch between the navigation model and session-parity mode so the selected session matches Session Viewer-style user action counts.</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Frontend-to-backend flow mapping</Strong>: Backend links now prefer session trace/request edges for the selected session so the service flow reflects the actual called services instead of a generic heuristic pairing.</Paragraph>
             <Paragraph style={{ fontSize: 13 }}>• <Strong>Scope-aware backend alignment</Strong>: Service nodes and connector edges stay aligned to the active session/user scope so the backend view remains specific to the journey you selected.</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>July 2, 2026</Paragraph>
-            <Paragraph><Strong>Navigation Paths — Session Triage Workflow</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Optional user/session filters</Strong>: Filter by user tag and then session, or select a session directly without user filtering. Session picker includes converted, errors, apdex, duration, and actions</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Preset + ranking mode</Strong>: Quick filters for issues-first, converted-only, and low-apdex-only sessions with impact-based sorting for faster triage</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Timeline + compare</Strong>: Lightweight timeline scrubber plus side-by-side compare for two sessions with delta context</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Backend scope alignment</Strong>: Backend tiers expand by default and session-scoped backend services are filtered to the selected scope</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>State persistence</Strong>: Navigation filters and compare picks are saved per user via app state</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>June 12, 2026</Paragraph>
-            <Paragraph><Strong>Multi-Funnel Management & Funnel Discovery</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Multiple funnels</Strong>: Create up to 10 named funnels. A global <Strong>Funnel</Strong> dropdown in the header lets you switch the active funnel — all tabs instantly update to reflect the selected funnel's steps</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Funnel management</Strong>: Create, rename, and delete funnels in Settings. Funnel tabs show all defined funnels with a highlighted active funnel. The active funnel's steps are editable inline</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Auto-open Settings</Strong>: If no funnels are configured (first launch), Settings opens automatically to guide initial setup</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Funnel Discovery</Strong>: Select one or more applications and click <Strong>Discover Funnels</Strong> — analyzes 7 days of session data to identify common page sequences. Candidate funnels show step count and session volume. Click <Strong>Apply</Strong>, enter a name, and the discovered funnel is added instantly</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Cross-app funnels</Strong>: Each step has its own Application dropdown. Steps default to the previous step's app — change it to target a different app for that step. Multi-app queries use <code>in(frontend.name, {"{"}...{"}"})</code></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Per-step page dropdowns</Strong>: Pages/Identifiers for each step shows only pages from that step's assigned app</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Backward compatible: existing saved single-funnel configurations are migrated automatically to the multi-funnel format</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>June 11, 2026</Paragraph>
-            <Paragraph><Strong>FinOps Expansion — 8 New Cost Intelligence Sub-Tabs</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Right-Sizing</Strong>: Identifies over-provisioned hosts by comparing actual CPU/memory utilization against allocated capacity, with per-host savings estimates and fleet-wide optimization potential</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Cost per Transaction</Strong>: Breaks down infrastructure cost per user session and per service request, revealing which services deliver the best ROI and where spend is disproportionate to business value</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Cloud Waste</Strong>: Aggregates idle resources, orphaned volumes, over-provisioned instances, and unused reservations into a single waste score with severity-ranked remediation actions</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Scaling Efficiency</Strong>: Measures how well autoscaling responds to demand — identifies under-scaled services causing latency and over-scaled services burning budget during low-traffic periods</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>SLO Cost Trade-offs</Strong>: Models the cost of each additional "nine" of availability — shows diminishing returns and helps find the optimal SLO tier balancing reliability against infrastructure spend</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Tag Allocation</Strong>: Tracks cost allocation compliance by team/cost-center tags, identifies untagged resources and teams exceeding budgets, enabling accurate showback/chargeback</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Observability ROI</Strong>: Quantifies the return on observability investment — compares monitoring costs against incident prevention value, MTTR reduction, and proactive issue detection savings</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>June 10, 2026</Paragraph>
-            <Paragraph><Strong>Related Metrics — Cross-Metric Correlation Discovery</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Correlation button</Strong> (⟷) appears on hover in the top-left corner of every KPI card and Trends card — click to discover which other metrics have a statistically significant relationship with the selected metric</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Pearson correlation analysis</Strong>: Computes pairwise correlation coefficients (r) between time-series sparklines of all registered metrics, identifying both positive co-movement and inverse relationships</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Ranked results panel</Strong>: Full-screen overlay (matching Forecast Modal pattern) shows correlated metrics sorted by strength, with mini sparklines, direction descriptions, strength bars, and business-context narratives</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Adjustable threshold</Strong>: Filter by minimum correlation strength (30%, 50%, 70%) to focus on the strongest relationships or discover weaker signals</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Intelligent narratives</Strong>: Each correlation includes a human-readable explanation — e.g. "Sessions shows a strong positive correlation (r=+0.82) — when Sessions rises, Error Rate tends to worsen"</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>11 registered metrics</Strong>: Sessions, Total Actions, Conversion Rate, Conversions, Apdex, Avg Duration, P50/P90 Duration, Error Rate, Errors, Frustrated (+ Revenue when AOV configured)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• All analysis runs client-side using Pearson r computation — zero latency, no external API calls</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>June 1, 2026</Paragraph>
-            <Paragraph><Strong>Tab Groups — Nested Parent Tabs with Sub-Tabs</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>8 Parent Tab Groups</Strong>: 43 sub-tabs organized into logical groups — Funnel &amp; Conversion, Executive Summary, User Experience, Navigation &amp; Flows, Intelligence &amp; AI, Engagement &amp; Revenue, Errors &amp; Reliability, and FinOps</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Hierarchical Settings</Strong>: Toggle visibility and drag-to-reorder at both the parent group level and individual sub-tab level. Expand groups in Settings with ▸/▾ to access sub-tab controls</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>AI Insights — Sub-Tab Aware</Strong>: The AI Insights panel now automatically adapts to the active sub-tab, showing contextual analysis for whichever view you're currently on</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Persisted per user</Strong>: Parent tab order, parent visibility, sub-tab order, and sub-tab visibility all persist independently via Dynatrace App State</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Executive Summary standalone</Strong>: Elevated to its own parent tab in 2nd position for quick access to high-level KPIs without navigating deep into analytics groups</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 29, 2026</Paragraph>
-            <Paragraph><Strong>Forecast Modal — Multi-Model Popup Forecasting</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Forecast Modal</Strong>: Clicking any KPI card now opens a full-screen forecast popup (instead of navigating to a tab) showing a 7-day forecast with historical data, projected trend line, and confidence band — all rendered inline as an interactive SVG chart</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>6 Forecasting Models</Strong>: Choose between Holt-Winters (Double Exp.), Triple Exp. Smoothing, Prophet, ARIMA, SARIMA, and Linear Regression via a dropdown selector — switch models instantly to compare projections</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Interactive Chart</Strong>: Crosshair hover shows exact values (actual or forecast) with confidence interval at each time point. "Now" divider separates historical from projected data. Data points, forecast line (dashed), and confidence band polygon all color-matched to the KPI card</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Click-outside dismiss</Strong>: Click the backdrop or the Close button to return to the dashboard — no tab navigation required</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Cards only show "→ Forecast" hint when sparkline data is available (≥2 data points needed for meaningful forecasting)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Step Details — Per-Step Sparklines &amp; Trends</Strong>: Every KPI card in the Step Details tab now shows a real per-step sparkline (Avg Duration, P50, P90, P99, Events, Errors, Error Rate) with previous-period comparison arrows and click-to-forecast</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Error Rate Sparkline</Strong>: Derived metric — Error Rate sparkline is computed per time bucket as errors/total × 100, giving a true per-step error rate trend</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Per-Page Compare — Full KPI Cards</Strong>: The Compare Pages view for multi-page steps now shows full KPI cards (matching the step-level cards) with per-page sparklines, previous-period trend arrows, and drill-to-forecast — replacing the old static metric boxes</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 28, 2026</Paragraph>
-            <Paragraph><Strong>KPI Cards — Sparklines, Comparison Arrows &amp; Drill-to-Forecast</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Enhanced KPI Cards</Strong>: The Funnel Overview and Executive Summary KPI rows now use rich cards with inline <Strong>sparklines</Strong> (time-bucketed mini-charts showing metric shape over the period), <Strong>comparison arrows</Strong> (▲/▼ with % delta vs. previous period), and color-coded trend indicators</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Inverted logic</Strong>: Error Rate and Avg Duration cards correctly show green when values decrease (lower = better) and red when values increase</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Hover hint</Strong>: Cards show a subtle "→ Forecast" label on hover, signaling clickability without cluttering the UI</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 26, 2026 — Services Overview App</Paragraph>
-            <Paragraph><Strong>Drillable Heatmap, Reliability Trend Period Queries, Anti-Pattern AI Report, On-Call Shift Hours</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Endpoint Heatmap — Drillable Grid Cells</Strong>: Each hourly cell in the heatmap grid is now clickable — opens Distributed Tracing explorer filtered to that service and timeframe for immediate root-cause investigation</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Unified Color Scheme</Strong>: Heatmap grid now uses the same GREEN/YELLOW/RED palette as the honeycomb (error rate: green &lt;0.5%, yellow 0.5–2%, red &gt;2%; latency percentiles: deviation-based green/yellow/red)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Reliability Trend — Live Period Queries</Strong>: 7d / 14d / 30d period buttons now fire independent DQL queries for the selected lookback window — Avg Failure Rate, Fleet Health, and Direction all update when switching periods</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Anti-Patterns — Generate AI Report</Strong>: New button produces a verbose per-pattern breakdown showing: instance detail, all services involved, "What is this?" / "Why is it dangerous?" / "Operational Impact" / step-by-step remediation / industry references (Sam Newman, Google SRE, DORA). Includes AI Insights and prioritized recommendations</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>On-Call Rotation — Shift Hours</Strong>: Shift Start/End time pickers added (HH:MM) with presets: Day (08:00–20:00), Night (20:00–08:00), Business (09:00–17:00), Full Day. Hours column shown in table. Each shift row now has an × remove button</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Top Noisy Services</Strong>: Fixed "Unknown" service names — now reads the correct Affected entity array from Davis problems data</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>MTTR Duration Display</Strong>: Problem durations auto-convert to human-readable format (e.g. "5m", "2h 30m", "3d 4h") — fixes "3472d 5h" bug caused by nanoseconds being treated as milliseconds</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Encoding Fixes</Strong>: Replaced Unicode squares (■), triangle emojis (🔺), and sigma (σ) with CSS/HTML equivalents throughout to fix font rendering issues in Dynatrace apps</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 20, 2026</Paragraph>
-            <Paragraph><Strong>Errors &amp; Drop-offs — Predictive Drop-off Scoring</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Predictive Drop-off Scoring</Strong>: Linear regression on hourly error rates per funnel step projects 2 hours forward, estimating how much additional drop-off will occur if the current error trajectory continues</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Severity-colored cards: 🔴 Critical (&gt;5% projected increase), 🟡 Warning (&gt;2%), 🟢 Stable — showing current error rate, projected rate, and trend per hour</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Uses Root Cause Correlation hourly step data (actions, errors) to build per-step error rate timelines</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 19, 2026</Paragraph>
-            <Paragraph><Strong>Navigation Flow Diagram, Click Frustration Clusters &amp; Session Links</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Navigation Flow Diagram</Strong>: Sankey-like SVG visualization in Navigation Paths — pages arranged in columns by funnel step with curved links whose thickness represents traffic volume, horizontally scrollable. Funnel pages (green boxes) now display the funnel step label (★ Step N: Label) above the page name, with taller 74px boxes to fit all three rows (step label, page name, traffic count)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Conversion Probability</Strong> per page now computed via graph-based iterative relaxation with drop-off rates (incoming vs outgoing traffic per page) — fixes the "everything converges to 100%" issue</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>AI Path Optimization</Strong> card surfaces which page sequences correlate with higher conversion rates</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Click Issues — Frustration Clusters by Page</Strong>: Groups rage/dead click elements per page with aggregated counts and severity</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Click Issues — Session Replay Links</Strong>: "View Sessions ↗" button per cluster/element opens User Sessions (gen3) filtered by app, page, and frustrated experience; Replay column with per-session links</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Segmentation</Strong>: Added OS version breakdown table, AI Segment Discovery card (always visible), ISO country code → full country name translation</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Sankey</Strong>: Increased per-column node limit to 12, added scroll support and dynamic height</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Davis Problems</Strong>: Fixed "Unknown Problem" titles — now uses event.name from DQL</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Root Cause Correlation — Full-Stack Correlation</Strong>: Backend service topology showing only services called by the selected application (up to 7 depth tiers) via entity relationship traversal. Clickable service nodes open Gen3 Services with matching timeframe. Davis AI problems overlaid on affected services with red links to Davis Problems. Impact banner when frontend degradation coincides with backend problems.</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 17, 2026</Paragraph>
-            <Paragraph><Strong>Hyperlyzer — Multidimensional Radial Performance Explorer</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Radial chart visualization</Strong> with 4 quadrants (OS, Geolocation, User Action, Browser) — bar length proportional to selected metric value with log-scaled axis</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>8 selectable metrics</Strong>: Action Duration (median), Apdex, LCP (P75), INP (P75), CLS (P75), TTFB (P75), Load Event End (P75), FCP (P75)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Cross-dimensional filtering</Strong>: Click any slice or table row to apply a filter — stack multiple filters for progressive drill-down (e.g. Chrome + US + specific page)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Finding cards</Strong>: Auto-identifies top outliers per dimension vs. the application median with ratio indicators</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Side table</Strong> with paginated list, color-coded metric ratings (good/needs-improvement/poor per industry thresholds), text filter, and one-click drilldown to Sessions or Vitals apps</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Application median shown in the chart center; dashed reference line on each quadrant indicates the median position relative to per-dimension bars</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Tab count: 30 → 31</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 15, 2026</Paragraph>
-            <Paragraph><Strong>Step Details — Page Drop-off Funnel &amp; Core Web Vitals</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Page Drop-off Contributors</Strong> funnel: For multi-page steps, a visual bar chart shows which pages within each step have the highest vs. lowest traffic — bars are color-coded by Apdex quality and sorted by event count, with drop percentage indicators</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Core Web Vitals per page</Strong>: The Compare Pages view now overlays LCP, CLS, and INP for each page, color-coded against Google's Good/Needs Improvement/Poor thresholds</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Instantly identify which specific pages within a multi-page step are contributing most to user drop-off and have the worst performance</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 15, 2026</Paragraph>
-            <Paragraph><Strong>Worst Sessions — AI Impact Scoring &amp; Pattern Clustering</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>AI Impact Score (0–100)</Strong>: Replaces static composite ranking with z-score normalized scoring across 4 severity dimensions (errors 35%, frustrated 30%, avg latency 20%, max latency 15%), weighted by a systemic multiplier</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Systemic multiplier</Strong>: Sessions whose error patterns appear across many other sessions score higher; unique outliers are dampened — focuses attention on repeatable bugs, not noise</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>"Sessions Like This"</Strong> column: Shows how many other sessions share the same behavioral fingerprint (error types + performance bucket + frustration level)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>SYSTEMIC badge</Strong>: Sessions with high systemic scores are flagged, instantly distinguishing widespread issues from isolated edge cases</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Pattern Clusters</Strong> section: Groups sessions by behavioral fingerprint — shows Systemic vs. Outlier counts, distinct pattern count, and top cluster descriptions</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Query enhanced to collect per-session page lists and error types for clustering analysis</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 15, 2026</Paragraph>
-            <Paragraph><Strong>Metric-Stream — Live Data Updates Without Page Reload</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Metric-Stream selector</Strong> in the header bar (next to Timeframe) with options: Off, 30 seconds, 1 minute, 5 minutes, 10 minutes</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• When enabled, <Strong>all DQL queries across every tab</Strong> automatically re-execute at the selected interval — data values update seamlessly in-place without a page refresh</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Live status indicator</Strong> in the header: spinning icon + "Refreshing…" during data fetch, then "Last refreshed Xs ago" when idle</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Existing data remains visible during background refetch — no flicker or loading spinners on refresh cycles (only initial load shows full spinner)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Uses the native <code>refetchInterval</code> option from <code>useDql</code> — queries are automatically stale-checked and only re-fetched when interval elapses</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Ideal for wall displays, NOC monitors, or hands-free continuous monitoring during incidents</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 14, 2026</Paragraph>
-            <Paragraph><Strong>Funnel Overview — Sub-Tabs &amp; Predictive EOD Model</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>4 Sub-Tabs</Strong>: Funnel Overview content is now organized into <Strong>Conversion Funnel</Strong> (Apdex breakdown + chart with 5 styles + Compare toggle), <Strong>Predictive Model</Strong> (EOD projection), <Strong>Step Analysis</Strong> (sortable metrics table), and <Strong>Per-Page Breakdown</Strong> (per-identifier metrics for multi-page steps).</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Predictive Funnel Model</Strong>: Fits a linear regression to today's hourly conversion rates (from midnight to now) and projects where today's overall conversion rate will land by 23:59. Shown when ≥2 hourly data points are available; otherwise shows a placeholder.</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Model card shows: <Strong>Projected EOD conv rate</Strong>, <Strong>Hourly velocity</Strong> (slope in %/hour, color-coded rising/stable/declining), <Strong>Hours remaining</Strong>, and a <Strong>sparkline</Strong> with actual data (solid) and projected trend (dashed) overlaid.</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Confidence % reflects how many of today's hours have data vs. hours elapsed — lower early in the day, higher by evening.</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Trends Tab — Sparklines &amp; Anomaly Signals</Strong>: Each metric card in the Trends tab now shows a <Strong>daily sparkline</Strong> (mini time-series for the current period) and an inline <Strong>anomaly badge</Strong>. ⚠ Anomaly = current value exceeds 2 std dev of daily variance (statistically significant); ↑ Notable = 1.2–2 std dev; ∿ Normal = within expected noise. The AI Insights panel now highlights which metrics are anomalous and advises focusing investigation on anomaly-flagged cards first.</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 13, 2026</Paragraph>
-            <Paragraph><Strong>Settings — App &amp; Page Dropdowns</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Frontend Application</Strong> is now a searchable dropdown populated from apps with data in the last 30 days — no more manual typing</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Pages / Identifiers</Strong> are now searchable dropdowns showing all distinct pages seen for the selected app in the last 7 days</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Selecting a new app automatically re-queries pages so the identifier dropdowns only show pages belonging to that app</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Current saved values (including wildcard patterns) are preserved as valid options even if not in the fetched list</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Both dropdowns include a <Strong>live search filter</Strong> — type to narrow down long lists instantly</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 11, 2026</Paragraph>
-            <Paragraph><Strong>Multi-Page Funnel Steps + Wildcard Support</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Each funnel step now supports <Strong>multiple pages</Strong> with OR logic — e.g. (Step1a OR Step1b) AND Step2 AND (Step3a OR Step3b)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Wildcard patterns</Strong> in all positions: <code>/home*</code> (starts with), <code>*home</code> (ends with), <code>*home*</code> (contains)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Settings UI updated with per-step <Strong>"+ Add Page"</Strong> button and per-identifier remove (✕)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• DQL filters generate <code>startsWith()</code>, <code>endsWith()</code>, <code>contains()</code> expressions for wildcards</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Vitals links intelligently skip wildcard identifiers and Dynatrace placeholders (<code>:id:</code>, <code>:hash:</code>) — uses first non-wildcard page for linking</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Mid-string wildcards</Strong>: <code>/journeys/*/book</code> generates <code>startsWith() AND endsWith()</code> DQL filters</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Step Details — Compare Pages</Strong>: For multi-page steps, a Compare button reveals per-page metrics with the first page as primary baseline and delta indicators for all other pages</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Backward-compatible: existing single-identifier configurations are automatically migrated</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 10, 2026</Paragraph>
-            <Paragraph><Strong>AI Insights — Intelligent Analysis Engine</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>AI Insights button</Strong> in the header bar (between timeframe selector and help icon) — single toggle for all tabs</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Collapsible panel with <Strong>Summary</Strong>, color-coded <Strong>Insights</Strong> (good/warning/critical/info), and prioritized <Strong>Recommendations</Strong> (high/medium/low impact)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Typewriter streaming animation</Strong>: text appears word-by-word like an AI chatbot response</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Industry-Aware Benchmarks</Strong>: All analysis is automatically contextualized for your selected industry (E-Commerce, SaaS, Media, Financial Services, Travel, Healthcare, Gaming, General). Set your industry in Settings to get vertical-specific targets for conversion rates, Apdex, error rates, latency, CDN ROI, idle capacity, and more</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• 30+ analysis functions with industry-standard benchmarks: conversion rate targets, Apdex thresholds, Google CWV targets, error rate benchmarks, FinOps efficiency ratios, CDN ROI targets, utilization standards, and performance tax modeling</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Tab-specific analysis: each tab evaluates its own data — Funnel Overview analyzes conversion & drop-offs, Web Vitals checks CWV against Google thresholds, FinOps tabs compute cost per conversion/performance tax/idle waste/CDN ROI/cost anomalies against industry benchmarks, Anomaly Detection flags significant deviations, etc.</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• All analysis runs client-side using heuristic benchmarks — no external AI API calls, zero latency</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 9, 2026</Paragraph>
-            <Paragraph><Strong>4 New Tabs + Funnel Velocity Sub-Tab</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Cohort Retention</Strong>: Daily user cohorts with conversion retention curves, device breakdown, sessions/user metrics</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Session Engagement</Strong>: Per-session engagement scoring (actions × depth − errors). Histogram distribution, tier-based conversion rates, high-intent non-converter identification</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Third-Party Impact</Strong>: First-party vs. third-party resource analysis — request counts, payload size, avg duration. CWV correlation per page</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Error Clustering</Strong>: Group errors by type/pattern with occurrence counts, session impact, hourly trend chart, and sample messages</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• <Strong>Funnel Velocity</Strong> (Sankey sub-tab): Time-between-steps analysis with median/P90/avg per transition, journey time histogram, and bottleneck identification</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• 8 new DQL queries for cohort retention, session engagement, funnel velocity, third-party resources, CWV correlation, error clustering, and error trends</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 9, 2026</Paragraph>
-            <Paragraph><Strong>Funnel &amp; Sankey — New Chart Styles</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Funnel Overview: 5 visualization styles — Classic, Horizontal Bar, Stacked Cohort, Elapsed-Time Curve, Comparison Split</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Horizontal Bar: left-aligned bars with red drop-off extensions showing where users are lost</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Stacked Cohort (Marimekko): columns split into converted vs. dropped segments at each step</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Elapsed-Time Curve: survival curve plotting % remaining vs. cumulative response time</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Comparison Split: mirror funnel — current vs. previous period side-by-side with delta indicators</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Funnel style persisted per user via Settings (default style configurable)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Sankey: 7 chart styles (removed Sunburst &amp; Parallel Sets, added Chord Diagram &amp; Transition Heatmap)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Chord Diagram: click arcs to select — highlights connected ribbons, focus mode hides unrelated, shows inbound/outbound detail</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Transition Heatmap: 52px cells, click to highlight row/column cross, selection summary with totals</Paragraph>
-          </div>
-          <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(128,128,128,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(128,128,128,0.3)" }}>
-            <Paragraph style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 8, 2026</Paragraph>
-            <Paragraph><Strong>Sankey — Funnel Analytics &amp; Health Scoring</Strong></Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Funnel pages highlighted in gold (★) with dashed borders across all 5 chart styles</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Exit detection: pages where ≥30% outbound traffic leaves the funnel flagged in red (⛔)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Per-page Core Web Vitals (LCP, CLS, INP) and error counts on node selection</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Key Observations and Recommendations auto-generated from data</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Funnel Exit Analysis table with return rates and estimated lost revenue</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Off-Funnel Destinations table showing where users go after leaving</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Page Health Scorecard with composite health score (CWV + errors)</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Error counts in Health Scorecard link to <Strong>Dynatrace Error Inspector</Strong> filtered by page</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• 3 new DQL queries: CWV per page, errors per page, extended session paths</Paragraph>
-            <Paragraph style={{ fontSize: 13 }}>• Rich hover tooltips: top 3 inbound/outbound with counts &amp; percentages, self-reload detection, error counts</Paragraph>
           </div>
         </div>
       </HelpSection>
@@ -6174,13 +5949,16 @@ export function UserJourney() {
   const [hotnessForecastPos, setHotnessForecastPos] = useState<{ x: number; y: number }>({ x: 240, y: 120 });
   const hotnessForecastDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  const [dtOpen, setDtOpen] = useState(false);
   const [dimensionModal, setDimensionModal] = useState<{ label: string; sparkline: number[]; color?: string; fetchGeo?: (pct: string) => Promise<DimSlice[]>; fetchBrowser?: (pct: string) => Promise<DimSlice[]> } | null>(null);
   const [kpiHeatmapPanel, setKpiHeatmapPanel] = useState<{ label: string; color?: string; getRequeryData: (days: number) => Promise<{ values: number[]; bucketMs: number; unit?: string }> } | null>(null);
   const [kpiHeatmapPos, setKpiHeatmapPos] = useState<{ x: number; y: number }>({ x: 320, y: 120 });
   const kpiHeatmapDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const closeAiInsights = React.useCallback(() => setAiOpen(false), []);
   const aiContextValue = React.useMemo(() => ({ open: aiOpen, close: closeAiInsights, activeSubTab: activeSubTabKey }), [aiOpen, closeAiInsights, activeSubTabKey]);
-  const { frontend, steps, funnels, activeFunnelIndex, saveFunnels, saveActiveFunnelIndex, saveSteps, aov, saveAov, monthlyInfraCost, saveMonthlyInfraCost, cdnMonthlyCost, saveCdnMonthlyCost, computeCostPerHour, saveComputeCostPerHour, costPerGb, saveCostPerGb, engineerHourlyRate, saveEngineerHourlyRate, industry, saveIndustry, gradeWeights, saveGradeWeights, gradeMetricEnabled, saveGradeMetricEnabled, gradeMetricThresholds, saveGradeMetricThresholds, saveGradeSettings, pageLabels, savePageLabels } = useSettings();
+  const { frontend, steps, funnels, activeFunnelIndex, saveFunnels, saveActiveFunnelIndex, saveSteps, aov, saveAov, monthlyInfraCost, saveMonthlyInfraCost, cdnMonthlyCost, saveCdnMonthlyCost, computeCostPerHour, saveComputeCostPerHour, costPerGb, saveCostPerGb, engineerHourlyRate, saveEngineerHourlyRate, industry, saveIndustry, gradeWeights, saveGradeWeights, gradeMetricEnabled, saveGradeMetricEnabled, gradeMetricThresholds, saveGradeMetricThresholds, saveGradeSettings, pageLabels, savePageLabels, aiAssistEnabled: aiAssistEnabledSetting, setAiAssistEnabled, dtIntelligenceEnabled: dtIntelligenceEnabledSetting, setDtIntelligenceEnabled } = useSettings();
+  const aiAssistEnabled = aiAssistEnabledSetting ?? false;
+  const dtIntelligenceEnabled = dtIntelligenceEnabledSetting ?? false;
   const [sankeyStyle, setSankeyStyle] = useState<SankeyStyle>(DEFAULT_SANKEY_STYLE);
   const [funnelStyle, setFunnelStyle] = useState<FunnelStyle>(DEFAULT_FUNNEL_STYLE);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState<number>(0);
@@ -7061,6 +6839,293 @@ export function UserJourney() {
   const overallConv = funnelCounts[0] > 0 ? (funnelCounts[lastIdx] / funnelCounts[0]) * 100 : 0;
   const overallConvPrev = funnelCountsPrev[0] > 0 ? (funnelCountsPrev[lastIdx] / funnelCountsPrev[0]) * 100 : 0;
 
+  const buildDTPrompt = React.useCallback(() => {
+    const openProblems = (davisProblemsData.data?.records ?? []).filter((p: any) => p["event.status"] === "OPEN" || !p["event.end"]).length;
+    const deploys = (deploymentEventsData.data?.records ?? []);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const deploymentsToday = deploys.filter((d: any) => { const ts = d.timestamp ? new Date(d.timestamp).getTime() : 0; return ts >= today.getTime(); }).length;
+    const errorRate = quality.total > 0 ? (quality.errors / quality.total) * 100 : 0;
+    const revenue = funnelCounts[0] > 0 ? (funnelCounts[lastIdx] / funnelCounts[0]) * aov * funnelCounts[0] : null;
+    const funnelName = funnels[activeFunnelIndex]?.name ?? "";
+    const tab = activeSubTabKey ?? "";
+    const n = (v: number | null | undefined) => v != null ? v.toLocaleString() : "N/A";
+    const p = (v: number | null | undefined) => v != null ? v.toFixed(2) + "%" : "N/A";
+    const dur = (v: number | null | undefined) => v != null ? v.toFixed(0) + "ms" : "N/A";
+    const bench = INDUSTRY_BENCHMARKS[industry] ?? INDUSTRY_BENCHMARKS.general;
+
+    // Step-by-step funnel drop-off lines
+    const stepLines = steps.map((step, i) => {
+      const count = funnelCounts[i] ?? 0;
+      const prev = funnelCounts[i - 1] ?? 0;
+      const dropPct = i > 0 && prev > 0 ? ((1 - count / prev) * 100).toFixed(1) + "%" : "—";
+      return `  Step ${i + 1} "${step.label}": ${count.toLocaleString()} sessions, drop-off ${dropPct}`;
+    }).join("\n");
+
+    // Apdex breakdown
+    const frustrated = Math.max(0, quality.total - quality.satisfied - quality.tolerating);
+    const satisfiedPct = quality.total > 0 ? ((quality.satisfied / quality.total) * 100).toFixed(1) + "%" : "N/A";
+    const toleratingPct = quality.total > 0 ? ((quality.tolerating / quality.total) * 100).toFixed(1) + "%" : "N/A";
+    const frustratedPct = quality.total > 0 ? ((frustrated / quality.total) * 100).toFixed(1) + "%" : "N/A";
+
+    // Base context always included
+    const baseContext = `App: Dynatrace User Journey & Experience
+Funnel: ${funnelName}  |  Industry: ${industry}  |  Active view: ${tab || "Executive Summary"}
+Sessions: ${n(quality.total || quality.sessions)}  |  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}  |  Error rate: ${p(quality.total > 0 ? errorRate : null)}
+Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (${industry} target: ${bench.apdexTarget})
+Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}  |  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}`;
+
+    // Per-tab-group instruction + supplementary context
+    type TabPrompt = { instruction: string; extra: string };
+
+    const getTabPrompt = (): TabPrompt => {
+      const revenueAtRisk = quality.total > 0 && aov > 0
+        ? "$" + ((errorRate / 100) * (quality.total || 0) * aov).toLocaleString(undefined, { maximumFractionDigits: 0 })
+        : "N/A";
+
+      // ── Funnel & Conversion ────────────────────────────────────────────────
+      if (tab === "Funnel Overview" || tab === "Funnel Analysis") {
+        return {
+          instruction: `Analyze the "${tab}" for the "${funnelName}" conversion funnel. Give an overall funnel health assessment: total sessions, step-by-step drop-off, overall conversion rate vs the ${industry} benchmark of ${bench.convRateTarget}%, and the single highest-impact opportunity to improve conversion. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nConversion Funnel:\n${stepLines}\n\nOverall: ${p(funnelCounts[0] > 0 ? overallConv : null)} conversion (benchmark: ${bench.convRateTarget}%) | Prior period: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}\nRevenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})\nError rate: ${p(quality.total > 0 ? errorRate : null)}`,
+        };
+      }
+      if (tab === "Step Details") {
+        return {
+          instruction: `Analyze individual step performance for the "${funnelName}" funnel. Identify the step with the worst drop-off rate, the likely causes (errors, latency, UX friction, form issues), and the specific fix that would recover the most conversions from that step. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nStep-by-Step Detail:\n${stepLines}\n\nApdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (satisfied ${satisfiedPct}, frustrated ${frustratedPct})\nError rate: ${p(quality.total > 0 ? errorRate : null)} | Avg duration: ${dur(quality.avg > 0 ? quality.avg : null)}\nINP (step interaction speed): ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <200ms)`,
+        };
+      }
+      if (tab === "Trends") {
+        return {
+          instruction: `Analyze conversion and experience trends over time for "${funnelName}". Assess direction of change (improving vs declining), what the current-vs-prior comparison suggests about root cause (deployment, seasonal, behavioral), and what intervention would reverse a negative trend. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nTrend Comparison (current vs prior period):\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} → ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} → ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"}\n  Sessions: ${n(quality.total || quality.sessions)} → ${n(qualityPrev.total || qualityPrev.sessions)}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"} | Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}`,
+        };
+      }
+      if (tab === "Conversion Attribution") {
+        return {
+          instruction: `Analyze conversion attribution for "${funnelName}". Identify which user attributes (device type, browser, geography, new vs returning, traffic source) correlate most with conversion success vs abandonment. Recommend which segments to prioritize for optimization. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nAttribution Context:\n  Overall conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  Sessions: ${n(quality.total || quality.sessions)} | Duration: ${dur(quality.avg > 0 ? quality.avg : null)}\n  Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}\n  Mobile share benchmark (${industry}): ${bench.mobileShareExpected}%\n  Latency impact (${industry}): ${bench.latencyImpactPerSec}% conversion loss per 1s`,
+        };
+      }
+      if (tab === "Errors & Drop-offs") {
+        return {
+          instruction: `Analyze how errors drive funnel abandonment in "${funnelName}". Identify which error types occur at which steps, quantify revenue lost from error-driven drop-off, and prioritize which errors to fix first for maximum conversion recovery. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nError Drop-off Context:\n  Total errors: ${n(quality.errors > 0 ? quality.errors : null)}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  Revenue at risk: ${revenueAtRisk}\n  Funnel steps:\n${stepLines}\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)}`,
+        };
+      }
+
+      // ── User Experience ────────────────────────────────────────────────────
+      if (tab === "Business Vitals") {
+        return {
+          instruction: `Analyze business vitals and digital health scores for "${funnelName}". For each KPI, state whether it's healthy, at risk, or failing vs the ${industry} benchmark, and what the business consequence of each unhealthy metric is. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nBusiness Vitals:\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (benchmark: ${bench.apdexTarget})\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)\n  CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"} (target <${bench.clsTarget})\n  Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}\n  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}`,
+        };
+      }
+      if (tab === "Web Vitals") {
+        return {
+          instruction: `Analyze Core Web Vitals for "${funnelName}". For each vital (LCP, INP, CLS), classify it as Good/Needs Improvement/Poor, explain the likely technical cause, compare to the ${industry} target, and recommend the single most impactful technical fix. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nCore Web Vitals:\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)}\n    Good <2500ms | NI <4000ms | Poor ≥4000ms | ${industry} target <${bench.lcpTarget}ms\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)}\n    Good <200ms | NI <500ms | Poor ≥500ms | ${industry} target <${bench.inpTarget}ms\n  CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"}\n    Good <0.1 | NI <0.25 | Poor ≥0.25 | ${industry} target <${bench.clsTarget}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} — satisfied ${satisfiedPct}, tolerating ${toleratingPct}, frustrated ${frustratedPct}`,
+        };
+      }
+      if (tab === "Worst Sessions") {
+        return {
+          instruction: `Analyze the worst-performing user sessions for "${funnelName}". Characterize what defines the worst sessions (error count, high latency, rage clicks, abrupt exits), what percentage of total users they represent, and what targeted interventions would eliminate or recover the most impacted sessions. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nSession Distribution:\n  Total sessions: ${n(quality.total || quality.sessions)}\n  Satisfied: ${satisfiedPct} | Tolerating: ${toleratingPct} | Frustrated: ${frustratedPct}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Avg session duration: ${dur(quality.avg > 0 ? quality.avg : null)}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (benchmark: ${bench.apdexTarget})\n  Revenue at risk from frustrated sessions: ${revenueAtRisk}`,
+        };
+      }
+      if (tab === "Click Issues") {
+        return {
+          instruction: `Analyze click interaction issues for "${funnelName}". Focus on rage click patterns, dead click hotspots, and JavaScript errors triggered on click. Identify which UI elements are causing the most interaction frustration and what UX or code changes would reduce click-level errors. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nInteraction Context:\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Frustrated sessions: ${frustratedPct}\n  INP (interaction responsiveness): ${dur(cwv.inp > 0 ? cwv.inp : null)} (Good <200ms, target <${bench.inpTarget}ms)\n  Funnel steps (click-sensitive):\n${stepLines}`,
+        };
+      }
+      if (tab === "Perf Budgets") {
+        return {
+          instruction: `Analyze performance budget compliance for "${funnelName}". Identify which resource types and pages exceed budget thresholds, the rendering impact of over-budget assets, and a prioritized list of resources to optimize for the biggest LCP/INP gains. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nPerformance Budget Context:\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)\n  CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"} (target <${bench.clsTarget})\n  Third-party budget (${industry}): ${bench.thirdPartyBudgetMs}ms\n  Avg session duration: ${dur(quality.avg > 0 ? quality.avg : null)}`,
+        };
+      }
+      if (tab === "Resource Waterfall") {
+        return {
+          instruction: `Analyze the resource loading waterfall for "${funnelName}". Focus on the critical rendering path, render-blocking resources, TTFB, and the largest assets. Identify which waterfall bottlenecks have the highest impact on LCP and time-to-interactive, and recommend specific optimizations. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nLoading Performance:\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)\n  Third-party budget: ${bench.thirdPartyBudgetMs}ms\n  Avg session duration: ${dur(quality.avg > 0 ? quality.avg : null)}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}`,
+        };
+      }
+      if (tab === "Third-Party Impact") {
+        return {
+          instruction: `Analyze third-party script impact on "${funnelName}". Identify which third-party resources (analytics, ads, chat, tag managers) contribute most to page load delay, their effect on LCP, INP, and CLS, and recommend deferral, lazy-loading, or removal strategies with estimated performance gain. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nThird-Party Impact:\n  Third-party budget (${industry}): ${bench.thirdPartyBudgetMs}ms\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)\n  CLS (third-party layout shifts): ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"} (target <${bench.clsTarget})\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}`,
+        };
+      }
+      if (tab === "Hyperlyzer") {
+        return {
+          instruction: `Perform a deep multi-dimensional performance analysis for "${funnelName}". Cross-correlate LCP, INP, CLS, error rate, and Apdex to find the combination of factors that most predicts conversion failure. Identify which dimension is the primary driver and what fixing it would unlock. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nHyperlyzer Inputs:\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (satisfied ${satisfiedPct}, frustrated ${frustratedPct})\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} | CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  Sessions: ${n(quality.total || quality.sessions)}`,
+        };
+      }
+
+      // ── Navigation & Flows ─────────────────────────────────────────────────
+      if (tab === "Navigation Paths" || tab === "Sankey") {
+        return {
+          instruction: `Analyze user navigation patterns and flow for "${funnelName}" in the "${tab}" view. Identify the most common exit points between funnel steps, unexpected navigation detours that delay conversion, and what flow patterns distinguish converters from abandoners. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nNavigation Checkpoints:\n${stepLines}\n\nFlow quality:\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} | Frustrated: ${frustratedPct}\n  Avg session duration: ${dur(quality.avg > 0 ? quality.avg : null)}`,
+        };
+      }
+      if (tab === "Geo Heatmap" || tab === "Maps") {
+        return {
+          instruction: `Analyze geographic user distribution and performance for "${funnelName}". Identify regions with below-average conversion or elevated latency, what CDN or infrastructure configuration might explain geographic variance, and which regions represent the biggest untapped opportunity. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nGlobal Context:\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}\n  Mobile share (${industry} expected): ${bench.mobileShareExpected}%\n  CDN monthly cost: $${cdnMonthlyCost.toLocaleString()}`,
+        };
+      }
+      if (tab === "Session Replay Spotlight") {
+        return {
+          instruction: `Analyze session replay evidence for "${funnelName}". Focus on behavioral patterns that reveal UX friction: pages with the most rage clicks, confused navigation loops, form abandonment sequences, and UI elements that block completion. Translate replay observations into prioritized UX fixes. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nReplay Candidate Pool:\n  Total sessions: ${n(quality.total || quality.sessions)}\n  Frustrated sessions (prime replay candidates): ${frustratedPct}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  INP (interaction speed): ${dur(cwv.inp > 0 ? cwv.inp : null)}\n  Funnel steps:\n${stepLines}`,
+        };
+      }
+
+      // ── Intelligence & AI ──────────────────────────────────────────────────
+      if (tab === "Anomaly Detection") {
+        return {
+          instruction: `Analyze statistical anomalies in "${funnelName}" metrics. Identify which KPIs are deviating beyond normal variance, what the anomaly pattern suggests about the cause (incident, deployment, seasonal), and what monitoring thresholds should be set to detect similar deviations earlier. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nAnomaly Signals:\n  Conversion now vs prior: ${p(funnelCounts[0] > 0 ? overallConv : null)} vs ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}\n  Apdex now vs prior: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} vs ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)}`,
+        };
+      }
+      if (tab === "Root Cause Correlation") {
+        return {
+          instruction: `Perform root cause correlation analysis for "${funnelName}". Given the current metric state, build a causal chain: which upstream signals (errors, latency, Davis problems, deployments) most likely caused the observed conversion and Apdex values. Name the root cause and the specific intervention point. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nCorrelation Inputs:\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}\n  Conversion delta: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)} → ${p(funnelCounts[0] > 0 ? overallConv : null)}\n  Apdex delta: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"} → ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} | CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"}`,
+        };
+      }
+      if (tab === "Predictive Forecasting") {
+        return {
+          instruction: `Analyze predictive signals for "${funnelName}". Based on current trajectory, project where conversion, Apdex, and error rate will be in the next 7 days if no action is taken. Identify the leading indicators of deterioration and what proactive intervention would change the forecast. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nForecast Inputs:\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} | Prior period: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} | Prior: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"}\n  Sessions: ${n(quality.total || quality.sessions)} | Prior: ${n(qualityPrev.total || qualityPrev.sessions)}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Open problems: ${davisProblemsData.data ? openProblems : "N/A"}`,
+        };
+      }
+      if (tab === "Change Intelligence") {
+        return {
+          instruction: `Analyze deployment and change impact for "${funnelName}". Correlate recent deployments with conversion, Apdex, and error rate changes. Determine whether any deployment introduced a regression, quantify the business impact, and recommend rollback criteria or forward-fix priorities. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nChange Impact:\n  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  Conversion before/after: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)} → ${p(funnelCounts[0] > 0 ? overallConv : null)}\n  Apdex before/after: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"} → ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)}`,
+        };
+      }
+      if (tab === "What-If Analysis") {
+        return {
+          instruction: `Model what-if scenarios for "${funnelName}". Calculate the revenue impact of: (1) reducing error rate to <${bench.errorRateTarget}%, (2) improving Apdex to ${bench.apdexTarget}, (3) reaching ${bench.convRateTarget}% conversion, (4) meeting all Core Web Vitals Good thresholds. Rank by revenue opportunity and recommend the highest-ROI scenario to pursue first. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nScenario Baseline:\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} → target ${bench.convRateTarget}%\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} → target ${bench.apdexTarget}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} → target <${bench.errorRateTarget}%\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} → target <${bench.lcpTarget}ms\n  AOV: $${aov} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}\n  Latency impact (${industry}): ${bench.latencyImpactPerSec}% conv loss per 1s`,
+        };
+      }
+
+      // ── Engagement & Revenue ───────────────────────────────────────────────
+      if (tab === "Segmentation") {
+        return {
+          instruction: `Analyze user segmentation for "${funnelName}". Identify which segments (device, browser, geography, new vs returning) show the highest and lowest conversion. Recommend which segments to prioritize for personalization or targeted optimization, and estimate the revenue upside. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nSegmentation Context:\n  Sessions: ${n(quality.total || quality.sessions)} | Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}\n  Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}\n  Mobile share (${industry} expected): ${bench.mobileShareExpected}%\n  Duration: ${dur(quality.avg > 0 ? quality.avg : null)}\n  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})`,
+        };
+      }
+      if (tab === "Cohort Retention") {
+        return {
+          instruction: `Analyze cohort retention for "${funnelName}". Assess how well user cohorts return over time, which acquisition cohorts have the highest 7-day retention, what experience quality factors predict return visits, and how to improve retention for the lowest-performing cohorts. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nRetention Context:\n  Sessions: ${n(quality.total || quality.sessions)}\n  7-day retention benchmark (${industry}): ${bench.retentionD7Target}%\n  Session depth benchmark: ${bench.sessionDepthTarget} pages\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} | Frustrated sessions: ${frustratedPct}\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (repeating vs new sessions)`,
+        };
+      }
+      if (tab === "Session Engagement") {
+        return {
+          instruction: `Analyze session engagement depth for "${funnelName}". Focus on session duration, page depth, scroll and interaction patterns, and how engagement correlates with conversion probability. Identify what drives high-engagement sessions and how to replicate that behavior across all users. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nEngagement Metrics:\n  Sessions: ${n(quality.total || quality.sessions)} | Avg duration: ${dur(quality.avg > 0 ? quality.avg : null)}\n  Session depth benchmark (${industry}): ${bench.sessionDepthTarget} pages\n  Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}\n  Funnel steps (engagement gates):\n${stepLines}`,
+        };
+      }
+      if (tab === "Revenue Intelligence") {
+        return {
+          instruction: `Analyze revenue intelligence for "${funnelName}". Quantify current revenue, model revenue at risk from degraded performance and errors, calculate the conversion improvement needed to hit revenue targets, and rank the top optimization opportunities by revenue impact. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nRevenue Intelligence:\n  Estimated revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  Revenue at risk from errors: ${revenueAtRisk}\n  Latency impact (${industry}): ${bench.latencyImpactPerSec}% conv loss per 1s\n  Rev/cost ratio: ${revenue && monthlyInfraCost > 0 ? (revenue / monthlyInfraCost).toFixed(1) + "x" : "N/A"} (target: ${bench.revCostRatioTarget}x)`,
+        };
+      }
+      if (tab === "A/B Comparison") {
+        return {
+          instruction: `Analyze A/B comparison results for "${funnelName}". Determine whether the difference between variants is statistically meaningful, which variant wins on conversion, Apdex, and error rate, and what confidence level is needed before rolling out the winner. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nComparison Baseline:\n  Current conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} | Prior period: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} | Prior: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Sessions: ${n(quality.total || quality.sessions)}`,
+        };
+      }
+
+      // ── Errors & Reliability ───────────────────────────────────────────────
+      if (tab === "Exceptions") {
+        return {
+          instruction: `Analyze JavaScript exceptions and application errors for "${funnelName}". Identify the top exception types by frequency and user impact, which funnel steps they cluster at, and what stack trace patterns indicate about root cause. Prioritize by conversion impact. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nException Context:\n  Total errors: ${n(quality.errors > 0 ? quality.errors : null)}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  Revenue at risk: ${revenueAtRisk}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  Funnel steps:\n${stepLines}`,
+        };
+      }
+      if (tab === "Error Clustering") {
+        return {
+          instruction: `Analyze error clusters for "${funnelName}". Identify distinct error patterns by message, stack, page, or segment — which clusters are growing vs stable, and which cluster has the highest business impact. Recommend a fix priority order based on user reach and revenue risk. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nClustering Context:\n  Total errors: ${n(quality.errors > 0 ? quality.errors : null)}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  Frustrated sessions: ${frustratedPct}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}`,
+        };
+      }
+      if (tab === "SLO Tracker") {
+        return {
+          instruction: `Analyze SLO compliance and error budget for "${funnelName}". State current SLO status, remaining error budget, burn rate, and whether the current error rate will exhaust the budget before the reset. Recommend freeze or corrective action policies if budget is critically low. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nSLO Context:\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (${industry} SLO target: <${bench.errorRateTarget}%)\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})\n  Frustrated sessions (SLI signal): ${frustratedPct}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}`,
+        };
+      }
+
+      // ── FinOps ─────────────────────────────────────────────────────────────
+      if (tab === "Cost per Conversion") {
+        const conversions = funnelCounts[lastIdx] ?? 0;
+        return {
+          instruction: `Analyze cost per conversion for "${funnelName}". Calculate current infrastructure cost per successful conversion, compare to the ${industry} benchmark of $${bench.costPerConvLow}–$${bench.costPerConvHigh}, and model what cost per conversion would be at the benchmark conversion rate of ${bench.convRateTarget}%. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nCost per Conversion:\n  Monthly infra: $${monthlyInfraCost.toLocaleString()} | Conversions: ${conversions > 0 ? conversions.toLocaleString() : "N/A"}\n  Cost/conversion: ${conversions > 0 ? "$" + (monthlyInfraCost / conversions).toFixed(2) : "N/A"}\n  ${industry} benchmark: $${bench.costPerConvLow}–$${bench.costPerConvHigh}\n  Conversion rate: ${p(funnelCounts[0] > 0 ? overallConv : null)} (target: ${bench.convRateTarget}%)`,
+        };
+      }
+      if (tab === "Performance Tax") {
+        return {
+          instruction: `Calculate the performance tax for "${funnelName}" — revenue lost due to suboptimal latency and Core Web Vitals. For each failing metric, estimate conversion rate points lost and the dollar revenue impact. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nPerformance Tax Inputs:\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms, excess: ${cwv.lcp > bench.lcpTarget ? (cwv.lcp - bench.lcpTarget).toFixed(0) + "ms over" : "within target"})\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})\n  Latency impact (${industry}): ${bench.latencyImpactPerSec}% conv loss per 1s\n  AOV: $${aov} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}`,
+        };
+      }
+      if (tab === "Idle Capacity") {
+        return {
+          instruction: `Analyze idle and over-provisioned capacity for "${funnelName}". Determine whether infrastructure is over-sized relative to actual traffic, estimate monthly savings from right-sizing, and model the break-even point for current provisioning. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nCapacity Context:\n  Monthly infra: $${monthlyInfraCost.toLocaleString()}\n  Sessions (demand signal): ${n(quality.total || quality.sessions)}\n  Idle utilization target (${industry}): ${bench.idleUtilTarget}%\n  Break-even hours target: ${bench.breakEvenHoursTarget}h\n  Infra % of revenue: ${revenue && revenue > 0 ? ((monthlyInfraCost / revenue) * 100).toFixed(1) + "%" : "N/A"} (target: ${bench.infraPctRevenueLow}–${bench.infraPctRevenueHigh}%)`,
+        };
+      }
+      if (tab === "CDN ROI") {
+        const cdnRoi = revenue && cdnMonthlyCost > 0 ? (revenue / cdnMonthlyCost).toFixed(1) + "x" : "N/A";
+        return {
+          instruction: `Analyze CDN return on investment for "${funnelName}". Calculate whether CDN spend is delivering expected latency improvement and conversion lift, compare the CDN ROI ratio to the ${industry} benchmark of ${bench.cdnRoiTarget}x, and recommend configuration changes that would improve performance per dollar. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nCDN ROI:\n  CDN cost: $${cdnMonthlyCost.toLocaleString()}/mo\n  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}\n  CDN ROI: ${cdnRoi} (${industry} target: ${bench.cdnRoiTarget}x)\n  LCP (CDN impact): ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}`,
+        };
+      }
+      if (tab === "Cost per Transaction") {
+        const totalSessions = quality.total || quality.sessions || 0;
+        return {
+          instruction: `Analyze cost per transaction (all sessions, not just conversions) for "${funnelName}". Calculate infrastructure cost per session, compare to ${industry} benchmarks, and assess whether session volume growth is scaling efficiently vs cost. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nCost per Transaction:\n  Monthly infra: $${monthlyInfraCost.toLocaleString()}\n  Sessions: ${n(totalSessions)}\n  Cost/session: ${totalSessions > 0 ? "$" + (monthlyInfraCost / totalSessions).toFixed(4) : "N/A"}\n  Infra % of revenue: ${revenue && revenue > 0 ? ((monthlyInfraCost / revenue) * 100).toFixed(1) + "%" : "N/A"} (target: ${bench.infraPctRevenueLow}–${bench.infraPctRevenueHigh}%)\n  Rev/cost ratio: ${revenue && monthlyInfraCost > 0 ? (revenue / monthlyInfraCost).toFixed(1) + "x" : "N/A"} (target: ${bench.revCostRatioTarget}x)`,
+        };
+      }
+      if (tab === "SLO Cost Trade-offs") {
+        return {
+          instruction: `Analyze the cost-vs-reliability trade-off for "${funnelName}". Model how much additional infrastructure investment would be needed to reach target SLO, whether the current reliability level is over- or under-invested relative to revenue at risk, and the optimal reliability investment point for ${industry}. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nSLO Cost Trade-off:\n  Monthly infra: $${monthlyInfraCost.toLocaleString()}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  Revenue at risk: ${revenueAtRisk}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})\n  Infra % of revenue: ${revenue && revenue > 0 ? ((monthlyInfraCost / revenue) * 100).toFixed(1) + "%" : "N/A"} (target: ${bench.infraPctRevenueLow}–${bench.infraPctRevenueHigh}%)`,
+        };
+      }
+      if (tab === "Budget Impact Simulator") {
+        return {
+          instruction: `Run a budget impact simulation for "${funnelName}". For three scenarios — (1) 10% infra cost reduction, (2) 20% conversion improvement, (3) achieving ${industry} benchmark SLO — calculate net business impact and rank by ROI. Recommend which investment delivers the best return. Respond in JSON with summary, insights, and recommendations.`,
+          extra: `\n\nSimulator Inputs:\n  Infra: $${monthlyInfraCost.toLocaleString()}/mo | CDN: $${cdnMonthlyCost.toLocaleString()}/mo\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} → target ${bench.convRateTarget}%\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} → target <${bench.errorRateTarget}%\n  AOV: $${aov} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}\n  Rev/cost ratio: ${revenue && monthlyInfraCost > 0 ? (revenue / monthlyInfraCost).toFixed(1) + "x" : "N/A"} (target: ${bench.revCostRatioTarget}x)`,
+        };
+      }
+
+      // Executive Summary (default)
+      return {
+        instruction: `Provide a concise executive-level analysis of the "${funnelName}" digital journey. Summarize health across conversion, experience, reliability, and cost. State the top risks with business impact and the 3 highest-value actions the team can take immediately. Respond in JSON with summary, insights, and recommendations.`,
+        extra: `\n\nFunnel:\n${stepLines}\n\nKPIs:\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)}\n  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})\n  Infra: $${monthlyInfraCost.toLocaleString()}/mo`,
+      };
+    };
+
+    const { instruction, extra } = getTabPrompt();
+    return { text: instruction, contextData: baseContext + extra };
+  }, [davisProblemsData.data, deploymentEventsData.data, quality, qualityPrev, funnelCounts, funnelCountsPrev, lastIdx, aov, overallConv, overallConvPrev, overallApdex, overallApdexPrev, cwv, activeSubTabKey, funnels, activeFunnelIndex, industry, steps, monthlyInfraCost, cdnMonthlyCost]);
+
   const hotnessAssistData = React.useMemo(() => {
     if (!tl.enabled || tl.sharedMetricsAll.length < 2 || !tlSharedBaselines || tl.hotness.length === 0) return null;
     return analyzeHotnessTimelapse(
@@ -7407,6 +7472,7 @@ export function UserJourney() {
   }, [metricsRegistry, registerMetrics]);
 
   return (
+    <DTIntelligenceContext.Provider value={{ open: dtOpen, close: () => setDtOpen(false), activeTabKey: activeSubTabKey ?? "" }}>
     <div className="uj-container">
       {/* Sticky top — Header + Global Time-Lapse controls stay pinned while content scrolls behind. */}
       <div className="uj-sticky-top">
@@ -7486,7 +7552,12 @@ export function UserJourney() {
               <Text style={{ fontSize: 11, opacity: 0.5 }}>{isFunnelFetching ? "Refreshing…" : formatTimeAgo(lastRefreshedAt)}</Text>
             </Flex>
           )}
-          <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
+          {dtIntelligenceEnabled && (
+            <DTIntelligenceButton open={dtOpen} onToggle={() => setDtOpen(v => !v)} />
+          )}
+          {aiAssistEnabled && (
+            <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
+          )}
           <button onClick={() => setShowHelp(true)} className="uj-help-btn" title="Help"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><text x="11" y="15.5" textAnchor="middle" fill="rgba(128,128,128,0.7)" fontSize="14" fontWeight="700">?</text></svg></button>
           <button onClick={() => setShowSettings(true)} className="uj-help-btn" title="Settings" style={{ marginLeft: 4 }}><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(128,128,128,0.5)" strokeWidth="1.5" /><path d="M11 7v1.5M11 13.5V15M7 11h1.5M13.5 11H15M8.5 8.5l1 1M12.5 12.5l1 1M13.5 8.5l-1 1M9.5 12.5l-1 1" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" strokeLinecap="round" /><circle cx="11" cy="11" r="2" stroke="rgba(128,128,128,0.7)" strokeWidth="1.5" /></svg></button>
           <Text style={{ fontSize: 11, opacity: 0.4, fontFamily: "monospace", marginLeft: 8 }}>v{APP_VERSION_LABEL}</Text>
@@ -7626,6 +7697,9 @@ export function UserJourney() {
       </div>
       )}
       </div>{/* /uj-sticky-top */}
+
+      {/* DT Intelligence panel */}
+      {dtIntelligenceEnabled && <DTIWrapper buildPrompt={buildDTPrompt} />}
 
       {/* Hotness diagnosis panel — portaled to body so z-index is unconstrained */}
       {tlDiagPanel && tlSharedBaselines && tl.sharedMetricsAll.length > 0 && createPortal((() => {
@@ -7780,7 +7854,7 @@ export function UserJourney() {
       />
       <CommunityWarningBanner repoUrl="https://github.com/TechShady/user-journey-app" onDismissed={() => setCommunityBannerDone(true)} />
 
-      <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
+      <Sheet title="User Journey & Experience — Help & Documentation" show={showHelp} onDismiss={() => setShowHelp(false)} actions={<><Button onClick={() => window.open("https://github.com/TechShady/user-journey-app/raw/main/USER_GUIDE.docx", "_blank")} title="Download User Guide"><DocumentIcon /> User Guide</Button><Button variant="emphasized" onClick={() => setShowHelp(false)}>Close</Button></>}><HelpContent frontend={frontend} steps={steps} /></Sheet>
       <Sheet title="Settings" show={showSettings} onDismiss={() => setShowSettings(false)} actions={<Button variant="emphasized" onClick={() => setShowSettings(false)}>Close</Button>}>
         <div style={{ padding: "4px 0" }}>
           {/* Intro caption explaining the two scopes */}
@@ -8300,6 +8374,35 @@ export function UserJourney() {
               </Select.Content>
             </Select>
           </div>
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 14 }} />
+          {/* AI Features */}
+          <div style={{ marginBottom: 10, fontWeight: 700, fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "#4589FF" }}>AI FEATURES</div>
+          {/* AI Assist card */}
+          <div style={{ marginBottom: 8, padding: "14px 16px", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, background: "rgba(255,255,255,0.02)", display: "flex", gap: 14, alignItems: "flex-start" }}>
+            <label style={{ position: "relative", display: "inline-block", width: 44, height: 24, flexShrink: 0, marginTop: 2 }}>
+              <input type="checkbox" checked={aiAssistEnabled} onChange={(e) => setAiAssistEnabled(e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
+              <span style={{ position: "absolute", cursor: "pointer", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 24, background: aiAssistEnabled ? "#5956E9" : "rgba(255,255,255,0.15)", transition: "background 0.3s" }}>
+                <span style={{ position: "absolute", height: 18, width: 18, left: aiAssistEnabled ? 22 : 3, bottom: 3, borderRadius: "50%", background: "white", transition: "left 0.3s" }} />
+              </span>
+            </label>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "#e8eaf0", marginBottom: 5 }}>AI Assist</div>
+              <div style={{ fontSize: 12, color: "rgba(200,206,223,0.65)", lineHeight: 1.55 }}>Rule-based analysis computed instantly from live Dynatrace data. Deterministic — the same metric values always produce the same insights. No external AI calls, no latency, works offline. Best for reliable, always-on insights.</div>
+            </div>
+          </div>
+          {/* Dynatrace Intelligence card */}
+          <div style={{ marginBottom: 20, padding: "14px 16px", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, background: "rgba(255,255,255,0.02)", display: "flex", gap: 14, alignItems: "flex-start" }}>
+            <label style={{ position: "relative", display: "inline-block", width: 44, height: 24, flexShrink: 0, marginTop: 2 }}>
+              <input type="checkbox" checked={dtIntelligenceEnabled} onChange={(e) => setDtIntelligenceEnabled(e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
+              <span style={{ position: "absolute", cursor: "pointer", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 24, background: dtIntelligenceEnabled ? "#5956E9" : "rgba(255,255,255,0.15)", transition: "background 0.3s" }}>
+                <span style={{ position: "absolute", height: 18, width: 18, left: dtIntelligenceEnabled ? 22 : 3, bottom: 3, borderRadius: "50%", background: "white", transition: "left 0.3s" }} />
+              </span>
+            </label>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "#e8eaf0", marginBottom: 5 }}>Dynatrace Intelligence</div>
+              <div style={{ fontSize: 12, color: "rgba(200,206,223,0.65)", lineHeight: 1.55 }}>Generative analysis via Davis CoPilot — Dynatrace's built-in AI model. Interprets your live telemetry with natural language reasoning for nuanced, context-aware insights. Requires the <code style={{ fontSize: 11, padding: "1px 5px", borderRadius: 3, background: "rgba(255,255,255,0.08)", color: "#c8cedf", fontFamily: "monospace" }}>davis-copilot:conversations:execute</code> scope and adds 2–5s latency per tab.</div>
+            </div>
+          </div>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginBottom: 12 }} />
           <Paragraph style={{ marginBottom: 4, fontWeight: 600 }}>Role Preset</Paragraph>
           <Paragraph style={{ marginBottom: 10, opacity: 0.6, fontSize: 12 }}>Apply a persona preset to quickly show only the tabs relevant to your role. You can still manually adjust individual tabs below.</Paragraph>
@@ -8512,7 +8615,16 @@ export function UserJourney() {
         />
       )}
     </div>
+    </DTIntelligenceContext.Provider>
   );
+}
+
+// ===========================================================================
+// DT Intelligence wrapper component
+// ===========================================================================
+function DTIWrapper({ buildPrompt }: { buildPrompt: () => { text: string; contextData: string } }) {
+  const { panel } = useDTIntelligence(buildPrompt);
+  return <>{panel}</>;
 }
 
 // ===========================================================================

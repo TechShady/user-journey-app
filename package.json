@@ -17,6 +17,7 @@
   "license": "ISC",
   "dependencies": {
     "@dynatrace-sdk/app-environment": "^1.1.4",
+    "@dynatrace-sdk/client-davis-copilot": "^1.0.0",
     "@dynatrace-sdk/app-utils": "^1.0.2",
     "@dynatrace-sdk/client-filter-segment-management": "^1.7.1",
     "@dynatrace-sdk/client-notification-v2": "^1.0.0",

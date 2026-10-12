@@ -11,7 +11,9 @@
 3. [Interface Overview](#3-interface-overview)
 4. [Configuring Funnels](#4-configuring-funnels)
 5. [Time-Lapse Playback](#5-time-lapse-playback)
-6. [AI Insights](#6-ai-insights)
+6. [AI Features](#6-ai-features)
+   - [AI Assist](#61-ai-assist)
+   - [Dynatrace Intelligence](#62-dynatrace-intelligence)
 7. [Tab Reference](#7-tab-reference)
    - [Funnel & Conversion](#71-funnel--conversion)
    - [Executive Summary](#72-executive-summary)
@@ -23,6 +25,7 @@
    - [FinOps](#78-finops)
 8. [Export & Sharing](#8-export--sharing)
 9. [Glossary](#9-glossary)
+10. [What's New](#10-whats-new)
 
 ---
 
@@ -88,8 +91,9 @@ The persistent header (always visible at the top) contains these controls, from 
 | **App title / logo** | Click to return to the default tab |
 | **Funnel Selector** | Dropdown to switch between saved funnels |
 | **Timeframe Selector** | Choose a preset window (2h → 90d) or an absolute range |
-| **AI Insights button** (✦✦✦) | Opens a contextual analysis panel for the current sub-tab |
-| **Help icon** | Opens a slide-out panel with a What's New changelog |
+| **Dynatrace Intelligence button** | Opens the generative Davis CoPilot analysis panel (visible when enabled in Settings > AI FEATURES) |
+| **AI Assist button** (✦✦✦) | Opens the rule-based heuristic analysis panel for the current sub-tab (visible when enabled in Settings > AI FEATURES) |
+| **Help icon** | Opens the Help panel with a What's New changelog and tab documentation. The **📄 User Guide** download button appears in the top-right of the Help panel header — click it to download the full User Guide as a Word document. |
 | **Settings gear** | Opens the full Settings configuration sheet |
 
 ### Time-Lapse Strip
@@ -153,6 +157,8 @@ Don't know your funnel steps? Click **Discover Funnels** in Settings to auto-det
 | Default Map View | World / United States / Globe |
 | Tab visibility and order | Per parent group and per sub-tab |
 | Time-Lapse Hotness Mode | Shared (cross-tab) vs. Tab-specific (per-tab formula) |
+| **AI FEATURES — AI Assist** | Toggle to show/hide the AI Assist (✦✦✦) button in the header. Off by default. |
+| **AI FEATURES — Dynatrace Intelligence** | Toggle to enable the Davis CoPilot generative analysis button. Requires `davis-copilot:conversations:execute` scope. Off by default. |
 
 ### Industry Verticals
 
@@ -216,9 +222,17 @@ When Time-Lapse is active, each tab shows a colored dot:
 
 ---
 
-## 6. AI Insights
+## 6. AI Features
 
-Click the **✦✦✦ button** (three sparkles) in the header to open the AI Insights panel. This panel is context-aware — its content changes based on which sub-tab you are viewing.
+The app provides two optional AI analysis capabilities that each serve a different purpose. Both are disabled by default and can be enabled independently via **Settings > AI FEATURES**.
+
+### 6.1 AI Assist
+
+**Where to enable:** Settings → AI FEATURES → AI Assist toggle
+
+When enabled, the **✦✦✦ button** (three sparkles) appears in the header. Click it to open the AI Assist panel. This panel is context-aware — its content changes based on which sub-tab you are currently viewing.
+
+**How it works:** AI Assist uses rule-based, deterministic heuristics computed entirely from live Dynatrace data already loaded in the app. There are no external AI or API calls — analysis is instant, works offline, and has zero latency.
 
 The panel provides:
 
@@ -230,7 +244,23 @@ The panel provides:
   - 🔵 Info — neutral context or observation
 - **Recommendations** — Prioritized action items (High / Medium / Low) with specific guidance tied to the current data.
 
-All analysis is computed client-side using heuristic functions and industry benchmark thresholds from your configured vertical. No data is sent to an external AI API.
+All analysis is computed client-side using heuristic functions and industry benchmark thresholds from your configured vertical. No data is sent to an external AI service.
+
+**When to use:** AI Assist is always fast and always available. It is the right choice when you need immediate analysis without waiting, when you are working in an environment with restricted network access, or when you want deterministic, reproducible findings.
+
+### 6.2 Dynatrace Intelligence
+
+**Where to enable:** Settings → AI FEATURES → Dynatrace Intelligence toggle
+
+**Prerequisites:** Your Dynatrace OAuth token must include the `davis-copilot:conversations:execute` scope. Without this scope, the panel will display an error message when opened.
+
+When enabled, a **Dynatrace Intelligence button** appears in the header alongside (or instead of) the AI Assist button. Click it to open a generative analysis panel powered by **Davis CoPilot** — Dynatrace's built-in AI engine.
+
+**How it works:** When you open the panel or switch to a different tab or sub-tab, the app sends a structured prompt to Davis CoPilot that includes the live metric context for the tab you are currently viewing. Davis CoPilot returns a generative narrative analysis. Expect **2–5 seconds** of latency per analysis call while the model runs.
+
+**Tab and sub-tab awareness:** Dynatrace Intelligence is fully tab/sub-tab aware. Each of the 37 sub-tabs has its own tailored prompt describing the specific metrics and questions relevant to that view. Switching tabs while the panel is open automatically re-fires the analysis with the new prompt — the panel resets and shows a loading indicator while the new analysis is in progress. This ensures you always receive analysis relevant to what you are currently looking at, not a stale result from a previous tab.
+
+**When to use:** Use Dynatrace Intelligence when you want natural-language generative insights that go beyond heuristic rules, or when you want Davis CoPilot to synthesize patterns across the data visible in the current tab. The trade-off versus AI Assist is latency (2–5 s vs instant) and the OAuth scope requirement.
 
 ---
 
@@ -946,7 +976,10 @@ The app generates pre-filtered deep-links into other Dynatrace apps:
 |---|---|
 | **Apdex** | Application Performance Index — a 0–1 satisfaction score. Satisfied ≤ 3000ms, Tolerating ≤ 12000ms, Frustrated > 12000ms. |
 | **AI Impact Score** | A 0–100 session severity score (Worst Sessions tab) computed from Z-normalized errors, frustrated actions, and latency, multiplied by a systemic factor. |
-| **AI Insights** | Contextual, heuristic analysis panel (✦✦✦ button). All computation is client-side — no external AI API. |
+| **AI Assist** | Rule-based, deterministic analysis panel (✦✦✦ button) enabled via Settings > AI FEATURES. Computed instantly from live data, no external calls. |
+| **AI Insights** | Legacy term for the heuristic analysis panel, now called AI Assist. |
+| **Davis CoPilot** | Dynatrace's built-in generative AI engine. Used by the Dynatrace Intelligence feature. |
+| **Dynatrace Intelligence** | Generative analysis panel powered by Davis CoPilot, enabled via Settings > AI FEATURES. Tab/sub-tab aware — re-fires on each tab switch. |
 | **AOV (Average Order Value)** | Revenue per conversion. Configures all revenue features when set > 0. |
 | **Behavioral Fingerprint** | Session grouping key: error types + performance bucket + frustration bucket. Used for cluster analysis in Worst Sessions. |
 | **CDN** | Content Delivery Network — referenced in FinOps CDN ROI tab. |
@@ -985,3 +1018,23 @@ The app generates pre-filtered deep-links into other Dynatrace apps:
 | **Time-Lapse** | Historical playback feature that animates through time buckets (1m–1h) to show metric evolution. |
 | **Tolerating** | Apdex satisfaction tier for sessions with duration between 3000ms and 12000ms. |
 | **Transition Heatmap** | An N×N grid Sankey style showing page-to-page transition frequencies as color-coded cells. |
+
+---
+
+## 10. What's New
+
+### 2026-10-10 — AI Features Settings & Dynatrace Intelligence Tab-Awareness
+
+**AI FEATURES section in Settings**
+
+A new **AI FEATURES** section in Settings contains two independent toggle cards:
+
+- **AI Assist** — Rule-based, deterministic analysis computed instantly from live Dynatrace data. No external AI or API calls are made. Works offline, zero latency. The toggle controls whether the AI Assist (✦✦✦) sparkle button appears in the app header. Default: **OFF**.
+
+- **Dynatrace Intelligence** — Generative analysis powered by Davis CoPilot (Dynatrace's built-in AI). Requires the `davis-copilot:conversations:execute` OAuth scope to be granted to the app. Adds 2–5 seconds of latency per analysis while the model runs. Default: **OFF**.
+
+Both features can be enabled together or independently. When both are on, two separate buttons appear in the header — each opens its own panel.
+
+**Dynatrace Intelligence is now tab/sub-tab aware**
+
+Previously, the Davis CoPilot analysis fired once when the panel was opened and did not update when you switched tabs. Now, whenever you switch to a different tab or sub-tab while the Dynatrace Intelligence panel is open, it automatically re-fires with a focused prompt tailored to that view. Each of the 37 sub-tabs has its own dedicated prompt. The panel resets between tab switches so you always receive analysis relevant to what you are currently viewing.
