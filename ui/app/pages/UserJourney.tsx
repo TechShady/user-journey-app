@@ -110,7 +110,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.78.7";
+const APP_VERSION_LABEL = "4.78.8";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1894,16 +1894,20 @@ function sessionFlowQuery(days: number, frontend: string, steps: StepDef[], prev
   const period = periodClause(days, prev);
   const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
   const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
-  const optIdx = steps.findIndex(s => s.optional);
+  const optStart = steps.findIndex(s => s.optional);
+  const optEnd = optStart >= 0 ? steps.reduce((last, s, i) => s.optional ? i : last, -1) : -1;
   const countLines = steps.map((_, i) => {
     const conds = Array.from({ length: i + 1 }, (__, j) => {
-      if (optIdx >= 0 && j === optIdx && i > optIdx) return null;
+      if (optStart >= 0 && j >= optStart && j <= optEnd && i > optEnd) return null;
       return `reached_step${j + 1} == true`;
     }).filter(Boolean).join(" and ");
     return `    at_step${i + 1} = countIf(${conds})`;
   }).join(",\n");
-  const extraLines = optIdx >= 0 && optIdx + 1 < steps.length
-    ? `,\n    via_optional = countIf(${Array.from({ length: optIdx + 2 }, (_, j) => `reached_step${j + 1} == true`).join(" and ")})`
+  const extraLines = optStart >= 0 && optEnd + 1 < steps.length
+    ? `,\n    via_optional = countIf(${[
+        ...Array.from({ length: optStart + 1 }, (_, j) => `reached_step${j + 1} == true`),
+        `reached_step${optEnd + 2} == true`,
+      ].join(" and ")})`
     : "";
   return `// ${nonce}
 fetch user.events, ${period}
@@ -1924,10 +1928,11 @@ function funnelTimelapseQuery(days: number, frontend: string, steps: StepDef[], 
   const period = periodClause(days);
   const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
   const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
-  const tlOptIdx = steps.findIndex(s => s.optional);
+  const tlOptStart = steps.findIndex(s => s.optional);
+  const tlOptEnd = tlOptStart >= 0 ? steps.reduce((last, s, i) => s.optional ? i : last, -1) : -1;
   const countLines = steps.map((_, i) => {
     const conds = Array.from({ length: i + 1 }, (__, j) => {
-      if (tlOptIdx >= 0 && j === tlOptIdx && i > tlOptIdx) return null;
+      if (tlOptStart >= 0 && j >= tlOptStart && j <= tlOptEnd && i > tlOptEnd) return null;
       return `reached_step${j + 1} == true`;
     }).filter(Boolean).join(" and ");
     return `    at_step${i + 1} = countIf(${conds})`;
@@ -4470,7 +4475,7 @@ function ElapsedTimeFunnel({ steps, prevSteps, stepMap, stepDefs }: { steps: Fun
 // ---------------------------------------------------------------------------
 // Fork / Branch Funnel — single optional step with bypass path
 // ---------------------------------------------------------------------------
-function ForkFunnel({ steps, optIdx, viaOptional, bypass }: { steps: FunnelStep[]; optIdx: number; viaOptional: number; bypass: number }) {
+function ForkFunnel({ steps, optStart, optEnd, viaOptional, bypass }: { steps: FunnelStep[]; optStart: number; optEnd: number; viaOptional: number; bypass: number }) {
   const W = 520;
   const CX = W / 2;
   const MAX_BW = 400;
@@ -4478,10 +4483,14 @@ function ForkFunnel({ steps, optIdx, viaOptional, bypass }: { steps: FunnelStep[
   const STEP_H = 64;
   const CONN_H = 28;
   const DIV_H = 36;
-  const BOX_H = 80;
+  const BOX_H = 72;
+  const OPT_CONN_H = 14;
   const LABEL_GAP = 20;
   const MERGE_H = 36;
   const GAP = 20;
+
+  const numOpt = optEnd - optStart + 1;
+  const optBranchH = numOpt * BOX_H + (numOpt - 1) * OPT_CONN_H;
 
   const entry = steps[0]?.count || 1;
   const bw = (n: number) => Math.max(MIN_BW, (n / entry) * MAX_BW);
@@ -4497,7 +4506,7 @@ function ForkFunnel({ steps, optIdx, viaOptional, bypass }: { steps: FunnelStep[
   let y = 16;
 
   for (let i = 0; i < steps.length; i++) {
-    if (i === optIdx) continue;
+    if (i >= optStart && i <= optEnd) continue;
 
     const step = steps[i];
     const w = bw(step.count);
@@ -4514,19 +4523,17 @@ function ForkFunnel({ steps, optIdx, viaOptional, bypass }: { steps: FunnelStep[
     y += STEP_H;
 
     if (i + 1 < steps.length) {
-      if (i + 1 === optIdx) {
-        // Fork zone: diverge → optional block + bypass block → merge
+      if (i + 1 === optStart) {
+        // Fork zone: diverge → optional chain + bypass → merge
         const prevStep = steps[i];
-        const optStep = steps[optIdx];
-        const nextStep = steps[optIdx + 1];
+        const nextStep = steps[optEnd + 1];
         const topW = bw(prevStep.count);
         const nextW = bw(nextStep.count);
 
-        const leftFrac = prevStep.count > 0 ? Math.min(0.82, Math.max(0.18, optStep.count / prevStep.count)) : 0.5;
+        const leftFrac = prevStep.count > 0 ? Math.min(0.82, Math.max(0.18, steps[optStart].count / prevStep.count)) : 0.5;
         const leftBW = Math.round(leftFrac * (topW - GAP));
         const rightBW = topW - GAP - leftBW;
 
-        // branch x-coords (left branch left-of-center, right branch right-of-center)
         const llx = CX - GAP / 2 - leftBW;
         const lrx = CX - GAP / 2;
         const rlx = CX + GAP / 2;
@@ -4536,7 +4543,7 @@ function ForkFunnel({ steps, optIdx, viaOptional, bypass }: { steps: FunnelStep[
 
         const fy = y;
         const OPT_BOX_Y = fy + DIV_H;
-        const MERGE_Y = OPT_BOX_Y + BOX_H + LABEL_GAP;
+        const MERGE_Y = OPT_BOX_Y + optBranchH + LABEL_GAP;
         const NEXT_Y = MERGE_Y + MERGE_H;
 
         // Diverge fills
@@ -4545,25 +4552,39 @@ function ForkFunnel({ steps, optIdx, viaOptional, bypass }: { steps: FunnelStep[
           <path key="fdr" d={`M${CX},${fy} L${CX + topW / 2},${fy} L${rrx},${OPT_BOX_Y} L${rlx},${OPT_BOX_Y} Z`} fill={BYPASS_FILL} />
         );
 
-        // Optional step block
-        const optPct = prevStep.count > 0 ? (optStep.count / prevStep.count * 100).toFixed(1) : "0.0";
-        items.push(
-          <g key="fob">
-            <rect x={llx} y={OPT_BOX_Y} width={leftBW} height={BOX_H} rx={7} fill={OPT_COLOR} />
-            <text x={leftCX} y={OPT_BOX_Y + 19} textAnchor="middle" fill="white" fontSize={12} fontWeight="700" fontFamily="sans-serif">{optStep.label}</text>
-            <text x={leftCX} y={OPT_BOX_Y + 36} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize={11} fontFamily="sans-serif">{optStep.count.toLocaleString()} sessions</text>
-            <text x={leftCX} y={OPT_BOX_Y + 52} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={11} fontFamily="sans-serif">{optPct}% take this step</text>
-            <text x={leftCX} y={OPT_BOX_Y + 68} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize={10} fontFamily="sans-serif" fontStyle="italic">optional</text>
-          </g>
-        );
+        // Optional step chain (left branch)
+        let optY = OPT_BOX_Y;
+        for (let oi = optStart; oi <= optEnd; oi++) {
+          const optStep = steps[oi];
+          const optPrevCount = oi === optStart ? prevStep.count : steps[oi - 1].count;
+          const optPct = optPrevCount > 0 ? (optStep.count / optPrevCount * 100).toFixed(1) : "0.0";
+          items.push(
+            <g key={`fob-${oi}`}>
+              <rect x={llx} y={optY} width={leftBW} height={BOX_H} rx={7} fill={OPT_COLOR} />
+              <text x={leftCX} y={optY + 16} textAnchor="middle" fill="white" fontSize={12} fontWeight="700" fontFamily="sans-serif">{optStep.label}</text>
+              <text x={leftCX} y={optY + 32} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize={11} fontFamily="sans-serif">{optStep.count.toLocaleString()} sessions</text>
+              <text x={leftCX} y={optY + 48} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={11} fontFamily="sans-serif">{optPct}% enter</text>
+              <text x={leftCX} y={optY + 62} textAnchor="middle" fill="rgba(255,255,255,0.45)" fontSize={10} fontFamily="sans-serif" fontStyle="italic">optional</text>
+            </g>
+          );
+          if (oi < optEnd) {
+            items.push(
+              <path key={`ocon-${oi}`}
+                d={`M${llx},${optY + BOX_H} L${lrx},${optY + BOX_H} L${lrx},${optY + BOX_H + OPT_CONN_H} L${llx},${optY + BOX_H + OPT_CONN_H} Z`}
+                fill={OPT_FILL} />
+            );
+            optY += BOX_H + OPT_CONN_H;
+          }
+        }
 
-        // Bypass block
-        const skipPct = prevStep.count > 0 ? ((prevStep.count - optStep.count) / prevStep.count * 100).toFixed(1) : "0.0";
+        // Bypass block — spans full optBranchH
+        const skipPct = prevStep.count > 0 ? ((prevStep.count - steps[optStart].count) / prevStep.count * 100).toFixed(1) : "0.0";
+        const bypassMidY = OPT_BOX_Y + optBranchH / 2;
         items.push(
           <g key="fbb">
-            <rect x={rlx} y={OPT_BOX_Y} width={rightBW} height={BOX_H} rx={7} fill={BYPASS_COLOR} />
-            <text x={rightCX} y={OPT_BOX_Y + 26} textAnchor="middle" fill="rgba(255,255,255,0.75)" fontSize={13} fontFamily="sans-serif">Skip →</text>
-            <text x={rightCX} y={OPT_BOX_Y + 46} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize={11} fontFamily="sans-serif">{skipPct}% bypass</text>
+            <rect x={rlx} y={OPT_BOX_Y} width={rightBW} height={optBranchH} rx={7} fill={BYPASS_COLOR} />
+            <text x={rightCX} y={bypassMidY - 8} textAnchor="middle" fill="rgba(255,255,255,0.75)" fontSize={13} fontFamily="sans-serif">Skip →</text>
+            <text x={rightCX} y={bypassMidY + 10} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize={11} fontFamily="sans-serif">{skipPct}% bypass</text>
           </g>
         );
 
@@ -8625,18 +8646,33 @@ Provide: (1) A 2-sentence health summary calling out the strongest KPI and the b
                     )}
                   </div>
                   {i > 0 && i < steps.length - 1 && (() => {
-                    const alreadyOptional = steps.some((s, j) => j !== i && s.optional);
+                    const rangeStart = steps.findIndex(s => s.optional);
+                    const rangeEnd = rangeStart >= 0 ? steps.reduce((last, s, j) => s.optional ? j : last, -1) : -1;
                     const isOptional = !!step.optional;
-                    const disabled = alreadyOptional && !isOptional;
+                    const hasRange = rangeStart >= 0;
+                    const isAdjacentToRange = hasRange && (i === rangeStart - 1 || i === rangeEnd + 1);
+                    const isEdgeOfRange = isOptional && (i === rangeStart || i === rangeEnd);
+                    const isInteriorOfRange = isOptional && !isEdgeOfRange;
+                    const disabled = !isOptional && hasRange && !isAdjacentToRange;
+                    const canRemove = isOptional && !isInteriorOfRange;
+                    const title = disabled
+                      ? "Only steps adjacent to the current optional range can be added"
+                      : isInteriorOfRange
+                        ? "Remove edge steps first to shrink the range"
+                        : isOptional
+                          ? "Remove from optional range"
+                          : hasRange
+                            ? "Extend optional range to include this step"
+                            : "Mark as optional — users can bypass this step";
                     return (
                       <div style={{ marginBottom: 6, marginTop: 2 }}>
                         <button
-                          disabled={disabled}
+                          disabled={disabled || isInteriorOfRange}
                           onClick={() => { const next = [...steps]; next[i] = { ...next[i], optional: !isOptional }; saveSteps(next); }}
-                          title={disabled ? "Only one optional step allowed per funnel" : isOptional ? "Mark as required" : "Mark as optional — users can bypass this step"}
-                          style={{ background: isOptional ? PURPLE : "rgba(128,128,128,0.12)", border: `1px solid ${isOptional ? PURPLE : "rgba(128,128,128,0.3)"}`, borderRadius: 4, color: isOptional ? "white" : "inherit", cursor: disabled ? "not-allowed" : "pointer", fontSize: 11, padding: "3px 10px", opacity: disabled ? 0.4 : 1 }}
+                          title={title}
+                          style={{ background: isOptional ? PURPLE : "rgba(128,128,128,0.12)", border: `1px solid ${isOptional ? PURPLE : "rgba(128,128,128,0.3)"}`, borderRadius: 4, color: isOptional ? "white" : "inherit", cursor: (disabled || isInteriorOfRange) ? "not-allowed" : "pointer", fontSize: 11, padding: "3px 10px", opacity: (disabled || isInteriorOfRange) ? 0.4 : 1 }}
                         >
-                          {isOptional ? "✓ Optional step" : "Mark as optional"}
+                          {isOptional ? "✓ Optional" : hasRange ? "+ Extend range" : "Mark as optional"}
                         </button>
                       </div>
                     );
@@ -15865,10 +15901,11 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
   }, [sparklineRecords, convSparklineRecords]);
 
   const makeFunnelSteps = (counts: number[]): FunnelStep[] => {
-    const oIdx = steps.findIndex(s => s.optional);
+    const oStart = steps.findIndex(s => s.optional);
+    const oEnd = oStart >= 0 ? steps.reduce((last, s, i) => s.optional ? i : last, -1) : -1;
     return steps.map((step, i) => {
-      // For the step right after an optional step, base "from prev" on the last required step before the fork
-      const prevIdx = oIdx >= 0 && i === oIdx + 1 ? oIdx - 1 : i - 1;
+      // Steps after the range compare against the last required step before the fork
+      const prevIdx = oStart >= 0 && i > oEnd ? oStart - 1 : i - 1;
       const prev = i === 0 ? counts[0] : counts[Math.max(0, prevIdx)];
       const m = stepMap.get(step.label);
       const apdex = m ? calcApdex(Number(m.satisfied ?? 0), Number(m.tolerating ?? 0), Number(m.total_actions ?? 0)) : undefined;
@@ -16217,11 +16254,12 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
 
       <div className="uj-funnel-container">
         {funnelStyle === "fork" && (() => {
-          const oIdx = funnelSteps.findIndex(s => s.optional);
-          const byp = oIdx >= 0 && oIdx + 1 < funnelSteps.length ? Math.max(0, (funnelSteps[oIdx + 1]?.count ?? 0) - viaOptional) : 0;
-          return oIdx >= 0
-            ? <ForkFunnel steps={funnelSteps} optIdx={oIdx} viaOptional={viaOptional} bypass={byp} />
-            : <div style={{ padding: 32, textAlign: "center", opacity: 0.5, fontSize: 13 }}>Mark one step as "optional" in the funnel settings to use the Fork view.</div>;
+          const oStart = funnelSteps.findIndex(s => s.optional);
+          const oEnd = oStart >= 0 ? funnelSteps.reduce((last, s, i) => s.optional ? i : last, -1) : -1;
+          const byp = oStart >= 0 && oEnd + 1 < funnelSteps.length ? Math.max(0, (funnelSteps[oEnd + 1]?.count ?? 0) - viaOptional) : 0;
+          return oStart >= 0
+            ? <ForkFunnel steps={funnelSteps} optStart={oStart} optEnd={oEnd} viaOptional={viaOptional} bypass={byp} />
+            : <div style={{ padding: 32, textAlign: "center", opacity: 0.5, fontSize: 13 }}>Mark one or more consecutive steps as "optional" in the funnel settings to use the Fork view.</div>;
         })()}
         {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} onStepSelect={handleFunnelStepDrill} title={funnelName} />}
         {funnelStyle === "horizontal" && <HorizontalBarFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
