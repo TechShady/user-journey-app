@@ -139,6 +139,10 @@ Use the **Funnel Selector** dropdown in the header to switch between saved funne
 
 Don't know your funnel steps? Click **Discover Funnels** in Settings to auto-detect candidate journeys from 7 days of session data. Candidates are ranked by session volume and show the detected page sequence. Click **Apply** to pre-populate a new funnel from a candidate.
 
+**Discovery improvements (v4.78.7+)**:
+- **Ordering guarantee**: Discovery uses `min(timestamp)` per (session, step_name) before assembling step sequences. This prevents DQL's `collectArray` from returning events out of chronological order, eliminating "flipped" funnels where steps appear in reverse.
+- **Entry Anchor**: An optional field in the Discover Funnels panel filters discovery to sessions that started from a specific page (e.g. `/home`). Useful for apps where session data spans multiple independent user flows.
+
 ### Settings Reference
 
 | Setting | Description |
@@ -291,9 +295,20 @@ Use the **Style selector** to switch between 19 presentation modes:
 | Stacked Cohort | Marimekko columns split into converted vs. dropped |
 | Elapsed-Time Curve | Survival curve: % of sessions remaining vs. cumulative response time |
 | Comparison Split | Mirror funnel — current vs. previous period, side-by-side with delta indicators |
+| Fork / Branch | Split diagram for optional-step ranges: left branch shows sessions that took the optional path, right bypass lane shows sessions that skipped directly to the next required step. Requires at least one step marked optional in Settings. |
 
 *Themed Skins:*
 Elevator, MRI Tunnel, Auto Finance, Rocket Launch, Airport, Retail, Cyber, Stadium, Homebuying, Truck Rental, Eye Exam Room, Spectacle Frames, Grocery Aisles, Curbside Pickup — all display the same underlying data in a themed SVG layout.
+
+**Optional Steps & Skip Ranges (Fork / Branch style):**
+
+Steps can be designated optional so sessions that skip them still count toward conversion. Configuration:
+
+1. In **Settings**, open a funnel and click the optional toggle next to any step. The first step toggled establishes the range start.
+2. To build a multi-step optional range (e.g. skip Step 2 *and* Step 3 together), click **+ Extend range** on the step immediately adjacent to the current range edge. Ranges must be contiguous — you cannot mark non-adjacent steps optional simultaneously.
+3. Interior steps of an existing range show a locked **✓ Optional** badge and cannot be individually toggled. Remove the range from an edge step first.
+4. Switch the style selector to **Fork / Branch** to see the split visualization. The left branch renders each optional step in a vertical chain; the bypass lane on the right spans the same total height.
+5. Metrics: **Via Optional** counts sessions that entered the optional range AND completed to the next required step. **Bypass** = sessions at (step after range) minus via_optional.
 
 **Per-Step Data:**
 - Session count at each step
