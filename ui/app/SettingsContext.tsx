@@ -4,7 +4,7 @@ import { useAppState, useSetAppState, useUserAppState, useSetUserAppState } from
 // ---------------------------------------------------------------------------
 // Types & defaults
 // ---------------------------------------------------------------------------
-export type StepDef = { label: string; identifiers: string[]; type: "view" | "request" | "action"; app?: string };
+export type StepDef = { label: string; identifiers: string[]; type: "view" | "request" | "action"; app?: string; optional?: boolean };
 export type FunnelDef = {
   name: string;
   steps: StepDef[];

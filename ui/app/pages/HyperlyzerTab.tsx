@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import { useDql } from "@dynatrace-sdk/react-hooks";
 import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment";
 import { Flex } from "@dynatrace/strato-components/layouts";
@@ -17,6 +17,7 @@ import {
 } from "../components/RadialHyperChart";
 import { useAIInsights } from "./UserJourney";
 import type { AIInsightsData, InsightItem, RecommendationItem } from "./UserJourney";
+import { DTIntelligenceContext } from "../components/DynatraceIntelligence";
 
 // ─── Metric Configuration ───────────────────────────────────────────────────
 
@@ -427,6 +428,11 @@ export function HyperlyzerTab({ frontend, periodStr, appEntityId, refetchOpts }:
   const [appliedFilters, setAppliedFilters] = useState<AppliedFilter[]>([]);
   const [pendingFilter, setPendingFilter] = useState<AppliedFilter | null>(null);
   const [selectedMetric, setSelectedMetric] = useState<MetricKey>("duration");
+  const { setSubSubTab } = useContext(DTIntelligenceContext);
+  useEffect(() => {
+    const dimLabels: Record<DimensionKey, string> = { geo: "Geography", os: "Operating System", browser: "Browser", user_action: "User Action" };
+    setSubSubTab?.(`${dimLabels[focusDim] ?? focusDim} · ${selectedMetric}`);
+  }, [focusDim, selectedMetric, setSubSubTab]);
   const metric = METRIC_MAP[selectedMetric];
 
   const browser = useDql<DimRow>({ query: buildDimQuery("browser", frontend, periodStr, appliedFilters, metric) }, refetchOpts);

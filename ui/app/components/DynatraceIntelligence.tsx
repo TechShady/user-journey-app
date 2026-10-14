@@ -22,7 +22,14 @@ function ensureDTStyles() {
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
-export const DTIntelligenceContext = React.createContext<{ open: boolean; close: () => void; activeTabKey: string }>({
+export const DTIntelligenceContext = React.createContext<{
+  open: boolean;
+  close: () => void;
+  activeTabKey: string;
+  viewLabel?: string;
+  subSubTabKey?: string;
+  setSubSubTab?: (key: string) => void;
+}>({
   open: false,
   close: () => {},
   activeTabKey: "",
@@ -70,64 +77,178 @@ function DTErrorPanel({ message, onClose }: { message: string; onClose: () => vo
   );
 }
 
+// ── Davis boilerplate stripper ────────────────────────────────────────────────
+// Remove known Davis CoPilot filler sentences that aren't useful to the user.
+function stripBoilerplate(text: string): string {
+  return text
+    .replace(/\n?If you want help with[^.]*?Agentic AI[^.]*\./gi, "")
+    .replace(/\n?Ask your admin to enable Agentic AI[^.]*\./gi, "")
+    .trim();
+}
+
 // ── Response normalizer ───────────────────────────────────────────────────────
-// Davis CoPilot may return its own JSON schemas; map any shape to AIAssistData.
+// Davis CoPilot returns varied JSON schemas; map any shape to AIAssistData.
 function normalizeResponse(parsed: Record<string, unknown>): AIAssistData {
-  // Already the expected shape
-  if (typeof parsed.summary === "string") return parsed as unknown as AIAssistData;
-
-  // Extract summary from common Davis CoPilot nested fields
-  const execSummary = parsed.executive_summary as Record<string, unknown> | undefined;
-  const summaryObj = typeof parsed.summary === "object" ? parsed.summary as Record<string, unknown> : undefined;
-  const summary: string =
-    (typeof execSummary?.key_message === "string" ? execSummary.key_message : "") ||
-    (typeof summaryObj?.key_finding === "string" ? summaryObj.key_finding : "") ||
-    (typeof parsed.key_message === "string" ? parsed.key_message as string : "") ||
-    (typeof parsed.key_finding === "string" ? parsed.key_finding as string : "") ||
-    (typeof parsed.overview === "string" ? parsed.overview as string : "") ||
-    "";
-
-  // Map top_risks / issues / kpi_analysis → insights
-  const insights: AIAssistData["insights"] = [];
-  const rawInsights = (parsed.top_risks ?? parsed.risks ?? parsed.issues ?? parsed.kpi_analysis ?? []) as Record<string, unknown>[];
-  if (Array.isArray(rawInsights)) {
-    for (const r of (rawInsights as Record<string, unknown>[]).slice(0, 6)) {
-      const sevRaw = String(r.severity ?? r.status ?? "info").toLowerCase();
-      const severity: AIAssistData["insights"][number]["severity"] =
-        sevRaw.includes("critical") ? "critical"
-        : sevRaw.includes("high") || sevRaw.includes("warning") ? "warning"
-        : sevRaw.includes("good") || sevRaw.includes("excellent") || sevRaw.includes("low") ? "good"
-        : "info";
-      const icon = severity === "critical" ? "🔴" : severity === "warning" ? "🟡" : severity === "good" ? "🟢" : "ℹ️";
-      const text = String(r.risk ?? r.text ?? r.metric ?? r.insight ?? r.finding ?? JSON.stringify(r));
-      const detail = typeof r.business_impact === "string" ? ` — ${r.business_impact}` : typeof r.value === "string" || typeof r.value === "number" ? ` (${r.value})` : "";
-      insights.push({ severity, icon, text: text + detail });
-    }
+  // Unwrap single-key wrapper objects (e.g. { "funnel_health_assessment": { ... } })
+  const topKeys = Object.keys(parsed);
+  if (topKeys.length === 1 && parsed[topKeys[0]] !== null && typeof parsed[topKeys[0]] === "object" && !Array.isArray(parsed[topKeys[0]])) {
+    parsed = parsed[topKeys[0]] as Record<string, unknown>;
   }
 
-  // Map immediate_actions / recommendations / actions → recommendations
+  // Already the expected shape — accept only when insights/recs items also have required text fields
+  const insightsOk = Array.isArray(parsed.insights) && (parsed.insights as unknown[]).every(i => typeof (i as Record<string, unknown>).text === "string");
+  const recsOk = Array.isArray(parsed.recommendations) && (parsed.recommendations as unknown[]).every(r => typeof (r as Record<string, unknown>).text === "string");
+  if (typeof parsed.summary === "string" && parsed.summary.length > 30 && insightsOk && recsOk) {
+    const recs = parsed.recommendations as AIAssistData["recommendations"];
+    const bizRec: AIAssistData["recommendations"][number] = { impact: "high", text: "Engage Dynatrace Business Insights to maximize revenue, conversion, and customer experience through real-time business observability." };
+    const hasBiz = recs.some(r => r.text.includes("Business Insights"));
+    return { summary: parsed.summary as string, insights: parsed.insights as AIAssistData["insights"], recommendations: hasBiz ? recs : [bizRec, ...recs] };
+  }
+
+  const execSummary = parsed.executive_summary as Record<string, unknown> | undefined;
+  const summaryObj = parsed.summary !== null && typeof parsed.summary === "object"
+    ? parsed.summary as Record<string, unknown> : undefined;
+
+  let summary = "";
+  if (execSummary) {
+    summary =
+      (typeof execSummary.key_message === "string" ? execSummary.key_message : "") ||
+      (typeof execSummary.key_finding === "string" ? execSummary.key_finding : "") ||
+      (typeof execSummary.overall_health === "string" ? execSummary.overall_health : "");
+  }
+  if (!summary && summaryObj) {
+    // Format all primitive fields of the summary object as readable markdown
+    summary = Object.entries(summaryObj)
+      .filter(([, v]) => typeof v === "string" || typeof v === "number")
+      .map(([k, v]) => `**${k.replace(/_/g, " ")}:** ${v}`)
+      .join("  \n");
+  }
+  if (!summary) {
+    summary =
+      (typeof parsed.health_summary === "string" ? parsed.health_summary as string : "") ||
+      (typeof parsed.overall_summary === "string" ? parsed.overall_summary as string : "") ||
+      (typeof parsed.analysis_summary === "string" ? parsed.analysis_summary as string : "") ||
+      (typeof parsed.key_message === "string" ? parsed.key_message as string : "") ||
+      (typeof parsed.key_finding === "string" ? parsed.key_finding as string : "") ||
+      (typeof parsed.overview === "string" ? parsed.overview as string : "") ||
+      (typeof parsed.conclusion === "string" ? parsed.conclusion as string : "") ||
+      "";
+  }
+
+  // Map insight arrays — broad set of field names Davis uses
+  const insights: AIAssistData["insights"] = [];
+  // Pick the first non-empty array from the many names Davis uses
+  const rawInsightsArr = [
+    parsed.insights,
+    parsed.domain_insights, parsed.kpi_insights, parsed.metric_insights,
+    parsed.critical_risks, parsed.top_risks, parsed.risks, parsed.issues,
+    parsed.kpi_analysis, parsed.step_by_step_analysis, parsed.step_analysis,
+    parsed.steps, parsed.analysis, parsed.findings, parsed.observations,
+    parsed.bottleneck_analysis, parsed.performance_analysis, parsed.metrics,
+  ].find(v => Array.isArray(v) && (v as unknown[]).length > 0) ?? [];
+  const rawInsights = rawInsightsArr as Record<string, unknown>[];
+  for (const r of rawInsights.slice(0, 6)) {
+    const sevRaw = String(r.severity ?? r.status ?? r.health ?? "info").toLowerCase();
+    const severity: AIAssistData["insights"][number]["severity"] =
+      sevRaw.includes("critical") ? "critical"
+      : sevRaw.includes("high") || sevRaw.includes("warning") || sevRaw.includes("poor") ? "warning"
+      : sevRaw.includes("good") || sevRaw.includes("excellent") || sevRaw.includes("low") ? "good"
+      : "info";
+    const icon = severity === "critical" ? "🔴" : severity === "warning" ? "🟡" : severity === "good" ? "🟢" : "ℹ️";
+    const domainPrefix = typeof r.domain === "string" ? `[${r.domain}] ` : "";
+    const stepPrefix = typeof r.step === "string" ? `**${r.step}**: ` : "";
+    const rtext = stepPrefix + domainPrefix + String(
+      r.risk ?? r.text ?? r.metric ?? r.insight ?? r.finding ??
+      r.name ?? r.title ?? r.description ?? r.detail ?? r.assessment ??
+      r.summary ?? r.message ?? r.content ?? r.observation ?? JSON.stringify(r)
+    );
+    const dropoffVal = r.drop_off_rate ?? r.dropoff_rate ?? r.dropoff ?? r.drop_off ?? "";
+    const dropoffStr = typeof dropoffVal === "string" && dropoffVal !== "--" && dropoffVal !== "—" ? dropoffVal : "";
+    const detail =
+      typeof r.business_impact === "string" ? ` — ${r.business_impact}`
+      : typeof r.business_consequence === "string" ? ` — ${r.business_consequence}`
+      : dropoffStr ? ` (drop-off: ${dropoffStr})`
+      : typeof r.notes === "string" ? ` — ${r.notes}`
+      : (typeof r.value === "string" || typeof r.value === "number") ? ` (${r.value})`
+      : "";
+    insights.push({ severity, icon, text: rtext + detail });
+  }
+
+  // Map recommendation arrays — broad set of field names Davis uses
   const recommendations: AIAssistData["recommendations"] = [];
-  const rawRecs = (parsed.immediate_actions ?? parsed.recommendations ?? parsed.actions ?? parsed.next_steps ?? []) as Record<string, unknown>[];
-  if (Array.isArray(rawRecs)) {
-    for (const a of (rawRecs as Record<string, unknown>[]).slice(0, 5)) {
-      const prio = typeof a.priority === "number" ? a.priority : 99;
-      const impact: AIAssistData["recommendations"][number]["impact"] = prio === 1 ? "high" : prio === 2 ? "medium" : "low";
-      const text = String(a.action ?? a.text ?? a.recommendation ?? a.description ?? JSON.stringify(a));
-      const rationale = typeof a.rationale === "string" ? ` ${a.rationale}` : typeof a.expected_impact === "string" ? ` Expected: ${a.expected_impact}` : "";
-      recommendations.push({ impact, text: text + rationale });
+  // Handle top_N_immediate_actions pattern (e.g. top_3_immediate_actions)
+  const actionsKey = Object.keys(parsed).find(k => /^top_\d+_immediate_actions$/.test(k));
+
+  // Deep-search for recommendation arrays: look for recommended_fix objects, specific_interventions, etc.
+  const deepFindRecs = (obj: unknown, depth = 0): Record<string, unknown>[] | string[] | null => {
+    if (depth > 4 || !obj || typeof obj !== "object") return null;
+    const o = obj as Record<string, unknown>;
+    // recommended_fix object → wrap as single recommendation
+    if (typeof o.action === "string" && (typeof o.priority === "string" || typeof o.rank === "number")) return [o];
+    // specific_interventions → array of strings
+    if (Array.isArray(o.specific_interventions) && o.specific_interventions.length > 0) return o.specific_interventions as string[];
+    // Recurse into values
+    for (const v of Object.values(o)) {
+      const found = deepFindRecs(v, depth + 1);
+      if (found) return found;
     }
+    return null;
+  };
+  const deepRecs = deepFindRecs(parsed);
+  // Normalize deepRecs: if they're strings, convert to rec objects
+  const deepRecsNorm: Record<string, unknown>[] = deepRecs
+    ? (deepRecs as unknown[]).map(r => typeof r === "string" ? { priority: "high", action: r } : r as Record<string, unknown>)
+    : [];
+
+  const rawRecs = ([
+    parsed.immediate_actions, parsed.recommendations, parsed.actions,
+    parsed.next_steps, parsed.optimizations,
+    actionsKey ? parsed[actionsKey] : undefined,
+    deepRecsNorm.length > 0 ? deepRecsNorm : undefined,
+  ].find(v => Array.isArray(v) && (v as unknown[]).length > 0) ?? []) as Record<string, unknown>[];
+  for (const a of rawRecs.slice(0, 5)) {
+    const prioRaw = String(a.priority ?? a.rank ?? a.urgency ?? "").toLowerCase();
+    const impact: AIAssistData["recommendations"][number]["impact"] =
+      prioRaw === "1" || prioRaw.includes("high") || prioRaw.includes("immediate") || prioRaw.includes("critical") ? "high"
+      : prioRaw === "2" || prioRaw.includes("medium") || prioRaw.includes("moderate") ? "medium"
+      : "low";
+    const targetPrefix = typeof a.target_step === "string" ? `**${a.target_step}**: ` : "";
+    const atext = String(
+      a.action ?? a.text ?? a.recommendation ?? a.description ?? a.title ??
+      a.specific_fix ?? a.issue ?? a.finding ?? JSON.stringify(a)
+    );
+    const rationale = typeof a.expected_impact === "string" ? ` Expected: ${a.expected_impact}`
+      : typeof a.rationale === "string" ? ` ${a.rationale}` : "";
+    recommendations.push({ impact, text: targetPrefix + atext + rationale });
+  }
+
+  const bizInsights: AIAssistData["recommendations"][number] = {
+    impact: "high",
+    text: "Engage Dynatrace Business Insights to maximize revenue, conversion, and customer experience through real-time business observability.",
+  };
+
+  // Last-resort: walk the entire tree looking for any string > 80 chars to use as summary
+  if (!summary) {
+    const walk = (obj: unknown, depth = 0): string => {
+      if (depth > 4 || !obj || typeof obj !== "object") return "";
+      for (const v of Object.values(obj as Record<string, unknown>)) {
+        if (typeof v === "string" && v.length > 80) return v;
+        if (typeof v === "object") { const r = walk(v, depth + 1); if (r) return r; }
+      }
+      return "";
+    };
+    summary = walk(parsed);
   }
 
   if (!summary && !insights.length && !recommendations.length) {
-    // Last resort: stringify prettily so at least it's readable
-    return { summary: JSON.stringify(parsed, null, 2), insights: [], recommendations: [] };
+    return { summary: JSON.stringify(parsed, null, 2), insights: [], recommendations: [bizInsights] };
   }
-  return { summary: summary || "Analysis complete.", insights, recommendations };
+  return { summary: summary || "Analysis complete.", insights, recommendations: [bizInsights, ...recommendations] };
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 export function useDTIntelligence(buildPrompt: () => { text: string; contextData: string }): { panel: React.ReactNode } {
-  const { open, close, activeTabKey } = React.useContext(DTIntelligenceContext);
+  const { open, close, activeTabKey, viewLabel } = React.useContext(DTIntelligenceContext);
   const [analysis, setAnalysis] = useState<AIAssistData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,17 +286,38 @@ export function useDTIntelligence(buildPrompt: () => { text: string; contextData
         setLoading(false);
         return;
       }
+      // Robustly extract JSON: prefer a code fence, otherwise find first { to last }
+      const raw = response.text;
+      const fenceMatch = raw.match(/```[a-z]*\r?\n([\s\S]*?)\r?\n```/i);
+      let jsonStr: string | null = null;
+      let afterText = "";
+      if (fenceMatch && fenceMatch.index !== undefined) {
+        jsonStr = fenceMatch[1];
+        afterText = raw.slice(fenceMatch.index + fenceMatch[0].length).trim();
+      } else {
+        const firstBrace = raw.indexOf("{");
+        const lastBrace = raw.lastIndexOf("}");
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+          jsonStr = raw.slice(firstBrace, lastBrace + 1);
+          afterText = raw.slice(lastBrace + 1).trim();
+        }
+      }
       try {
-        const cleaned = response.text.replace(/^```[a-z]*\r?\n?/i, "").replace(/\r?\n?```$/i, "").trim();
-        const parsed = JSON.parse(cleaned);
+        if (!jsonStr) throw new Error("no json");
+        const parsed = JSON.parse(jsonStr);
         if (parsed && typeof parsed === "object") {
-          setAnalysis(normalizeResponse(parsed as Record<string, unknown>));
+          const normalized = normalizeResponse(parsed as Record<string, unknown>);
+          const cleanAfter = stripBoilerplate(afterText);
+          if (cleanAfter) {
+            normalized.summary = cleanAfter + (normalized.summary && normalized.summary !== "Analysis complete." ? "\n\n" + normalized.summary : "");
+          }
+          normalized.summary = stripBoilerplate(normalized.summary);
+          setAnalysis(normalized);
         } else {
-          setAnalysis({ summary: response.text, insights: [], recommendations: [] });
+          setAnalysis({ summary: raw, insights: [], recommendations: [] });
         }
       } catch {
-        // Not JSON — render as plain text / markdown
-        setAnalysis({ summary: response.text, insights: [], recommendations: [] });
+        setAnalysis({ summary: raw, insights: [], recommendations: [] });
       }
       setLoading(false);
     }).catch((err: unknown) => {
@@ -198,7 +340,7 @@ export function useDTIntelligence(buildPrompt: () => { text: string; contextData
         ) : error ? (
           <DTErrorPanel message={error} onClose={close} />
         ) : analysis ? (
-          <AIAssistPanel data={analysis} onClose={close} title="Dynatrace Intelligence" />
+          <AIAssistPanel data={analysis} onClose={close} title="Dynatrace Intelligence" subtitle={viewLabel} />
         ) : null}
       </div>
     ),

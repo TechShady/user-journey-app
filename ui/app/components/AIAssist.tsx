@@ -250,21 +250,23 @@ function markdownToHtml(text: string): string {
   return out.join("\n");
 }
 
-function exportPDF(data: AIAssistData, title: string) {
+function exportPDF(data: AIAssistData, title: string, subtitle?: string) {
   const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
   const summaryHtml = isMarkdown(data.summary) ? markdownToHtml(data.summary) : `<p>${data.summary}</p>`;
 
+  const mdInline = (t: string) => t.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>");
+
   const insightsHtml = data.insights.map(ins => `
     <div class="insight ${ins.severity}">
       <span class="icon">${ins.icon}</span>
-      <span>${ins.text}</span>
+      <span>${mdInline(ins.text)}</span>
     </div>`).join("");
 
   const recsHtml = data.recommendations.map(rec => `
     <div class="rec">
       <span class="badge ${rec.impact}">${rec.impact}</span>
-      <span>${rec.text}</span>
+      <span>${mdInline(rec.text)}</span>
     </div>`).join("");
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -273,6 +275,7 @@ function exportPDF(data: AIAssistData, title: string) {
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 48px; color: #111827; font-size: 14px; line-height: 1.6; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #7c3aed; padding-bottom: 12px; margin-bottom: 24px; }
   .header-title { font-size: 22px; font-weight: 700; color: #7c3aed; }
+  .header-subtitle { font-size: 11px; color: #7c3aed; font-family: monospace; margin-top: 2px; letter-spacing: 0.03em; }
   .header-date { font-size: 12px; color: #6b7280; margin-top: 4px; }
   .label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #6b7280; margin: 20px 0 8px; }
   .summary-box { background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 14px 18px; }
@@ -287,7 +290,7 @@ function exportPDF(data: AIAssistData, title: string) {
   @media print { @page { margin: 32px; } body { margin: 0; } }
 </style></head><body>
 <div class="header">
-  <div><div class="header-title">${title}</div><div class="header-date">Generated ${date}</div></div>
+  <div><div class="header-title">${title}</div>${subtitle ? `<div class="header-subtitle">${subtitle}</div>` : ""}<div class="header-date">Generated ${date}</div></div>
 </div>
 <div class="label">Summary</div>
 <div class="summary-box">${summaryHtml}</div>
@@ -303,20 +306,23 @@ ${data.recommendations.length > 0 ? `<div class="label">Recommendations</div>${r
 }
 
 // ── AIAssistPanel ────────────────────────────────────────────────────────────
-export function AIAssistPanel({ data, onClose, title = "AI Insights" }: { data: AIAssistData; onClose: () => void; title?: string }) {
+export function AIAssistPanel({ data, onClose, title = "AI Insights", subtitle }: { data: AIAssistData; onClose: () => void; title?: string; subtitle?: string }) {
   ensureStyles();
-  const summaryWordCount = data.summary.split(/\s+/).length;
+  const summaryWordCount = (data.summary ?? "").split(/\s+/).length;
   const summaryDuration = summaryWordCount * 50;
 
   let insightOffset = summaryDuration + 300;
-  const insightDurations = data.insights.map(ins => ins.text.split(/\s+/).length * 50);
+  const insightDurations = data.insights.map(ins => (ins.text ?? "").split(/\s+/).length * 50);
 
   return (
     <div className="cio-ai-panel">
       <div className="cio-ai-header">
         <SparkleIcon />
-        <span className="cio-ai-title">{title}</span>
-        <button className="cio-ai-pdf" title="Export to PDF" onClick={() => exportPDF(data, title)}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span className="cio-ai-title">{title}</span>
+          {subtitle && <div style={{ fontSize: 10, color: "rgba(140,148,170,0.8)", marginTop: 1, fontFamily: "monospace", letterSpacing: "0.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</div>}
+        </div>
+        <button className="cio-ai-pdf" title="Export to PDF" onClick={() => exportPDF(data, title, subtitle)}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
@@ -331,9 +337,12 @@ export function AIAssistPanel({ data, onClose, title = "AI Insights" }: { data: 
         <div>
           <div className="cio-ai-section-label" style={{ opacity: 0, animation: "cio-ai-word-in 0.25s ease forwards", animationDelay: "80ms" }}>Summary</div>
           <div className="cio-ai-summary-box">
-            {isMarkdown(data.summary)
-              ? <MarkdownContent text={data.summary} />
-              : <StreamText text={data.summary} baseDelay={150} />}
+            {(() => {
+              // Bold the "Key Takeaway:" label if Davis includes it
+              const displaySummary = data.summary.replace(/^Key Takeaway:\s*/i, "**Key Takeaway:** ");
+              const useMd = isMarkdown(displaySummary) || displaySummary.startsWith("**Key Takeaway:**");
+              return useMd ? <MarkdownContent text={displaySummary} /> : <StreamText text={displaySummary} baseDelay={150} />;
+            })()}
           </div>
         </div>
 
@@ -347,7 +356,7 @@ export function AIAssistPanel({ data, onClose, title = "AI Insights" }: { data: 
               return (
                 <div key={i} className={`cio-ai-insight-row ${ins.severity}`} style={{ opacity: 0, animation: "cio-ai-word-in 0.25s ease forwards", animationDelay: `${myOffset - 80}ms` }}>
                   <span style={{ fontSize: 14, flexShrink: 0 }}>{ins.icon}</span>
-                  <span><StreamText text={ins.text} baseDelay={myOffset} /></span>
+                  <span>{/\*\*/.test(ins.text ?? "") ? <MarkdownContent text={ins.text ?? ""} /> : <StreamText text={ins.text ?? ""} baseDelay={myOffset} />}</span>
                 </div>
               );
             })}
@@ -363,7 +372,7 @@ export function AIAssistPanel({ data, onClose, title = "AI Insights" }: { data: 
               return (
                 <div key={i} className="cio-ai-rec-row" style={{ opacity: 0, animation: "cio-ai-word-in 0.25s ease forwards", animationDelay: `${myOffset}ms` }}>
                   <span className={`cio-ai-badge ${rec.impact}`}>{rec.impact}</span>
-                  <span><StreamText text={rec.text} baseDelay={myOffset + 80} /></span>
+                  <span>{/\*\*/.test(rec.text ?? "") ? <MarkdownContent text={rec.text ?? ""} /> : <StreamText text={rec.text ?? ""} baseDelay={myOffset + 80} />}</span>
                 </div>
               );
             })}

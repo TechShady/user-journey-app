@@ -60,8 +60,9 @@ const SANKEY_STYLE_OPTIONS: { value: SankeyStyle; label: string }[] = [
   { value: "heatmap", label: "Transition Heatmap" },
 ];
 const DEFAULT_SANKEY_STYLE: SankeyStyle = "classic";
-type FunnelStyle = "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "table" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying" | "uhaul" | "eyeExam" | "spectacles" | "grocery" | "curbside" | "molsonCoors" | "bankVault" | "goldBars";
+type FunnelStyle = "fork" | "classic" | "horizontal" | "cohort" | "elapsed" | "split" | "table" | "elevator" | "mri" | "autoFinance" | "rocketLaunch" | "airport" | "retail" | "cyber" | "stadium" | "homebuying" | "uhaul" | "eyeExam" | "spectacles" | "grocery" | "curbside" | "molsonCoors" | "bankVault" | "goldBars";
 const FUNNEL_STYLE_OPTIONS: { value: FunnelStyle; label: string }[] = [
+  { value: "fork", label: "🔀 Fork / Branch" },
   { value: "classic", label: "Classic Funnel" },
   { value: "horizontal", label: "Horizontal Bar" },
   { value: "cohort", label: "Stacked Cohort" },
@@ -109,7 +110,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.77.89";
+const APP_VERSION_LABEL = "4.78.7";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -1893,10 +1894,17 @@ function sessionFlowQuery(days: number, frontend: string, steps: StepDef[], prev
   const period = periodClause(days, prev);
   const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
   const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const optIdx = steps.findIndex(s => s.optional);
   const countLines = steps.map((_, i) => {
-    const conds = Array.from({ length: i + 1 }, (__, j) => `reached_step${j + 1} == true`).join(" and ");
+    const conds = Array.from({ length: i + 1 }, (__, j) => {
+      if (optIdx >= 0 && j === optIdx && i > optIdx) return null;
+      return `reached_step${j + 1} == true`;
+    }).filter(Boolean).join(" and ");
     return `    at_step${i + 1} = countIf(${conds})`;
   }).join(",\n");
+  const extraLines = optIdx >= 0 && optIdx + 1 < steps.length
+    ? `,\n    via_optional = countIf(${Array.from({ length: optIdx + 2 }, (_, j) => `reached_step${j + 1} == true`).join(" and ")})`
+    : "";
   return `// ${nonce}
 fetch user.events, ${period}
 | filter ${frontendFilter(steps, frontend)}
@@ -1907,7 +1915,7 @@ fetch user.events, ${period}
 ${iAnyLines}
 | summarize
     total_sessions = count(),
-${countLines}`;
+${countLines}${extraLines}`;
 }
 
 // Funnel Time-Lapse — per-bucket step counts.
@@ -1916,8 +1924,12 @@ function funnelTimelapseQuery(days: number, frontend: string, steps: StepDef[], 
   const period = periodClause(days);
   const tagExpr = stepTagExpr(steps, steps.map((_, i) => `step${i + 1}`));
   const iAnyLines = steps.map((_, i) => `    reached_step${i + 1} = iAny(steps[] == "step${i + 1}")`).join(",\n");
+  const tlOptIdx = steps.findIndex(s => s.optional);
   const countLines = steps.map((_, i) => {
-    const conds = Array.from({ length: i + 1 }, (__, j) => `reached_step${j + 1} == true`).join(" and ");
+    const conds = Array.from({ length: i + 1 }, (__, j) => {
+      if (tlOptIdx >= 0 && j === tlOptIdx && i > tlOptIdx) return null;
+      return `reached_step${j + 1} == true`;
+    }).filter(Boolean).join(" and ");
     return `    at_step${i + 1} = countIf(${conds})`;
   }).join(",\n");
   return `fetch user.events, ${period}
@@ -4055,7 +4067,7 @@ function CwvCard({ label, value, unit, metric, onDrillToForecast, query, convers
 // ---------------------------------------------------------------------------
 // Smooth Funnel SVG — per-step colorized + optional compare overlay
 // ---------------------------------------------------------------------------
-interface FunnelStep { label: string; count: number; convFromPrev: number; overallConv: number; apdex?: number }
+interface FunnelStep { label: string; count: number; convFromPrev: number; overallConv: number; apdex?: number; optional?: boolean }
 
 function useCountUp(target: number, duration = 800, delay = 0): number {
   const [value, setValue] = useState(0);
@@ -4456,6 +4468,141 @@ function ElapsedTimeFunnel({ steps, prevSteps, stepMap, stepDefs }: { steps: Fun
 }
 
 // ---------------------------------------------------------------------------
+// Fork / Branch Funnel — single optional step with bypass path
+// ---------------------------------------------------------------------------
+function ForkFunnel({ steps, optIdx, viaOptional, bypass }: { steps: FunnelStep[]; optIdx: number; viaOptional: number; bypass: number }) {
+  const W = 520;
+  const CX = W / 2;
+  const MAX_BW = 400;
+  const MIN_BW = 30;
+  const STEP_H = 64;
+  const CONN_H = 28;
+  const DIV_H = 36;
+  const BOX_H = 80;
+  const LABEL_GAP = 20;
+  const MERGE_H = 36;
+  const GAP = 20;
+
+  const entry = steps[0]?.count || 1;
+  const bw = (n: number) => Math.max(MIN_BW, (n / entry) * MAX_BW);
+
+  const REQ_COLOR = BLUE;
+  const OPT_COLOR = PURPLE;
+  const BYPASS_COLOR = "#475569";
+  const CONN_FILL = "rgba(59,130,246,0.2)";
+  const OPT_FILL = "rgba(139,92,246,0.2)";
+  const BYPASS_FILL = "rgba(71,85,105,0.2)";
+
+  const items: React.ReactNode[] = [];
+  let y = 16;
+
+  for (let i = 0; i < steps.length; i++) {
+    if (i === optIdx) continue;
+
+    const step = steps[i];
+    const w = bw(step.count);
+    const x = CX - w / 2;
+
+    items.push(
+      <g key={`step-${i}`}>
+        <rect x={x} y={y} width={w} height={STEP_H} rx={7} fill={REQ_COLOR} />
+        <text x={CX} y={y + 21} textAnchor="middle" fill="white" fontSize={13} fontWeight="700" fontFamily="sans-serif">{step.label}</text>
+        <text x={CX} y={y + 39} textAnchor="middle" fill="rgba(255,255,255,0.9)" fontSize={12} fontFamily="sans-serif">{step.count.toLocaleString()} sessions</text>
+        {i > 0 && <text x={CX} y={y + 56} textAnchor="middle" fill="rgba(255,255,255,0.65)" fontSize={11} fontFamily="sans-serif">{step.convFromPrev.toFixed(1)}% from prev</text>}
+      </g>
+    );
+    y += STEP_H;
+
+    if (i + 1 < steps.length) {
+      if (i + 1 === optIdx) {
+        // Fork zone: diverge → optional block + bypass block → merge
+        const prevStep = steps[i];
+        const optStep = steps[optIdx];
+        const nextStep = steps[optIdx + 1];
+        const topW = bw(prevStep.count);
+        const nextW = bw(nextStep.count);
+
+        const leftFrac = prevStep.count > 0 ? Math.min(0.82, Math.max(0.18, optStep.count / prevStep.count)) : 0.5;
+        const leftBW = Math.round(leftFrac * (topW - GAP));
+        const rightBW = topW - GAP - leftBW;
+
+        // branch x-coords (left branch left-of-center, right branch right-of-center)
+        const llx = CX - GAP / 2 - leftBW;
+        const lrx = CX - GAP / 2;
+        const rlx = CX + GAP / 2;
+        const rrx = CX + GAP / 2 + rightBW;
+        const leftCX = llx + leftBW / 2;
+        const rightCX = rlx + rightBW / 2;
+
+        const fy = y;
+        const OPT_BOX_Y = fy + DIV_H;
+        const MERGE_Y = OPT_BOX_Y + BOX_H + LABEL_GAP;
+        const NEXT_Y = MERGE_Y + MERGE_H;
+
+        // Diverge fills
+        items.push(
+          <path key="fdl" d={`M${CX - topW / 2},${fy} L${CX},${fy} L${lrx},${OPT_BOX_Y} L${llx},${OPT_BOX_Y} Z`} fill={OPT_FILL} />,
+          <path key="fdr" d={`M${CX},${fy} L${CX + topW / 2},${fy} L${rrx},${OPT_BOX_Y} L${rlx},${OPT_BOX_Y} Z`} fill={BYPASS_FILL} />
+        );
+
+        // Optional step block
+        const optPct = prevStep.count > 0 ? (optStep.count / prevStep.count * 100).toFixed(1) : "0.0";
+        items.push(
+          <g key="fob">
+            <rect x={llx} y={OPT_BOX_Y} width={leftBW} height={BOX_H} rx={7} fill={OPT_COLOR} />
+            <text x={leftCX} y={OPT_BOX_Y + 19} textAnchor="middle" fill="white" fontSize={12} fontWeight="700" fontFamily="sans-serif">{optStep.label}</text>
+            <text x={leftCX} y={OPT_BOX_Y + 36} textAnchor="middle" fill="rgba(255,255,255,0.85)" fontSize={11} fontFamily="sans-serif">{optStep.count.toLocaleString()} sessions</text>
+            <text x={leftCX} y={OPT_BOX_Y + 52} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={11} fontFamily="sans-serif">{optPct}% take this step</text>
+            <text x={leftCX} y={OPT_BOX_Y + 68} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize={10} fontFamily="sans-serif" fontStyle="italic">optional</text>
+          </g>
+        );
+
+        // Bypass block
+        const skipPct = prevStep.count > 0 ? ((prevStep.count - optStep.count) / prevStep.count * 100).toFixed(1) : "0.0";
+        items.push(
+          <g key="fbb">
+            <rect x={rlx} y={OPT_BOX_Y} width={rightBW} height={BOX_H} rx={7} fill={BYPASS_COLOR} />
+            <text x={rightCX} y={OPT_BOX_Y + 26} textAnchor="middle" fill="rgba(255,255,255,0.75)" fontSize={13} fontFamily="sans-serif">Skip →</text>
+            <text x={rightCX} y={OPT_BOX_Y + 46} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize={11} fontFamily="sans-serif">{skipPct}% bypass</text>
+          </g>
+        );
+
+        // Continuation labels
+        if (viaOptional > 0) {
+          items.push(<text key="vl" x={leftCX} y={MERGE_Y - 5} textAnchor="middle" fill={OPT_COLOR} fontSize={10} fontFamily="sans-serif">{viaOptional.toLocaleString()} continue</text>);
+        }
+        if (bypass > 0) {
+          items.push(<text key="bl" x={rightCX} y={MERGE_Y - 5} textAnchor="middle" fill="rgba(148,163,184,0.85)" fontSize={10} fontFamily="sans-serif">{bypass.toLocaleString()} bypass</text>);
+        }
+
+        // Merge fills
+        items.push(
+          <path key="fml" d={`M${llx},${MERGE_Y} L${lrx},${MERGE_Y} L${CX},${NEXT_Y} L${CX - nextW / 2},${NEXT_Y} Z`} fill={OPT_FILL} />,
+          <path key="fmr" d={`M${rlx},${MERGE_Y} L${rrx},${MERGE_Y} L${CX + nextW / 2},${NEXT_Y} L${CX},${NEXT_Y} Z`} fill={BYPASS_FILL} />
+        );
+
+        y = NEXT_Y;
+      } else {
+        const nextW = bw(steps[i + 1].count);
+        const topW = bw(step.count);
+        items.push(
+          <path key={`cn-${i}`}
+            d={`M${CX - topW / 2},${y} L${CX + topW / 2},${y} L${CX + nextW / 2},${y + CONN_H} L${CX - nextW / 2},${y + CONN_H} Z`}
+            fill={CONN_FILL} />
+        );
+        y += CONN_H;
+      }
+    }
+  }
+
+  return (
+    <svg width={W} height={y + 16} style={{ display: "block", margin: "0 auto", overflow: "visible" }}>
+      {items}
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Comparison Split Funnel (Mirror / Side-by-Side)
 // ---------------------------------------------------------------------------
 function ComparisonSplitFunnel({ steps, prevSteps, aov }: { steps: FunnelStep[]; prevSteps: FunnelStep[]; aov: number }) {
@@ -4741,11 +4888,10 @@ function funnelDiscoveryQuery(apps: string[]): string {
   const appFilter = apps.length === 1
     ? `frontend.name == "${apps[0]}"`
     : `in(frontend.name, {${apps.map(a => `"${a}"`).join(", ")}})`;
-  // Build per-session ordered step paths including both page views and click user actions.
-  // Click actions also carry view.name (set to the current page) so we use
-  // characteristics.has_page_summary to distinguish true page-load events from clicks.
-  // Note: DQL null comparisons (field != true) are falsy when the field is unset, so we
-  // avoid filtering on characteristics flags and instead use them only in fieldsAdd.
+  // Use min(timestamp) per (session, step_name) before collectArray to guarantee first-visit
+  // ordering. A bare sort+collectArray does not guarantee order is preserved across the
+  // summarize boundary in DQL, which causes financial-style funnels (high revisit counts) to
+  // appear in reverse order. The two-stage approach anchors each step to its earliest occurrence.
   return [
     `fetch user.events, from: now()-7d`,
     `| filter ${appFilter}`,
@@ -4753,8 +4899,9 @@ function funnelDiscoveryQuery(apps: string[]): string {
     `| fieldsAdd step_name = if(characteristics.has_page_summary == true, view.name, else: user_action.name)`,
     `| fieldsAdd step_type = if(characteristics.has_page_summary == true, "view", else: "action")`,
     `| filter isNotNull(step_name) and step_name != ""`,
-    `| sort timestamp asc`,
-    `| summarize steps = collectArray(step_name), step_types = collectArray(step_type), apps = collectArray(frontend.name), by: {dt.rum.session.id}`,
+    `| summarize first_ts = min(timestamp), step_type = first(step_type), app = first(frontend.name), by: {dt.rum.session.id, step_name}`,
+    `| sort first_ts asc`,
+    `| summarize steps = collectArray(step_name), step_types = collectArray(step_type), apps = collectArray(app), by: {dt.rum.session.id}`,
     `| fieldsAdd eventCount = arraySize(steps)`,
     `| filter eventCount >= 3`,
     `| limit 20000`,
@@ -5653,10 +5800,12 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
   const [pendingName, setPendingName] = useState("");
   const [discoveryStepFilter, setDiscoveryStepFilter] = useState("");
   const [discoveryStepExclude, setDiscoveryStepExclude] = useState("");
+  const [discoveryAnchor, setDiscoveryAnchor] = useState("");
   const [discoveryPathMode, setDiscoveryPathMode] = useState<"dedup" | "strict">("dedup");
   const [discoveryLimit, setDiscoveryLimit] = useState(3);
   const [activeFilter, setActiveFilter] = useState("");
   const [activeExclude, setActiveExclude] = useState("");
+  const [activeAnchor, setActiveAnchor] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const discoveryData = useDql({ query: runDiscovery ? funnelDiscoveryQuery(discoveryApps) : "fetch user.events | limit 0" });
@@ -5701,6 +5850,8 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
       if (stepPairs.length < 3) continue;
       if (include && !stepPairs.some((p) => p.page.toLowerCase().includes(include))) continue;
       if (exclude && stepPairs.some((p) => p.page.toLowerCase().includes(exclude))) continue;
+      const anchorStr = activeAnchor.trim().toLowerCase();
+      if (anchorStr && !pathPairs[0]?.page.toLowerCase().includes(anchorStr)) continue;
 
       const key = stepPairs.map((p) => `${p.app}::${p.page}`).join("→");
       const existing = counts.get(key);
@@ -5726,7 +5877,7 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
           app: p.app,
         })),
       }));
-  }, [runDiscovery, discoveryRecords, frontend, activeFilter, activeExclude, discoveryPathMode]);
+  }, [runDiscovery, discoveryRecords, frontend, activeFilter, activeExclude, activeAnchor, discoveryPathMode]);
 
   // Group candidates by their unique page set — candidates sharing the same pages are "like" variants
   const groupedCandidates = useMemo(() => {
@@ -5814,6 +5965,16 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
             style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: "1px solid rgba(128,128,128,0.3)", background: "rgba(0,0,0,0.2)", color: "inherit", fontSize: 12, boxSizing: "border-box" }}
           />
         </div>
+        <div style={{ flex: 1 }}>
+          <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 4 }}>Must start with <span style={{ color: PURPLE, fontWeight: 600, fontSize: 11 }}>entry anchor</span></Text>
+          <input
+            value={discoveryAnchor}
+            onChange={(e) => setDiscoveryAnchor(e.target.value)}
+            placeholder="e.g. /account, overview…"
+            title="Only include sessions whose first step matches this string. Use to prevent flipped discovery in financial/looping funnels."
+            style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${discoveryAnchor ? PURPLE : "rgba(128,128,128,0.3)"}`, background: "rgba(0,0,0,0.2)", color: "inherit", fontSize: 12, boxSizing: "border-box" }}
+          />
+        </div>
       </div>
       <div style={{ marginBottom: 10 }}>
         <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 4 }}>Path Mode</Text>
@@ -5833,7 +5994,7 @@ function FunnelDiscovery({ availableApps, settingsAppsLoading, frontend, funnels
         </Flex>
       </div>
       <Flex alignItems="center" gap={8} style={{ marginBottom: 12 }}>
-        <button onClick={() => { setActiveFilter(discoveryStepFilter); setActiveExclude(discoveryStepExclude); setRunDiscovery(true); }} disabled={discoveryApps.length === 0} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: discoveryApps.length > 0 ? "#4589FF" : "rgba(128,128,128,0.2)", color: discoveryApps.length > 0 ? "#fff" : "rgba(128,128,128,0.5)", cursor: discoveryApps.length > 0 ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 600 }}>Discover Funnels</button>
+        <button onClick={() => { setActiveFilter(discoveryStepFilter); setActiveExclude(discoveryStepExclude); setActiveAnchor(discoveryAnchor); setRunDiscovery(true); }} disabled={discoveryApps.length === 0} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: discoveryApps.length > 0 ? "#4589FF" : "rgba(128,128,128,0.2)", color: discoveryApps.length > 0 ? "#fff" : "rgba(128,128,128,0.5)", cursor: discoveryApps.length > 0 ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 600 }}>Discover Funnels</button>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <Text style={{ fontSize: 12, opacity: 0.5, whiteSpace: "nowrap" }}>Limit</Text>
           <input
@@ -5950,6 +6111,7 @@ export function UserJourney() {
   const hotnessForecastDragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [dtOpen, setDtOpen] = useState(false);
+  const [dtSubSubTab, setDtSubSubTab] = useState<string>("");
   const [dimensionModal, setDimensionModal] = useState<{ label: string; sparkline: number[]; color?: string; fetchGeo?: (pct: string) => Promise<DimSlice[]>; fetchBrowser?: (pct: string) => Promise<DimSlice[]> } | null>(null);
   const [kpiHeatmapPanel, setKpiHeatmapPanel] = useState<{ label: string; color?: string; getRequeryData: (days: number) => Promise<{ values: number[]; bucketMs: number; unit?: string }> } | null>(null);
   const [kpiHeatmapPos, setKpiHeatmapPos] = useState<{ x: number; y: number }>({ x: 320, y: 120 });
@@ -6057,6 +6219,7 @@ export function UserJourney() {
   useEffect(() => {
     if (activeSubTabKey) {
       setVisitedTabs(prev => prev.has(activeSubTabKey) ? prev : new Set([...prev, activeSubTabKey]));
+      setDtSubSubTab(""); // clear sub-sub-tab context when switching sub-tabs
     }
   }, [activeSubTabKey]);
 
@@ -6722,8 +6885,14 @@ export function UserJourney() {
     if (!r) return steps.map(() => 0);
     return steps.map((_, i) => Number(r[`at_step${i + 1}`] ?? 0));
   };
+  const parseForkData = (result: any): number => {
+    const r = result?.data?.records?.[0] as any;
+    if (!r) return 0;
+    return Number(r.via_optional ?? 0);
+  };
   const funnelCounts = useMemo(() => parseFunnel(funnelResult), [funnelResult.data, steps]);
   const funnelCountsPrev = useMemo(() => parseFunnel(funnelResultPrev), [funnelResultPrev.data, steps]);
+  const viaOptional = useMemo(() => parseForkData(funnelResult), [funnelResult.data, steps]);
 
   // Parse step metrics
   const stepMap = useMemo(() => {
@@ -6868,8 +7037,14 @@ export function UserJourney() {
     const frustratedPct = quality.total > 0 ? ((frustrated / quality.total) * 100).toFixed(1) + "%" : "N/A";
 
     // Base context always included
+    const parentLabel = (TAB_TO_PARENT as any)[tab] as string | undefined;
+    const isTopLevel = !parentLabel || parentLabel === tab;
+    const viewHierarchy = isTopLevel
+      ? `Tab: ${tab || "Executive Summary"}`
+      : `Parent tab: ${parentLabel}  →  Sub-tab: ${tab}${dtSubSubTab ? `  →  View: ${dtSubSubTab}` : ""}`;
     const baseContext = `App: Dynatrace User Journey & Experience
-Funnel: ${funnelName}  |  Industry: ${industry}  |  Active view: ${tab || "Executive Summary"}
+Funnel: ${funnelName}  |  Industry: ${industry}
+${viewHierarchy}
 Sessions: ${n(quality.total || quality.sessions)}  |  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}  |  Error rate: ${p(quality.total > 0 ? errorRate : null)}
 Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (${industry} target: ${bench.apdexTarget})
 Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}  |  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}`;
@@ -6884,247 +7059,703 @@ Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}  |  Deploy
 
       // ── Funnel & Conversion ────────────────────────────────────────────────
       if (tab === "Funnel Overview" || tab === "Funnel Analysis") {
+        // Sub-sub-tab: Predictive Trends
+        if (dtSubSubTab === "Predictive Trends") {
+          return {
+            instruction: `Analyze the Funnel & Conversion > Funnel Overview > Predictive Trends view for "${funnelName}" (${industry}).
+
+Trend data (current vs prior period):
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} → ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)} (${industry} benchmark: ${bench.convRateTarget}%)
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} → ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})
+  Sessions: ${n(quality.total || quality.sessions)} → ${n(qualityPrev.total || qualityPrev.sessions)}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)}
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+  Open problems: ${davisProblemsData.data ? openProblems : "N/A"} | Deployments: ${deploymentEventsData.data ? deploymentsToday : "N/A"}
+
+Analyze: Is this funnel improving or declining? At the current rate of change, where will conversion and Apdex be in 7 days? What is the primary driver of the trend? What one intervention would change the trajectory? Reference the specific numbers above — do not give generic advice. Respond in JSON.`,
+            extra: `\n\nFunnel steps:\n${stepLines}`,
+          };
+        }
+        // Sub-sub-tab: Step Metrics
+        if (dtSubSubTab === "Step Metrics") {
+          return {
+            instruction: `Analyze the Funnel & Conversion > Funnel Overview > Step Metrics view for "${funnelName}" (${industry}).
+
+Step-by-step measured drop-off:
+${stepLines}
+
+Overall: ${p(funnelCounts[0] > 0 ? overallConv : null)} conversion (benchmark: ${bench.convRateTarget}%) | Sessions: ${n(quality.total || quality.sessions)} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+Error rate: ${p(quality.total > 0 ? errorRate : null)} | Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}
+
+For each step: state the session count, drop-off rate, and whether drop-off is high/normal/low. Identify the single worst step, estimate sessions and revenue lost there, and give the specific fix. Reference the exact drop-off percentages above. Respond in JSON.`,
+            extra: "",
+          };
+        }
+        // Sub-sub-tab: Page Metrics
+        if (dtSubSubTab === "Page Metrics") {
+          return {
+            instruction: `Analyze the Funnel & Conversion > Funnel Overview > Page Metrics view for "${funnelName}" (${industry}).
+
+Funnel pages and sessions:
+${stepLines}
+
+Overall: ${p(funnelCounts[0] > 0 ? overallConv : null)} conversion | Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target: ${bench.apdexTarget}) | LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms) | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)
+Sessions: ${n(quality.total || quality.sessions)} | Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}
+
+For each page/step: assess page-level performance impact on conversion. Identify which pages have the worst latency or error profile, and what page-specific fixes would recover the most sessions. Reference the actual session counts and performance values. Respond in JSON.`,
+            extra: "",
+          };
+        }
+        // Default: Funnel Chart
         return {
-          instruction: `Analyze the "${tab}" for the "${funnelName}" conversion funnel. Give an overall funnel health assessment: total sessions, step-by-step drop-off, overall conversion rate vs the ${industry} benchmark of ${bench.convRateTarget}%, and the single highest-impact opportunity to improve conversion. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nConversion Funnel:\n${stepLines}\n\nOverall: ${p(funnelCounts[0] > 0 ? overallConv : null)} conversion (benchmark: ${bench.convRateTarget}%) | Prior period: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}\nRevenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})\nError rate: ${p(quality.total > 0 ? errorRate : null)}`,
+          instruction: `Analyze the Funnel & Conversion > ${tab} view for "${funnelName}" (${industry}).
+
+Funnel measured data:
+${stepLines}
+
+Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} vs ${bench.convRateTarget}% ${industry} benchmark | Prior: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}
+Sessions: ${n(quality.total || quality.sessions)} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+Error rate: ${p(quality.total > 0 ? errorRate : null)} | Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}
+
+Assess funnel health: for each step call out the drop-off rate, identify the single highest-impact bottleneck, and give the specific fix that would recover the most conversions. Reference the actual step counts above. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Step Details") {
         return {
-          instruction: `Analyze individual step performance for the "${funnelName}" funnel. Identify the step with the worst drop-off rate, the likely causes (errors, latency, UX friction, form issues), and the specific fix that would recover the most conversions from that step. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nStep-by-Step Detail:\n${stepLines}\n\nApdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (satisfied ${satisfiedPct}, frustrated ${frustratedPct})\nError rate: ${p(quality.total > 0 ? errorRate : null)} | Avg duration: ${dur(quality.avg > 0 ? quality.avg : null)}\nINP (step interaction speed): ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <200ms)`,
+          instruction: `Analyze the Funnel & Conversion > Step Details view for "${funnelName}" (${industry}).
+
+Step-by-step measured data:
+${stepLines}
+
+Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target ${bench.apdexTarget}) | Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}
+Error rate: ${p(quality.total > 0 ? errorRate : null)} (target <${bench.errorRateTarget}%) | Avg session duration: ${dur(quality.avg > 0 ? quality.avg : null)}
+INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (Good <200ms, target <${bench.inpTarget}ms) | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+
+For each step, state the exact drop-off rate and likely cause. Identify the single worst step by revenue impact and give the specific technical or UX fix. Reference the actual percentages and session counts above. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Trends") {
         return {
-          instruction: `Analyze conversion and experience trends over time for "${funnelName}". Assess direction of change (improving vs declining), what the current-vs-prior comparison suggests about root cause (deployment, seasonal, behavioral), and what intervention would reverse a negative trend. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nTrend Comparison (current vs prior period):\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} → ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} → ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"}\n  Sessions: ${n(quality.total || quality.sessions)} → ${n(qualityPrev.total || qualityPrev.sessions)}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"} | Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}`,
+          instruction: `Analyze the Funnel & Conversion > Trends view for "${funnelName}" (${industry}).
+
+Current vs prior period:
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} → ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)} (benchmark: ${bench.convRateTarget}%)
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} → ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})
+  Sessions: ${n(quality.total || quality.sessions)} → ${n(qualityPrev.total || qualityPrev.sessions)}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}
+  Open problems: ${davisProblemsData.data ? openProblems : "N/A"} | Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}
+
+State the direction of change for each metric (improving/stable/declining) with the exact delta. Identify the most likely root cause of the dominant trend (deployment, incident, seasonal, behavioral). Give the one intervention that would most change the trajectory. Reference the specific numbers above. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Conversion Attribution") {
+        // Process conversionAttributionData records into device / browser / speed breakdowns
+        const caRecs = (conversionAttributionData.data?.records ?? []) as any[];
+        const caParsed = caRecs.map((r: any) => ({
+          device: String(r.deviceType ?? "Unknown"),
+          browser: String(r.browserName ?? "Unknown"),
+          sessions: Number(r.total_sessions ?? 0),
+          converted: Number(r.converted_sessions ?? 0),
+          avgDuration: Number(r.avg_duration ?? 0),
+        }));
+        const bktS = (arr: typeof caParsed) => arr.reduce((a, r) => a + r.sessions, 0);
+        const bktC = (arr: typeof caParsed) => arr.reduce((a, r) => a + r.converted, 0);
+        const bktR = (arr: typeof caParsed) => { const t = bktS(arr); return t > 0 ? ((bktC(arr) / t) * 100).toFixed(1) + "%" : "N/A"; };
+        const rev = (conv: number) => aov > 0 ? `, $${(conv * aov).toLocaleString(undefined, { maximumFractionDigits: 0 })} rev` : "";
+        const fast = caParsed.filter(r => r.avgDuration <= 1000);
+        const med  = caParsed.filter(r => r.avgDuration > 1000 && r.avgDuration <= 3000);
+        const slow = caParsed.filter(r => r.avgDuration > 3000);
+        const speedLines = [
+          `  Fast (≤1s): ${bktS(fast).toLocaleString()} sessions, ${bktR(fast)} conv${rev(bktC(fast))}`,
+          `  Medium (1-3s): ${bktS(med).toLocaleString()} sessions, ${bktR(med)} conv${rev(bktC(med))}`,
+          `  Slow (>3s): ${bktS(slow).toLocaleString()} sessions, ${bktR(slow)} conv${rev(bktC(slow))}`,
+        ].join("\n");
+        const aggBy = (key: "device" | "browser") => {
+          const m = new Map<string, { s: number; c: number }>();
+          caParsed.forEach(r => { const e = m.get(r[key]) ?? { s: 0, c: 0 }; e.s += r.sessions; e.c += r.converted; m.set(r[key], e); });
+          return Array.from(m.entries())
+            .map(([name, e]) => ({ name, s: e.s, c: e.c, cr: e.s > 0 ? (e.c / e.s) * 100 : 0 }))
+            .sort((a, b) => b.s - a.s).slice(0, 6)
+            .map(e => `  ${e.name}: ${e.s.toLocaleString()} sessions, ${e.cr.toFixed(1)}% conv${rev(e.c)}`).join("\n");
+        };
         return {
-          instruction: `Analyze conversion attribution for "${funnelName}". Identify which user attributes (device type, browser, geography, new vs returning, traffic source) correlate most with conversion success vs abandonment. Recommend which segments to prioritize for optimization. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nAttribution Context:\n  Overall conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  Sessions: ${n(quality.total || quality.sessions)} | Duration: ${dur(quality.avg > 0 ? quality.avg : null)}\n  Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}\n  Mobile share benchmark (${industry}): ${bench.mobileShareExpected}%\n  Latency impact (${industry}): ${bench.latencyImpactPerSec}% conversion loss per 1s`,
+          instruction: `Analyze conversion attribution for the "${funnelName}" funnel using the device, browser, and speed data provided. Identify which segments convert best and worst, quantify the revenue impact of the gaps, and give specific optimization recommendations. Focus on the actual data — do not suggest collecting more data.`,
+          extra: `\n\nConversion Attribution Data (actual measured values):\n\nSpeed → Conversion:\n${speedLines || "  No speed data"}\n\nDevice → Conversion:\n${aggBy("device") || "  No device data"}\n\nBrowser → Conversion:\n${aggBy("browser") || "  No browser data"}\n\nOverall: ${p(funnelCounts[0] > 0 ? overallConv : null)} conversion (${industry} benchmark: ${bench.convRateTarget}%) | AOV: $${aov}\nLatency impact (${industry}): ${bench.latencyImpactPerSec}% conversion loss per 1s`,
         };
       }
       if (tab === "Errors & Drop-offs") {
         return {
-          instruction: `Analyze how errors drive funnel abandonment in "${funnelName}". Identify which error types occur at which steps, quantify revenue lost from error-driven drop-off, and prioritize which errors to fix first for maximum conversion recovery. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nError Drop-off Context:\n  Total errors: ${n(quality.errors > 0 ? quality.errors : null)}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  Revenue at risk: ${revenueAtRisk}\n  Funnel steps:\n${stepLines}\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)}`,
+          instruction: `Analyze the Funnel & Conversion > Errors & Drop-offs view for "${funnelName}" (${industry}).
+
+Error and drop-off data:
+  Total errors: ${n(quality.errors > 0 ? quality.errors : null)} | Error rate: ${p(quality.total > 0 ? errorRate : null)} (target <${bench.errorRateTarget}%)
+  Revenue at risk from errors: ${revenueAtRisk} (AOV: $${aov})
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)
+  Sessions: ${n(quality.total || quality.sessions)} | Frustrated: ${frustratedPct}
+
+Funnel steps:
+${stepLines}
+
+Quantify the revenue impact of the current error rate. For each funnel step, assess whether errors are a likely driver of drop-off. Prioritize the top 3 error categories to fix by conversion recovery value. Reference the actual error count and rate above. Respond in JSON.`,
+          extra: "",
         };
       }
 
       // ── User Experience ────────────────────────────────────────────────────
       if (tab === "Business Vitals") {
         return {
-          instruction: `Analyze business vitals and digital health scores for "${funnelName}". For each KPI, state whether it's healthy, at risk, or failing vs the ${industry} benchmark, and what the business consequence of each unhealthy metric is. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nBusiness Vitals:\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (benchmark: ${bench.apdexTarget})\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)\n  CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"} (target <${bench.clsTarget})\n  Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}\n  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}`,
+          instruction: `Analyze the User Experience > Business Vitals view for "${funnelName}" (${industry}).
+
+Measured business health scores:
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} vs ${bench.convRateTarget}% benchmark → ${funnelCounts[0] > 0 && overallConv >= bench.convRateTarget ? "ABOVE" : "BELOW"} target
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} vs ${bench.apdexTarget} target → ${quality.total > 0 && overallApdex >= bench.apdexTarget ? "MET" : "BELOW"} target
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} vs <${bench.errorRateTarget}% target → ${quality.total > 0 && errorRate <= bench.errorRateTarget ? "WITHIN" : "EXCEEDS"} target
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (Good <2500ms, target <${bench.lcpTarget}ms)
+  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (Good <200ms, target <${bench.inpTarget}ms)
+  CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"} (Good <0.1, target <${bench.clsTarget})
+  Sessions: ${n(quality.total || quality.sessions)} | Satisfied: ${satisfiedPct} | Tolerating: ${toleratingPct} | Frustrated: ${frustratedPct}
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov}) | Revenue at risk: ${revenueAtRisk}
+
+For each metric above: state the exact measured value, its Good/At Risk/Critical status vs the specific benchmark, and the business consequence of that gap (e.g., revenue lost, user abandonment). Identify the single most critical KPI to fix and the specific action. Reference only these measured values — do not generalize. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Web Vitals") {
+        const cwvSubLabel = dtSubSubTab ? ` (${dtSubSubTab})` : "";
         return {
-          instruction: `Analyze Core Web Vitals for "${funnelName}". For each vital (LCP, INP, CLS), classify it as Good/Needs Improvement/Poor, explain the likely technical cause, compare to the ${industry} target, and recommend the single most impactful technical fix. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nCore Web Vitals:\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)}\n    Good <2500ms | NI <4000ms | Poor ≥4000ms | ${industry} target <${bench.lcpTarget}ms\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)}\n    Good <200ms | NI <500ms | Poor ≥500ms | ${industry} target <${bench.inpTarget}ms\n  CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"}\n    Good <0.1 | NI <0.25 | Poor ≥0.25 | ${industry} target <${bench.clsTarget}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} — satisfied ${satisfiedPct}, tolerating ${toleratingPct}, frustrated ${frustratedPct}`,
+          instruction: `Analyze the User Experience > Web Vitals${cwvSubLabel} view for "${funnelName}" (${industry}).
+
+Measured Core Web Vitals:
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | Good <2500ms | ${industry} target <${bench.lcpTarget}ms | Status: ${cwv.lcp > 0 ? (cwv.lcp < 2500 ? "GOOD" : cwv.lcp < 4000 ? "NEEDS IMPROVEMENT" : "POOR") : "N/A"}
+  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} | Good <200ms | ${industry} target <${bench.inpTarget}ms | Status: ${cwv.inp > 0 ? (cwv.inp < 200 ? "GOOD" : cwv.inp < 500 ? "NEEDS IMPROVEMENT" : "POOR") : "N/A"}
+  CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"} | Good <0.1 | ${industry} target <${bench.clsTarget} | Status: ${cwv.cls > 0 ? (cwv.cls < 0.1 ? "GOOD" : cwv.cls < 0.25 ? "NEEDS IMPROVEMENT" : "POOR") : "N/A"}
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} | Satisfied: ${satisfiedPct} | Tolerating: ${toleratingPct} | Frustrated: ${frustratedPct}
+  Sessions: ${n(quality.total || quality.sessions)} | Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}
+
+For each Web Vital: state the exact measured value, its CWV classification (Good/Needs Improvement/Poor), the specific technical root cause of any issue, and the single most impactful fix. Estimate the Apdex and conversion improvement from fixing each. Reference the actual ms and score values above. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Worst Sessions") {
         return {
-          instruction: `Analyze the worst-performing user sessions for "${funnelName}". Characterize what defines the worst sessions (error count, high latency, rage clicks, abrupt exits), what percentage of total users they represent, and what targeted interventions would eliminate or recover the most impacted sessions. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nSession Distribution:\n  Total sessions: ${n(quality.total || quality.sessions)}\n  Satisfied: ${satisfiedPct} | Tolerating: ${toleratingPct} | Frustrated: ${frustratedPct}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Avg session duration: ${dur(quality.avg > 0 ? quality.avg : null)}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (benchmark: ${bench.apdexTarget})\n  Revenue at risk from frustrated sessions: ${revenueAtRisk}`,
+          instruction: `Analyze the User Experience > Worst Sessions view for "${funnelName}" (${industry}).
+
+Session quality distribution:
+  Total sessions: ${n(quality.total || quality.sessions)} | Avg duration: ${dur(quality.avg > 0 ? quality.avg : null)}
+  Satisfied: ${satisfiedPct} | Tolerating: ${toleratingPct} | Frustrated: ${frustratedPct}
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (benchmark: ${bench.apdexTarget})
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target <${bench.errorRateTarget}%)
+  Revenue at risk from frustrated sessions: ${revenueAtRisk} (AOV: $${aov})
+
+State the exact number of frustrated sessions and what that means in revenue at risk. Characterize the worst sessions (high latency + errors + abandonment) and what percentage of total users they represent. Give 3 specific interventions ranked by expected improvement in Apdex. Reference the actual percentages above. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Click Issues") {
         return {
-          instruction: `Analyze click interaction issues for "${funnelName}". Focus on rage click patterns, dead click hotspots, and JavaScript errors triggered on click. Identify which UI elements are causing the most interaction frustration and what UX or code changes would reduce click-level errors. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nInteraction Context:\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Frustrated sessions: ${frustratedPct}\n  INP (interaction responsiveness): ${dur(cwv.inp > 0 ? cwv.inp : null)} (Good <200ms, target <${bench.inpTarget}ms)\n  Funnel steps (click-sensitive):\n${stepLines}`,
+          instruction: `Analyze the User Experience > Click Issues view for "${funnelName}" (${industry}).
+
+Interaction and error data:
+  INP (click response time): ${dur(cwv.inp > 0 ? cwv.inp : null)} | Good <200ms | ${industry} target <${bench.inpTarget}ms | Status: ${cwv.inp > 0 ? (cwv.inp < 200 ? "GOOD" : cwv.inp < 500 ? "NEEDS IMPROVEMENT" : "POOR") : "N/A"}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target <${bench.errorRateTarget}%) | Total errors: ${n(quality.errors > 0 ? quality.errors : null)}
+  Frustrated sessions: ${frustratedPct} | Sessions: ${n(quality.total || quality.sessions)}
+  Revenue at risk: ${revenueAtRisk}
+
+Funnel steps (click-sensitive):
+${stepLines}
+
+Identify the specific click interaction problems driving INP degradation and error spikes. For each funnel step, assess whether click friction is a likely abandonment driver. Recommend the top 3 UX/code fixes with estimated INP improvement. Reference the actual INP value and error rate above. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Perf Budgets") {
         return {
-          instruction: `Analyze performance budget compliance for "${funnelName}". Identify which resource types and pages exceed budget thresholds, the rendering impact of over-budget assets, and a prioritized list of resources to optimize for the biggest LCP/INP gains. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nPerformance Budget Context:\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)\n  CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"} (target <${bench.clsTarget})\n  Third-party budget (${industry}): ${bench.thirdPartyBudgetMs}ms\n  Avg session duration: ${dur(quality.avg > 0 ? quality.avg : null)}`,
+          instruction: `Analyze the User Experience > Performance Budgets view for "${funnelName}" (${industry}).
+
+Performance budget status:
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} vs <${bench.lcpTarget}ms target → ${cwv.lcp > 0 ? (cwv.lcp <= bench.lcpTarget ? "WITHIN BUDGET" : `${Math.round((cwv.lcp / bench.lcpTarget - 1) * 100)}% OVER BUDGET`) : "N/A"}
+  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} vs <${bench.inpTarget}ms target → ${cwv.inp > 0 ? (cwv.inp <= bench.inpTarget ? "WITHIN BUDGET" : `${Math.round((cwv.inp / bench.inpTarget - 1) * 100)}% OVER BUDGET`) : "N/A"}
+  CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"} vs <${bench.clsTarget} target
+  Third-party budget: ${bench.thirdPartyBudgetMs}ms allowed
+  Avg session duration: ${dur(quality.avg > 0 ? quality.avg : null)} | Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}
+
+For each budget: state the measured value vs the budget threshold and whether it's within or over budget (with the % overage). Identify which budget overage has the highest conversion impact and give a specific asset/resource optimization recommendation. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Resource Waterfall") {
         return {
-          instruction: `Analyze the resource loading waterfall for "${funnelName}". Focus on the critical rendering path, render-blocking resources, TTFB, and the largest assets. Identify which waterfall bottlenecks have the highest impact on LCP and time-to-interactive, and recommend specific optimizations. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nLoading Performance:\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)\n  Third-party budget: ${bench.thirdPartyBudgetMs}ms\n  Avg session duration: ${dur(quality.avg > 0 ? quality.avg : null)}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}`,
+          instruction: `Analyze the User Experience > Resource Waterfall view for "${funnelName}" (${industry}).
+
+Loading performance:
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (Good <2500ms, ${industry} target <${bench.lcpTarget}ms) → ${cwv.lcp > 0 ? (cwv.lcp < bench.lcpTarget ? "WITHIN TARGET" : "OVER TARGET") : "N/A"}
+  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (Good <200ms, ${industry} target <${bench.inpTarget}ms)
+  Avg session duration: ${dur(quality.avg > 0 ? quality.avg : null)}
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} | Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}
+  Third-party budget: ${bench.thirdPartyBudgetMs}ms | Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}
+
+Identify the critical rendering path bottlenecks most likely causing the measured LCP of ${dur(cwv.lcp > 0 ? cwv.lcp : null)}. State which waterfall stages (TTFB, render-blocking scripts, large images, third-party tags) are likely contributors and give specific optimization recommendations with expected ms improvement. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Third-Party Impact") {
         return {
-          instruction: `Analyze third-party script impact on "${funnelName}". Identify which third-party resources (analytics, ads, chat, tag managers) contribute most to page load delay, their effect on LCP, INP, and CLS, and recommend deferral, lazy-loading, or removal strategies with estimated performance gain. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nThird-Party Impact:\n  Third-party budget (${industry}): ${bench.thirdPartyBudgetMs}ms\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)\n  CLS (third-party layout shifts): ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"} (target <${bench.clsTarget})\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}`,
+          instruction: `Analyze the User Experience > Third-Party Impact view for "${funnelName}" (${industry}).
+
+Performance with third-party context:
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (${industry} target <${bench.lcpTarget}ms)
+  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)
+  CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"} (target <${bench.clsTarget})
+  Third-party budget: ${bench.thirdPartyBudgetMs}ms allowed
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} | Frustrated: ${frustratedPct}
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}
+
+Identify which categories of third-party scripts (analytics, ads, chat, tag managers, social) are most likely contributing to the measured LCP and INP issues. Recommend specific deferral, lazy-loading, or removal strategies and estimate the performance gain from each. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Hyperlyzer") {
+        const hyperSubLabel = dtSubSubTab ? ` → ${dtSubSubTab}` : "";
         return {
-          instruction: `Perform a deep multi-dimensional performance analysis for "${funnelName}". Cross-correlate LCP, INP, CLS, error rate, and Apdex to find the combination of factors that most predicts conversion failure. Identify which dimension is the primary driver and what fixing it would unlock. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nHyperlyzer Inputs:\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (satisfied ${satisfiedPct}, frustrated ${frustratedPct})\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} | CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  Sessions: ${n(quality.total || quality.sessions)}`,
+          instruction: `Analyze the User Experience > Hyperlyzer${hyperSubLabel} view for "${funnelName}" (${industry}).
+
+Multi-dimensional performance data:
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target ${bench.apdexTarget}) | Satisfied: ${satisfiedPct} | Tolerating: ${toleratingPct} | Frustrated: ${frustratedPct}
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (${cwv.lcp > 0 ? (cwv.lcp < bench.lcpTarget ? "✓" : "✗") : "N/A"} vs ${bench.lcpTarget}ms target)
+  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (${cwv.inp > 0 ? (cwv.inp < bench.inpTarget ? "✓" : "✗") : "N/A"} vs ${bench.inpTarget}ms target)
+  CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"} (${cwv.cls > 0 ? (cwv.cls < bench.clsTarget ? "✓" : "✗") : "N/A"} vs ${bench.clsTarget} target)
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target <${bench.errorRateTarget}%)
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%) | Sessions: ${n(quality.total || quality.sessions)}
+  ${dtSubSubTab ? `Currently analyzing: ${dtSubSubTab}` : ""}
+
+Cross-correlate these metrics to find which combination most predicts conversion failure. Identify the single primary driver (LCP, INP, CLS, errors, or Apdex) with the strongest causal link to poor conversion, and what fixing it would unlock across the other dimensions. Reference the specific values. Respond in JSON.`,
+          extra: "",
         };
       }
 
       // ── Navigation & Flows ─────────────────────────────────────────────────
-      if (tab === "Navigation Paths" || tab === "Sankey") {
+      if (tab === "Navigation Paths") {
+        const navSubLabel = dtSubSubTab ? ` → ${dtSubSubTab}` : "";
         return {
-          instruction: `Analyze user navigation patterns and flow for "${funnelName}" in the "${tab}" view. Identify the most common exit points between funnel steps, unexpected navigation detours that delay conversion, and what flow patterns distinguish converters from abandoners. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nNavigation Checkpoints:\n${stepLines}\n\nFlow quality:\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} | Frustrated: ${frustratedPct}\n  Avg session duration: ${dur(quality.avg > 0 ? quality.avg : null)}`,
+          instruction: `Analyze the Navigation & Flows > Navigation Paths${navSubLabel} view for "${funnelName}" (${industry}).
+
+Funnel checkpoints and flow quality:
+${stepLines}
+
+  Sessions: ${n(quality.total || quality.sessions)} | Avg duration: ${dur(quality.avg > 0 ? quality.avg : null)}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} | Frustrated: ${frustratedPct}
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)
+  ${dtSubSubTab ? `Timeline view: ${dtSubSubTab}` : ""}
+
+Identify the most common exit points between funnel steps using the actual drop-off rates above. Describe what navigation detours (loops, back-clicks, retries) are likely occurring based on the session data. State which flow pattern change would recover the most conversions. Respond in JSON.`,
+          extra: "",
+        };
+      }
+      if (tab === "Sankey") {
+        const sankeySubLabel = dtSubSubTab ? ` → ${dtSubSubTab}` : "";
+        return {
+          instruction: `Analyze the Navigation & Flows > Sankey${sankeySubLabel} view for "${funnelName}" (${industry}).
+
+Flow data:
+${stepLines}
+
+  Sessions: ${n(quality.total || quality.sessions)} | Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} | Frustrated: ${frustratedPct}
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+  ${dtSubSubTab ? `Currently viewing: ${dtSubSubTab}` : ""}
+
+Based on the funnel step counts and the ${dtSubSubTab || "flow"} view, identify the biggest flow leak (where sessions diverge from the intended path), the revenue value of recovering that leak, and the specific UX or technical fix. Reference the actual session counts. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Geo Heatmap" || tab === "Maps") {
+        const mapSubLabel = dtSubSubTab ? ` → ${dtSubSubTab}` : "";
         return {
-          instruction: `Analyze geographic user distribution and performance for "${funnelName}". Identify regions with below-average conversion or elevated latency, what CDN or infrastructure configuration might explain geographic variance, and which regions represent the biggest untapped opportunity. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nGlobal Context:\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}\n  Mobile share (${industry} expected): ${bench.mobileShareExpected}%\n  CDN monthly cost: $${cdnMonthlyCost.toLocaleString()}`,
+          instruction: `Analyze the Navigation & Flows > ${tab}${mapSubLabel} view for "${funnelName}" (${industry}).
+
+Global baseline:
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (${industry} benchmark: ${bench.convRateTarget}%)
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms) | Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}
+  Sessions: ${n(quality.total || quality.sessions)} | Frustrated: ${frustratedPct}
+  Mobile share (${industry} expected): ${bench.mobileShareExpected}%
+  CDN monthly cost: $${cdnMonthlyCost.toLocaleString()}
+  ${dtSubSubTab ? `Map view: ${dtSubSubTab}` : ""}
+
+Identify geographic regions most likely to have below-average conversion or elevated latency relative to the overall figures above. Explain whether CDN coverage, network latency, or regulatory factors are likely drivers of regional variance. Name the top region to prioritize for optimization and the specific action. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Session Replay Spotlight") {
         return {
-          instruction: `Analyze session replay evidence for "${funnelName}". Focus on behavioral patterns that reveal UX friction: pages with the most rage clicks, confused navigation loops, form abandonment sequences, and UI elements that block completion. Translate replay observations into prioritized UX fixes. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nReplay Candidate Pool:\n  Total sessions: ${n(quality.total || quality.sessions)}\n  Frustrated sessions (prime replay candidates): ${frustratedPct}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  INP (interaction speed): ${dur(cwv.inp > 0 ? cwv.inp : null)}\n  Funnel steps:\n${stepLines}`,
+          instruction: `Analyze the Navigation & Flows > Session Replay Spotlight view for "${funnelName}" (${industry}).
+
+Replay candidate pool:
+  Total sessions: ${n(quality.total || quality.sessions)} | Frustrated (prime replay targets): ${frustratedPct}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target <${bench.errorRateTarget}%)
+  INP (interaction speed): ${dur(cwv.inp > 0 ? cwv.inp : null)} (Good <200ms, target <${bench.inpTarget}ms)
+  Revenue at risk: ${revenueAtRisk} | Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}
+
+Funnel steps:
+${stepLines}
+
+Based on the ${frustratedPct} frustrated session rate and ${p(quality.total > 0 ? errorRate : null)} error rate, describe the behavioral patterns most likely visible in session replays (rage clicks, form abandonment, confused navigation). Identify which funnel step to replay first and what UX change would eliminate the most friction. Respond in JSON.`,
+          extra: "",
         };
       }
 
       // ── Intelligence & AI ──────────────────────────────────────────────────
       if (tab === "Anomaly Detection") {
         return {
-          instruction: `Analyze statistical anomalies in "${funnelName}" metrics. Identify which KPIs are deviating beyond normal variance, what the anomaly pattern suggests about the cause (incident, deployment, seasonal), and what monitoring thresholds should be set to detect similar deviations earlier. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nAnomaly Signals:\n  Conversion now vs prior: ${p(funnelCounts[0] > 0 ? overallConv : null)} vs ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}\n  Apdex now vs prior: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} vs ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)}`,
+          instruction: `Analyze the Intelligence & AI > Anomaly Detection view for "${funnelName}" (${industry}).
+
+Anomaly signals (current vs prior period):
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} vs prior ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)} → delta: ${funnelCounts[0] > 0 && funnelCountsPrev[0] > 0 ? (overallConv - overallConvPrev > 0 ? "+" : "") + (overallConv - overallConvPrev).toFixed(2) + "%" : "N/A"}
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} vs prior ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} | LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)}
+  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"} | Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}
+  Sessions: ${n(quality.total || quality.sessions)} vs prior ${n(qualityPrev.total || qualityPrev.sessions)}
+
+For each metric with a notable delta, classify it as anomalous or within normal variance. State the anomaly pattern (sudden spike, gradual drift, correlated with deployment) and the most likely root cause. Recommend the specific monitoring threshold to detect this earlier. Reference the exact deltas. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Root Cause Correlation") {
         return {
-          instruction: `Perform root cause correlation analysis for "${funnelName}". Given the current metric state, build a causal chain: which upstream signals (errors, latency, Davis problems, deployments) most likely caused the observed conversion and Apdex values. Name the root cause and the specific intervention point. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nCorrelation Inputs:\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}\n  Conversion delta: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)} → ${p(funnelCounts[0] > 0 ? overallConv : null)}\n  Apdex delta: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"} → ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} | CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"}`,
+          instruction: `Analyze the Intelligence & AI > Root Cause Correlation view for "${funnelName}" (${industry}).
+
+Correlation inputs:
+  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"} | Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}
+  Conversion: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)} → ${p(funnelCounts[0] > 0 ? overallConv : null)}
+  Apdex: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"} → ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} | Revenue at risk: ${revenueAtRisk}
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} | CLS: ${cwv.cls > 0 ? cwv.cls.toFixed(3) : "N/A"}
+
+Build the causal chain from the signals above: identify which upstream signal (Davis problem, deployment, LCP/INP degradation, error spike) most likely caused the current conversion and Apdex values. State the single most probable root cause and the specific intervention point. Reference the actual deltas. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Predictive Forecasting") {
         return {
-          instruction: `Analyze predictive signals for "${funnelName}". Based on current trajectory, project where conversion, Apdex, and error rate will be in the next 7 days if no action is taken. Identify the leading indicators of deterioration and what proactive intervention would change the forecast. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nForecast Inputs:\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} | Prior period: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} | Prior: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"}\n  Sessions: ${n(quality.total || quality.sessions)} | Prior: ${n(qualityPrev.total || qualityPrev.sessions)}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Open problems: ${davisProblemsData.data ? openProblems : "N/A"}`,
+          instruction: `Analyze the Intelligence & AI > Predictive Forecasting view for "${funnelName}" (${industry}).
+
+Current trajectory (current vs prior):
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} | Prior: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)} | ${industry} target: ${bench.convRateTarget}%
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} | Prior: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"} | Target: ${bench.apdexTarget}
+  Sessions: ${n(quality.total || quality.sessions)} | Prior: ${n(qualityPrev.total || qualityPrev.sessions)}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} | Open problems: ${davisProblemsData.data ? openProblems : "N/A"}
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+
+Based on the trend direction between current and prior period, project where conversion, Apdex, and error rate will be in 7 days if unchanged. Identify the leading indicator showing the earliest warning sign. State the one proactive intervention that would most improve the 7-day outlook. Reference the actual metric deltas. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Change Intelligence") {
         return {
-          instruction: `Analyze deployment and change impact for "${funnelName}". Correlate recent deployments with conversion, Apdex, and error rate changes. Determine whether any deployment introduced a regression, quantify the business impact, and recommend rollback criteria or forward-fix priorities. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nChange Impact:\n  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  Conversion before/after: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)} → ${p(funnelCounts[0] > 0 ? overallConv : null)}\n  Apdex before/after: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"} → ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)}`,
+          instruction: `Analyze the Intelligence & AI > Change Intelligence view for "${funnelName}" (${industry}).
+
+Change impact signals:
+  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"} | Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}
+  Conversion before/after: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)} → ${p(funnelCounts[0] > 0 ? overallConv : null)}
+  Apdex before/after: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"} → ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} | LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)}
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} | Revenue at risk: ${revenueAtRisk}
+
+Given ${deploymentEventsData.data ? deploymentsToday : "N/A"} deployments and the metric changes above: determine whether any deployment likely introduced a regression, quantify the revenue impact of the change in conversion, and state rollback criteria or forward-fix priority. Reference the exact before/after deltas. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "What-If Analysis") {
         return {
-          instruction: `Model what-if scenarios for "${funnelName}". Calculate the revenue impact of: (1) reducing error rate to <${bench.errorRateTarget}%, (2) improving Apdex to ${bench.apdexTarget}, (3) reaching ${bench.convRateTarget}% conversion, (4) meeting all Core Web Vitals Good thresholds. Rank by revenue opportunity and recommend the highest-ROI scenario to pursue first. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nScenario Baseline:\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} → target ${bench.convRateTarget}%\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} → target ${bench.apdexTarget}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} → target <${bench.errorRateTarget}%\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} → target <${bench.lcpTarget}ms\n  AOV: $${aov} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}\n  Latency impact (${industry}): ${bench.latencyImpactPerSec}% conv loss per 1s`,
+          instruction: `Analyze the Intelligence & AI > What-If Analysis view for "${funnelName}" (${industry}).
+
+Current baseline:
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} → ${industry} target: ${bench.convRateTarget}%
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} → target: ${bench.apdexTarget}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} → target: <${bench.errorRateTarget}%
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} → target: <${bench.lcpTarget}ms
+  AOV: $${aov} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}
+  Latency impact (${industry}): ${bench.latencyImpactPerSec}% conversion loss per 1 second
+
+Calculate the dollar revenue impact of each scenario:
+  1. Error rate reduced from ${p(quality.total > 0 ? errorRate : null)} to <${bench.errorRateTarget}%
+  2. Apdex improved from ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} to ${bench.apdexTarget}
+  3. Conversion improved from ${p(funnelCounts[0] > 0 ? overallConv : null)} to ${bench.convRateTarget}%
+  4. LCP improved from ${dur(cwv.lcp > 0 ? cwv.lcp : null)} to <${bench.lcpTarget}ms
+
+Rank by revenue opportunity and recommend the highest-ROI scenario with a specific implementation path. Show the math for each scenario. Respond in JSON.`,
+          extra: "",
         };
       }
 
       // ── Engagement & Revenue ───────────────────────────────────────────────
       if (tab === "Segmentation") {
         return {
-          instruction: `Analyze user segmentation for "${funnelName}". Identify which segments (device, browser, geography, new vs returning) show the highest and lowest conversion. Recommend which segments to prioritize for personalization or targeted optimization, and estimate the revenue upside. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nSegmentation Context:\n  Sessions: ${n(quality.total || quality.sessions)} | Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}\n  Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}\n  Mobile share (${industry} expected): ${bench.mobileShareExpected}%\n  Duration: ${dur(quality.avg > 0 ? quality.avg : null)}\n  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})`,
+          instruction: `Analyze the Engagement & Revenue > Segmentation view for "${funnelName}" (${industry}).
+
+Overall metrics (baseline for segment comparison):
+  Sessions: ${n(quality.total || quality.sessions)} | Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)
+  Satisfied: ${satisfiedPct} | Tolerating: ${toleratingPct} | Frustrated: ${frustratedPct}
+  Mobile share (${industry} expected): ${bench.mobileShareExpected}%
+  Avg duration: ${dur(quality.avg > 0 ? quality.avg : null)} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+
+Identify which user segments (device type, browser, geography, new vs returning) are most likely underperforming relative to the overall ${p(funnelCounts[0] > 0 ? overallConv : null)} conversion rate. Recommend which 2 segments to prioritize for optimization and estimate the revenue uplift for each. Reference the baseline metrics above. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Cohort Retention") {
         return {
-          instruction: `Analyze cohort retention for "${funnelName}". Assess how well user cohorts return over time, which acquisition cohorts have the highest 7-day retention, what experience quality factors predict return visits, and how to improve retention for the lowest-performing cohorts. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nRetention Context:\n  Sessions: ${n(quality.total || quality.sessions)}\n  7-day retention benchmark (${industry}): ${bench.retentionD7Target}%\n  Session depth benchmark: ${bench.sessionDepthTarget} pages\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} | Frustrated sessions: ${frustratedPct}\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (repeating vs new sessions)`,
+          instruction: `Analyze the Engagement & Revenue > Cohort Retention view for "${funnelName}" (${industry}).
+
+Retention baseline:
+  Sessions: ${n(quality.total || quality.sessions)} | Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}
+  7-day retention target (${industry}): ${bench.retentionD7Target}% | Session depth target: ${bench.sessionDepthTarget} pages
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})
+  Frustrated sessions: ${frustratedPct} | Error rate: ${p(quality.total > 0 ? errorRate : null)}
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+
+Assess whether the current Apdex of ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} and frustrated rate of ${frustratedPct} are likely suppressing 7-day retention below the ${bench.retentionD7Target}% benchmark. Identify what experience improvement (latency, errors, engagement depth) would most improve cohort retention. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Session Engagement") {
         return {
-          instruction: `Analyze session engagement depth for "${funnelName}". Focus on session duration, page depth, scroll and interaction patterns, and how engagement correlates with conversion probability. Identify what drives high-engagement sessions and how to replicate that behavior across all users. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nEngagement Metrics:\n  Sessions: ${n(quality.total || quality.sessions)} | Avg duration: ${dur(quality.avg > 0 ? quality.avg : null)}\n  Session depth benchmark (${industry}): ${bench.sessionDepthTarget} pages\n  Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}\n  Funnel steps (engagement gates):\n${stepLines}`,
+          instruction: `Analyze the Engagement & Revenue > Session Engagement view for "${funnelName}" (${industry}).
+
+Engagement data:
+  Sessions: ${n(quality.total || quality.sessions)} | Avg duration: ${dur(quality.avg > 0 ? quality.avg : null)}
+  Session depth target (${industry}): ${bench.sessionDepthTarget} pages | Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}
+  Satisfied: ${satisfiedPct} | Tolerating: ${toleratingPct} | Frustrated: ${frustratedPct}
+  INP (interaction speed): ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+
+Funnel engagement gates:
+${stepLines}
+
+Based on the avg session duration of ${dur(quality.avg > 0 ? quality.avg : null)} and ${satisfiedPct} satisfied users, assess whether session engagement is driving or undermining conversion. Identify what drives high-engagement sessions and give 2 specific recommendations to increase average session depth. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Revenue Intelligence") {
         return {
-          instruction: `Analyze revenue intelligence for "${funnelName}". Quantify current revenue, model revenue at risk from degraded performance and errors, calculate the conversion improvement needed to hit revenue targets, and rank the top optimization opportunities by revenue impact. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nRevenue Intelligence:\n  Estimated revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  Revenue at risk from errors: ${revenueAtRisk}\n  Latency impact (${industry}): ${bench.latencyImpactPerSec}% conv loss per 1s\n  Rev/cost ratio: ${revenue && monthlyInfraCost > 0 ? (revenue / monthlyInfraCost).toFixed(1) + "x" : "N/A"} (target: ${bench.revCostRatioTarget}x)`,
+          instruction: `Analyze the Engagement & Revenue > Revenue Intelligence view for "${funnelName}" (${industry}).
+
+Revenue data:
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} | AOV: $${aov}
+  Conversions: ${funnelCounts[lastIdx] > 0 ? funnelCounts[lastIdx].toLocaleString() : "N/A"} | Sessions: ${n(quality.total || quality.sessions)}
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (${industry} benchmark: ${bench.convRateTarget}%)
+  Revenue at risk from errors: ${revenueAtRisk} | Error rate: ${p(quality.total > 0 ? errorRate : null)}
+  Latency impact (${industry}): ${bench.latencyImpactPerSec}% conversion loss per 1 second
+  Infra cost: $${monthlyInfraCost.toLocaleString()}/mo | Rev/cost ratio: ${revenue && monthlyInfraCost > 0 ? (revenue / monthlyInfraCost).toFixed(1) + "x" : "N/A"} (target: ${bench.revCostRatioTarget}x)
+
+Quantify revenue at risk, the conversion points needed to reach the ${bench.convRateTarget}% ${industry} benchmark, and the dollar value of that gap. Rank the top 3 optimization opportunities by revenue impact using the actual numbers above. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "A/B Comparison") {
         return {
-          instruction: `Analyze A/B comparison results for "${funnelName}". Determine whether the difference between variants is statistically meaningful, which variant wins on conversion, Apdex, and error rate, and what confidence level is needed before rolling out the winner. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nComparison Baseline:\n  Current conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} | Prior period: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} | Prior: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)}\n  Sessions: ${n(quality.total || quality.sessions)}`,
+          instruction: `Analyze the Engagement & Revenue > A/B Comparison view for "${funnelName}" (${industry}).
+
+Comparison baseline:
+  Current conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} | Prior period: ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}
+  Apdex current: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} | Prior: ${overallApdexPrev > 0 ? overallApdexPrev.toFixed(3) : "N/A"}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} | Sessions: ${n(quality.total || quality.sessions)}
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+
+Based on the current vs prior period delta (conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} vs ${p(funnelCountsPrev[0] > 0 ? overallConvPrev : null)}), assess whether the difference is likely statistically meaningful given the session volume of ${n(quality.total || quality.sessions)}. State which variant is performing better across conversion, Apdex, and error rate, and the confidence threshold needed for rollout. Respond in JSON.`,
+          extra: "",
         };
       }
 
       // ── Errors & Reliability ───────────────────────────────────────────────
       if (tab === "Exceptions") {
         return {
-          instruction: `Analyze JavaScript exceptions and application errors for "${funnelName}". Identify the top exception types by frequency and user impact, which funnel steps they cluster at, and what stack trace patterns indicate about root cause. Prioritize by conversion impact. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nException Context:\n  Total errors: ${n(quality.errors > 0 ? quality.errors : null)}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  Revenue at risk: ${revenueAtRisk}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  Funnel steps:\n${stepLines}`,
+          instruction: `Analyze the Errors & Reliability > Exceptions view for "${funnelName}" (${industry}).
+
+Exception data:
+  Total errors: ${n(quality.errors > 0 ? quality.errors : null)} | Error rate: ${p(quality.total > 0 ? errorRate : null)} (target <${bench.errorRateTarget}%)
+  Revenue at risk: ${revenueAtRisk} | Sessions: ${n(quality.total || quality.sessions)}
+  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"} | Frustrated: ${frustratedPct}
+
+Funnel steps (where exceptions cluster):
+${stepLines}
+
+Characterize the ${n(quality.errors > 0 ? quality.errors : null)} errors at a ${p(quality.total > 0 ? errorRate : null)} rate: which funnel steps are most likely to have the highest exception density, what JavaScript error types are typical for this conversion funnel pattern, and what the ${revenueAtRisk} revenue at risk figure implies about fix priority. Give top 3 fixes ranked by conversion recovery. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Error Clustering") {
         return {
-          instruction: `Analyze error clusters for "${funnelName}". Identify distinct error patterns by message, stack, page, or segment — which clusters are growing vs stable, and which cluster has the highest business impact. Recommend a fix priority order based on user reach and revenue risk. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nClustering Context:\n  Total errors: ${n(quality.errors > 0 ? quality.errors : null)}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  Frustrated sessions: ${frustratedPct}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}`,
+          instruction: `Analyze the Errors & Reliability > Error Clustering view for "${funnelName}" (${industry}).
+
+Error cluster signals:
+  Total errors: ${n(quality.errors > 0 ? quality.errors : null)} | Error rate: ${p(quality.total > 0 ? errorRate : null)} (target <${bench.errorRateTarget}%)
+  Frustrated sessions: ${frustratedPct} | Sessions: ${n(quality.total || quality.sessions)}
+  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"} | Deployments: ${deploymentEventsData.data ? deploymentsToday : "N/A"}
+  Revenue at risk: ${revenueAtRisk}
+
+Based on the ${p(quality.total > 0 ? errorRate : null)} error rate and ${davisProblemsData.data ? openProblems : "N/A"} open Davis problems: identify likely error cluster categories (network, JS runtime, API timeout, third-party), classify which are growing vs stable, and rank by user reach and revenue risk. Give a specific fix priority list. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "SLO Tracker") {
         return {
-          instruction: `Analyze SLO compliance and error budget for "${funnelName}". State current SLO status, remaining error budget, burn rate, and whether the current error rate will exhaust the budget before the reset. Recommend freeze or corrective action policies if budget is critically low. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nSLO Context:\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (${industry} SLO target: <${bench.errorRateTarget}%)\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})\n  Frustrated sessions (SLI signal): ${frustratedPct}\n  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}\n  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}`,
+          instruction: `Analyze the Errors & Reliability > SLO Tracker view for "${funnelName}" (${industry}).
+
+SLO status:
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} vs SLO target <${bench.errorRateTarget}% → ${quality.total > 0 && errorRate <= bench.errorRateTarget ? "SLO MET" : "SLO BREACHED"}
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} vs target ${bench.apdexTarget} → ${quality.total > 0 && overallApdex >= bench.apdexTarget ? "MET" : "BELOW TARGET"}
+  Frustrated sessions (SLI signal): ${frustratedPct} | Open problems: ${davisProblemsData.data ? openProblems : "N/A"}
+  Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}
+
+State current SLO compliance for both error rate and Apdex with the exact values. Calculate error budget remaining (assuming 30-day window). Assess burn rate and project when budget will exhaust at current rate. Recommend specific corrective actions if budget is critically low. Respond in JSON.`,
+          extra: "",
         };
       }
 
       // ── FinOps ─────────────────────────────────────────────────────────────
       if (tab === "Cost per Conversion") {
         const conversions = funnelCounts[lastIdx] ?? 0;
+        const cpc = conversions > 0 ? (monthlyInfraCost / conversions).toFixed(2) : "N/A";
         return {
-          instruction: `Analyze cost per conversion for "${funnelName}". Calculate current infrastructure cost per successful conversion, compare to the ${industry} benchmark of $${bench.costPerConvLow}–$${bench.costPerConvHigh}, and model what cost per conversion would be at the benchmark conversion rate of ${bench.convRateTarget}%. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nCost per Conversion:\n  Monthly infra: $${monthlyInfraCost.toLocaleString()} | Conversions: ${conversions > 0 ? conversions.toLocaleString() : "N/A"}\n  Cost/conversion: ${conversions > 0 ? "$" + (monthlyInfraCost / conversions).toFixed(2) : "N/A"}\n  ${industry} benchmark: $${bench.costPerConvLow}–$${bench.costPerConvHigh}\n  Conversion rate: ${p(funnelCounts[0] > 0 ? overallConv : null)} (target: ${bench.convRateTarget}%)`,
+          instruction: `Analyze the FinOps > Cost per Conversion view for "${funnelName}" (${industry}).
+
+Cost data:
+  Monthly infra: $${monthlyInfraCost.toLocaleString()} | Conversions: ${conversions > 0 ? conversions.toLocaleString() : "N/A"}
+  Current cost/conversion: ${conversions > 0 ? "$" + cpc : "N/A"}
+  ${industry} benchmark: $${bench.costPerConvLow}–$${bench.costPerConvHigh} per conversion
+  Conversion rate: ${p(funnelCounts[0] > 0 ? overallConv : null)} | Target: ${bench.convRateTarget}%
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+
+State the current cost/conversion of ${conversions > 0 ? "$" + cpc : "N/A"} vs the ${industry} benchmark of $${bench.costPerConvLow}–$${bench.costPerConvHigh}. Calculate what cost/conversion would be at the ${bench.convRateTarget}% benchmark conversion rate. Give 2 specific actions to reduce cost/conversion — one on the infra cost side and one on the conversion rate side. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Performance Tax") {
         return {
-          instruction: `Calculate the performance tax for "${funnelName}" — revenue lost due to suboptimal latency and Core Web Vitals. For each failing metric, estimate conversion rate points lost and the dollar revenue impact. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nPerformance Tax Inputs:\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms, excess: ${cwv.lcp > bench.lcpTarget ? (cwv.lcp - bench.lcpTarget).toFixed(0) + "ms over" : "within target"})\n  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})\n  Latency impact (${industry}): ${bench.latencyImpactPerSec}% conv loss per 1s\n  AOV: $${aov} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}`,
+          instruction: `Analyze the FinOps > Performance Tax view for "${funnelName}" (${industry}).
+
+Performance vs targets:
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} vs target <${bench.lcpTarget}ms → ${cwv.lcp > bench.lcpTarget ? (cwv.lcp - bench.lcpTarget).toFixed(0) + "ms over target" : "within target"}
+  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} vs target <${bench.inpTarget}ms → ${cwv.inp > bench.inpTarget ? (cwv.inp - bench.inpTarget).toFixed(0) + "ms over target" : "within target"}
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} vs target ${bench.apdexTarget}
+  Latency tax (${industry}): ${bench.latencyImpactPerSec}% conversion loss per 1 second over target
+  AOV: $${aov} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} | Sessions: ${n(quality.total || quality.sessions)}
+
+Calculate the dollar performance tax: for each metric over target, multiply the ms overage by the latency impact rate to get conversion points lost, then multiply by sessions × AOV. Show the math and total performance tax. Prioritize which metric to fix first by tax amount. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Idle Capacity") {
         return {
-          instruction: `Analyze idle and over-provisioned capacity for "${funnelName}". Determine whether infrastructure is over-sized relative to actual traffic, estimate monthly savings from right-sizing, and model the break-even point for current provisioning. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nCapacity Context:\n  Monthly infra: $${monthlyInfraCost.toLocaleString()}\n  Sessions (demand signal): ${n(quality.total || quality.sessions)}\n  Idle utilization target (${industry}): ${bench.idleUtilTarget}%\n  Break-even hours target: ${bench.breakEvenHoursTarget}h\n  Infra % of revenue: ${revenue && revenue > 0 ? ((monthlyInfraCost / revenue) * 100).toFixed(1) + "%" : "N/A"} (target: ${bench.infraPctRevenueLow}–${bench.infraPctRevenueHigh}%)`,
+          instruction: `Analyze the FinOps > Idle Capacity view for "${funnelName}" (${industry}).
+
+Capacity data:
+  Monthly infra: $${monthlyInfraCost.toLocaleString()} | Sessions (demand): ${n(quality.total || quality.sessions)}
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}
+  Infra % of revenue: ${revenue && revenue > 0 ? ((monthlyInfraCost / revenue) * 100).toFixed(1) + "%" : "N/A"} (${industry} target: ${bench.infraPctRevenueLow}–${bench.infraPctRevenueHigh}%)
+  Idle utilization target (${industry}): ${bench.idleUtilTarget}% | Break-even hours target: ${bench.breakEvenHoursTarget}h
+
+Based on the infra/revenue ratio of ${revenue && revenue > 0 ? ((monthlyInfraCost / revenue) * 100).toFixed(1) + "%" : "N/A"} vs the ${bench.infraPctRevenueLow}–${bench.infraPctRevenueHigh}% target: assess whether infrastructure is over-provisioned. Estimate monthly savings from right-sizing to the target ratio. Give specific right-sizing recommendations. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "CDN ROI") {
         const cdnRoi = revenue && cdnMonthlyCost > 0 ? (revenue / cdnMonthlyCost).toFixed(1) + "x" : "N/A";
         return {
-          instruction: `Analyze CDN return on investment for "${funnelName}". Calculate whether CDN spend is delivering expected latency improvement and conversion lift, compare the CDN ROI ratio to the ${industry} benchmark of ${bench.cdnRoiTarget}x, and recommend configuration changes that would improve performance per dollar. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nCDN ROI:\n  CDN cost: $${cdnMonthlyCost.toLocaleString()}/mo\n  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}\n  CDN ROI: ${cdnRoi} (${industry} target: ${bench.cdnRoiTarget}x)\n  LCP (CDN impact): ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)}`,
+          instruction: `Analyze the FinOps > CDN ROI view for "${funnelName}" (${industry}).
+
+CDN economics:
+  CDN cost: $${cdnMonthlyCost.toLocaleString()}/mo | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}
+  CDN ROI: ${cdnRoi} vs ${industry} target ${bench.cdnRoiTarget}x → ${revenue && cdnMonthlyCost > 0 && (revenue / cdnMonthlyCost) >= bench.cdnRoiTarget ? "ABOVE TARGET" : "BELOW TARGET"}
+  LCP (CDN delivers): ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms)
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} | Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"}
+
+State the current CDN ROI of ${cdnRoi} vs the ${bench.cdnRoiTarget}x target. Assess whether CDN spend is justified by the measured LCP of ${dur(cwv.lcp > 0 ? cwv.lcp : null)}. If ROI is below target, give 2 specific CDN configuration changes (cache-control, origin shield, edge rules) to improve performance per dollar. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Cost per Transaction") {
         const totalSessions = quality.total || quality.sessions || 0;
+        const cpt = totalSessions > 0 ? "$" + (monthlyInfraCost / totalSessions).toFixed(4) : "N/A";
         return {
-          instruction: `Analyze cost per transaction (all sessions, not just conversions) for "${funnelName}". Calculate infrastructure cost per session, compare to ${industry} benchmarks, and assess whether session volume growth is scaling efficiently vs cost. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nCost per Transaction:\n  Monthly infra: $${monthlyInfraCost.toLocaleString()}\n  Sessions: ${n(totalSessions)}\n  Cost/session: ${totalSessions > 0 ? "$" + (monthlyInfraCost / totalSessions).toFixed(4) : "N/A"}\n  Infra % of revenue: ${revenue && revenue > 0 ? ((monthlyInfraCost / revenue) * 100).toFixed(1) + "%" : "N/A"} (target: ${bench.infraPctRevenueLow}–${bench.infraPctRevenueHigh}%)\n  Rev/cost ratio: ${revenue && monthlyInfraCost > 0 ? (revenue / monthlyInfraCost).toFixed(1) + "x" : "N/A"} (target: ${bench.revCostRatioTarget}x)`,
+          instruction: `Analyze the FinOps > Cost per Transaction view for "${funnelName}" (${industry}).
+
+Transaction cost data:
+  Monthly infra: $${monthlyInfraCost.toLocaleString()} | Sessions: ${n(totalSessions)}
+  Cost/session: ${cpt}
+  Infra % of revenue: ${revenue && revenue > 0 ? ((monthlyInfraCost / revenue) * 100).toFixed(1) + "%" : "N/A"} (target: ${bench.infraPctRevenueLow}–${bench.infraPctRevenueHigh}%)
+  Rev/cost ratio: ${revenue && monthlyInfraCost > 0 ? (revenue / monthlyInfraCost).toFixed(1) + "x" : "N/A"} (target: ${bench.revCostRatioTarget}x)
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+
+State the cost/session of ${cpt} and whether the rev/cost ratio is above or below the ${bench.revCostRatioTarget}x target. Assess whether session volume growth is scaling efficiently. Give 2 specific recommendations to improve the ratio — one to reduce cost, one to increase revenue per session. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "SLO Cost Trade-offs") {
         return {
-          instruction: `Analyze the cost-vs-reliability trade-off for "${funnelName}". Model how much additional infrastructure investment would be needed to reach target SLO, whether the current reliability level is over- or under-invested relative to revenue at risk, and the optimal reliability investment point for ${industry}. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nSLO Cost Trade-off:\n  Monthly infra: $${monthlyInfraCost.toLocaleString()}\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  Revenue at risk: ${revenueAtRisk}\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})\n  Infra % of revenue: ${revenue && revenue > 0 ? ((monthlyInfraCost / revenue) * 100).toFixed(1) + "%" : "N/A"} (target: ${bench.infraPctRevenueLow}–${bench.infraPctRevenueHigh}%)`,
+          instruction: `Analyze the FinOps > SLO Cost Trade-offs view for "${funnelName}" (${industry}).
+
+Reliability vs cost:
+  Monthly infra: $${monthlyInfraCost.toLocaleString()} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} (SLO target <${bench.errorRateTarget}%) → ${quality.total > 0 && errorRate <= bench.errorRateTarget ? "SLO MET" : "SLO BREACHED"}
+  Revenue at risk: ${revenueAtRisk} | Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})
+  Infra % of revenue: ${revenue && revenue > 0 ? ((monthlyInfraCost / revenue) * 100).toFixed(1) + "%" : "N/A"} (target: ${bench.infraPctRevenueLow}–${bench.infraPctRevenueHigh}%)
+
+Model the trade-off: is the ${revenueAtRisk} revenue at risk greater or less than the cost of additional reliability investment? Estimate what % infra increase would be needed to hit the SLO. State whether the current investment is over- or under-provisioned for the reliability level needed. Respond in JSON.`,
+          extra: "",
         };
       }
       if (tab === "Budget Impact Simulator") {
         return {
-          instruction: `Run a budget impact simulation for "${funnelName}". For three scenarios — (1) 10% infra cost reduction, (2) 20% conversion improvement, (3) achieving ${industry} benchmark SLO — calculate net business impact and rank by ROI. Recommend which investment delivers the best return. Respond in JSON with summary, insights, and recommendations.`,
-          extra: `\n\nSimulator Inputs:\n  Infra: $${monthlyInfraCost.toLocaleString()}/mo | CDN: $${cdnMonthlyCost.toLocaleString()}/mo\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} → target ${bench.convRateTarget}%\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} → target <${bench.errorRateTarget}%\n  AOV: $${aov} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}\n  Rev/cost ratio: ${revenue && monthlyInfraCost > 0 ? (revenue / monthlyInfraCost).toFixed(1) + "x" : "N/A"} (target: ${bench.revCostRatioTarget}x)`,
+          instruction: `Analyze the FinOps > Budget Impact Simulator view for "${funnelName}" (${industry}).
+
+Simulation baseline:
+  Infra: $${monthlyInfraCost.toLocaleString()}/mo | CDN: $${cdnMonthlyCost.toLocaleString()}/mo
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} → target ${bench.convRateTarget}%
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} → target <${bench.errorRateTarget}%
+  AOV: $${aov} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}
+  Rev/cost ratio: ${revenue && monthlyInfraCost > 0 ? (revenue / monthlyInfraCost).toFixed(1) + "x" : "N/A"} (target: ${bench.revCostRatioTarget}x)
+
+Calculate the net business impact for three scenarios using the baseline above:
+  1. 10% infra cost reduction: new cost = $${(monthlyInfraCost * 0.9).toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo → delta ROI
+  2. 20% conversion improvement: new rate = ${funnelCounts[0] > 0 ? (overallConv * 1.2).toFixed(2) + "%" : "N/A"} → revenue delta
+  3. Achieving ${industry} SLO (<${bench.errorRateTarget}% error, Apdex ≥${bench.apdexTarget}): estimated revenue recovery
+
+Show the math for each and rank by ROI. Respond in JSON.`,
+          extra: "",
         };
       }
 
       // Executive Summary (default)
       return {
-        instruction: `Provide a concise executive-level analysis of the "${funnelName}" digital journey. Summarize health across conversion, experience, reliability, and cost. State the top risks with business impact and the 3 highest-value actions the team can take immediately. Respond in JSON with summary, insights, and recommendations.`,
-        extra: `\n\nFunnel:\n${stepLines}\n\nKPIs:\n  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} (benchmark: ${bench.convRateTarget}%)\n  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target: ${bench.apdexTarget})\n  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target: <${bench.errorRateTarget}%)\n  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)}\n  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})\n  Infra: $${monthlyInfraCost.toLocaleString()}/mo`,
+        instruction: `Provide an executive summary analysis for the "${funnelName}" funnel (${industry}).
+
+Digital journey health snapshot:
+  Funnel steps:
+${stepLines}
+
+  Conversion: ${p(funnelCounts[0] > 0 ? overallConv : null)} vs ${industry} benchmark ${bench.convRateTarget}% → ${funnelCounts[0] > 0 && overallConv >= bench.convRateTarget ? "ABOVE" : "BELOW"} target
+  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} (target ${bench.apdexTarget}) | Satisfied: ${satisfiedPct} | Frustrated: ${frustratedPct}
+  Error rate: ${p(quality.total > 0 ? errorRate : null)} (target <${bench.errorRateTarget}%) | Revenue at risk: ${revenueAtRisk}
+  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} (target <${bench.lcpTarget}ms) | INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} (target <${bench.inpTarget}ms)
+  Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} (AOV: $${aov})
+  Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"} | Deployments today: ${deploymentEventsData.data ? deploymentsToday : "N/A"}
+  Infra: $${monthlyInfraCost.toLocaleString()}/mo
+
+Provide: (1) A 2-sentence health summary calling out the strongest KPI and the biggest risk by name with numbers, (2) One insight per domain (Conversion, Experience, Reliability, Cost) citing the specific measured value vs benchmark, (3) Top 3 highest-value actions ranked by expected business impact. Reference the actual numbers above — not generic advice. Respond in JSON.`
+        ,
+        extra: "",
       };
     };
 
     const { instruction, extra } = getTabPrompt();
-    return { text: instruction, contextData: baseContext + extra };
-  }, [davisProblemsData.data, deploymentEventsData.data, quality, qualityPrev, funnelCounts, funnelCountsPrev, lastIdx, aov, overallConv, overallConvPrev, overallApdex, overallApdexPrev, cwv, activeSubTabKey, funnels, activeFunnelIndex, industry, steps, monthlyInfraCost, cdnMonthlyCost]);
+    // Ensure Davis always returns the three expected keys regardless of instruction ending
+    const instructionWithFormat = instruction.replace(/Respond in JSON\.?\s*$/, "Respond in JSON with: summary (begin with 'Key Takeaway: ' followed by 1-2 sentences naming the single most impactful finding and its revenue consequence, then 3-4 sentences of supporting detail citing specific metric values), insights (array), and recommendations (array).");
+    return { text: instructionWithFormat, contextData: baseContext + extra };
+  }, [davisProblemsData.data, deploymentEventsData.data, quality, qualityPrev, funnelCounts, funnelCountsPrev, lastIdx, aov, overallConv, overallConvPrev, overallApdex, overallApdexPrev, cwv, activeSubTabKey, dtSubSubTab, funnels, activeFunnelIndex, industry, steps, monthlyInfraCost, cdnMonthlyCost]);
 
   const hotnessAssistData = React.useMemo(() => {
     if (!tl.enabled || tl.sharedMetricsAll.length < 2 || !tlSharedBaselines || tl.hotness.length === 0) return null;
@@ -7472,7 +8103,7 @@ Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}  |  Deploy
   }, [metricsRegistry, registerMetrics]);
 
   return (
-    <DTIntelligenceContext.Provider value={{ open: dtOpen, close: () => setDtOpen(false), activeTabKey: activeSubTabKey ?? "" }}>
+    <DTIntelligenceContext.Provider value={{ open: dtOpen, close: () => setDtOpen(false), activeTabKey: activeSubTabKey ?? "", viewLabel: (() => { const ak = activeSubTabKey ?? ""; const pl = (TAB_TO_PARENT as any)[ak] as string | undefined; const isTop = !pl || pl === ak; return isTop ? ak || "Executive Summary" : `${pl} → ${ak}${dtSubSubTab ? ` → ${dtSubSubTab}` : ""}`; })(), subSubTabKey: dtSubSubTab || undefined, setSubSubTab: setDtSubSubTab }}>
     <div className="uj-container">
       {/* Sticky top — Header + Global Time-Lapse controls stay pinned while content scrolls behind. */}
       <div className="uj-sticky-top">
@@ -7993,6 +8624,23 @@ Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}  |  Deploy
                       </Select>
                     )}
                   </div>
+                  {i > 0 && i < steps.length - 1 && (() => {
+                    const alreadyOptional = steps.some((s, j) => j !== i && s.optional);
+                    const isOptional = !!step.optional;
+                    const disabled = alreadyOptional && !isOptional;
+                    return (
+                      <div style={{ marginBottom: 6, marginTop: 2 }}>
+                        <button
+                          disabled={disabled}
+                          onClick={() => { const next = [...steps]; next[i] = { ...next[i], optional: !isOptional }; saveSteps(next); }}
+                          title={disabled ? "Only one optional step allowed per funnel" : isOptional ? "Mark as required" : "Mark as optional — users can bypass this step"}
+                          style={{ background: isOptional ? PURPLE : "rgba(128,128,128,0.12)", border: `1px solid ${isOptional ? PURPLE : "rgba(128,128,128,0.3)"}`, borderRadius: 4, color: isOptional ? "white" : "inherit", cursor: disabled ? "not-allowed" : "pointer", fontSize: 11, padding: "3px 10px", opacity: disabled ? 0.4 : 1 }}
+                        >
+                          {isOptional ? "✓ Optional step" : "Mark as optional"}
+                        </button>
+                      </div>
+                    );
+                  })()}
                   <Text style={{ fontSize: 12, opacity: 0.5, display: "block", marginBottom: 4, marginTop: 4 }}>Pages / Identifiers {step.identifiers.length > 1 && <span style={{ opacity: 0.7 }}>(OR logic — any match counts)</span>}</Text>
                   {step.identifiers.map((id, j) => {
                     const stepApp = step.app || frontend;
@@ -8506,7 +9154,7 @@ Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"}  |  Deploy
                 const rendered = subTabs.map(tabId => {
                   let content: React.ReactNode = null;
                   switch (tabId) {
-            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} timeframeDays={timeframeDays} frontend={frontend} hotnessMode={hotnessMode} />; break;
+            case "Funnel Overview": content = <FunnelOverviewTab funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} stepMap={stepMap} pageMap={pageMap} quality={quality} qualityPrev={qualityPrev} compareMode={compareMode} setCompareMode={setCompareMode} isLoading={isLoading || qualityData.isLoading} isFetching={isFunnelFetching} lastRefreshedAt={lastRefreshedAt} refreshIntervalMs={refreshIntervalMs} appEntityId={appEntityId} steps={steps} aov={aov} funnelStyle={funnelStyle} onFunnelStyleChange={(v: FunnelStyle) => { setFunnelStyle(v); saveState({ key: FUNNEL_STYLE_STATE_KEY, body: { value: v } }); }} todayHourlyData={todayFunnelData} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} funnelName={funnels[activeFunnelIndex]?.name ?? ""} timeframeDays={timeframeDays} frontend={frontend} hotnessMode={hotnessMode} viaOptional={viaOptional} />; break;
             case "Funnel Analysis": content = <FunnelAnalysisTab frontend={frontend} funnels={funnels} saveFunnels={saveFunnels} saveActiveFunnelIndex={saveActiveFunnelIndex} aov={aov} onJumpToTab={(t) => setActiveSubTabKey(t)} />; break;
             case "Trends": content = <TrendsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} funnelCounts={funnelCounts} funnelCountsPrev={funnelCountsPrev} isLoading={qualityData.isLoading || qualityDataPrev.isLoading || funnelResult.isLoading || funnelResultPrev.isLoading} steps={steps} aov={aov} sparklineRecords={sparklineData.data?.records ?? []} convSparklineRecords={convSparklineData.data?.records ?? []} onDrillToForecast={openForecast} />; break;
             case "Business Vitals": content = <BusinessVitalsTab quality={quality} qualityPrev={qualityPrev} overallApdex={overallApdex} overallApdexPrev={overallApdexPrev} overallConv={overallConv} overallConvPrev={overallConvPrev} cwv={cwv} aov={aov} isLoading={qualityData.isLoading || cwvResult.isLoading} onDrillToForecast={openForecast} qualityQuery={sessionQualityQuery(timeframeDays, frontend, steps, false)} />; break;
@@ -15037,7 +15685,7 @@ function GoldBarsFunnel({ steps, aov, funnelName }: { steps: FunnelStep[]; aov: 
 // ===========================================================================
 // TAB: Funnel Overview (with Compare)
 // ===========================================================================
-function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast, funnelName, timeframeDays, frontend, hotnessMode }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnelName?: string; timeframeDays: number; frontend: string; hotnessMode: HotnessMode; }) {
+function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overallConvPrev, overallApdex, overallApdexPrev, stepMap, pageMap, quality, qualityPrev, compareMode, setCompareMode, isLoading, isFetching, lastRefreshedAt, refreshIntervalMs, appEntityId, steps, aov, funnelStyle, onFunnelStyleChange, todayHourlyData, sparklineRecords, convSparklineRecords, onDrillToForecast, funnelName, timeframeDays, frontend, hotnessMode, viaOptional }: { funnelCounts: number[]; funnelCountsPrev: number[]; overallConv: number; overallConvPrev: number; overallApdex: number; overallApdexPrev: number; stepMap: Map<string, any>; pageMap: Map<string, any>; quality: any; qualityPrev: any; compareMode: boolean; setCompareMode: (v: boolean) => void; isLoading: boolean; isFetching: boolean; lastRefreshedAt: number; refreshIntervalMs: number; appEntityId?: string; steps: StepDef[]; aov: number; funnelStyle: FunnelStyle; onFunnelStyleChange: (v: FunnelStyle) => void; todayHourlyData: any; sparklineRecords: any[]; convSparklineRecords: any[]; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; funnelName?: string; timeframeDays: number; frontend: string; hotnessMode: HotnessMode; viaOptional: number; }) {
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeFunnelOverview(overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap), [overallConv, overallApdex, quality, funnelCounts, steps, stepMap, aov, pageMap]));
   // Ticker to keep "last refreshed X ago" text updating
   const [, setTick] = React.useState(0);
@@ -15047,6 +15695,11 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     return () => clearInterval(id);
   }, [refreshIntervalMs]);
   const [funnelSubTab, setFunnelSubTab] = React.useState<"funnel"|"predictive"|"steps"|"pages">("funnel");
+  const { setSubSubTab: setDTSubSub1 } = useContext(DTIntelligenceContext);
+  React.useEffect(() => {
+    const labels: Record<string, string> = { funnel: "Funnel Chart", predictive: "Predictive Trends", steps: "Step Metrics", pages: "Page Metrics" };
+    setDTSubSub1?.(labels[funnelSubTab] ?? funnelSubTab);
+  }, [funnelSubTab, setDTSubSub1]);
   const [overviewSummaryExpanded, setOverviewSummaryExpanded] = React.useState(false);
   const [stepDrillPicker, setStepDrillPicker] = React.useState<{
     stepIndex: number;
@@ -15211,18 +15864,24 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
     };
   }, [sparklineRecords, convSparklineRecords]);
 
-  const makeFunnelSteps = (counts: number[]): FunnelStep[] => steps.map((step, i) => {
-    const prev = i === 0 ? counts[0] : counts[i - 1];
-    const m = stepMap.get(step.label);
-    const apdex = m ? calcApdex(Number(m.satisfied ?? 0), Number(m.tolerating ?? 0), Number(m.total_actions ?? 0)) : undefined;
-    return {
-      label: step.label,
-      count: counts[i],
-      convFromPrev: i === 0 ? 100 : prev > 0 ? (counts[i] / prev) * 100 : 0,
-      overallConv: counts[0] > 0 ? (counts[i] / counts[0]) * 100 : 0,
-      apdex,
-    };
-  });
+  const makeFunnelSteps = (counts: number[]): FunnelStep[] => {
+    const oIdx = steps.findIndex(s => s.optional);
+    return steps.map((step, i) => {
+      // For the step right after an optional step, base "from prev" on the last required step before the fork
+      const prevIdx = oIdx >= 0 && i === oIdx + 1 ? oIdx - 1 : i - 1;
+      const prev = i === 0 ? counts[0] : counts[Math.max(0, prevIdx)];
+      const m = stepMap.get(step.label);
+      const apdex = m ? calcApdex(Number(m.satisfied ?? 0), Number(m.tolerating ?? 0), Number(m.total_actions ?? 0)) : undefined;
+      return {
+        label: step.label,
+        count: counts[i],
+        convFromPrev: i === 0 ? 100 : prev > 0 ? (counts[i] / prev) * 100 : 0,
+        overallConv: counts[0] > 0 ? (counts[i] / counts[0]) * 100 : 0,
+        apdex,
+        optional: step.optional,
+      };
+    });
+  };
 
   const funnelSteps = makeFunnelSteps(activeFunnelCounts);
   const prevFunnelSteps = compareMode && !funnelTlEnabled ? makeFunnelSteps(funnelCountsPrev) : undefined;
@@ -15557,6 +16216,13 @@ function FunnelOverviewTab({ funnelCounts, funnelCountsPrev, overallConv, overal
       })()}
 
       <div className="uj-funnel-container">
+        {funnelStyle === "fork" && (() => {
+          const oIdx = funnelSteps.findIndex(s => s.optional);
+          const byp = oIdx >= 0 && oIdx + 1 < funnelSteps.length ? Math.max(0, (funnelSteps[oIdx + 1]?.count ?? 0) - viaOptional) : 0;
+          return oIdx >= 0
+            ? <ForkFunnel steps={funnelSteps} optIdx={oIdx} viaOptional={viaOptional} bypass={byp} />
+            : <div style={{ padding: 32, textAlign: "center", opacity: 0.5, fontSize: 13 }}>Mark one step as "optional" in the funnel settings to use the Fork view.</div>;
+        })()}
         {funnelStyle === "classic" && <FunnelChart steps={funnelSteps} prevSteps={prevFunnelSteps} appEntityId={appEntityId} stepDefs={steps} aov={aov} onStepSelect={handleFunnelStepDrill} title={funnelName} />}
         {funnelStyle === "horizontal" && <HorizontalBarFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
         {funnelStyle === "cohort" && <StackedCohortFunnel steps={funnelSteps} prevSteps={prevFunnelSteps} aov={aov} />}
@@ -16263,6 +16929,11 @@ function BusinessVitalsTab({ quality, qualityPrev, overallApdex, overallApdexPre
 // ===========================================================================
 function WebVitalsTab({ cwv: vActions, cwvPages: vPages, cwvViews: vViews, cwvByPage, cwvByPagePages, cwvByPageViews, cwvTrend, isLoading, appEntityId, onDrillToForecast, cwvNotebookQuery, buildConversionQuery, buildDurationConvImpact, stepLabels }: { cwv: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvPages: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvViews: { lcp: number; cls: number; inp: number; ttfb: number; load: number; duration: number }; cwvByPage: any; cwvByPagePages: any; cwvByPageViews: any; cwvTrend: any; isLoading: boolean; appEntityId?: string; onDrillToForecast: (label: string, sparkline: number[], color?: string) => void; cwvNotebookQuery?: string; buildConversionQuery?: (metricField: string, divisor: number) => string; buildDurationConvImpact?: () => string; stepLabels?: string[] }) {
   const [cwvMode, setCwvMode] = React.useState<CwvMode>("actions");
+  const { setSubSubTab: setDTSubSub2 } = useContext(DTIntelligenceContext);
+  React.useEffect(() => {
+    const labels: Record<CwvMode, string> = { actions: "By Action", pages: "By Page", views: "By View" };
+    setDTSubSub2?.(labels[cwvMode] ?? cwvMode);
+  }, [cwvMode, setDTSubSub2]);
   const v = cwvMode === "pages" ? vPages : cwvMode === "views" ? vViews : vActions;
   const activeByPage = cwvMode === "pages" ? cwvByPagePages : cwvMode === "views" ? cwvByPageViews : cwvByPage;
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeWebVitals(v), [v]));
@@ -18020,6 +18691,11 @@ function WorldMapTab({ data, isLoading, frontend, defaultView = "world", aov = 0
   const tl = useTimelapse();
   const [metric, setMetric] = useState<MapMetric>("sessions");
   const [mapView, setMapView] = useState<MapView>(defaultView);
+  const { setSubSubTab: setDTSubSub3 } = useContext(DTIntelligenceContext);
+  useEffect(() => {
+    const viewLabel: Record<MapView, string> = { world: "World Map", us: "US Map", globe: "3D Globe" };
+    setDTSubSub3?.(`${viewLabel[mapView]} · ${metric}`);
+  }, [mapView, metric, setDTSubSub3]);
   const [animKey, setAnimKey] = useState(0);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [hasUserChanged, setHasUserChanged] = useState(false);
@@ -19294,6 +19970,10 @@ function NavigationPathsTab({ data, isLoading, appEntityId, steps, navPathConvDa
   const [selectedUserTag, setSelectedUserTag] = useState<string>("__all_users__");
   const [timelineSessionId, setTimelineSessionId] = useState<string>("");
   const [timelineViewMode, setTimelineViewMode] = useState<"summary" | "chronological">("summary");
+  const { setSubSubTab: setDTSubSub4 } = useContext(DTIntelligenceContext);
+  useEffect(() => {
+    setDTSubSub4?.(timelineViewMode === "chronological" ? "Chronological Timeline" : "Summary View");
+  }, [timelineViewMode, setDTSubSub4]);
   const [compareSessionA, setCompareSessionA] = useState<string>("");
   const [compareSessionB, setCompareSessionB] = useState<string>("");
   const [rollupPopover, setRollupPopover] = useState<{ layer: number; x: number; y: number } | null>(null);
@@ -24275,6 +24955,8 @@ function SankeyTab({ data, isLoading, appEntityId, chartStyle, onStyleChange, st
     const map: Record<string, string> = { flow: "Flow Chart", convPaths: "Conversion Paths", loops: "Loop Analysis", timing: "Page Timing", endpoints: "Session Endpoints", revPaths: "Revenue Paths", pathTrends: "Path Trends", leakage: "Funnel Leakage", velocity: "Funnel Velocity" };
     return map[sankeySubTab] ?? "Flow Chart";
   }, [sankeySubTab]);
+  const { setSubSubTab: setDTSubSub5 } = useContext(DTIntelligenceContext);
+  useEffect(() => { setDTSubSub5?.(sankeySubTabLabel); }, [sankeySubTabLabel, setDTSubSub5]);
   const { panel: aiPanel } = useAIInsights(React.useCallback(() => analyzeSankeySubTab(sankeySubTabLabel), [sankeySubTabLabel]));
 
   // ===== Time-Lapse — per-bucket path aggregations for the Flow Chart sub-tab =====
