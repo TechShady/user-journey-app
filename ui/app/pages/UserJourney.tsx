@@ -110,7 +110,7 @@ const TL_HOT_ELEV = "#FFF04D";   // bright electric yellow (distinct from mustar
 const TL_HOT_WARM = "#FF3D9A";   // hot pink / magenta (distinct from orange tier)
 const TL_HOT_HIGH = "#FF073A";   // neon red (distinct from muted RED)
 const TL_IDLE_GRAY = "#6B7280";  // muted gray — service exists but had no traffic this bucket
-const APP_VERSION_LABEL = "4.78.9";
+const APP_VERSION_LABEL = "4.79.0";
 
 // Tabs whose visualizations actually re-render per bucket during Time-Lapse playback.
 // All other tabs show a small banner telling the user their tab shows aggregate data for the selected timeframe.
@@ -7625,7 +7625,15 @@ Error cluster signals:
   Open Davis problems: ${davisProblemsData.data ? openProblems : "N/A"} | Deployments: ${deploymentEventsData.data ? deploymentsToday : "N/A"}
   Revenue at risk: ${revenueAtRisk}
 
-Based on the ${p(quality.total > 0 ? errorRate : null)} error rate and ${davisProblemsData.data ? openProblems : "N/A"} open Davis problems: identify likely error cluster categories (network, JS runtime, API timeout, third-party), classify which are growing vs stable, and rank by user reach and revenue risk. Give a specific fix priority list. Respond in JSON.`,
+Based on the ${p(quality.total > 0 ? errorRate : null)} error rate and ${davisProblemsData.data ? openProblems : "N/A"} open Davis problems: identify the top error cluster categories (e.g. Network & Timeout, JS Runtime, API Timeout, Third-Party). Classify which are growing vs stable and rank by user reach and revenue risk.
+
+Return JSON with exactly these fields:
+  summary: one sentence describing the most critical error cluster and its revenue impact
+  insights: array of up to 4 objects (one per error cluster), each with:
+    severity: "critical", "warning", "good", or "info"
+    text: cluster category name + classification + evidence (one readable sentence)
+    business_impact: user reach count or revenue risk amount (string)
+  recommendations: array ranked by priority, each with impact ("high"/"medium"/"low") and text`,
           extra: "",
         };
       }
@@ -7663,17 +7671,49 @@ State the current cost/conversion of ${conversions > 0 ? "$" + cpc : "N/A"} vs t
         };
       }
       if (tab === "Performance Tax") {
+        const avgDuration = quality.avg ?? 0;
+        const fruPct = quality.total > 0 ? (frustrated / quality.total) * 100 : 0;
+        const totalSessPT = quality.total || quality.sessions || 0;
+        const topFunnelPT = funnelCounts[0] > 0 ? funnelCounts[0] : totalSessPT;
+        const effectiveConvPT = overallConv > 0 ? overallConv : bench.convRateTarget;
+        // Latency tax: each 100ms above 1000ms = ~1% conversion penalty (capped at 30%)
+        const excessMs = Math.max(0, avgDuration - 1000);
+        const latPenaltyPct = Math.min(30, excessMs / 100);
+        const lostLat = Math.round(topFunnelPT * (effectiveConvPT / 100) * (latPenaltyPct / 100));
+        const latRevLoss = lostLat * aov;
+        // Frustration tax: frustrated sessions convert at 50% reduced rate
+        const fruSes = Math.round(totalSessPT * (fruPct / 100));
+        const lostFru = Math.round(fruSes * (effectiveConvPT / 100) * 0.5);
+        const fruRevLoss = lostFru * aov;
+        // Error tax: error sessions convert at 30% reduced rate
+        const errSesPT = Math.round(totalSessPT * (errorRate / 100));
+        const lostErr = Math.round(errSesPT * (effectiveConvPT / 100) * 0.3);
+        const errRevLoss = lostErr * aov;
+        const totalTax = latRevLoss + fruRevLoss + errRevLoss;
+        const totalLostConvPT = lostLat + lostFru + lostErr;
+        const breakEvenHrsPT = engineerHourlyRate > 0 && totalTax > 0 ? (totalTax / engineerHourlyRate).toFixed(1) : "N/A";
+        const convDenom = funnelCounts[lastIdx] > 0 ? funnelCounts[lastIdx] : 1;
+        const revAtRiskPct = aov > 0 ? ((totalTax / (convDenom * aov)) * 100).toFixed(2) : "N/A";
         return {
           instruction: `Analyze the FinOps > Performance Tax view for "${funnelName}" (${industry}).
 
-Performance vs targets:
-  LCP: ${dur(cwv.lcp > 0 ? cwv.lcp : null)} vs target <${bench.lcpTarget}ms → ${cwv.lcp > bench.lcpTarget ? (cwv.lcp - bench.lcpTarget).toFixed(0) + "ms over target" : "within target"}
-  INP: ${dur(cwv.inp > 0 ? cwv.inp : null)} vs target <${bench.inpTarget}ms → ${cwv.inp > bench.inpTarget ? (cwv.inp - bench.inpTarget).toFixed(0) + "ms over target" : "within target"}
-  Apdex: ${quality.total > 0 ? overallApdex.toFixed(3) : "N/A"} vs target ${bench.apdexTarget}
-  Latency tax (${industry}): ${bench.latencyImpactPerSec}% conversion loss per 1 second over target
-  AOV: $${aov} | Revenue: ${revenue != null ? "$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"} | Sessions: ${n(quality.total || quality.sessions)}
+Performance Tax KPIs (as displayed on this tab):
+  Total Performance Tax: $${totalTax.toFixed(0)} (daily revenue lost to performance issues)
+  Lost Conversions: ${totalLostConvPT.toLocaleString()}
+  Break-Even Fix Time: ${breakEvenHrsPT}h of engineering (at $${engineerHourlyRate}/hr)
+  Revenue at Risk: ${revAtRiskPct}%
 
-Calculate the dollar performance tax: for each metric over target, multiply the ms overage by the latency impact rate to get conversion points lost, then multiply by sessions × AOV. Show the math and total performance tax. Prioritize which metric to fix first by tax amount. Respond in JSON.`,
+Tax Breakdown:
+  Latency Tax: $${latRevLoss.toFixed(0)} → ${lostLat} lost conversions
+    Avg session duration: ${Math.round(avgDuration)}ms (${excessMs > 0 ? "+" + Math.round(excessMs) + "ms over 1000ms threshold, " + latPenaltyPct.toFixed(1) + "% conversion penalty" : "within 1000ms target"})
+  Frustration Tax: $${fruRevLoss.toFixed(0)} → ${lostFru} lost conversions
+    ${fruPct.toFixed(1)}% frustrated sessions (${fruSes.toLocaleString()} sessions) at 50% reduced conversion rate
+  Error Tax: $${errRevLoss.toFixed(0)} → ${lostErr} lost conversions
+    ${errorRate.toFixed(2)}% error rate (${errSesPT.toLocaleString()} sessions) at 30% reduced conversion rate
+
+Session economics: ${n(totalSessPT)} sessions | Conv: ${p(funnelCounts[0] > 0 ? overallConv : null)}${overallConv === 0 ? " (using " + industry + " benchmark " + bench.convRateTarget + "%)" : ""} | AOV: $${aov}
+
+Analyze which tax component (Latency/Frustration/Error) drives the most revenue loss. State the break-even engineering ROI for fixing the top driver. Give specific what-if optimizations to recover lost revenue. Respond in JSON with summary, insights (one per tax type plus a total row), and recommendations.`,
           extra: "",
         };
       }
@@ -7753,7 +7793,13 @@ Calculate the net business impact for three scenarios using the baseline above:
   2. 20% conversion improvement: new rate = ${funnelCounts[0] > 0 ? (overallConv * 1.2).toFixed(2) + "%" : "N/A"} → revenue delta
   3. Achieving ${industry} SLO (<${bench.errorRateTarget}% error, Apdex ≥${bench.apdexTarget}): estimated revenue recovery
 
-Show the math for each and rank by ROI. Respond in JSON.`,
+Return JSON with exactly these fields:
+  summary: one sentence naming the highest-ROI scenario and its dollar impact
+  insights: array of exactly 3 objects, one per scenario, each with:
+    severity: "good", "warning", or "info"
+    text: scenario name with the math shown inline and the ROI result
+    business_impact: the dollar or percentage outcome (string)
+  recommendations: array ranked by ROI, each with impact ("high"/"medium"/"low") and text`,
           extra: "",
         };
       }

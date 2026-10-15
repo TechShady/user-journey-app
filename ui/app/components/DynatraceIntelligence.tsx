@@ -157,18 +157,23 @@ function normalizeResponse(parsed: Record<string, unknown>): AIAssistData {
     const icon = severity === "critical" ? "🔴" : severity === "warning" ? "🟡" : severity === "good" ? "🟢" : "ℹ️";
     const domainPrefix = typeof r.domain === "string" ? `[${r.domain}] ` : "";
     const stepPrefix = typeof r.step === "string" ? `**${r.step}**: ` : "";
-    const rtext = stepPrefix + domainPrefix + String(
+    const categoryPrefix = typeof r.category === "string" ? `**${r.category}**: ` : "";
+    const classificationSuffix = typeof r.classification === "string" ? ` [${r.classification}]` : "";
+    const rtext = stepPrefix + domainPrefix + categoryPrefix + String(
       r.risk ?? r.text ?? r.metric ?? r.insight ?? r.finding ??
       r.name ?? r.title ?? r.description ?? r.detail ?? r.assessment ??
-      r.summary ?? r.message ?? r.content ?? r.observation ?? JSON.stringify(r)
-    );
+      r.summary ?? r.message ?? r.content ?? r.observation ?? r.scenario ??
+      r.evidence ?? r.label ?? JSON.stringify(r)
+    ) + classificationSuffix;
     const dropoffVal = r.drop_off_rate ?? r.dropoff_rate ?? r.dropoff ?? r.drop_off ?? "";
     const dropoffStr = typeof dropoffVal === "string" && dropoffVal !== "--" && dropoffVal !== "—" ? dropoffVal : "";
+    const revenueRisk = r.revenue_risk ?? r.user_reach ?? "";
     const detail =
       typeof r.business_impact === "string" ? ` — ${r.business_impact}`
       : typeof r.business_consequence === "string" ? ` — ${r.business_consequence}`
       : dropoffStr ? ` (drop-off: ${dropoffStr})`
       : typeof r.notes === "string" ? ` — ${r.notes}`
+      : typeof revenueRisk === "string" && revenueRisk ? ` — ${revenueRisk}`
       : (typeof r.value === "string" || typeof r.value === "number") ? ` (${r.value})`
       : "";
     insights.push({ severity, icon, text: rtext + detail });
